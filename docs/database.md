@@ -594,7 +594,8 @@ Sales orders (+ manual demand)
        and its single-level effective BOM, batched per level
   -> plan level by level, shallowest first:
        gross = direct demand + dependent demand from parents already planned
-       net against free stock, then in-time supply (POs, production)
+       net against free stock, then in-time supply (POs, production,
+       job-work output)
        explode only the net shortfall one level down,
        offsetting each child's date by the parent's own lead time
   -> MERGE common parts: every item is netted once, at its low-level code
@@ -620,11 +621,16 @@ item's merged requirement is expected to be fully covered, after child slippage
 has been rolled up through the demand's BOM provenance.
 
 `mrp_requirements`: `run_id`, `item_id`, `gross_requirement`, the direct and
-dependent split, free stock, in-time and late incoming/in-production supply,
-`shortage_quantity`, provenance in `source_demands` (JSONB), plus
+dependent split, free stock, in-time and late incoming/in-production/job-work
+supply, `shortage_quantity`, provenance in `source_demands` (JSONB), plus
 `low_level_code` (the level the item was netted at) and
 `expected_available_date` (the date coverage completes; when coverage needs the
-plan's own order, the suggestion's achievable arrival).
+plan's own order, the suggestion's achievable arrival). The job-work feed is
+the good output expected from input already issued and not yet accounted for,
+dated by the order's expected return and restricted to the run's warehouse
+scope. Each late feed stores its own quantity, opening date and closing date;
+`first_late_supply_date` is the earliest across all three and is not the date
+for any single quantity.
 
 `mrp_suggestions`: `run_id`, `item_id`, `suggestion_type`
 (`MANUFACTURE | PURCHASE | JOB_WORK | TRANSFER`), `required_quantity`,

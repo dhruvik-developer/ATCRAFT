@@ -21135,8 +21135,8 @@ export interface components {
          *     reviewed, and "gross 200 = 100 direct + 100 from bills of materials, 60 free
          *     of 160 on hand, 100 already on order, so 40 short" can.
          *
-         *     That includes the supply the run deliberately did *not* net. The two
-         *     quantities and the two dates beside them are the per-row form of the run's
+         *     That includes the supply the run deliberately did *not* net. The quantities
+         *     and their dates are the per-row form of the run's
          *     ``late_supply_item_count`` and its "arrives AFTER it is needed" warning: an
          *     order exists, it lands on this date, and the shortage beside it stands
          *     anyway. A client that had only the warning would have to parse an English
@@ -21147,17 +21147,17 @@ export interface components {
          *     whole fact only when the feed had one tranche; with several, the earliest
          *     date understates how late the bulk is, which reads as "nearly here". So
          *     ``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is
-         *     complete by ``last_late_incoming_date``, and ``late_in_production_quantity``
-         *     likewise. Render the interval - "the first of 5010 on 2026-07-30, all of it
-         *     by 2026-12-15" - never the quantity against one end of it. The two feeds are
-         *     independent schedules and pairing either quantity with the other's dates is
-         *     a false statement. The
-         *     single ``first_late_supply_date`` is the earlier of the two and answers only
+         *     complete by ``last_late_incoming_date``, with the same pairing for
+         *     production and job-work supply. Render the interval - "the first of 5010 on
+         *     2026-07-30, all of it by 2026-12-15" - never the quantity against one end
+         *     of it. The feeds are independent schedules and pairing a quantity with
+         *     another feed's dates is a false statement. The
+         *     single ``first_late_supply_date`` is the earliest of all feeds and answers only
          *     "how soon does anything land at all" - it used to be the only date on the
          *     row, which made "5000 on order" beside a 0.0001 job's date read as five
          *     thousand arriving the next day.
          *
-         *     ``late_supply_quantity`` is the sum of the two, computed here so a client
+         *     ``late_supply_quantity`` is the sum of all feeds, computed here so a client
          *     never adds two decimal strings in JavaScript and gets a float back. There is
          *     deliberately no summed-quantity-plus-summary-date pair: that combination is
          *     the misreading above, written down.
@@ -21180,6 +21180,8 @@ export interface components {
             first_late_in_production_date?: string | null;
             /** First Late Incoming Date */
             first_late_incoming_date?: string | null;
+            /** First Late Job Work Date */
+            first_late_job_work_date?: string | null;
             /** First Late Supply Date */
             first_late_supply_date?: string | null;
             /** Gross Requirement */
@@ -21200,10 +21202,14 @@ export interface components {
              * Format: uuid
              */
             item_id: string;
+            /** Job Work Quantity */
+            job_work_quantity: string;
             /** Last Late In Production Date */
             last_late_in_production_date?: string | null;
             /** Last Late Incoming Date */
             last_late_incoming_date?: string | null;
+            /** Last Late Job Work Date */
+            last_late_job_work_date?: string | null;
             /**
              * Late In Production Quantity
              * @default 0
@@ -21215,8 +21221,13 @@ export interface components {
              */
             late_incoming_quantity: string;
             /**
+             * Late Job Work Quantity
+             * @default 0
+             */
+            late_job_work_quantity: string;
+            /**
              * Late Supply Quantity
-             * @description Everything the phasing excluded for this row, from either source.
+             * @description Everything the phasing excluded for this row, from any source.
              */
             readonly late_supply_quantity: string;
             /** Level */
@@ -21268,8 +21279,9 @@ export interface components {
          *     rather than leaving the two facts unconnected or pairing one date with a
          *     quantity from the other feed. ``result_summary["late_supply_item_count"]``
          *     is the same statement as a number, and :class:`MrpRequirementRead` carries
-         *     the quantities and a date per feed, which is where a client should read them
-         *     from: this text is prose, written in one language, for a human.
+         *     the quantities and interval
+         *     per feed, which is where a client should read them from: this text is prose,
+         *     written in one language, for a human.
          *
          *     ``result_summary["low_level_code_max"]`` reports the depth the plan reached:
          *     the deepest level any item was netted at, which is also the number of passes

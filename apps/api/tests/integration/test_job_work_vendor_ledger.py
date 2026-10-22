@@ -22,10 +22,79 @@ from src.modules.job_work.models import (
     JobWorkReceiptLine,
     RejectionAction,
 )
+from src.modules.job_work.repository import JobWorkOrderRepository
 from src.modules.job_work.service import vendor_ledger
 from tests import seed_support
 
 pytestmark = pytest.mark.integration
+
+
+async def test_open_output_by_item_returns_only_issued_unaccounted_output(
+    session: AsyncSession, tenant: TenantContext, company
+) -> None:
+    company_id = company.id
+    warehouse = await seed_support.seed_warehouse(
+        session, company_id=company_id, code=f"WH-{uuid.uuid4().hex[:8]}"
+    )
+    other_warehouse = await seed_support.seed_warehouse(
+        session, company_id=company_id, code=f"WH-{uuid.uuid4().hex[:8]}"
+    )
+    vendor = await seed_support.seed_vendor(
+        session, company_id=company_id, code=f"VEN-{uuid.uuid4().hex[:8]}"
+    )
+    item = await seed_support.seed_item(
+        session, company_id=company_id, code=f"OUTPUT-{uuid.uuid4().hex[:8]}"
+    )
+    order = JobWorkOrder(
+        company_id=company_id,
+        code=f"JW-{uuid.uuid4().hex[:8]}",
+        vendor_id=vendor.id,
+        process_type=JobWorkProcess.POLISHING,
+        expected_return_date=date(2026, 9, 10),
+        warehouse_id=warehouse.id,
+        return_warehouse_id=warehouse.id,
+        status=JobWorkOrderStatus.ISSUED,
+    )
+    wrong_warehouse_order = JobWorkOrder(
+        company_id=company_id,
+        code=f"JW-{uuid.uuid4().hex[:8]}",
+        vendor_id=vendor.id,
+        process_type=JobWorkProcess.POLISHING,
+        expected_return_date=date(2026, 9, 10),
+        warehouse_id=other_warehouse.id,
+        return_warehouse_id=other_warehouse.id,
+        status=JobWorkOrderStatus.ISSUED,
+    )
+    session.add_all((order, wrong_warehouse_order))
+    await session.flush()
+
+    def line_for(job_work_order_id: uuid.UUID) -> JobWorkOrderLine:
+        return JobWorkOrderLine(
+            company_id=company_id,
+            job_work_order_id=job_work_order_id,
+            line_number=1,
+            item_id=item.id,
+            uom_id=item.base_uom_id,
+            quantity_to_issue=Decimal("100"),
+            issued_quantity=Decimal("60"),
+            received_quantity=Decimal("20"),
+            expected_output_item_id=item.id,
+            expected_output_quantity=Decimal("200"),
+            received_output_quantity=Decimal("20"),
+            rejected_quantity=Decimal("0"),
+            scrap_quantity=Decimal("0"),
+        )
+
+    session.add_all((line_for(order.id), line_for(wrong_warehouse_order.id)))
+    await session.flush()
+
+    schedule = await JobWorkOrderRepository(session, tenant).open_output_by_item(
+        [item.id],
+        warehouse_ids=[warehouse.id],
+        upto=date(2026, 9, 30),
+    )
+
+    assert schedule == {item.id: [(date(2026, 9, 10), Decimal("80.0000"))]}
 
 
 async def test_vendor_ledger_opening_issued_consumed_and_closing(

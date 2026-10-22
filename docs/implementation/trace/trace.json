@@ -1178,11 +1178,11 @@
    {
     "id": "P05.P9",
     "item": "Job work requirement",
-    "status": "PARTIAL",
-    "evidence": "JOB_WORK suggestions are generated for production_type JOB_WORK items (mrp/engine.py:758-759) and listed on the MRP run screens.",
-    "gap": "Conversion is refused: job_work/service.py:2502-2520 create_order_from_mrp raises MRP_CONVERSION_REFUSED (mrp/service.py:234-239), so the planner must raise the job-work order by hand on /job-work and then ignore the suggestion.",
-    "planned_wp": "none",
-    "recommendation": "Small: a 'Convert to job work order' dialog on JOB_WORK suggestions that asks vendor, process and return date, creates the order with source = suggestion and marks it CONVERTED."
+    "status": "PRESENT",
+    "evidence": "JOB_WORK suggestions are generated for production_type JOB_WORK items (apps/api/src/modules/mrp/engine.py - choose_suggestion_type) and shown with a dedicated tile, filter and conversion form (apps/web/src/features/mrp/mrp-run-detail-page.tsx). The form creates a DRAFT job-work order through job_work.service.create_order_from_mrp with the planner's approved vendor, process, expected return date and issuing warehouse, pegged to the suggestion. WP E3b also adds a third dated MRP supply feed: job_work.repository.open_output_by_item values the good output still expected from issued, unaccounted input at the order's expected return date; engine.supply_split nets it and reports late tranches separately. PostgreSQL coverage: apps/api/tests/integration/test_job_work_vendor_ledger.py and apps/api/tests/integration/test_migration_baseline.py; engine coverage: apps/api/tests/unit/test_mrp_engine_merge.py.",
+    "gap": "None for the requirement and its supply treatment. A job-work order is still raised one suggestion at a time because it needs vendor, process, return date and warehouse inputs; bulk convert deliberately reports it as skipped. Tracked transformations and serial-tracked job work remain blocked pending identity lineage (E7b-5).",
+    "planned_wp": "E3b (delivered).",
+    "recommendation": "None beyond the deliberate manual conversion inputs."
    },
    {
     "id": "P05.S1",
@@ -1590,8 +1590,8 @@
     "id": "P06.FLOW",
     "item": "MRP flow: Sales Order -> Check FG -> Explode BOM -> Merge -> Check Inventory -> Check Reserved -> Check Incoming PO -> Check Production -> Shortage -> Suggestions",
     "status": "PRESENT",
-    "evidence": "POST /api/v1/mrp/runs [mrp.run] (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/router.py:142-166) from /mrp 'Run MRP' (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-page.tsx:475-560). engine.plan (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py:1278-1590): sales orders = open CONFIRMED/ALLOCATED/PARTIALLY_DISPATCHED lines, qty less dispatched less allocated (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/repository.py:138-200); finished goods = parent netted against free stock and in-time POs before explosion (engine.py:1116-1168); explode (repository.py:487-512 -> BOM engine); merge (engine.py:830-858,995-1019); inventory and reserved = on_hand - reserved - qc_hold - damaged, safety stock held back (engine.py:258-279,460-474); incoming PO = procurement incoming_quantities, time-phased (C:/Project/Other/ATCRAFT/apps/api/src/modules/procurement/service.py:3791; engine.py:490-520); production = in_progress_output (C:/Project/Other/ATCRAFT/apps/api/src/modules/production/service.py:3407); shortage (engine.py:665-681); suggestions (engine.py:1493-1537).",
-    "gap": "None for the stated flow. Caveats: netting is two-stage, so sub-assembly stock does not reduce its children's demand (P06.F2); open job-work orders are not a supply input (P06.O3).",
+    "evidence": "POST /api/v1/mrp/runs [mrp.run] (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/router.py:142-166) from /mrp 'Run MRP' (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-page.tsx:475-560). engine.plan (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py:1278-1590): sales orders = open CONFIRMED/ALLOCATED/PARTIALLY_DISPATCHED lines, qty less dispatched less allocated (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/repository.py:138-200); finished goods = parent netted against free stock and in-time POs before explosion (engine.py:1116-1168); explode (repository.py:487-512 -> BOM engine); merge (engine.py:830-858,995-1019); inventory and reserved = on_hand - reserved - qc_hold - damaged, safety stock held back (engine.py:258-279,460-474); incoming PO = procurement incoming_quantities, time-phased (C:/Project/Other/ATCRAFT/apps/api/src/modules/procurement/service.py:3791; engine.py:490-520); production = in_progress_output (C:/Project/Other/ATCRAFT/apps/api/src/modules/production/service.py:3407); job work = open_job_work_output (C:/Project/Other/ATCRAFT/apps/api/src/modules/job_work/service.py - open_job_work_output); shortage (engine.py:665-681); suggestions (engine.py:1493-1537).",
+    "gap": "None for the stated flow. Caveat: netting is two-stage, so sub-assembly stock does not reduce its children's demand (P06.F2).",
     "planned_wp": "none",
     "recommendation": "See P06.F2 and P06.O3."
    },
@@ -1616,11 +1616,11 @@
    {
     "id": "P06.O3",
     "item": "MRP output: Job work order suggestion",
-    "status": "PARTIAL",
-    "evidence": "JOB_WORK suggestions are generated for production_type JOB_WORK items (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py:758-759) and shown with a 'Job work' tile and type filter (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-run-detail-page.tsx:872-877,990-1007).",
-    "gap": "They cannot become job-work orders: job_work.service.create_order_from_mrp always raises 'A job work order needs a vendor and a process...' (C:/Project/Other/ATCRAFT/apps/api/src/modules/job_work/service.py:2496-2520), so the planner raises the order by hand and ignores the suggestion. The UI still offers Convert for JOB_WORK (isConvertible excludes only TRANSFER, C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-types.ts:62-79), so every bulk convert containing one reports failures. Open job-work orders' expected output (job_work_order_lines.expected_output_item_id with expected_return_date, C:/Project/Other/ATCRAFT/apps/api/src/modules/job_work/models.py:235,414) is not netted as supply (DatabaseMrpSource reads only POs and production, C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/repository.py:461-485), so the next run re-suggests work already at the vendor.",
-    "planned_wp": "none",
-    "recommendation": "Medium: 'Raise job-work order' from the suggestion - dialog prefilled with item, quantity and required date where the planner picks vendor and process (default from routing_operations.job_work_vendor_id or the preferred item-vendor link); extend SuggestionConvertRequest with vendor_id, process and expected_return_date and make the hook create a DRAFT JW order (JobWorkSourceType.MRP_SUGGESTION exists, job_work/models.py:147-159); add job_work.service.open_job_work_output(item_ids, warehouse_ids, upto) as a third dated supply feed; until then exclude JOB_WORK from isConvertible."
+    "status": "PRESENT",
+    "evidence": "JOB_WORK suggestions are generated for production_type JOB_WORK items (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py, choose_suggestion_type) and shown with a 'Job work' tile and type filter (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-run-detail-page.tsx). The dedicated convert form collects vendor, process, expected return date and warehouse, then calls job_work.service.create_order_from_mrp to create a DRAFT order sourced MRP_SUGGESTION; the suggestion is marked CONVERTED. WP E3b also nets open job-work output as a third dated supply feed: job_work.repository.open_output_by_item returns expected good output from issued, unaccounted input by return date, and engine.supply_split both nets in-time tranches and reports late ones with their own intervals.",
+    "gap": "None for the job-work output. Assembly items still convert to production orders rather than assembly orders, which is a separate ConversionTarget; bulk convert skips JOB_WORK because it requires planner inputs.",
+    "planned_wp": "E3b (delivered).",
+    "recommendation": "None for job-work suggestions."
    },
    {
     "id": "P06.O4",

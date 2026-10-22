@@ -549,6 +549,45 @@ netting used.
 
 ---
 
+## §E3b-1. Job-work output is dated supply, never twice-ordered
+
+**Assumed.** MRP nets a third dated supply feed beside purchase orders and
+production: the good output still expected from input already issued to a
+job-work vendor. The quantity for a line is its frozen output ratio applied to
+the input no receipt has accounted for yet -
+`expected_output_quantity × max(issued − received, 0) ÷ quantity_to_issue` -
+grouped by the order's expected return date. Input not yet issued is not supply:
+the planner has not sent it out, so it cannot come back processed. Input already
+accounted for by a receipt (consumed into output, returned unworked, rejected or
+scrapped) is excluded, as is output already received. The feed is restricted to
+the run's warehouse scope through the line's return warehouse and to the run's
+horizon.
+
+A job-work arrival after the requirement's own date is not netted. It is
+reported in `late_job_work_quantity` with its opening and closing dates, exactly
+like late purchase and production supply; `first_late_supply_date` is the
+earliest of all three feeds, not a date for any one of them.
+
+**Why.** An order whose material is already at a vendor is work in progress
+owned by the company. Re-suggesting it on the next run raises a duplicate order
+for output that is already coming back. Treating the unissued balance as supply
+would do the opposite and suppress a genuine shortage before anything left the
+building.
+
+**Where.** `src/modules/job_work/repository.py` - `open_output_by_item`;
+`src/modules/job_work/service.py` - `open_job_work_output`;
+`src/modules/mrp/repository.py` - `job_work_supply`; `src/modules/mrp/engine.py` -
+`supply_split`, `net_after_supply`, `plan()`; migration `20261026_0100`.
+
+**Impact if wrong.** If vendors routinely return less than the frozen ratio, MRP
+will under-order and the shortage will surface at receipt. If a vendor's date is
+not maintained, the plan trusts the stale date; the job-work order remains the
+single place to correct it. Splitting one input line across several batches does
+not change the arithmetic because the unit of supply is the expected output item
+line, not the lot.
+
+---
+
 ## 23. Traceability gates arrivals for batch, and unit-changing movements for serial
 
 **Assumed.** The two flags deliberately behave differently on the way out.

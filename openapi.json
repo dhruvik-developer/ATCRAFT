@@ -30160,7 +30160,7 @@
         "type": "string"
       },
       "MrpRequirementRead": {
-        "description": "One merged requirement, with every figure that went into it.\n\nThe netting inputs are all present on purpose: \"we are 40 short\" cannot be\nreviewed, and \"gross 200 = 100 direct + 100 from bills of materials, 60 free\nof 160 on hand, 100 already on order, so 40 short\" can.\n\nThat includes the supply the run deliberately did *not* net. The two\nquantities and the two dates beside them are the per-row form of the run's\n``late_supply_item_count`` and its \"arrives AFTER it is needed\" warning: an\norder exists, it lands on this date, and the shortage beside it stands\nanyway. A client that had only the warning would have to parse an English\nsentence to render a row, which is fragile and untranslatable.\n\nEach quantity carries **its own INTERVAL**, not a single date. A late\nquantity is a SUM over that feed's late tranches, so one date beside it is a\nwhole fact only when the feed had one tranche; with several, the earliest\ndate understates how late the bulk is, which reads as \"nearly here\". So\n``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is\ncomplete by ``last_late_incoming_date``, and ``late_in_production_quantity``\nlikewise. Render the interval - \"the first of 5010 on 2026-07-30, all of it\nby 2026-12-15\" - never the quantity against one end of it. The two feeds are\nindependent schedules and pairing either quantity with the other's dates is\na false statement. The\nsingle ``first_late_supply_date`` is the earlier of the two and answers only\n\"how soon does anything land at all\" - it used to be the only date on the\nrow, which made \"5000 on order\" beside a 0.0001 job's date read as five\nthousand arriving the next day.\n\n``late_supply_quantity`` is the sum of the two, computed here so a client\nnever adds two decimal strings in JavaScript and gets a float back. There is\ndeliberately no summed-quantity-plus-summary-date pair: that combination is\nthe misreading above, written down.",
+        "description": "One merged requirement, with every figure that went into it.\n\nThe netting inputs are all present on purpose: \"we are 40 short\" cannot be\nreviewed, and \"gross 200 = 100 direct + 100 from bills of materials, 60 free\nof 160 on hand, 100 already on order, so 40 short\" can.\n\nThat includes the supply the run deliberately did *not* net. The quantities\nand their dates are the per-row form of the run's\n``late_supply_item_count`` and its \"arrives AFTER it is needed\" warning: an\norder exists, it lands on this date, and the shortage beside it stands\nanyway. A client that had only the warning would have to parse an English\nsentence to render a row, which is fragile and untranslatable.\n\nEach quantity carries **its own INTERVAL**, not a single date. A late\nquantity is a SUM over that feed's late tranches, so one date beside it is a\nwhole fact only when the feed had one tranche; with several, the earliest\ndate understates how late the bulk is, which reads as \"nearly here\". So\n``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is\ncomplete by ``last_late_incoming_date``, with the same pairing for\nproduction and job-work supply. Render the interval - \"the first of 5010 on\n2026-07-30, all of it by 2026-12-15\" - never the quantity against one end\nof it. The feeds are independent schedules and pairing a quantity with\nanother feed's dates is a false statement. The\nsingle ``first_late_supply_date`` is the earliest of all feeds and answers only\n\"how soon does anything land at all\" - it used to be the only date on the\nrow, which made \"5000 on order\" beside a 0.0001 job's date read as five\nthousand arriving the next day.\n\n``late_supply_quantity`` is the sum of all feeds, computed here so a client\nnever adds two decimal strings in JavaScript and gets a float back. There is\ndeliberately no summed-quantity-plus-summary-date pair: that combination is\nthe misreading above, written down.",
         "properties": {
           "available_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -30218,6 +30218,18 @@
             ],
             "title": "First Late Incoming Date"
           },
+          "first_late_job_work_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Late Job Work Date"
+          },
           "first_late_supply_date": {
             "anyOf": [
               {
@@ -30259,6 +30271,11 @@
             "title": "Item Id",
             "type": "string"
           },
+          "job_work_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Job Work Quantity",
+            "type": "string"
+          },
           "last_late_in_production_date": {
             "anyOf": [
               {
@@ -30283,6 +30300,18 @@
             ],
             "title": "Last Late Incoming Date"
           },
+          "last_late_job_work_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Late Job Work Date"
+          },
           "late_in_production_quantity": {
             "default": "0",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -30295,8 +30324,14 @@
             "title": "Late Incoming Quantity",
             "type": "string"
           },
+          "late_job_work_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Late Job Work Quantity",
+            "type": "string"
+          },
           "late_supply_quantity": {
-            "description": "Everything the phasing excluded for this row, from either source.",
+            "description": "Everything the phasing excluded for this row, from any source.",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "readOnly": true,
             "title": "Late Supply Quantity",
@@ -30376,6 +30411,7 @@
           "available_quantity",
           "incoming_quantity",
           "in_production_quantity",
+          "job_work_quantity",
           "net_requirement",
           "shortage_quantity",
           "earliest_required_date",
@@ -30395,7 +30431,7 @@
         "type": "string"
       },
       "MrpRunRead": {
-        "description": "One run with everything it was given and everything it produced.\n\n``warnings`` is not decoration. It carries the netting stages the run could\nnot perform - a missing procurement module, a make item with no bill of\nmaterials - and a planner reading suggestions without reading these would be\ntrusting numbers the engine already knows are an upper bound.\n\nIt also carries the supply the run deliberately did *not* count: an order or\na job inside the horizon that arrives after the demand needs it. That is a\nshortage a buyer will otherwise query - \"we have a purchase order for these\"\n- so the plan names each feed's quantity with the date that feed lands,\nrather than leaving the two facts unconnected or pairing one date with a\nquantity from the other feed. ``result_summary[\"late_supply_item_count\"]``\nis the same statement as a number, and :class:`MrpRequirementRead` carries\nthe quantities and a date per feed, which is where a client should read them\nfrom: this text is prose, written in one language, for a human.\n\n``result_summary[\"low_level_code_max\"]`` reports the depth the plan reached:\nthe deepest level any item was netted at, which is also the number of passes\nthe level-by-level calculation took. It is the direct read on how deep the\nstructure in scope is; a structure that could not be levelled at all is\nrefused outright rather than planned approximately.",
+        "description": "One run with everything it was given and everything it produced.\n\n``warnings`` is not decoration. It carries the netting stages the run could\nnot perform - a missing procurement module, a make item with no bill of\nmaterials - and a planner reading suggestions without reading these would be\ntrusting numbers the engine already knows are an upper bound.\n\nIt also carries the supply the run deliberately did *not* count: an order or\na job inside the horizon that arrives after the demand needs it. That is a\nshortage a buyer will otherwise query - \"we have a purchase order for these\"\n- so the plan names each feed's quantity with the date that feed lands,\nrather than leaving the two facts unconnected or pairing one date with a\nquantity from the other feed. ``result_summary[\"late_supply_item_count\"]``\nis the same statement as a number, and :class:`MrpRequirementRead` carries\nthe quantities and interval\nper feed, which is where a client should read them from: this text is prose,\nwritten in one language, for a human.\n\n``result_summary[\"low_level_code_max\"]`` reports the depth the plan reached:\nthe deepest level any item was netted at, which is also the number of passes\nthe level-by-level calculation took. It is the direct read on how deep the\nstructure in scope is; a structure that could not be levelled at all is\nrefused outright rather than planned approximately.",
         "properties": {
           "celery_task_id": {
             "anyOf": [

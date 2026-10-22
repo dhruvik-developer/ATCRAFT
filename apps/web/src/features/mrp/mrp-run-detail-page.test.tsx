@@ -1,10 +1,10 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
-import type { MrpRunDetail, MrpSuggestionRow } from './mrp-types'
+import type { MrpRequirementRow, MrpRunDetail, MrpSuggestionRow } from './mrp-types'
 import MrpRunDetailPage from './mrp-run-detail-page'
 
 const RUN_ID = '01a00000-0000-7000-8000-00000000mrp1'
@@ -60,6 +60,41 @@ const suggestion: MrpSuggestionRow = {
   source_demands: [],
 }
 
+const requirement: MrpRequirementRow = {
+  id: '01a00000-0000-7000-8000-00000000req1',
+  run_id: RUN_ID,
+  item_id: ITEM_ID,
+  item_code: 'BRASS-ROD-12',
+  level: 0,
+  low_level_code: 0,
+  direct_demand_quantity: '80.0000',
+  dependent_demand_quantity: '0.0000',
+  gross_requirement: '80.0000',
+  on_hand_quantity: '0.0000',
+  reserved_quantity: '0.0000',
+  available_quantity: '0.0000',
+  incoming_quantity: '0.0000',
+  in_production_quantity: '0.0000',
+  job_work_quantity: '25.0000',
+  late_incoming_quantity: '0.0000',
+  late_in_production_quantity: '0.0000',
+  late_job_work_quantity: '10.0000',
+  first_late_incoming_date: null,
+  first_late_in_production_date: null,
+  first_late_job_work_date: '2026-12-01',
+  last_late_incoming_date: null,
+  last_late_in_production_date: null,
+  last_late_job_work_date: '2026-12-15',
+  first_late_supply_date: '2026-12-01',
+  net_requirement: '55.0000',
+  shortage_quantity: '55.0000',
+  earliest_required_date: REQUIRED_DATE,
+  expected_available_date: REQUIRED_DATE,
+  source_demand_count: 1,
+  source_demands: [],
+  late_supply_quantity: '10.0000',
+}
+
 describe('MRP job-work conversion', () => {
   it('sends the planner inputs to the conversion endpoint', async () => {
     const { fetch, user } = renderScreen(<MrpRunDetailPage />, {
@@ -112,5 +147,28 @@ describe('MRP job-work conversion', () => {
       expected_return_date: REQUIRED_DATE,
       warehouse_id: WAREHOUSE_ID,
     })
+  })
+})
+
+describe('MRP shortage supply', () => {
+  it('shows job-work output and its late interval on the requirement row', async () => {
+    renderScreen(<MrpRunDetailPage />, {
+      route: `/mrp/runs/${RUN_ID}`,
+      path: '/mrp/runs/:runId',
+      permissions: [P.MRP_VIEW],
+      routes: {
+        [`GET /mrp/runs/${RUN_ID}`]: ok(run),
+        [`GET /mrp/runs/${RUN_ID}/suggestions`]: page([]),
+        'GET /mrp/shortage-report': page([requirement]),
+      },
+    })
+
+    const row = (await screen.findByText('BRASS-ROD-12')).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row as HTMLElement)
+    expect(cells.getByText('25')).toBeInTheDocument()
+    expect(cells.getByText('10')).toBeInTheDocument()
+    expect(cells.getByText(/01 Dec 2026/)).toBeInTheDocument()
+    expect(cells.getByText(/15 Dec 2026/)).toBeInTheDocument()
   })
 })

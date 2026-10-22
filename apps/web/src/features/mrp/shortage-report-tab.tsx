@@ -229,6 +229,15 @@ export function ShortageReportTab({
                 <span className="text-muted-foreground">being made</span>
               </div>
             )}
+            {toDecimal(row.original.job_work_quantity).greaterThan(0) && (
+              <div className="flex items-baseline gap-1.5 text-xs">
+                <PackageCheck className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="tabular-nums">
+                  {formatQuantity(row.original.job_work_quantity)}
+                </span>
+                <span className="text-muted-foreground">at job-work vendor</span>
+              </div>
+            )}
           </div>
         ),
       },
@@ -255,6 +264,12 @@ export function ShortageReportTab({
                 quantity={r.late_in_production_quantity}
                 from={r.first_late_in_production_date}
                 to={r.last_late_in_production_date}
+              />
+              <LateInterval
+                label="at job-work vendor"
+                quantity={r.late_job_work_quantity}
+                from={r.first_late_job_work_date}
+                to={r.last_late_job_work_date}
               />
             </div>
           )

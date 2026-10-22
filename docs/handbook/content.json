@@ -1620,7 +1620,7 @@
         {
           "route": "/mrp",
           "title": "Material requirements planning",
-          "purpose": "Planning answers one question: given everything customers have actually committed to buy, what do we not have, and when do we have to act to get it. A run reads the confirmed order book out to a horizon you choose, looks at what is in stock, at what is already spoken for, at purchase orders already placed with suppliers and at work already on the shop floor, and plans each item once at the deepest level it appears at: stock held for a sub-assembly reduces what its parts are planned for, every demand for the same part is added into one number, and each level is dated by its own lead time. What comes out is a list of proposals and, beside each, when the material can actually be available. This screen is where a run is started and where the history of past runs lives.",
+          "purpose": "Planning answers one question: given everything customers have actually committed to buy, what do we not have, and when do we have to act to get it. A run reads the confirmed order book out to a horizon you choose, looks at what is in stock, at what is already spoken for, at purchase orders already placed with suppliers, at work already on the shop floor and at material already issued to job-work vendors, and plans each item once at the deepest level it appears at: stock held for a sub-assembly reduces what its parts are planned for, every demand for the same part is added into one number, and each level is dated by its own lead time. What comes out is a list of proposals and, beside each, when the material can actually be available. This screen is where a run is started and where the history of past runs lives.",
           "whoUses": "The production planner. The purchase manager also runs it, because most of what comes out is something to buy.",
           "keyActions": [
             {
@@ -1722,7 +1722,7 @@
             {
               "action": "Check the arithmetic behind a shortage",
               "how": "The Shortages and late supply table at the foot of the page.",
-              "note": "It shows demand, free stock, what is on order, what is being made, and \u2014 in its own column \u2014 the supply that exists but arrives too late to count."
+              "note": "It shows demand, free stock, what is on order, what is being made, what is already at a job-work vendor, and \u2014 in its own column \u2014 the supply that exists but arrives too late to count."
             }
           ],
           "flow": [
@@ -1740,6 +1740,7 @@
             "A part that several orders and several products all need becomes one proposal for the summed quantity, not one per order. That is the single biggest thing planning does for a hardware business, and it is what the expandable Source demands column exists to prove.",
             "The list is planned level by level. An item is netted once, at the deepest level it appears at, so a sub-assembly you already hold reduces the parts planned for it, and a part used in several products still becomes one proposal.",
             "Expected availability is the date the plan can actually cover the requirement: stock and arriving supply first, then the order the proposal raises. For a late proposal it is the lead time from today, not the required date that has already passed. It is information - copying it onto a customer promise is a separate, audited action on the sales order.",
+            "Material already issued to a job-work vendor is counted as supply only for the good output still expected from that issued, unreceived quantity, on the order's expected return date. An unissued balance on the order is not supply, and neither is input a receipt has already accounted for. A return dated after the requirement is needed is reported in the Arrives too late column like any other late feed.",
             "Low-level is the depth the item was planned at: 0 is something a customer ordered, 1 is a direct component, and so on. It is the same number the shortage report carries, so the two screens can be read side by side.",
             "Supply that arrives after the date it is needed is not counted as supply. So an item can show a shortage while a purchase order for it is open \u2014 that is not a mistake, it is the plan saying the delivery is too late to help. Those quantities are shown separately, with the dates they land, in the Arrives too late column, and named in the warnings at the top.",
             "Converting is one-way. A converted or an ignored proposal cannot be reopened \u2014 reopening a converted one would invite a second order for a shortage already covered. If the shortage is still real, the next run raises it again from scratch.",

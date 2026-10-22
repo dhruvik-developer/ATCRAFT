@@ -494,6 +494,19 @@ class DatabaseMrpSource:
             upto=upto,
         )
 
+    async def job_work_supply(
+        self, item_ids: Sequence[uuid.UUID], upto: date
+    ) -> tuple[SupplySchedule, bool]:
+        return await _optional_supply_hook(
+            "src.modules.job_work.service",
+            "open_job_work_output",
+            self._session,
+            self._tenant,
+            item_ids=item_ids,
+            warehouse_ids=self._warehouse_ids,
+            upto=upto,
+        )
+
     async def manufacture_lead_times(
         self, quantities: Mapping[uuid.UUID, Decimal], as_of: date
     ) -> dict[uuid.UUID, int]:

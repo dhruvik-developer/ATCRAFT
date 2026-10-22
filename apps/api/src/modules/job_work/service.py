@@ -3474,6 +3474,22 @@ async def create_order_from_mrp(
     return order.id, order.code
 
 
+async def open_job_work_output(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item_ids: Sequence[uuid.UUID],
+    warehouse_ids: Sequence[uuid.UUID] | None = None,
+    upto: date,
+) -> dict[uuid.UUID, list[tuple[date, Decimal]]]:
+    """Return the dated good-output balance still at job-work vendors for MRP."""
+    return await JobWorkOrderRepository(session, tenant).open_output_by_item(
+        item_ids,
+        warehouse_ids=warehouse_ids,
+        upto=upto,
+    )
+
+
 # -----------------------------------------------------------------------------
 # Delivery challan PDF - queued, never rendered in the request (section 22)
 # -----------------------------------------------------------------------------
@@ -3742,6 +3758,7 @@ __all__ = [
     "list_receipts",
     "lock_for_quality_verdict",
     "loss_percentage",
+    "open_job_work_output",
     "order_detail",
     "pending_at_vendor",
     "plan_line_receipt",

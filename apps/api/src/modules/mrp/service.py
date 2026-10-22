@@ -688,17 +688,21 @@ def _requirement_rows(
             available_quantity=requirement.available_quantity,
             incoming_quantity=requirement.incoming_quantity,
             in_production_quantity=requirement.in_production_quantity,
+            job_work_quantity=requirement.job_work_quantity,
             late_incoming_quantity=requirement.late_incoming_quantity,
             late_in_production_quantity=requirement.late_in_production_quantity,
+            late_job_work_quantity=requirement.late_job_work_quantity,
             first_late_incoming_date=requirement.first_late_incoming_date,
             first_late_in_production_date=requirement.first_late_in_production_date,
+            first_late_job_work_date=requirement.first_late_job_work_date,
             # The closing half of each interval. Persisting the opening date
             # alone republishes the defect the pair exists to fix: the quantity
             # is a SUM over that feed's late tranches, so one date beside it
             # attributes the whole amount to the first tranche.
             last_late_incoming_date=requirement.last_late_incoming_date,
             last_late_in_production_date=requirement.last_late_in_production_date,
-            # Derived on the engine's requirement from the two dates above, so
+            last_late_job_work_date=requirement.last_late_job_work_date,
+            # Derived on the engine's requirement from the per-feed dates above, so
             # the persisted summary cannot disagree with the pair it summarises
             # - which is also what the row's CHECK constraint asserts.
             first_late_supply_date=requirement.first_late_supply_date,

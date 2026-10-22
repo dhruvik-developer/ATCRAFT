@@ -695,6 +695,65 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
         )
         return Decimal((await self.session.execute(stmt)).scalar_one())
 
+    async def open_output_by_item(
+        self,
+        item_ids: Sequence[uuid.UUID],
+        *,
+        warehouse_ids: Sequence[uuid.UUID] | None,
+        upto: date,
+    ) -> dict[uuid.UUID, list[tuple[date, Decimal]]]:
+        """Issued good output still expected from vendors, grouped by due date.
+
+        Only input already issued and not yet accounted for contributes. An
+        order's unissued balance is not promised supply, and input returned,
+        scrapped or consumed by a receipt no longer produces a future return.
+        """
+        if not item_ids:
+            return {}
+
+        outstanding_input = func.greatest(
+            JobWorkOrderLine.issued_quantity - JobWorkOrderLine.received_quantity, 0
+        )
+        expected_output = func.greatest(
+            JobWorkOrderLine.expected_output_quantity
+            * outstanding_input
+            / JobWorkOrderLine.quantity_to_issue,
+            0,
+        )
+        stmt = (
+            select(
+                JobWorkOrderLine.expected_output_item_id.label("item_id"),
+                JobWorkOrder.expected_return_date.label("due_date"),
+                func.coalesce(func.sum(expected_output), 0).label("remaining"),
+            )
+            .join(
+                JobWorkOrder,
+                JobWorkOrder.id == JobWorkOrderLine.job_work_order_id,
+            )
+            .where(
+                JobWorkOrderLine.company_id == self.tenant.company_id,
+                JobWorkOrder.company_id == self.tenant.company_id,
+                JobWorkOrderLine.expected_output_item_id.in_(list(dict.fromkeys(item_ids))),
+                JobWorkOrder.status.in_(MATERIAL_AT_VENDOR_STATUSES),
+                JobWorkOrder.expected_return_date <= upto,
+                JobWorkOrderLine.issued_quantity > JobWorkOrderLine.received_quantity,
+                JobWorkOrderLine.quantity_to_issue > 0,
+            )
+            .group_by(JobWorkOrderLine.expected_output_item_id, JobWorkOrder.expected_return_date)
+            .order_by(JobWorkOrderLine.expected_output_item_id, JobWorkOrder.expected_return_date)
+        )
+        if warehouse_ids:
+            stmt = stmt.where(
+                JobWorkOrder.return_warehouse_id.in_(list(dict.fromkeys(warehouse_ids)))
+            )
+
+        schedule: dict[uuid.UUID, list[tuple[date, Decimal]]] = {}
+        for row in (await self.session.execute(stmt)).all():
+            quantity = Decimal(str(row.remaining))
+            if quantity > 0:
+                schedule.setdefault(row.item_id, []).append((row.due_date, quantity))
+        return schedule
+
     def _filtered(self, filters: JobWorkOrderFilters) -> Select[Any]:
         stmt = self._scoped()
         if filters.vendor_id is not None:

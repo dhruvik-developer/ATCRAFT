@@ -46,7 +46,7 @@ from src.modules.sales.models import SalesSettings
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "20261025_0100"
+HEAD_REVISION = "20261026_0100"
 DB_NAME = f"atcraft_baseline_mig_{uuid.uuid4().hex[:8]}"
 CONNECTION_GUARDS = (
     "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
@@ -150,6 +150,7 @@ def mrp_late_constraints(dsn: str) -> dict[str, tuple[str, bool]]:
         str(name): (str(definition), bool(valid))
         for name, definition, valid in rows
         if str(name).startswith("ck_mrp_requirements_late")
+        or name == "ck_mrp_requirements_job_work_non_negative"
         or name == "ck_mrp_requirements_first_late_supply_is_the_earlier"
     }
 
@@ -163,6 +164,10 @@ MRP_LATE_COLUMNS = (
     ("last_late_in_production_date", "date"),
     ("first_late_supply_date", "date"),
     ("earliest_required_date", "date"),
+    ("late_job_work_quantity", "numeric"),
+    ("first_late_job_work_date", "date"),
+    ("last_late_job_work_date", "date"),
+    ("job_work_quantity", "numeric"),
 )
 
 
@@ -361,9 +366,13 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     mrp_checks = mrp_late_constraints(dsn)
     assert set(mrp_checks) == {
         "ck_mrp_requirements_first_late_supply_is_the_earlier",
+        "ck_mrp_requirements_job_work_non_negative",
         "ck_mrp_requirements_late_incoming_arrives_after_required",
         "ck_mrp_requirements_late_incoming_interval_ordered",
         "ck_mrp_requirements_late_incoming_non_negative",
+        "ck_mrp_requirements_late_job_work_arrives_after_required",
+        "ck_mrp_requirements_late_job_work_interval_ordered",
+        "ck_mrp_requirements_late_job_work_non_negative",
         "ck_mrp_requirements_late_in_production_arrives_after_required",
         "ck_mrp_requirements_late_production_interval_ordered",
         "ck_mrp_requirements_late_in_production_non_negative",
@@ -376,12 +385,18 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     )
     assert "late_incoming_quantity>=0::numeric" in normalized_mrp
     assert "late_in_production_quantity>=0::numeric" in normalized_mrp
+    assert "job_work_quantity>=0::numeric" in normalized_mrp
+    assert "late_job_work_quantity>=0::numeric" in normalized_mrp
     assert "last_late_incoming_date>=first_late_incoming_date" in normalized_mrp
     assert "last_late_in_production_date>=first_late_in_production_date" in normalized_mrp
-    assert "first_late_supply_date=leastfirst_late_incoming_date" in normalized_mrp
+    assert (
+        "first_late_supply_date=leastfirst_late_incoming_date,"
+        "first_late_in_production_date,first_late_job_work_date"
+    ) in normalized_mrp
     assert "first_late_supply_date>earliest_required_date" in normalized_mrp
     assert "first_late_incoming_date>earliest_required_date" in normalized_mrp
     assert "first_late_in_production_date>earliest_required_date" in normalized_mrp
+    assert "first_late_job_work_date>earliest_required_date" in normalized_mrp
     assert "first_late_supply_dateisnotnull" in normalized_mrp
 
     needed = date(2026, 7, 15)
@@ -389,10 +404,24 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     closed = opened + timedelta(days=138)
     four_months_late = needed + timedelta(days=120)
     rows = {
-        "nothing late": (0, 0, None, None, None, None, None, needed),
-        "summary only": (5, 0, None, None, None, None, opened, needed),
-        "one interval": (5, 0, opened, closed, None, None, opened, needed),
-        "two intervals": (5, 5, opened, closed, opened, closed, opened, needed),
+        "nothing late": (0, 0, None, None, None, None, None, needed, 0, None, None, 0),
+        "summary only": (5, 0, None, None, None, None, opened, needed, 0, None, None, 0),
+        "one interval": (5, 0, opened, closed, None, None, opened, needed, 0, None, None, 0),
+        "two intervals": (5, 5, opened, closed, opened, closed, opened, needed, 0, None, None, 0),
+        "three intervals": (
+            5,
+            5,
+            opened,
+            closed,
+            opened,
+            closed,
+            opened,
+            needed,
+            5,
+            opened,
+            closed,
+            0,
+        ),
         "closing before opening": (
             5,
             0,
@@ -402,9 +431,13 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
             None,
             opened,
             needed,
+            0,
+            None,
+            None,
+            0,
         ),
-        "closing without opening": (5, 0, None, closed, None, None, None, needed),
-        "quantity without date": (5, 0, None, None, None, None, None, needed),
+        "closing without opening": (5, 0, None, closed, None, None, None, needed, 0, None, None, 0),
+        "quantity without date": (5, 0, None, None, None, None, None, needed, 0, None, None, 0),
         "summary after a feed": (
             5,
             5,
@@ -414,8 +447,39 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
             None,
             four_months_late,
             needed,
+            0,
+            None,
+            None,
+            0,
         ),
-        "date on required day": (5, 0, needed, needed, None, None, needed, needed),
+        "summary after job-work feed": (
+            5,
+            5,
+            opened,
+            closed,
+            four_months_late,
+            None,
+            opened,
+            needed,
+            5,
+            needed - timedelta(days=1),
+            needed,
+            0,
+        ),
+        "date on required day": (
+            5,
+            0,
+            needed,
+            needed,
+            None,
+            None,
+            needed,
+            needed,
+            0,
+            None,
+            None,
+            0,
+        ),
         "production interval reversed": (
             0,
             0,
@@ -425,18 +489,39 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
             opened - timedelta(days=1),
             None,
             needed,
+            0,
+            None,
+            None,
+            0,
+        ),
+        "job-work interval reversed": (
+            0,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+            needed,
+            5,
+            opened,
+            opened - timedelta(days=1),
+            0,
         ),
     }
     assert admits_mrp_row(dsn, mrp_checks, rows["nothing late"])
     assert admits_mrp_row(dsn, mrp_checks, rows["summary only"])
     assert admits_mrp_row(dsn, mrp_checks, rows["one interval"])
     assert admits_mrp_row(dsn, mrp_checks, rows["two intervals"])
+    assert admits_mrp_row(dsn, mrp_checks, rows["three intervals"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["closing before opening"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["closing without opening"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["quantity without date"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["summary after a feed"])
+    assert not admits_mrp_row(dsn, mrp_checks, rows["summary after job-work feed"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["date on required day"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["production interval reversed"])
+    assert not admits_mrp_row(dsn, mrp_checks, rows["job-work interval reversed"])
 
     assert column_names(dsn, "shifts") == {column.name for column in Shift.__table__.columns}
     assert column_names(dsn, "shift_assignments") == {

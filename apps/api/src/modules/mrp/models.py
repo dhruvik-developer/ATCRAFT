@@ -372,6 +372,9 @@ class MrpRequirement(TenantEntity):
     in_production_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
+    job_work_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     # --- supply the requirement was NOT netted against ----------------------
     # Inbound supply inside the run's horizon that arrives *after*
@@ -388,7 +391,10 @@ class MrpRequirement(TenantEntity):
     late_in_production_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
-    #: The date each of those two quantities starts landing on - one column per
+    late_job_work_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: The date each feed's late quantity starts landing on - one column per
     #: feed, beside the quantity it describes, so a table can render "5000
     #: arriving 2026-11-12" and "0.0001 arriving 2026-07-16" as two facts. NULL
     #: when that feed excluded nothing, which is the ordinary case. Nullable
@@ -397,6 +403,7 @@ class MrpRequirement(TenantEntity):
     #: them.
     first_late_incoming_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     first_late_in_production_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    first_late_job_work_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     #: When the LAST late tranche of each feed lands. ``late_*_quantity`` is a
     #: SUM over that feed's late tranches while ``first_late_*_date`` is the
     #: MINIMUM over the same tranches, so the two together describe the whole
@@ -406,14 +413,15 @@ class MrpRequirement(TenantEntity):
     #: "the first of 5010 on 2026-07-30, all of it by 2026-12-15".
     last_late_incoming_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_late_in_production_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    #: The earliest of those two - the soonest anything at all lands. Kept
+    last_late_job_work_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: The earliest of all three - the soonest anything at all lands. Kept
     #: because it is the run-level question ("could this be relieved without a
     #: new order, and when at the earliest?") and because clients already read
-    #: it. It is deliberately NOT the date for either quantity above: one date
-    #: shared by two independent schedules belongs to at most one of them, and
+    #: it. It is deliberately NOT the date for any quantity above: one date
+    #: shared by independent schedules belongs to at most one of them, and
     #: reading it beside the larger quantity reported a four-month-late purchase
     #: order as arriving tomorrow. ``ck_..._first_late_supply_is_the_earlier``
-    #: holds it to the two per-feed columns so it cannot drift from them.
+    #: holds it to the per-feed columns so it cannot drift from them.
     first_late_supply_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # --- answer -------------------------------------------------------------
@@ -463,8 +471,10 @@ class MrpRequirement(TenantEntity):
         CheckConstraint("available_quantity >= 0", name="available_non_negative"),
         CheckConstraint("incoming_quantity >= 0", name="incoming_non_negative"),
         CheckConstraint("in_production_quantity >= 0", name="in_production_non_negative"),
+        CheckConstraint("job_work_quantity >= 0", name="job_work_non_negative"),
         CheckConstraint("late_incoming_quantity >= 0", name="late_incoming_non_negative"),
         CheckConstraint("late_in_production_quantity >= 0", name="late_in_production_non_negative"),
+        CheckConstraint("late_job_work_quantity >= 0", name="late_job_work_non_negative"),
         # "Late" means exactly one thing: it lands after the date this
         # requirement needs it. A row claiming otherwise is a phasing bug, and
         # the database is the only place that statement cannot be quietly
@@ -484,7 +494,11 @@ class MrpRequirement(TenantEntity):
             "OR first_late_in_production_date > earliest_required_date",
             name="late_in_production_arrives_after_required",
         ),
-        # The summary date is the earlier of the two feed dates, always. Two
+        CheckConstraint(
+            "first_late_job_work_date IS NULL OR first_late_job_work_date > earliest_required_date",
+            name="late_job_work_arrives_after_required",
+        ),
+        # The summary date is the earliest of all feed dates. Two
         # descriptions of one fact that can disagree is the defect these columns
         # were split to fix, one level up; this is that statement made
         # unbreakable rather than merely intended.
@@ -498,9 +512,12 @@ class MrpRequirement(TenantEntity):
         # rows planned from ``66b1c0e2d1f4`` onwards. On an older row NULL reads
         # as "not recorded"; re-planning is how a current answer is obtained.
         CheckConstraint(
-            "(first_late_incoming_date IS NULL AND first_late_in_production_date IS NULL) "
+            "(first_late_incoming_date IS NULL "
+            "AND first_late_in_production_date IS NULL "
+            "AND first_late_job_work_date IS NULL) "
             "OR first_late_supply_date "
-            "= LEAST(first_late_incoming_date, first_late_in_production_date)",
+            "= LEAST(first_late_incoming_date, first_late_in_production_date, "
+            "first_late_job_work_date)",
             name="first_late_supply_is_the_earlier",
         ),
         # A quantity with no date is the half-fact this column set exists to
@@ -508,7 +525,7 @@ class MrpRequirement(TenantEntity):
         # than the 4dp quantum rounds to zero while still being a real, dated
         # arrival, and rejecting that row would be worse than reporting it.
         CheckConstraint(
-            "late_incoming_quantity + late_in_production_quantity = 0 "
+            "late_incoming_quantity + late_in_production_quantity + late_job_work_quantity = 0 "
             "OR first_late_supply_date IS NOT NULL",
             name="late_quantity_names_its_date",
         ),
@@ -525,6 +542,12 @@ class MrpRequirement(TenantEntity):
             "OR (first_late_in_production_date IS NOT NULL "
             "AND last_late_in_production_date >= first_late_in_production_date)",
             name="late_production_interval_ordered",
+        ),
+        CheckConstraint(
+            "last_late_job_work_date IS NULL "
+            "OR (first_late_job_work_date IS NOT NULL "
+            "AND last_late_job_work_date >= first_late_job_work_date)",
+            name="late_job_work_interval_ordered",
         ),
         CheckConstraint("net_requirement >= 0", name="net_requirement_non_negative"),
         CheckConstraint("shortage_quantity >= 0", name="shortage_non_negative"),

@@ -121,8 +121,10 @@ class FakeSource:
     terms: dict[uuid.UUID, SupplyTerms] = field(default_factory=dict)
     incoming: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
     in_production: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
+    job_work: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
     incoming_available: bool = True
     production_available: bool = True
+    job_work_available: bool = True
     calls: Counter[str] = field(default_factory=Counter)
     batch_sizes: dict[str, list[int]] = field(default_factory=dict)
     lead_time_requests: list[dict[uuid.UUID, Decimal]] = field(default_factory=list)
@@ -189,6 +191,15 @@ class FakeSource:
         if not self.production_available:
             return {}, False
         return {i: self.in_production[i] for i in ids if i in self.in_production}, True
+
+    async def job_work_supply(
+        self, item_ids: Any, upto: date
+    ) -> tuple[dict[uuid.UUID, tuple[SupplyArrival, ...]], bool]:
+        ids = list(item_ids)
+        self._record("job_work_supply", len(ids))
+        if not self.job_work_available:
+            return {}, False
+        return {i: self.job_work[i] for i in ids if i in self.job_work}, True
 
 
 def sales_line(
@@ -512,6 +523,47 @@ async def test_production_in_progress_reduces_the_shortage() -> None:
     assert requirement is not None
     assert requirement.in_production_quantity == D("25.0000")
     assert requirement.shortage_quantity == D("55.0000")
+
+
+@pytest.mark.asyncio
+async def test_job_work_output_due_in_time_reduces_the_shortage() -> None:
+    part = make_item("PLATED-HANDLE")
+    source = FakeSource(items={part.id: part}, job_work={part.id: arriving("25")})
+
+    plan = await run(source, [sales_line(part, "80", code="SO/0001")])
+
+    requirement = plan.requirement_for(part.id)
+    assert requirement is not None
+    assert requirement.job_work_quantity == D("25.0000")
+    assert requirement.shortage_quantity == D("55.0000")
+
+
+@pytest.mark.asyncio
+async def test_late_job_work_output_is_reported_but_not_netted() -> None:
+    part = make_item("PLATED-HANDLE")
+    late_due = date(2026, 8, 1)
+    source = FakeSource(items={part.id: part}, job_work={part.id: arriving("25", on=late_due)})
+
+    plan = await run(source, [sales_line(part, "80", code="SO/0001")])
+
+    requirement = plan.requirement_for(part.id)
+    assert requirement is not None
+    assert requirement.job_work_quantity == D("0.0000")
+    assert requirement.late_job_work_quantity == D("25.0000")
+    assert requirement.first_late_job_work_date == late_due
+    assert requirement.last_late_job_work_date == late_due
+    assert requirement.shortage_quantity == D("80.0000")
+    assert any("at job-work vendor arriving 2026-08-01" in warning for warning in plan.warnings)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_job_work_supply_feed_is_reported() -> None:
+    part = make_item("PLATED-HANDLE")
+    source = FakeSource(items={part.id: part}, job_work_available=False)
+
+    plan = await run(source, [sales_line(part, "80", code="SO/0001")])
+
+    assert any("Open job-work output could not be read" in warning for warning in plan.warnings)
 
 
 @pytest.mark.asyncio
