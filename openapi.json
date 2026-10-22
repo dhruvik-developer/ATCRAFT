@@ -53783,6 +53783,14 @@
             "title": "Serial Ids",
             "type": "array"
           },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Numbers",
+            "type": "array"
+          },
           "unit_cost": {
             "anyOf": [
               {
@@ -55010,6 +55018,14 @@
             },
             "maxItems": 500,
             "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Numbers",
             "type": "array"
           },
           "source_line_id": {

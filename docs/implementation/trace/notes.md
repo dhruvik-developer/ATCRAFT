@@ -1,3 +1,23 @@
+> **Post-audit update - 22 October 2026 (E8b).** The traceability findings below
+> are the pre-E8b audit text and are left as written. `P03.F3` (stock transfer),
+> `P03.F4` (stock adjustment), `P03.F6` (batch/serial where required), `P08.M11`
+> (production completion) and `P09.M6` (assembly completion) are now PRESENT.
+> `/inventory/tracking` registers lots and units, runs the lot lifecycle and
+> traces a serial; receipts, production bookings/completion, assembly completion,
+> transfers and adjustments capture batch and/or unit identity, with transfer and
+> adjustment labels resolved server-side. FEFO selects one covering lot for an
+> unnamed issue, and the expiry sweep emits one `STOCK_EXPIRY` digest per company
+> per day. E8a/E8b therefore close the serial-entry, dispatch and bin bullets in
+> G3 #7, and the cancel/edit, reject/cancel and batch/serial-create endpoint gaps
+> in G3 #8 now have screens. G6 #3 is closed for receipts, production, assembly,
+> transfers and adjustments; job work carries a batch but still refuses
+> serial-tracked items, and bin moves/internal issues stay quantity-only and
+> refuse serial stock. There is no barcode/PDF label print or pattern
+> generation. The DL-900 demo note has been corrected: the six units
+> still enter through OPENING_BALANCE because the seeded MAKE item has no
+> structure and no purchase order, not because the application lacks a serial
+> inbound path. See `docs/implementation/specs/E8b-batch-serial-tracking.md`.
+>
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,
 > nets every item exactly once at its deepest level (free stock, then dated

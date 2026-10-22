@@ -3,7 +3,7 @@
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
     "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton cannot be unsealed, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
-    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
+    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
       {
         "step": 1,
@@ -1099,7 +1099,7 @@
             "A brand or manufacturer that has been switched off cannot be newly given to an item, and neither can be switched off while items still carry it - so the brand an item shows is always one the business still offers."
           ],
           "permission": "Viewing needs the right to see items. Edit appears for someone with the right to update items; Retire, both for the item and for a variant, needs the right to delete items \u2014 deliberately a different right, because deactivating is reversible and retiring is not. The Stock tab needs the right to view inventory, Where used the right to view bills of materials, and Prices the right to view prices; without them the tab shows a polite note instead of the data. Standard cost and the variants' cost difference are shown only with the right to see item costs.",
-          "notes": "Several things on this screen are read-only and the deck should say so rather than leave the reader hunting for a button. Variants cannot be created or edited anywhere in the application \u2014 only listed and retired. Supplier links cannot be created or edited anywhere. Prices are maintained under Masters, not here. Sale price and dealer price appear on the Overview but there is no field for them on the item form, so on a system without seeded data they will read zero. The 'Valuation' line on the Overview will show a dash: the field was removed from the system and the screen still asks for it. Batch and serial tracking are shown but cannot be changed from any screen. There is no activate/deactivate control. The Where used tab lists direct parents only, so its Level column always reads 1."
+          "notes": "Several things on this screen are read-only and the deck should say so rather than leave the reader hunting for a button. Variants cannot be created or edited anywhere in the application \u2014 only listed and retired. Supplier links cannot be created or edited anywhere. Prices are maintained under Masters, not here. Sale price and dealer price appear on the Overview but there is no field for them on the item form, so on a system without seeded data they will read zero. The 'Valuation' line on the Overview will show a dash: the field was removed from the system and the screen still asks for it. Batch and serial tracking are edited on the item form; both may only change while the item holds no stock anywhere, and a shelf life requires batch tracking. There is no activate/deactivate control. The Where used tab lists direct parents only, so its Level column always reads 1."
         },
         {
           "route": "/bom",
@@ -2232,7 +2232,7 @@
             "Confirm the receipt date and record the vendor's delivery note number, their invoice number, the gate entry number and the vehicle number.",
             "For each line, enter what was Received, how much of it you Accepted and how much you Rejected. The two must add up to what arrived.",
             "If a quantity is rejected, say why \u2014 the field appears as soon as you type a rejected figure.",
-            "Enter the vendor's lot number in Batch number for any item that is batch tracked.",
+            "Enter the vendor's lot number in Batch number for any item that is batch tracked, and type or scan one serial number per accepted unit for a serial-tracked line.",
             "Look at the warnings: lines marked \"Goes to QC hold\" will not become available stock when this is posted.",
             "Submit. If you hold posting rights the receipt is created and posted in one step; if you do not, it is saved as a draft for somebody who does.",
             "Post it from the list if it was left as a draft."
@@ -2245,7 +2245,7 @@
             "Rejected quantity is never taken into stock. Goods refused at the gate never entered the company's custody and leave on the lorry they arrived on. Material accepted and only later found defective goes back with a purchase return instead.",
             "A line whose item requires incoming inspection does not become available stock. The accepted quantity is received into QC hold, an inspection is raised against it, and it can only be issued once quality has released it.",
             "An item that is batch tracked will not post without the vendor's lot number on the line.",
-            "Serial-numbered items cannot be received here at all \u2014 serial numbers cannot be captured on a receipt line, so those units are registered through the inventory screens instead.",
+            "A serial-tracked line names one serial for every unit accepted; a duplicate, or a count that differs from the accepted quantity, refuses the receipt. Units already registered under those labels are adopted; labels that are missing are created at receipt, so the register is complete from the first movement.",
             "Posting also writes the price paid back onto the item-and-vendor record as the last purchase price, so the next buyer sees what this vendor last charged.",
             "A short delivery leaves the order Partially received; a complete one moves it to Received and then straight on \u2014 to QC pending if any line is held for inspection, otherwise to receipt complete.",
             "A posted receipt is final. It can never be edited, cancelled or retracted; the way to correct it is a purchase return, which posts the opposite movement.",
@@ -2570,12 +2570,12 @@
             {
               "action": "Book a shift's output",
               "how": "Record production, in the header, or from the Production entries tab",
-              "note": "Date, shift, operator, machine, good quantity, rejected quantity with its reason, and downtime in minutes. Good output is received into stock - or onto QC hold with an inspection when the order holds output for quality; rejected output is not received."
+              "note": "Date, shift, operator, machine, good quantity, rejected quantity with its reason, and downtime in minutes. Good output is received into stock - or onto QC hold with an inspection when the order holds output for quality; rejected output is not received. A batch-tracked output item requires its lot, and a serial-tracked one requires one serial per good unit."
             },
             {
               "action": "Complete the job",
               "how": "Complete, in the header, while the order is in process",
-              "note": "The dialog shows planned against booked good, rejected and scrap quantities. Capture any final good output, rejects with their reason, scrap, actual end date, shift and note. Return anything still issued but unused first. Refused while any booked output is still held for QC: decide the inspections first."
+              "note": "The dialog shows planned against booked good, rejected and scrap quantities. Capture any final good output with its lot and serials, rejects with their reason, scrap, actual end date, shift and note. Return anything still issued but unused first. Refused while any booked output is still held for QC: decide the inspections first."
             },
             {
               "action": "Close and cost the job",
@@ -2614,8 +2614,8 @@
             "RELEASED. Press Release. The bill of materials is exploded once and written onto the order as a fixed kit list; a change to the BOM tomorrow belongs to tomorrow's jobs, not this one. The routing becomes one work order per operation. Free stock is reserved against each component - not moved, just held, so nothing else can be promised it. Anything that could not be held is reported back as a shortage and the job is released anyway.",
             "MATERIAL ISSUED. The storekeeper presses Issue material and posts the pick. Now stock genuinely leaves the store: the components come off the shelf and off the available balance. When every component that has to be picked has been fully issued, the order moves to Material issued by itself.",
             "IN PROCESS. Press Start. The actual start date is recorded and the job can no longer be cancelled.",
-            "Bookings. Press Record production at the end of each shift. Good output booked at the last operation - or on a job with no routing at all - is received into the output warehouse. Rejected quantity is counted for the yield but never received, because it was never good stock.",
-            "COMPLETED. Press Complete. Review the quantities already booked against the plan, then capture any final good output, rejects and their reason, scrap, actual end date, shift and note. No more can be booked or issued. Every component's consumed quantity is set to what the job was holding; this posts nothing, because that stock already left the store when it was issued.",
+            "Bookings. Press Record production at the end of each shift. Good output booked at the last operation - or on a job with no routing at all - is received into the output warehouse, naming its batch and one serial per unit when the finished item is tracked. Rejected quantity is counted for the yield but never received, because it was never good stock.",
+            "COMPLETED. Press Complete. Review the quantities already booked against the plan, then capture any final good output with its batch and serials, rejects and their reason, scrap, actual end date, shift and note. No more can be booked or issued. Every component's consumed quantity is set to what the job was holding; this posts nothing, because that stock already left the store when it was issued.",
             "CLOSED. Press Close, review planned against booked quantities and record a closure note. The material cost and the operation cost are worked out and stored on the order, and anything the job was still holding is released. The figures are frozen at that moment, because work centre rates and stock valuations both move afterwards."
           ],
           "permission": "Reading the order needs the right to see production orders; the Costing tab additionally needs the right to see production costs. Every button asks for its own right, and they are deliberately not the same one: Approve needs approval of production orders, Release needs release, Start needs the right to manage work orders, Issue material needs the right to issue material, Return material a separate return right, Record production and Complete both need the right to book production, Close needs the close right, and Cancel needs the cancel right. A button you do not hold the right for is simply absent.",
@@ -2630,7 +2630,7 @@
             "Only the balance the job is actually holding can be returned. You cannot hand back more than went out.",
             "A job may book up to 10% more good output than it planned. More than that is a decimal point in the wrong place, and it would put the stock into the warehouse before anyone noticed.",
             "A rejection has to carry a reason. It is the only chance to capture it while the operator still remembers, and it is what the quality team reads later.",
-            "Finished goods that are batch or serial tracked cannot be received through a production booking, because a booking has nowhere to record the lot. Receive that output through inventory once the lot has been registered.",
+            "Finished goods that are batch tracked need the output lot in the booking or completion dialog, and serial-tracked goods need one serial for every good unit produced. Rejected output was never good stock, so it is counted for yield but receives neither a lot nor a serial.",
             "A job that is still holding issued material cannot be cancelled at all. That material is physically on the floor; cancelling around it would leave the books saying it was consumed by an order that no longer exists. Return it to the store first.",
             "Booking output does not advance the order. Only Start moves a kitted job into process, and only from there can it be completed.",
             "A completed order no longer accepts a return, so sweep the leftovers back to the store before completing.",
@@ -2804,7 +2804,7 @@
             {
               "action": "Complete the assembly",
               "how": "Open the order, then Complete",
-              "note": "Only offered while the order is in progress. This is the step that consumes the components and creates the finished stock. When the order needs inspection the output goes onto QC hold and an inspection is raised with it."
+              "note": "Only offered while the order is in progress. This is the step that consumes the components and creates the finished stock; a batch-tracked finished item needs its output lot and a serial-tracked one needs one serial per good unit. When the order needs inspection the output goes onto QC hold and an inspection is raised with it."
             },
             {
               "action": "Record the inspection verdict",
@@ -2839,6 +2839,7 @@
             "Press Complete. Enter the assembled quantity and, if any failed, the rejected quantity.",
             "For every serial-tracked component, pick the exact serial numbers that went into these units.",
             "Enter a reason and confirm. In one step the components are consumed and the finished units are received - into the output store, or onto QC hold with an inspection when the order needs one - and the serials are written against the order.",
+            "Name the finished item's lot, and one serial per good unit, when the finished item is tracked. Rejected units are not given an identity.",
             "When the output is on hold, record the verdict: on the linked inspection's sheet, or on the order itself when no inspection covers it. Accepted output becomes saleable; the order completes.",
             "Close the order when it is done with. A completed assembly can be packed from the Packing screen."
           ],
@@ -2850,6 +2851,7 @@
             "Rejected output is never received into stock. It is not a saleable unit, and receiving it would put scrap into the finished goods balance. It still consumed its components, which is why it is reported at completion rather than written off later.",
             "More than the planned quantity cannot be reported. Components were only drawn for the plan; raise a second order for the excess.",
             "A serial identifies one physical unit, so exactly one serial is named per unit consumed. A serial another assembly has already swallowed is refused.",
+            "A batch-tracked finished item must name its output lot at completion, and a serial-tracked one must name one serial per good unit. A batch-tracked component is consumed from the lot reserved for the order.",
             "Completing is one indivisible step. Either the components are consumed and the finished units created, or nothing happens at all - there is no path that eats a cylinder without producing a lock set.",
             "When the order is marked as needing inspection, the finished units are received onto QC hold rather than into the available pool, and an inspection is raised with them. The stock is held either way.",
             "The verdict on held output has exactly one release path. When an inspection holds it, deciding that inspection in Quality releases the stock and completes the order in the same step; recording a different verdict over it is refused. Only a hold no inspection covers is settled on the order itself, and then the accepted and rejected quantities must account for everything held.",
@@ -2868,7 +2870,7 @@
             {
               "action": "Raise a job work order",
               "how": "New job work order, top right, on the Orders tab",
-              "note": "It is saved as a draft. Nothing is reserved and no material moves. Someone who may see cost centres can name the cost centre the processing charges belong to - typically the job-worked process, such as plating; an amendment by anyone else keeps it as it was."
+              "note": "For a batch-tracked item, name the lot on the line before approval; serial-tracked items are still refused because a challan has no unit list. The order is saved as a draft. Nothing is reserved and no material moves. Someone who may see cost centres can name the cost centre the processing charges belong to - typically the job-worked process, such as plating; an amendment by anyone else keeps it as it was."
             },
             {
               "action": "Amend a draft",
@@ -2883,7 +2885,7 @@
             {
               "action": "Issue the material and raise the challan",
               "how": "The '...' menu, then Issue to vendor",
-              "note": "This is the step that moves the stock into the job-work state and produces the outward challan, with the declared values taken from what the books actually carry the material at."
+              "note": "This is the step that moves the line's lot into the job-work state and produces the outward challan, with the declared values taken from what the books actually carry the material at."
             },
             {
               "action": "Receive a lot back",
@@ -2937,9 +2939,9 @@
             "Tick 'Output must be inspected' if the returned goods have to go through QC.",
             "Add the lines: the item going out, the quantity, what it comes back as (leave blank if the same item comes back), the expected output quantity if the yield is not one for one, and the agreed loss percentage.",
             "Save the draft, then Approve it. Approval reserves the material.",
-            "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number, the transporter if a carrier took the goods, and the quantities going out. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
+            "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number, the transporter if a carrier took the goods, and the quantities going out; a batch-tracked line's lot travels with it. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
             "The material sits at the vendor. Watch it on the Pending at vendor tab, or open the order for its timeline.",
-            "When a lot comes back, press Receive output. Split it across Received (good processed output), Rejected (what the vendor spoiled) and Returned unworked (material that came back exactly as it went), and record the vendor's challan number and date. A rejected quantity needs a disposition - back to stock, kept at the vendor for rework, or scrapped there - and a reason. Tick Close line to write off whatever is still out as process loss; loss beyond the agreed allowance needs the excess-loss approval, which only the senior job-work right gives, and is debited to the vendor.",
+            "When a lot comes back, press Receive output. Split it across Received (good processed output), Rejected (what the vendor spoiled) and Returned unworked (material that came back exactly as it went), and record the vendor's challan number and date; the returned units stay in the lot that went out. A rejected quantity needs a disposition - back to stock, kept at the vendor for rework, or scrapped there - and a reason. Tick Close line to write off whatever is still out as process loss; loss beyond the agreed allowance needs the excess-loss approval, which only the senior job-work right gives, and is debited to the vendor.",
             "Repeat for each lot until everything is back. Then Close the order.",
             "Returned rejected output can seed a linked order with Create rework draft. Creating the draft moves no rejected stock. The order can currently issue available stock only; damaged-stock issuing needs a separate workflow. Scrapped output and output still held for vendor rework do not offer this action."
           ],
@@ -2957,7 +2959,7 @@
             "Give the order its GST rate and SAC when raising it - 18% and 9988 unless the vendor's paperwork says otherwise. Both are copied onto the vendor-invoice lines when the work is billed.",
             "A job-work bill charges receipt lines, never the order in the abstract. Approving one books the processing charge to the job-work expense account, moves what each receipt line has billed, and recovers the chargeback for material the vendor lost beyond allowance against the same bill. Cancelling a posted bill reverses both postings.",
             "Where an order requires inspection, the returned output is received onto QC hold rather than into the available pool, and an inspection is raised with it.",
-            "Batch-tracked and serial-tracked items cannot be sent for job work, in either direction. There is no way to name a batch or a serial on the challan, so it is refused at order entry rather than after the material has left the building.",
+            "A batch-tracked item can be sent for job work only when its lot is named on the line before approval; the lot follows the material out and back. A serial-tracked item is still refused at order entry, because neither the challan nor the receipt has a place to name individual units.",
             "Only items flagged for job work on the item master, and still active, can be put on a line."
           ],
           "notes": "The received output is booked at what it cost - the input it consumed at the frozen challan issue value plus the processing charge the receipt accrued - not at the output item's standard cost. The Job-work cost report reads the same figures back per order line. The delivery challan PDF is generated in the background: queue it from a challan row and download it once the job completes."
@@ -3658,8 +3660,13 @@
             },
             {
               "action": "Raise a transfer",
-              "how": "New transfer: choose source and destination warehouses, a reason and item quantities. Batch-tracked items require a batch. Choose source and destination bins when the stock occupies them.",
-              "note": "Nothing moves on creation. The transfer is a draft waiting for approval."
+              "how": "New transfer: choose source and destination warehouses, a reason and item quantities. Batch-tracked items require a batch; serial-tracked items require one serial per unit, typed or scanned. Choose source and destination bins when the stock occupies them.",
+              "note": "Nothing moves on creation. The transfer is a draft waiting for approval; a draft's reason, expected date and notes can be edited before it leaves."
+            },
+            {
+              "action": "Edit or cancel a transfer",
+              "how": "Edit draft or Cancel at the end of a draft row; Cancel is also offered once a transfer is approved, before dispatch.",
+              "note": "Editing changes the header only. Cancelling needs a reason and releases any reservation; once dispatched the goods must be received, not cancelled."
             },
             {
               "action": "Approve, dispatch and receive a transfer",
@@ -3668,7 +3675,7 @@
             },
             {
               "action": "Raise an adjustment",
-              "how": "New adjustment: choose the warehouse, reason code and explanation, then enter signed quantities. Choose the batch and bin for each position. A positive quantity adds stock; a negative quantity removes it. With cost-view rights you can enter the write-up unit cost; otherwise the server uses its fallback cost.",
+              "how": "New adjustment: choose the warehouse, reason code and explanation, then enter signed quantities. Choose the batch and bin for each position; for a serial-tracked item type or scan one serial per unit moved. A positive quantity adds stock; a negative quantity removes it. With cost-view rights you can enter the write-up unit cost; otherwise the server uses its fallback cost.",
               "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever. Someone who may see cost centres can also name the cost centre that bears the write-off; for anyone else the adjustment is raised unallocated."
             },
             {
@@ -3716,7 +3723,7 @@
             }
           ],
           "flow": [
-            "Moving stock between warehouses: open the Transfers tab, click New transfer, name the two warehouses and the lines, save.",
+            "Moving stock between warehouses: open the Transfers tab, click New transfer, name the two warehouses and the lines - including the lot and one serial per unit for tracked items - save.",
             "A colleague clicks Approve. Nothing has moved yet, and the transfer can still be abandoned at this point.",
             "The storekeeper clicks Dispatch when the stock physically leaves. It comes off the source warehouse and shows as In transit at the destination.",
             "The receiving storekeeper clicks Receive when it arrives. The stock lands on hand at the destination and becomes available to promise.",
@@ -3729,7 +3736,7 @@
             "The value the approval is measured against is the real cost of the stock being written off \u2014 the oldest stock at what it actually cost, not a blended average. If a document is posted and turns out to cost more than the limit after all, the posting is refused and nothing reaches the ledger. The gate and the write-off are measured with the same ruler.",
             "A posted adjustment cannot be un-posted. Correct it with a further adjustment.",
             "Only a draft transfer can be edited, and a transfer can only be abandoned before it is dispatched. Once the stock is on a vehicle there is no way back except receiving it \u2014 cancelling would leave the goods owned by nobody.",
-            "A transfer cannot carry a serial-tracked item at all. A transfer line has nowhere to record which individual units were shipped, so the system refuses it when the line is keyed rather than failing later. Move serialised stock with an issue and a receipt instead.",
+            "A transfer names its traceability when it is keyed: a batch-tracked line needs its lot and a serial-tracked line needs one serial per unit. The unit is parked In transit at dispatch and lands In stock at the destination when the transfer is received. A transfer with an unnamed tracked line is refused before anything moves.",
             "Only one stock count can be open per warehouse at a time. Finish or cancel the current one first, otherwise two sheets each snapshot the other's corrections.",
             "A count sheet covering more than 5,000 positions is refused. Count a narrower scope \u2014 which is what cycle counting means.",
             "Confirming a count posts the difference between what was counted and what the system says at that moment, not the difference from the snapshot taken when the sheet was opened. Otherwise every receipt and issue made while the count was running would be silently reversed and booked as shrinkage.",
@@ -3742,7 +3749,77 @@
             "The consumables warehouse is a classification. Internal issues may consume permitted stock from any warehouse you are allowed to operate."
           ],
           "permission": "Seeing all three lists needs only the right to view stock. Raising, approving, dispatching and receiving transfers all need the right to transfer stock. Raising, submitting and posting an adjustment need the right to adjust stock; approving or rejecting one needs the separate right to approve adjustments. Opening, starting, keying and cancelling a count need the right to run a stock count; confirming it and posting the variance needs the different right to reconcile stock \u2014 whoever walks the aisles is not automatically the person who accepts what they wrote down. Bin moves use the transfer right. Scrap disposal has its own disposal right. Internal issue creation and approval have separate rights. Existing customised roles may need the administrator to grant the new rights.",
-          "notes": "The six tabs share the stock register. Batch and bin are part of the stock position: selecting the wrong position is not corrected by having enough total stock in the warehouse. Serial-tracked transfers and these new operation documents remain unavailable until the serial identity workflow can record the units."
+          "notes": "The six tabs share the stock register. Batch and bin are part of the stock position: selecting the wrong position is not corrected by having enough total stock in the warehouse. Batch and serial registers, label runs and lot quarantine live on Batch and serial tracking, not here."
+        },
+        {
+          "route": "/inventory/tracking",
+          "title": "Batch and serial tracking",
+          "purpose": "The two registers behind a recall. A stock balance says how many of an item are held; a batch says which supplier lot those units came from, when they expire and whether they are fit to issue. A serial says which individual unit a customer is holding and every document it passed through. Batches and serials are separate tabs because a lot has a lifecycle while a unit has a position and a history. The batch list opens in FEFO order - earliest expiry first - because that is the order the warehouse should pick in. Registering a lot or a label run does not move stock; the receipt or production posting is what puts units on the shelf.",
+          "whoUses": "The storekeeper receiving and issuing lots, quality holding suspect material, and anyone answering a recall or warranty question. Reading is open to stock-view rights; changing a lot or minting labels is a separate right.",
+          "keyActions": [
+            {
+              "action": "Find a batch",
+              "how": "The Batches tab, filtered by item, status or expiry date, or searched by batch or supplier batch number",
+              "note": "Rows show on-hand, available and in-transit quantities, the expiry warning, and the receipt date. Expiry within 30 days is amber; a past date is red."
+            },
+            {
+              "action": "Register a lot before its stock arrives",
+              "how": "Register batch at the top right",
+              "note": "Name the item, the batch number, the supplier's own reference if there is one, manufactured and expiry dates, the expected quantity and a default cost. The GRN can then receive into this lot."
+            },
+            {
+              "action": "Quarantine a lot",
+              "how": "The row menu, then Quarantine, with a reason",
+              "note": "Moves the lot's available quantity to QC hold and stops it being issued. A serial-tracked lot can only be quarantined when every position's in-stock serial count equals its available quantity."
+            },
+            {
+              "action": "Reactivate a lot",
+              "how": "The row menu, then Activate, with a reason",
+              "note": "Changes the lot status only. Stock moved to QC hold by the quarantine stays held until a separate quality release; reactivating does not make it available by itself."
+            },
+            {
+              "action": "Expire a lot",
+              "how": "The row menu, then Expire, with a reason",
+              "note": "Retires the lot from issue. The stock is still owned and visible, and can be transferred, returned to a vendor, adjusted or disposed of; it cannot be issued, dispatched, consumed by assembly or sent to job work."
+            },
+            {
+              "action": "Find a unit",
+              "how": "The Serials tab, filtered by item, warehouse or status, or searched by serial number",
+              "note": "Unit cost is shown only with the stock-valuation right. Every row opens the unit's trace."
+            },
+            {
+              "action": "Register a label run",
+              "how": "Register serials at the top right",
+              "note": "Choose the item and enter between 1 and 500 labels, one per line or separated by commas. A warehouse, batch and received date are optional. Whitespace is stripped and labels are upper-cased; a duplicate is refused."
+            },
+            {
+              "action": "Trace one unit",
+              "how": "Trace on a serial row, or click the row",
+              "note": "Shows the unit's status, lot, current or last position, receipt cost and date, and every movement with the document and person behind it - receipt, issue, transfer, dispatch, return or scrap."
+            }
+          ],
+          "flow": [
+            "Before a tracked delivery, register the lot if the vendor's lot is already known. Otherwise the GRN creates it from the batch number on the line.",
+            "For serial-tracked goods, type or scan one label per accepted unit on the GRN, production booking or assembly completion. The same labels can be registered ahead on the Serials tab.",
+            "The register now shows the lot's balances and the units' positions. Nothing was moved by registering them; the receipt or production posting did that.",
+            "If quality suspects a lot, quarantine it with a reason. The available quantity moves to QC hold and issue is blocked. Reactivate the status only when the investigation ends, then release the held stock through quality.",
+            "Before issuing, check the expiry warning. The daily sweep expires lots past their date and sends one digest per company for lots expiring within 30 days.",
+            "When a customer quotes a serial, open its trace to see the lot, the receipt, every movement and the dispatch that sent it."
+          ],
+          "rules": [
+            "A batch number is unique within an item, not across the company. Two suppliers can both ship lot L-2026-07 for different parts, and they are different lots.",
+            "Only an active, unexpired lot can be issued. Expired or quarantined stock can still be transferred, returned, adjusted or disposed of, so it never becomes unreachable.",
+            "A receipt cannot add stock to a quarantined or expired lot, except the arrival leg of a transfer that was already in transit. Otherwise the goods would disappear into a lot nothing can issue.",
+            "Quarantine and reactivation are not mirror images. Quarantine moves available stock to QC hold; reactivation changes the lot status only. Releasing held stock is a quality decision, not a stock-register toggle.",
+            "A lot becomes Consumed automatically when that lot's company-wide quantity across on-hand, in transit, job work and scrap reaches zero. There is no manual Consumed button and no delete.",
+            "One serial is one physical unit. It is In stock, In transit, Issued, Dispatched, Returned or Scrapped; a transfer parks it In transit at dispatch and lands it back In stock at the destination.",
+            "The same label cannot appear twice in one registration or document. Labels are normalised to upper case with whitespace removed, up to 64 characters, and a registration is capped at 500 labels.",
+            "A unit is named on every movement that changes who holds it; a quantity-only path refuses stock still held as identifiable units. An outbound line that leaves its lot unnamed is picked FEFO; a transfer or adjustment must name the lot it changes, and a receipt, production or job-work line must name its lot.",
+            "The batch list and any unnamed issue use FEFO: earliest expiry first, undated lots last, then earliest receipt. One line is never split across lots; if no single lot covers it, the line is refused as short.",
+            "The expiry sweep warns within 30 days and expires past-due lots. A company receives at most one stock-expiry digest per day, so one warehouse's labels do not bury the notification bell."
+          ],
+          "permission": "Reading both registers needs the right to view stock. Registering a lot or label run, and quarantining, reactivating or expiring a lot, need the separate right to manage batches. The screen shows unit cost and lot value only with the stock-valuation right. The API checks the manage right again, so hiding a button is not the guard for a lifecycle action.",
+          "notes": "The register is deliberately read-only apart from lot lifecycle and label runs: stock quantities change only through documents. There is no delete and no manual Consumed action, and the register neither prints nor generates labels from a pattern. A registered serial with no receipt yet is a label waiting for its goods, not stock on hand; it only becomes a unit on hand when a receipt, production or assembly posting adopts it. Expiry warnings compare dates in the browser for display, while the server's date is authoritative for blocking issue."
         },
         {
           "route": "/warehouses",

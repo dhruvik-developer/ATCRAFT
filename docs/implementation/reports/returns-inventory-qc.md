@@ -2,6 +2,14 @@ I have everything needed. Here is the report.
 
 # Customer returns (gap 4): inventory, dispatch and quality seams
 
+> **Post-E8b note - 22 October 2026.** This report is the pre-E8b audit behind
+> A3 and its recommendations are left as written. E8b later added serial
+> capture to goods receipts, production and assembly output, transfers and
+> adjustments, plus the `/inventory/tracking` register. Statements below that
+> those paths refuse serial stock are therefore historical. The return-specific
+> gap this report identifies - per-serial QC disposition - remains; the
+> credit-note link has since been implemented.
+
 **Verdict on the audit claim.** The audit is right that there is no customer-return **document**. Nothing creates, prices, posts or lists a sales return, and the frontend has no screen for one.
 
 It would be wrong to read that as "nothing exists", though. Most of the mechanics underneath are already built:

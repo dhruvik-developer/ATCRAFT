@@ -7917,7 +7917,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"serial_numbers\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
             },
             "description": "Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the approval threshold - a fixed value, ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in the error's details when posting is refused - the document must be approved by a second person before it can post.",
             "header": [
@@ -7985,7 +7985,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"serial_numbers\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
             },
             "description": "Replaces the draft's header and lines and re-prices it against the FIFO layers as they stand now. Only a DRAFT can be edited. A line's unit cost may be stated only by a caller holding item.cost_view or inventory.valuation_view.",
             "header": [
@@ -9217,7 +9217,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"from_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"source_line_id\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"to_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"transfer_date\": \"2026-01-01\"\n}"
+              "raw": "{\n  \"from_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"serial_numbers\": {},\n      \"source_line_id\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"to_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"transfer_date\": \"2026-01-01\"\n}"
             },
             "description": "Raise a stock transfer",
             "header": [

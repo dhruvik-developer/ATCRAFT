@@ -30222,6 +30222,8 @@ export interface components {
             quantity: number | string;
             /** Serial Ids */
             serial_ids?: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
             /** Unit Cost */
             unit_cost?: number | string | null;
         };
@@ -30606,6 +30608,8 @@ export interface components {
             quantity: number | string;
             /** Serial Ids */
             serial_ids?: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
             /** Source Line Id */
             source_line_id?: string | null;
             /** To Location Id */

@@ -262,6 +262,39 @@ describe('transfers', () => {
     expect(itemSearches[0]!.searchParams.has('is_serial_tracked')).toBe(false)
   })
 
+  it('will not send a transfer whose serial count disagrees with its quantity', async () => {
+    // The API refuses this too, but a count mismatch is a typing mistake, not a
+    // stock decision: catching it on the line keeps the operator in the dialog.
+    const { user, fetch } = renderScreen(<MovementsPage />, {
+      route: TRANSFERS_TAB,
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_TRANSFER],
+      routes: {
+        'GET /inventory/transfers': page([]),
+        'GET /warehouses': page([FROM, TO]),
+        'GET /products/items': page([ITEM]),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /new transfer/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'From warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: 'To warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /FG/ }))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: /reason/i }),
+      'Rebalancing ahead of the September assembly plan',
+    )
+    await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
+    await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: /^quantity$/i }), '2.0000')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Serial numbers' }), 'SN-1')
+    await user.click(within(dialog).getByRole('button', { name: /create transfer/i }))
+
+    expect(await screen.findByText(/Name one serial per unit moved/)).toBeInTheDocument()
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+  })
+
   it('will not send a transfer from a warehouse to itself', async () => {
     // Same source and destination is a document the API refuses, and the round
     // trip to learn that is a round trip that could have been a message.

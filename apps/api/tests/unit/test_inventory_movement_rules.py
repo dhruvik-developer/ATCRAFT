@@ -423,8 +423,9 @@ class TestTraceabilityGatesArrivalsNotDepartures:
 
         The gate is ``SERIAL_MOVEMENT_TARGETS`` - the same mapping that decides
         the unit's next status - so the rule and the lifecycle cannot drift
-        apart. A movement that leaves the status alone (a QC hold, either leg of
-        a transfer) moves a quantity, not a unit, and is not held to it.
+        apart. A movement that leaves the status alone (a QC hold or release)
+        moves a quantity, not a unit, and is not held to it; a transfer changes
+        status on both legs and therefore names its unit on both.
         """
         item = _item(is_serial_tracked=True)
         warehouse = _warehouse()

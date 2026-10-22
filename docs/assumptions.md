@@ -409,22 +409,32 @@ there instead.
 
 ---
 
-## 20. Serial-tracked items cannot be received through a goods receipt
+## 20. Serial-tracked purchase lines name one serial per accepted unit
 
-**Assumed.** A purchase order line for a serial-tracked item is refused at
-receipt with an explicit message directing the user to register the units
-through inventory.
+**Assumed.** A goods-receipt line for a serial-tracked item carries the unit
+labels that arrived: one label for each unit accepted, no label for a rejected
+unit. The API normalises labels (whitespace removed, upper-cased), refuses a
+duplicate in one receipt and refuses a count that differs from the accepted
+quantity. A matching pre-registered label is adopted if it is still in stock and
+has never been received; otherwise the missing labels are minted at receipt. The
+posting writes one PURCHASE_RECEIPT movement per unit, linking the serial, the
+batch and the line.
 
-**Why.** The inventory engine requires a serial id on every movement of a
-serial-tracked item, and the procurement contract gives a receipt line nowhere
-to record the many serials arriving against one line. Posting stock whose units
-cannot be identified afterwards defeats the tracking the flag exists for.
+**Why.** The receipt line now has somewhere to record the many labels that
+arrive against one line. Identifying each unit at the door is what makes the
+serial register true from the first movement; posting an anonymous quantity and
+registering units later leaves a window in which the stock exists but no unit
+does.
 
-**Where.** `src/modules/procurement/service.py` — `SERIAL_RECEIPT_MESSAGE`.
+**Where.** `src/modules/procurement/schemas.py` - `GoodsReceiptLineCreate.serial_numbers`;
+`src/modules/procurement/service.py` - `_resolve_serials`, `_build_receipt_movements`;
+`apps/web/src/features/procurement/grn-receive-dialog.tsx` and the shared
+`SerialNumbersField`.
 
-**Impact if wrong.** Serial-tracked purchases need a serial capture table on the
-receipt line before they can be received through this path. Related to open
-question 6 below.
+**Impact if wrong.** A line with more than 500 units cannot be captured in one
+pass, and if labels must be generated to a vendor-specific pattern rather than
+typed or scanned, that generation belongs on the receipt line before posting.
+Related to open question 6 below.
 
 ---
 
@@ -592,16 +602,25 @@ line, not the lot.
 
 **Assumed.** The two flags deliberately behave differently on the way out.
 
-*Batch.* `is_batch_tracked` gates only movements that start stock **into** a
-position. A batch-less departure is allowed.
+*Batch.* At engine level, `is_batch_tracked` gates only movements that start
+stock **into** a position. A batch-less departure is allowed.
 
 *Serial.* `is_serial_tracked` gates arrivals **and** every movement that changes
-whose hands hold the unit — an issue, a dispatch, a scrap, a job-work issue, a
-purchase return, a job-work return. A movement that leaves the unit's status
-alone (a QC hold or release, either leg of a transfer) moves a quantity rather
-than a unit and is not gated, so it cannot trap a pool. The gate is
-`SERIAL_MOVEMENT_TARGETS` — the same mapping that decides the unit's next status
-— so the rule and the serial lifecycle read one source and cannot drift apart.
+the unit's status: an issue, a dispatch, a scrap, a job-work issue or return, a
+purchase return, a customer return, an adjustment increase or decrease, and both
+legs of a transfer (`IN_TRANSIT` at dispatch, `IN_STOCK` at receipt). A movement
+that leaves the unit's status alone - a QC hold, a QC release, or disposal out
+of the scrap pool - moves only a quantity and is not gated, so it cannot trap a
+pool. The gate is `SERIAL_MOVEMENT_TARGETS` - the same mapping that decides the
+unit's next status - so the rule and the serial lifecycle read one source and
+cannot drift apart.
+
+The engine's directional batch rule is not the whole document contract. A
+document that is keyed against one grain - a goods receipt, a production or
+assembly output, a job-work line or a stock transfer - refuses the line when the
+item is batch tracked and no lot is named, because that document can name it.
+The engine rule exists for stock that predates the flag, not as permission for
+a new document to be anonymous.
 
 **Why.** The asymmetry follows from the balance grain, not from taste.
 `batch_id` **is** part of `BalanceGrain`, so a batch-less issue can only ever
@@ -624,7 +643,7 @@ issuing them is an ordinary operator action, and it is proved end to end in
 `tests/integration/test_inventory_tracking_flags.py::TestTheSerialTwinOfIt`.
 
 **Where.** `src/modules/inventory/service.py` — `validate_movement`, the
-`gates_policy` and `serial_gates` rules. Pinned by
+`gates_policy` and `serial_gates` rules, and `SERIAL_MOVEMENT_TARGETS`. Pinned by
 `tests/unit/test_inventory_movement_rules.py::...::test_the_batch_and_serial_rules_disagree_on_purpose`,
 which fails if the two rules are ever merged into one gate — that merge is how
 this defect was introduced.
@@ -670,24 +689,36 @@ positions — not a relaxation of the guard.
 
 ---
 
-## 25. Serial-tracked items cannot move on a stock transfer
+## 25. A stock transfer names the lots and units it moves
 
-**Assumed.** A stock transfer refuses a serial-tracked item outright, and requires
-a batch-tracked line to name its batch. Both are refused at `create`, not at
-dispatch.
+**Assumed.** A stock transfer is keyed with its traceability at `create`, not at
+dispatch. A line for a serial-tracked item must name one unit per unit moved,
+either as `serial_ids` or as typed/scanned `serial_numbers`; a line for a
+batch-tracked item must address one lot. Labels are normalised and resolved to
+registered units in one query, and the line refuses a missing label. A
+serialised line may omit the batch and adopt the units' own lot when they all
+come from one; otherwise the batch still has to be named. The document refuses
+the same unit twice.
 
-**Why.** `stock_transfer_lines` carries a `batch_id` and no unit list, so there is
-nowhere to name the units being shipped — the same "no contract on this path"
-refusal that assembly and job work already make. Refusing at create rather than at
-dispatch means a flag flipped mid-flight cannot strand a document that was already
-accepted.
+Dispatch posts one `TRANSFER_OUT` per unit, parks each unit `IN_TRANSIT` and
+leaves its recorded position at the source; receipt posts one `TRANSFER_IN` per
+unit and lands it `IN_STOCK` at the destination. A non-serial lot moves as one
+line at its own grain.
 
-**Where.** `src/modules/inventory/service.py` —
-`StockTransferService._assert_lines_are_traceable`.
+**Why.** `stock_transfer_lines` now carries a batch and a unit list, so there is
+a contract on this path and no reason to accept an anonymous document. Refusing
+at create rather than at dispatch means a flag or batch problem is named while
+the operator is looking at the line, and a document already accepted cannot be
+stranded mid-flight.
 
-**Impact if wrong.** Warehouse-to-warehouse movement of serialised stock needs a
-unit list on the transfer line — a schema change and a UI change, not a rule
-change.
+**Where.** `src/modules/inventory/schemas.py` — `StockTransferLineCreate`;
+`src/modules/inventory/service.py` — `_adopt_named_serials`,
+`StockTransferService._assert_lines_are_traceable`, `dispatch`, `receive`;
+`apps/web/src/features/inventory/movement-dialogs.tsx`.
+
+**Impact if wrong.** If a transfer must be able to name new labels and register
+them on dispatch, that changes the rule that a transfer only moves stock that
+already exists; it should be a deliberate exception, not a silent mint.
 
 ---
 
@@ -697,6 +728,12 @@ change.
 and serial requirements. The exemption is recorded rather than silent: the
 movement's audit row gains a `traceability_gap` key and a warning is logged. No
 serial row is invented for goods nobody identified.
+
+The exemption is a compatibility path, not the ordinary transfer contract. A
+transfer raised now names its lot and units at create (§25), so its arrival
+already carries them and records no gap. The exemption covers a document that
+left before traceability was captured - or before the item was flagged - and is
+still in transit.
 
 **Why.** These goods left their source before the flag existed, so there is no lot
 or unit to name, and `TRANSFER_FLOW` has no edge out of `IN_TRANSIT` except
@@ -1617,8 +1654,9 @@ document of its own, fed by the disposal rather than inferred from it.
 inspection and vendor losses. An existing scrap position can still be disposed
 of after the capability is disabled. Damaged stock is the QC alternative when
 material cannot be scrapped. SCRAP_DISPOSAL leaves the scrap pool; it does not
-transfer scrap back into useful stock. Serial-tracked operation documents wait
-for E8b's identity support.
+transfer scrap back into useful stock. Scrap disposal stays quantity-only because
+the units were already retired on the scrap posting; bin moves and internal issues
+are also quantity-only and refuse serial-tracked stock until they can name units.
 
 **Why.** Turning the capability off must stop new scrap. It must not trap stock
 that is already scrap, because nothing else can address that pool.
@@ -1666,6 +1704,102 @@ receipt posting when `requires_qc` is set.
 
 **Impact if wrong.** If inspection records gain locations later, the receipt and
 the decision must carry the same position together.
+
+---
+
+## §E8b-1. An unnamed lot is picked FEFO, and one line stays in one lot
+
+**Assumed.** For an outbound movement whose caller names no batch and whose
+serials do not already determine one - `MATERIAL_ISSUE`, `DISPATCH`,
+`ASSEMBLY_CONSUME`, `JOB_WORK_ISSUE` and `TRANSFER_OUT` - the engine selects the
+active, unexpired lot at that exact position whose *available* quantity can cover
+the whole line. Candidates are ordered by expiry ascending (undated last), then
+receipt date, then id. An explicitly named lot always wins. If no single lot can
+cover the line, the engine leaves the lot empty and the ordinary stock-shortfall
+error names the position; it never splits one line across lots. A stock transfer
+document still keys its lot explicitly, because its arrival must address the same
+grain; the `TRANSFER_OUT` fallback covers a direct movement with no document-level
+lot to replay. The batch register
+defaults to the same FEFO order.
+
+**Why.** FEFO is the picking rule shelf life requires, and the lot is part of the
+balance grain: splitting a line automatically would write a document that does
+not say which stock it consumed. A caller that needs two lots can key two lines,
+which is visible and auditable.
+
+**Where.** `src/modules/inventory/service.py` - `_assign_fefo_batches`;
+`src/modules/inventory/repository.py` - `StockBatchRepository.build_list_stmt`.
+
+**Impact if wrong.** If Atcraft expects automatic lot splitting, the movement
+needs several ledger rows per line and the document needs to show the split; that
+is a contract change, not a tweak to the picker.
+
+---
+
+## §E8b-2. A lot has a lifecycle, and expiry blocks issue rather than hiding stock
+
+**Assumed.** `ACTIVE -> QUARANTINED -> ACTIVE` are the reversible moves;
+`ACTIVE` or `QUARANTINED -> EXPIRED` (and a sweep past `expires_on`) retires the
+lot; every status may become `CONSUMED` automatically when that lot's
+company-wide stock across on-hand, in-transit, job-work and scrap reaches
+zero. Quarantine and expiry require a reason. Quarantine moves the lot's
+available quantity to `QC_HOLD`; reactivation changes only the lot status,
+because releasing the held stock is a separate quality decision. A serialised
+lot can only be quarantined when each position's in-stock serial count equals
+its available quantity.
+
+Expired or quarantined stock may still be transferred, returned, adjusted or
+disposed of, but not issued, dispatched, consumed by assembly or sent to job
+work. Receipts into a non-`ACTIVE` or expired lot are refused, except the
+arrival leg of a transfer already in transit. The expiry sweep warns about lots
+expiring within `BATCH_EXPIRY_WARN_DAYS` (30) and expires those already past; a
+company receives at most one `STOCK_EXPIRY` digest per day, and a past expiry
+date blocks issue even before the sweep writes `EXPIRED`.
+
+**Why.** Deleting or hiding expired stock loses the liability and the recall
+trail. Blocking only the movements that consume it leaves a route to get it out
+of the warehouse without pretending it is usable. One digest is a deliberate
+choice: one notification per lot would bury the bell under a warehouse's worth of
+labels.
+
+**Where.** `src/modules/inventory/service.py` - `BATCH_FLOW`,
+`quarantine_batch`, `activate_batch`, `_expire`, `sweep_expiry`,
+`BATCH_ISSUE_BLOCKED`; `src/modules/inventory/repository.py` -
+`StockBatchRepository.companies_with_batches`.
+
+**Impact if wrong.** If expiry should be a warning rather than a hard block, the
+enforcement point is `validate_movement`; removing it would let expired stock be
+issued while the register still says `EXPIRED`, which is the worst of both states.
+
+---
+
+## §E8b-3. Every tracked document output names its lot or units
+
+**Assumed.** A document that creates or moves stock for a tracked item records
+identity at the point of posting: a goods receipt names one serial per accepted
+unit (adopting a pre-registered label or minting a missing one); a production
+booking or completion names the output batch for a batch-tracked item and one
+serial per produced unit for a serial-tracked item; an assembly completion names
+the output lot and one serial per assembled unit and the lot of every batch-tracked
+component; job-work input and output carry their batch where the item is
+batch-tracked; transfers and adjustments name their lot and units. Transfers and
+adjustments resolve only already-registered labels - they move stock that exists.
+A rejected or scrapped production unit gets no output identity.
+
+**Why.** Traceability is a property of the movement, not a report assembled
+later. Naming identity at posting makes the ledger row itself the recall link and
+lets a serial's history be read without reconciling quantity by hand.
+
+**Where.** `src/modules/procurement/service.py` - `_resolve_serials`;
+`src/modules/production/service.py` - `_post_output_receipt`;
+`src/modules/assembly/service.py` - completion; `src/modules/job_work/service.py`
+- line snapshots and receipt movements; `src/modules/inventory/service.py` -
+`_adopt_named_serials`, transfer and adjustment posting.
+
+**Impact if wrong.** If a document is allowed to post a tracked quantity without
+identity, the register must invent a placeholder unit or leave a known gap; both
+make a recall answer incomplete. The fallback is the recorded in-transit
+`traceability_gap`, not a silent anonymous posting.
 
 ---
 
@@ -3465,8 +3599,12 @@ module is used in production:
    says so.
 3. **Multi-currency.** Everything is INR today. Are imports or exports priced in
    another currency?
-4. **Batch and shelf life.** Which item groups genuinely require batch tracking,
-   and is shelf-life expiry a blocking rule or a warning?
+4. **Batch and shelf life.** Which item groups genuinely require batch tracking?
+   The current rule is blocking, not advisory: an expired or quarantined lot
+   cannot be issued, and the daily sweep warns 30 days before expiry and marks
+   the lot `EXPIRED` once the date has passed (`§E8b-2`). If Atcraft wants a warning with an
+   override instead, that is a policy change to `BATCH_ISSUE_BLOCKED` and needs
+   an override reason on the document.
 5. **Vendor portal scope.** Which vendor roles may see pricing? The current
    split shows a vendor their own purchase-order prices only; what a vendor may
    do to those orders is section 33.
