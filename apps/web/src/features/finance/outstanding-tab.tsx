@@ -3,9 +3,9 @@
  *
  * `GET /finance/outstanding` reads the vendor invoice register, so it is one
  * side of the ledger, not both: it takes `vendor_id`, never a `party_type`.
- * Receivables have no invoice document in this schema and are reached through
- * the Ageing tab, which nets them out of the ledger. The screen says so rather
- * than offering a "Receivables" switch the endpoint would silently ignore.
+ * Customer invoices have their own Sales invoices screen. Receivable ageing
+ * nets customer control-account entries from the ledger; this vendor register
+ * therefore has no receivables switch or party_type parameter.
  *
  * Vendor, overdue-only, the report date and paging are all query parameters the
  * API resolves - an open-item list in a company with a long supply base is

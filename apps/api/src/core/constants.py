@@ -12,9 +12,10 @@ what "unspecified" means.
 
 from __future__ import annotations
 
-#: ISO 4217 code every money column defaults to. Indian architectural hardware
-#: is priced in rupees; a deployment elsewhere sets ``DEFAULT_CURRENCY`` in the
-#: environment for *new* documents, but the schema default stays this.
+#: INR fallback for model/schema defaults and callers that do not resolve a
+#: company currency. Company-aware customer workflows use ``Company.currency``.
+#: The compatibility ``DEFAULT_CURRENCY`` environment setting does not override
+#: this constant or a company's saved currency.
 DEFAULT_CURRENCY = "INR"
 
 #: ISO 4217 codes are exactly three letters.

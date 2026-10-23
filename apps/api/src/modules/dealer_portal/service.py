@@ -1357,9 +1357,9 @@ class DealerPortalService:
     async def outstanding(self) -> DealerOutstanding:
         """Ageing for the dealer plus its overdue position.
 
-        Sales invoices are not in this release, so the overdue list stays empty
-        and the FIFO-netted receivables ageing is the overdue position
-        (docs/assumptions.md §C3-10).
+        Sales invoices exist, but this portal has no invoice-level outstanding
+        projection yet. The list remains empty while ledger-based receivables
+        ageing supplies the overdue position (docs/assumptions.md §C3-10).
         """
         customer = await self._customer()
         report = await ageing_report(

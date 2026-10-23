@@ -477,7 +477,7 @@ running_application_services() {
     --filter "label=com.docker.compose.project=${PROJECT}" \
     --format '{{.Label "com.docker.compose.service"}}')" || die "cannot verify application container state"
   printf '%s\n' "$services" \
-    | grep -E '^(nginx|frontend|backend|celery-worker|celery-beat)$' || true
+    | grep -E '^(nginx|frontend|backend|celery-worker|celery-notify|celery-beat)$' || true
 }
 
 assert_application_stopped() {
@@ -489,14 +489,14 @@ $running"
 
 stop_application_traffic() {
   say "Stopping application traffic and writers before the schema changes"
-  dc stop -t 30 nginx frontend backend celery-worker celery-beat
+  dc stop -t 30 nginx frontend backend celery-worker celery-notify celery-beat
   assert_application_stopped
 }
 
 start_application_traffic() {
   # `--wait` is not a traffic gate if Nginx is part of the same invocation.
   # Prove the entire application tier healthy first, then expose it at the edge.
-  if ! dc up -d --no-build --wait backend frontend celery-worker celery-beat; then
+  if ! dc up -d --no-build --wait backend frontend celery-worker celery-notify celery-beat; then
     dc stop nginx >/dev/null 2>&1 || true
     die "the application tier did not become healthy; Nginx remains stopped"
   fi

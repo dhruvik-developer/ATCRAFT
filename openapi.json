@@ -18336,7 +18336,7 @@
         "type": "object"
       },
       "DealerOverdueInvoice": {
-        "description": "A placeholder row for a sales invoice that is past due.\n\nSales invoices are not in this release. The list stays empty and the ageing\nreport is the overdue position. ASSUMPTION: docs/assumptions.md §C3-10.",
+        "description": "A placeholder row for a sales invoice that is past due.\n\nSales invoices exist, but their portal outstanding projection is not yet\nimplemented. This list stays empty; ledger-based ageing supplies the overdue\nposition. ASSUMPTION: docs/assumptions.md §C3-10.",
         "properties": {
           "currency": {
             "title": "Currency",

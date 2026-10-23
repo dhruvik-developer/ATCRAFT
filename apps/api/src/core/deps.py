@@ -5,8 +5,8 @@ route can forget them:
 
 1. ``company_id`` comes from the verified token, never from the request. A route
    cannot even *see* a client-supplied tenant id.
-2. Permissions are resolved per request from the database (Redis-cached with
-   explicit invalidation), not read from token claims - so revoking an approval
+2. Permissions are resolved per request from current database roles, rather than
+   token claims - so revoking an approval
    right takes effect immediately rather than at the next token expiry.
 3. A vendor principal carries its vendor and category restrictions on the
    :class:`Principal`, and repositories must apply them.

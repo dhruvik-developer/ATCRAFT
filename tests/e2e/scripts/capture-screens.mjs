@@ -1,355 +1,309 @@
 /**
- * Move to a screen WITHOUT reloading the page.
+ * Capture the handbook without submitting business documents or changing passwords.
+ * Screen descriptions come from content.json and must cover the route registry.
+ * Use an already configured test administrator and a populated disposable stack.
  *
- * This is the whole reason the capture works, and it took three failed runs to
- * arrive at. Every screen was originally a `page.goto`, and a full page load
- * restores the session from the refresh cookie - which rotates. Fifty of those
- * back to back is fifty rotations, and the moment two overlap the family is
- * revoked as a replay and the application lands on /login. Two earlier runs
- * reported "53 captured, 0 skipped" while more than half the files were
- * byte-identical pictures of the sign-in screen.
- *
- * One page load, then client-side routing, is also simply what a person does:
- * they click the menu, they do not retype the address.
- *
- * React Router listens to `popstate`, so pushing the entry and dispatching the
- * event is a real navigation to it - the URL, the route match and the screen
- * all follow.
+ * node scripts/capture-screens.mjs --check  validates coverage without a browser.
+ * node scripts/capture-screens.mjs          refreshes screens/ and its index.
  */
-async function navigate(route) {
-  await page.evaluate((path) => {
-    window.history.pushState({}, '', path)
-    window.dispatchEvent(new PopStateEvent('popstate'))
-  }, route)
-  try {
-    await page.locator('main').waitFor({ timeout: 30_000 })
-  } catch {
-    // Two screens - the prices tab and the item detail - occasionally lose the
-    // race between the popstate and their lazy chunk, and the route then never
-    // mounts. Pushing the entry again after the chunk has had time to arrive
-    // costs a second and is the difference between 51 screens and 53.
-    await page.waitForTimeout(2000)
-    await page.evaluate((path) => {
-      window.history.pushState({}, '', path)
-      window.dispatchEvent(new PopStateEvent('popstate'))
-    }, route)
-    await page.locator('main').waitFor({ timeout: 30_000 })
-  }
-}
-
-/** The sidebar's collapse control exists only inside the application shell. */
-async function isInApp() {
-  return (await page.getByRole('button', { name: 'Collapse' }).count()) > 0
-}
-
-/**
- * Capture every screen of the running application, for the client handbook.
- *
- * Not a test - a photographer. It signs in once, walks every route, waits for
- * the screen to actually finish (a lazy chunk, then its first query), and writes
- * a PNG per screen.
- *
- * Two things it deliberately does NOT do:
- *
- * - It never waits for `networkidle`. The shell polls unread notifications on an
- *   interval, so this application is never network-idle and that wait can only
- *   time out.
- * - It does not screenshot the full scrollable page by default. A handbook page
- *   holds one image; a 4000px-tall capture of a 200-row table is unreadable at
- *   that size. The viewport is a generous desktop and that is what is captured,
- *   which is also what the reader will see.
- *
- * Detail routes carry an id, so the ids are discovered from the API first rather
- * than hardcoded - a hardcoded id is a screenshot that silently becomes a "not
- * found" page the day the demo data is reloaded.
- *
- *   E2E_BASE_URL=http://127.0.0.1 node scripts/capture-screens.mjs
- */
-
-import { mkdir, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
 
-import { ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL } from '../lib/env.mjs'
+import { API_URL, BASE_URL } from '../lib/env.mjs'
+import { handbookRouteShape, resolveHandbookDetailRoute } from '../lib/handbook.mjs'
+import { createNavigator, errorToastFailures } from '../lib/navigation.mjs'
+import { signInThroughForm } from '../lib/session.mjs'
 
-const OUT = fileURLToPath(new URL('../../../docs/handbook/screens/', import.meta.url))
-
-/** A desktop a client would recognise. Tall enough to hold a table without scrolling. */
+const HANDBOOK = fileURLToPath(new URL('../../../docs/handbook/', import.meta.url))
+const OUT = path.join(HANDBOOK, 'screens')
 const VIEWPORT = { width: 1600, height: 1000 }
-
-/**
- * Every screen, in the order the handbook reads.
- *
- * `settle` is extra milliseconds for screens that draw a chart or run a heavier
- * query; `action` is an optional interaction to capture a dialog rather than the
- * list behind it, which is how "how do I create one" gets a picture.
- */
-const SCREENS = [
-  { file: '01-dashboard', route: '/', title: 'Dashboard' },
-
-  // --- masters ------------------------------------------------------------
-  { file: '10-masters-categories', route: '/masters?tab=categories', title: 'Item categories' },
-  { file: '11-masters-units', route: '/masters?tab=units', title: 'Units of measure' },
-  { file: '12-masters-conversions', route: '/masters?tab=conversions', title: 'Unit conversions' },
-  { file: '13-masters-attributes', route: '/masters?tab=attributes', title: 'Finishes, sizes and colours' },
-  {
-    file: '14-masters-attribute-new',
-    route: '/masters?tab=attributes',
-    title: 'Adding a finish',
-    action: { click: 'New value', dialog: true },
-  },
-  { file: '16-masters-brands', route: '/masters?tab=brands', title: 'Brands' },
-  { file: '17-masters-manufacturers', route: '/masters?tab=manufacturers', title: 'Manufacturers' },
-  { file: '15-masters-prices', route: '/masters?tab=prices', title: 'Price lists' },
-
-  // --- engineering --------------------------------------------------------
-  { file: '20-items', route: '/items', title: 'Item master' },
-  { file: '21-item-new', route: '/items', title: 'Creating an item', action: { click: 'New item', dialog: true } },
-  { file: '22-item-detail', route: '@item', title: 'An item in detail' },
-  { file: '23-bom', route: '/bom', title: 'Bills of material' },
-  { file: '24-bom-detail', route: '@bom', title: 'A bill of material' },
-  { file: '25-routing', route: '/routing', title: 'Routings, work centres and machines' },
-
-  // --- sales --------------------------------------------------------------
-  { file: '30-sales-orders', route: '/sales-orders', title: 'Sales orders' },
-  { file: '31-sales-order-detail', route: '@salesOrder', title: 'A sales order' },
-  { file: '32-customers', route: '/customers', title: 'Customers' },
-  { file: '33-dealers', route: '/dealers', title: 'Dealers' },
-  { file: '34-mrp', route: '/mrp', title: 'Material planning' },
-
-  // --- procurement --------------------------------------------------------
-  { file: '40-requisitions', route: '/procurement/requisitions', title: 'Purchase requisitions' },
-  { file: '41-rfqs', route: '/procurement/rfqs', title: 'Requests for quotation' },
-  { file: '42-quotations', route: '/procurement/quotations', title: 'Vendor quotations' },
-  { file: '43-purchase-orders', route: '/procurement/purchase-orders', title: 'Purchase orders' },
-  { file: '44-purchase-order-detail', route: '@purchaseOrder', title: 'A purchase order' },
-  { file: '45-goods-receipts', route: '/procurement/goods-receipts', title: 'Goods receipts' },
-  { file: '46-purchase-returns', route: '/procurement/purchase-returns', title: 'Purchase returns' },
-  { file: '47-vendors', route: '/vendors', title: 'Vendors' },
-  { file: '48-transporters', route: '/transporters', title: 'Transporters' },
-
-  // --- production ---------------------------------------------------------
-  { file: '50-production', route: '/production', title: 'Production orders' },
-  { file: '51-production-detail', route: '@production', title: 'A production order' },
-  { file: '52a-shift-roster', route: '/production/shift-roster', title: 'Shift roster' },
-  { file: '52b-planning', route: '/production/planning', title: 'Production planning' },
-  { file: '52-work-orders', route: '/production/work-orders', title: 'Work orders' },
-  { file: '53-assembly', route: '/assembly', title: 'Assembly' },
-  { file: '54-job-work', route: '/job-work', title: 'Job work' },
-  { file: '55-job-work-detail', route: '@jobWork', title: 'A job work order' },
-
-  // --- quality, packing, dispatch ----------------------------------------
-  { file: '60-quality', route: '/quality', title: 'Quality inspections' },
-  { file: '61-quality-templates', route: '/quality/templates', title: 'Inspection check sheets' },
-  { file: '62-packing', route: '/packing', title: 'Packing' },
-  { file: '63-dispatch', route: '/dispatch', title: 'Dispatch' },
-
-  // --- inventory ----------------------------------------------------------
-  { file: '70-inventory', route: '/inventory', title: 'Stock balances' },
-  { file: '71-inventory-ledger', route: '/inventory/ledger', title: 'Stock ledger' },
-  { file: '72-reservations', route: '/inventory/reservations', title: 'Reservations' },
-  { file: '73-movements', route: '/inventory/movements', title: 'Transfers, adjustments and counts' },
-  { file: '73a-tracking', route: '/inventory/tracking', title: 'Batch and serial tracking' },
-  { file: '74-warehouses', route: '/warehouses', title: 'Warehouses' },
-  { file: '75-locations', route: '/warehouses/locations', title: 'Storage locations' },
-
-  // --- money and evidence -------------------------------------------------
-  { file: '80-finance', route: '/finance', title: 'Finance overview', settle: 2500 },
-  { file: '81a-sales-invoices', route: '/finance/sales-invoices', title: 'Sales invoices' },
-  { file: '81-vendor-invoices', route: '/finance/vendor-invoices', title: 'Vendor invoices' },
-  { file: '82-payments', route: '/finance/payments', title: 'Payments' },
-  { file: '83-accounts', route: '/finance/accounts', title: 'Chart of accounts' },
-  { file: '84-reports', route: '/reports', title: 'Reports' },
-  { file: '85-audit', route: '/audit', title: 'Audit trail' },
-  { file: '86-documents', route: '/documents', title: 'Documents' },
-
-  // --- administration -----------------------------------------------------
-  { file: '90-users', route: '/admin/users', title: 'Users and roles' },
-  { file: '91-organisation', route: '/admin/organisation', title: 'Branches, plants and departments' },
-  { file: '91b-cost-centres', route: '/admin/organisation?tab=cost-centres', title: 'Cost centres' },
-  { file: '91c-settings', route: '/admin/settings', title: 'Settings' },
-  { file: '92-notifications', route: '/notifications', title: 'Notifications' },
-  { file: '93-profile', route: '/profile', title: 'Your profile' },
-]
-
-/**
- * The first row's link on a list screen.
- *
- * Reached by opening the list and reading its links rather than by asking the
- * API: the application holds its access token in memory and sends it as a
- * bearer header, so a `fetch` from inside the page carries no credentials and
- * answers 401. Clicking through is also what a person does, which makes this
- * the same path the screenshot is meant to illustrate.
- */
-async function firstRowHref(listRoute, prefix) {
-  await navigate(listRoute)
-  await page.waitForTimeout(2200)
-  const hrefs = await page
-    .locator(`main a[href^="${prefix}/"]`)
-    .evaluateAll((links) => links.map((link) => link.getAttribute('href')))
-  return hrefs.find(Boolean) ?? null
+const PUBLIC = ['/login', '/forgot-password', '/reset-password']
+const DETAIL_LISTS = {
+  '/items/:id': ['/items', '/items/'],
+  '/bom/:id': ['/bom', '/bom/'],
+  '/sales-orders/:id': ['/sales-orders', '/sales-orders/'],
+  '/mrp/runs/:id': ['/mrp', '/mrp/runs/'],
+  '/procurement/purchase-orders/:id': [
+    '/procurement/purchase-orders',
+    '/procurement/purchase-orders/',
+  ],
+  '/procurement/rfqs/:id': ['/procurement/rfqs', '/procurement/rfqs/'],
+  '/production/:id': ['/production', '/production/'],
+  '/job-work/:id': ['/job-work', '/job-work/'],
 }
+const API_PATH = new URL(API_URL).pathname.replace(/\/$/, '')
+const SESSION_ACTIONS = ['login', 'refresh', 'logout']
+const authPath = (action) => `${API_PATH}/auth/${action}`
+const canonical = (route) => handbookRouteShape(route.split('?')[0])
+const allowsRequest = (method, pathname, apiPath = API_PATH) =>
+  ['GET', 'HEAD', 'OPTIONS'].includes(method) ||
+  (method === 'POST' && SESSION_ACTIONS.some((action) => pathname === `${apiPath}/auth/${action}`))
 
-const browser = await chromium.launch()
-const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2 })
-const page = await context.newPage()
-
-// --- sign in, and capture the login screen on the way through --------------
-await mkdir(OUT, { recursive: true })
-/**
- * Sign in. Called again whenever the walk lands back on the login screen.
- *
- * It does land back there. An access token lives fifteen minutes and this walk
- * takes longer, and every screen here is a FULL page load rather than a click
- * through the app - so each one restores the session from the refresh cookie,
- * and refresh tokens rotate. Rather than reason about which of those races is
- * the one that bites, the walk simply notices it is on /login and signs in
- * again. A fresh sign-in issues a fresh token family, so it cannot compound.
- *
- * The first run of this missed it entirely: thirty-two of fifty-three
- * screenshots were the login page, all byte-identical, and the run reported
- * "53 captured, 0 skipped".
- */
-async function signIn() {
-  await page.goto(`${BASE_URL}/login`)
-  await page.getByRole('button', { name: /sign in/i }).waitFor({ timeout: 30_000 })
-  await page.getByLabel('Email').fill(ADMIN_EMAIL)
-  await page.locator('input[type="password"]').first().fill(ADMIN_PASSWORD)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 })
-  await page.getByRole('radiogroup', { name: 'Theme' }).waitFor({ timeout: 30_000 })
+const content = JSON.parse(await readFile(path.join(HANDBOOK, 'content.json'), 'utf8'))
+const screens = content.chapters
+  .flatMap((chapter) => chapter.screens)
+  .map((screen, index) => ({
+    route: screen.route,
+    title: screen.title,
+    file:
+      screen.route === '/login'
+        ? '00-login.png'
+        : `screen-${String(index + 1).padStart(3, '0')}-${screen.route.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'dashboard'}.png`,
+  }))
+const registry = await readFile(
+  new URL('../../../apps/web/src/app/route-loaders.ts', import.meta.url),
+  'utf8',
+)
+const registered = [...registry.matchAll(/^\s*'([^']+)':\s*\(\)\s*=>/gm)].map((match) => match[1])
+if (!registered.length) throw new Error('No routes found in the application registry.')
+const described = new Set(screens.map((screen) => canonical(screen.route)))
+for (const route of [...registered, ...PUBLIC]) {
+  if (!described.has(canonical(route))) throw new Error(`Handbook is missing ${route}`)
 }
-
-/**
- * Wait until the page has decided what it is, then say which.
- *
- * The decision cannot be taken the moment navigation returns. On a full page
- * load this application renders the sign-in screen while it restores the
- * session from the refresh cookie, and only then redirects - so a check that
- * runs immediately sees the login form on EVERY screen. The first attempt at
- * this signed in again on all fifty-three and captured the flicker each time.
- *
- * So: race the two things that are mutually exclusive once the boot is over.
- * The sidebar's collapse control exists only inside the application shell; the
- * sign-in submit exists only on the login screen. The theme control is on both
- * and is useless here, which is worth saying because it is the obvious choice.
- */
-async function settleAndCheckAuth() {
-  const inApp = page.getByRole('button', { name: 'Collapse' })
-  const signInButton = page.getByRole('button', { name: /^sign in$/i })
-
-  await Promise.race([
-    inApp.waitFor({ timeout: 30_000 }).catch(() => {}),
-    signInButton.waitFor({ timeout: 30_000 }).catch(() => {}),
-  ])
-
-  return (await inApp.count()) > 0 ? 'in' : 'out'
+for (const screen of screens) {
+  if (![...registered, ...PUBLIC].some((route) => canonical(route) === canonical(screen.route)))
+    throw new Error(`Handbook route is no longer registered: ${screen.route}`)
+  if (screen.route.includes(':') && !DETAIL_LISTS[canonical(screen.route)])
+    throw new Error(`No populated detail resolver for ${screen.route}`)
 }
+if (new Set(screens.map((screen) => screen.file)).size !== screens.length)
+  throw new Error('Screenshot filenames must be unique.')
 
-await page.goto(`${BASE_URL}/login`)
-await page.getByRole('button', { name: /sign in/i }).waitFor({ timeout: 30_000 })
-await page.waitForTimeout(600)
-await page.screenshot({ path: path.join(OUT, '00-login.png') })
-console.log('  00-login')
+if (process.argv.includes('--check')) {
+  // Check the guard against the actual API surface, including future write routes.
+  const contract = JSON.parse(
+    await readFile(new URL('../../../openapi.json', import.meta.url), 'utf8'),
+  )
+  const contractLogin = Object.keys(contract.paths).find((route) => route.endsWith('/auth/login'))
+  if (!contractLogin) throw new Error('The API contract has no session login route.')
+  const contractPrefix = contractLogin.slice(0, -'/auth/login'.length)
+  let guardedWrites = 0
+  for (const [pathname, operations] of Object.entries(contract.paths)) {
+    const configuredPath = pathname.startsWith(`${contractPrefix}/`)
+      ? `${API_PATH}${pathname.slice(contractPrefix.length)}`
+      : pathname
+    for (const method of ['post', 'put', 'patch', 'delete']) {
+      if (
+        !operations[method] ||
+        (method === 'post' && SESSION_ACTIONS.some((action) => configuredPath === authPath(action)))
+      )
+        continue
+      if (allowsRequest(method.toUpperCase(), configuredPath))
+        throw new Error(`Capture permits a business write: ${method} ${configuredPath}`)
+      guardedWrites++
+    }
+  }
+  const customPrefix = '/offline-custom-prefix'
+  if (
+    !guardedWrites ||
+    !allowsRequest('GET', `${API_PATH}/products/items`) ||
+    !allowsRequest('POST', authPath('login')) ||
+    allowsRequest('POST', authPath('change-password')) ||
+    !allowsRequest('POST', `${customPrefix}/auth/login`, customPrefix) ||
+    allowsRequest('POST', `${customPrefix}/sales`, customPrefix) ||
+    allowsRequest('POST', `${customPrefix}/auth/change-password`, customPrefix) ||
+    allowsRequest('POST', '/api/v1/auth/login', customPrefix)
+  )
+    throw new Error('Capture request guard validation failed.')
+  console.log(
+    `${screens.length} handbook views cover ${registered.length} application routes and ${PUBLIC.length} public routes; ${guardedWrites} non-session API writes blocked.`,
+  )
+} else {
+  const browser = await chromium.launch()
+  const captured = []
+  const skipped = []
+  const resolved = new Map()
+  const hashes = new Map()
+  let context
 
-await signIn()
+  async function protectedContext() {
+    const next = await browser.newContext({
+      viewport: VIEWPORT,
+      deviceScaleFactor: 2,
+    })
+    // Authentication sessions may be created/refreshed. Everything else is read-only,
+    // including password changes, marking notifications read and document submission.
+    await next.route('**/*', async (route) => {
+      const request = route.request()
+      if (!allowsRequest(request.method(), new URL(request.url()).pathname)) {
+        skipped.push(`Blocked write: ${request.method()} ${new URL(request.url()).pathname}`)
+        await route.abort('blockedbyclient')
+      } else await route.continue()
+    })
+    return next
+  }
 
-// --- resolve the detail routes from real data ------------------------------
-const details = {
-  '@item': '/items',
-  '@bom': '/bom',
-  '@salesOrder': '/sales-orders',
-  '@purchaseOrder': '/procurement/purchase-orders',
-  '@production': '/production',
-  '@jobWork': '/job-work',
-}
-const resolved = {}
-for (const [token, listRoute] of Object.entries(details)) {
-  resolved[token] = await firstRowHref(listRoute, listRoute)
-  if (!resolved[token]) console.log(`  (no row on ${listRoute} - that screen will be skipped)`)
-}
-
-// --- walk every screen ------------------------------------------------------
-const captured = []
-const skipped = []
-let previousRoute = null
-
-for (const screen of SCREENS) {
-  const route = screen.route.startsWith('@') ? resolved[screen.route] : screen.route
-  if (!route) {
-    skipped.push(`${screen.file} (${screen.route}: no data)`)
-    continue
+  async function photograph(page, screen, route, state) {
+    const errors = await errorToastFailures(page)
+    if (errors.length) throw new Error(errors.join('; '))
+    const bytes = await page.screenshot({ path: path.join(OUT, screen.file) })
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    hashes.set(digest, [...(hashes.get(digest) ?? []), screen.route])
+    captured.push({
+      file: screen.file,
+      route,
+      template: screen.route,
+      title: screen.title,
+      ...(state ? { state } : {}),
+    })
+    console.log(`  ${screen.route}`)
   }
 
   try {
-    // Navigating to the URL already open is not a navigation, so the screen
-    // never remounts and a control the capture is waiting for is never
-    // re-rendered. Two screens here deliberately revisit the previous route to
-    // open a dialog on it, and both timed out until this reload was added.
-    // A screen that opens a dialog on the route already showing needs the
-    // route re-entered, so it goes via the dashboard rather than reloading.
-    if (route === previousRoute) await navigate('/')
-    await navigate(route)
-    previousRoute = route
-
-    if (!(await isInApp())) {
-      console.log('  (signed out - signing in again)')
-      await signIn()
-      await navigate(route)
-    }
-    // The lazy chunk mounts, then the screen's first query paints. There is no
-    // single signal for "done" that holds across 50 different screens, so this
-    // is a settle time rather than a condition - and a generous one, because a
-    // half-drawn table in a client handbook is worse than a slow capture.
-    await page.waitForTimeout(screen.settle ?? 1800)
-
-    if (screen.action?.click) {
-      const button = page.getByRole('button', { name: screen.action.click }).first()
-      await button.waitFor({ timeout: 40_000 })
-      await button.click()
-      if (screen.action.dialog) await page.getByRole('dialog').waitFor({ timeout: 20_000 })
-      await page.waitForTimeout(1200)
+    await mkdir(OUT, { recursive: true })
+    const publicContext = await protectedContext()
+    try {
+      const page = await publicContext.newPage()
+      for (const screen of screens.filter((screen) => PUBLIC.includes(screen.route))) {
+        // A non-secret preview token displays the form without requesting or using
+        // a real reset link. The form is never submitted and writes are blocked.
+        const route =
+          screen.route === '/reset-password'
+            ? '/reset-password#token=handbook-preview-only'
+            : screen.route
+        await page.goto(`${BASE_URL}${route}`, { waitUntil: 'networkidle' })
+        await page.locator('main').getByRole('heading').first().waitFor()
+        await photograph(
+          page,
+          screen,
+          screen.route,
+          screen.route === '/reset-password'
+            ? 'Unsubmitted form with a non-secret preview token'
+            : undefined,
+        )
+      }
+    } finally {
+      await publicContext.close()
     }
 
-    await page.screenshot({ path: path.join(OUT, `${screen.file}.png`) })
-    captured.push({ file: `${screen.file}.png`, route, title: screen.title })
-    console.log(`  ${screen.file}`)
+    context = await protectedContext()
+    const page = await context.newPage()
+    const { navigate, settle } = createNavigator(page)
+    const failures = []
+    page.on('pageerror', (error) => failures.push(`render: ${error.message}`))
+    page.on('response', (response) => {
+      if (response.status() >= 400 && new URL(response.url()).pathname.startsWith(`${API_PATH}/`))
+        failures.push(`HTTP ${response.status()} ${new URL(response.url()).pathname}`)
+    })
+    const loginResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === authPath('login') &&
+        response.request().method() === 'POST',
+    )
+    await signInThroughForm(page)
+    const login = await (await loginResponse).json()
+    const identityResponse = await page.request.get(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${login.data.access_token}` },
+    })
+    if (!identityResponse.ok()) throw new Error('Cannot read the capture account identity.')
+    const identity = await identityResponse.json()
+    await settle()
 
-    if (screen.action?.dialog) {
-      // Wait for it to actually be gone, not merely asked to go. Radix marks
-      // the rest of the page aria-hidden while a modal is open, so `main` is
-      // not *visible* until the close finishes - and the next screen's
-      // `waitFor` then times out against a page that is perfectly fine. That
-      // cost the two screens following a dialog on three separate runs.
-      await page.keyboard.press('Escape')
-      await page.getByRole('dialog').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {})
+    for (const screen of screens.filter((screen) => !PUBLIC.includes(screen.route))) {
+      failures.length = 0
+      try {
+        if (screen.route === '/change-password') {
+          const forced = await protectedContext()
+          try {
+            const forcedPage = await forced.newPage()
+            await forcedPage.route(`**${authPath('me')}`, (route) =>
+              route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                  ...identity,
+                  data: { ...identity.data, must_change_password: true },
+                }),
+              }),
+            )
+            await signInThroughForm(forcedPage, {
+              allowTemporaryPassword: true,
+            })
+            await forcedPage.getByRole('heading', { name: 'Choose a new password' }).waitFor()
+            await photograph(
+              forcedPage,
+              screen,
+              screen.route,
+              'Restricted identity simulated in this browser; password unchanged',
+            )
+          } finally {
+            await forced.close()
+          }
+          continue
+        }
+        let route = screen.route
+        if (route.includes(':')) {
+          const key = canonical(route)
+          if (!resolved.has(key)) {
+            const [listRoute, prefix] = DETAIL_LISTS[key]
+            await navigate(listRoute)
+            const hrefs = await page
+              .locator(`main a[href^="${prefix}"]`)
+              .evaluateAll((links) => links.map((link) => link.getAttribute('href')))
+            resolved.set(
+              key,
+              hrefs.find((href) =>
+                /^[0-9a-f-]{20,}$/i.test(href.slice(prefix.length).split('/')[0]),
+              ),
+            )
+            if (!resolved.get(key) && key === '/procurement/rfqs/:id') {
+              // RFQ codes are spans: this verified first-cell row handler only
+              // navigates to its detail page. Do not click an actions menu.
+              const firstCell = page
+                .locator('main table tbody tr.cursor-pointer')
+                .first()
+                .locator('td')
+                .first()
+              if (await firstCell.count()) {
+                await firstCell.click()
+                await page.waitForURL(
+                  (url) =>
+                    url.pathname.startsWith(prefix) &&
+                    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                      url.pathname.slice(prefix.length),
+                    ),
+                )
+                await settle()
+                resolved.set(key, new URL(page.url()).pathname)
+              }
+            }
+          }
+          const detailRoute = resolved.get(key)
+          if (!detailRoute) throw new Error(`No populated detail fixture for ${screen.route}`)
+          route = resolveHandbookDetailRoute(screen.route, detailRoute)
+        }
+        await navigate(route)
+        if (failures.length) throw new Error(failures.join('; '))
+        await photograph(page, screen, route)
+      } catch (error) {
+        skipped.push(`${screen.route}: ${String(error).split('\n')[0]}`)
+        console.error(`  FAILED ${screen.route}`)
+      }
     }
-  } catch (error) {
-    skipped.push(`${screen.file} (${route}: ${String(error).split('\n')[0].slice(0, 100)})`)
-    console.log(`  SKIPPED ${screen.file}`)
+    const duplicates = [...hashes.values()].filter((routes) => routes.length > 2)
+    for (const routes of duplicates) skipped.push(`Identical screenshots: ${routes.join(', ')}`)
+    await writeFile(
+      path.join(OUT, 'index.json'),
+      JSON.stringify(
+        {
+          capturedAt: new Date().toISOString(),
+          registeredRoutes: registered.length,
+          expectedViews: screens.length,
+          captured,
+          skipped,
+        },
+        null,
+        2,
+      ) + '\n',
+    )
+    console.log(`${captured.length}/${screens.length} views captured; ${skipped.length} failures.`)
+    if (skipped.length || captured.length !== screens.length) process.exitCode = 1
+  } finally {
+    await context?.close()
+    await browser.close()
   }
-}
-
-await writeFile(path.join(OUT, 'index.json'), JSON.stringify({ captured, skipped }, null, 2))
-await browser.close()
-
-console.log(`\n${captured.length} screens captured, ${skipped.length} skipped`)
-for (const s of skipped) console.log('  -', s)
-
-// A screenshot of the login page is a silent failure: the file exists, the run
-// reports success, and the handbook ships with the same picture on thirty
-// pages. Identical byte lengths are the tell, so the run fails on them.
-const { readdir, stat } = await import('node:fs/promises')
-const sizes = new Map()
-for (const file of (await readdir(OUT)).filter((f) => f.endsWith('.png') && f !== '00-login.png')) {
-  const { size } = await stat(path.join(OUT, file))
-  sizes.set(size, [...(sizes.get(size) ?? []), file])
-}
-const duplicates = [...sizes.values()].filter((files) => files.length > 2)
-if (duplicates.length) {
-  console.log('\nIDENTICAL CAPTURES - these are almost certainly the same page:')
-  for (const files of duplicates) console.log(`  ${files.length}x  ${files.slice(0, 6).join(', ')}`)
-  process.exit(1)
 }

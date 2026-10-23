@@ -1,5 +1,9 @@
 # Master plan: make every proposal item present (ATCRAFT)
 
+> Historical lane schedule. Work-package requirements remain acceptance references;
+> the lane paths, branch targets and timing below describe the original build.
+> Use the [current contributing workflow](../../../README.md#contributing) for new work.
+
 The goal (from the user): fix the Cursor audit points **and** make sure *each and everything* in "Atcraft Manufacturing ERP Development.pdf" is present. The PDF is transcribed in `PDF-CHECKLIST.md`.
 
 The traceability audit (2026-10-11, 477 items, against main `cdac4e0`) found:

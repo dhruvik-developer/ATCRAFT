@@ -37,8 +37,8 @@ key rotation.
 Three properties worth stating explicitly:
 
 - **Permissions are not in the token.** They are resolved per request from the
-  database, Redis-cached with explicit invalidation. Revoking someone's approval
-  right takes effect immediately rather than at the next token expiry.
+  database, including roles, direct grants and denials. Revoking someone's
+  approval right takes effect on the next request rather than at token expiry.
 - **Refresh tokens rotate.** Each refresh revokes the presented session and
   issues a successor, linked by `replaced_by_id`. Presenting an already-replaced
   token is treated as replay: the whole session chain is revoked and audited.
@@ -79,7 +79,7 @@ restriction.
   secret and a provisioning URI once. The seed is inactive until `confirm`
   proves a code from the authenticator; confirming ends the user's other
   sessions.
-- Disabling needs the password *and* a current code, because success turns a
+- Disabling needs the password _and_ a current code, because success turns a
   stolen access token into a permanently MFA-free account. A wrong password
   here is throttled and counted like a failed sign-in.
 - With MFA enabled, `POST /auth/login` issues no tokens. It returns
@@ -97,9 +97,10 @@ restriction.
   `CREDENTIAL_ENCRYPTION_KEY` invalidates every one of them - those users
   answer `MFA_INVALID` until they re-enrol. Back the key up with the database.
 - `decrypt_totp_secret` still accepts the original plaintext Base32 shape and
-  re-encrypts it on the next successful verification (revision
-  `a4f7c29d8e11`). A plaintext row during a rolling upgrade is expected, not
-  corruption.
+  re-encrypts it on the next successful verification. The original schema change
+  is included in the squashed baseline; see the
+  [migration bridge](implementation/migration-squash-20261021.md) for older
+  installations. A legacy plaintext row is handled as an upgrade case.
 - A completed password reset disables MFA: mailbox recovery must also recover
   an account whose authenticator was lost. The user enrols again afterwards.
 - `mfa_secret` is on the log-redaction list in `core/logging.py`.
@@ -110,7 +111,7 @@ stores only a SHA-256 digest of a 32-byte token in `password_reset_tokens`
 (60-minute expiry, earlier tokens superseded), encrypts a delivery copy under
 the `password-reset-delivery` purpose of `CREDENTIAL_ENCRYPTION_KEY`, and hands
 it to a Celery task; the worker decrypts it and sends a link built on
-`PUBLIC_WEB_URL`. The token travels in that link's URL *fragment*
+`PUBLIC_WEB_URL`. The token travels in that link's URL _fragment_
 (`/reset-password#token=...`), which a browser never sends to the server, so it
 reaches neither the API's request log nor either nginx's access log; the reset
 page reads it from the fragment and scrubs it from history. Redeeming it
@@ -124,7 +125,7 @@ refuses to boot a deployed process without `EMAIL_PROVIDER=smtp`, an HTTPS
 public endpoint must never claim a link was sent when nothing can deliver it.
 
 **Lockout and rate limiting.** Five failed attempts lock an account for 15
-minutes (configurable). Login is additionally rate-limited per email *and* per IP
+minutes (configurable). Login is additionally rate-limited per email _and_ per IP
 — per-IP alone is useless against a credential-stuffing run behind rotating
 proxies, and per-email alone lets one host walk the whole user list.
 
@@ -141,8 +142,9 @@ returns the same generic success message either way.
 User → Roles → Permissions → Resource.Action
 ```
 
-`src/core/permissions.py` holds the registry — roughly 180 `resource.action`
-strings. Roles bundle them; users may additionally carry direct grants and
+`src/core/permissions.py` holds the `resource.action` registry, mirrored by the
+frontend permission catalogue and checked by unit tests. Roles bundle its
+permissions; users may additionally carry direct grants and
 direct denials, and **denials always win**, so "this buyer may not approve
 payments" cannot be undone by adding another role.
 
@@ -221,8 +223,7 @@ module remembering to filter by vendor:
    assigned to it by name (docs/assumptions.md §56). Receipts, consignments,
    files and PDF jobs are reached through those orders; bills and payments carry
    the vendor's id, and the finance repositories add the vendor filter for a
-   vendor principal. Another vendor's order, file, receipt, job or bill answers
-   404.
+   vendor principal. Another vendor's order, file, receipt, job or bill answers 404.
 5. **Allow-listed responses.** Portal read models name their fields. The buyer's
    notes, duplicate-override reasons, approval comments, source links, cost
    centres and invoice-approval notes are not in them.
@@ -286,6 +287,12 @@ the vendor portal's, decision for decision:
 Pydantic v2 validates every request body, query parameter and path parameter.
 Constraints are declared on the schema, not checked ad hoc in handlers.
 
+Shared query binding translates model-level failures into the same typed error
+envelope as body validation. Client errors contain safe field messages without
+echoing rejected input values or validator internals; unknown HTTP errors and
+unexpected exceptions use the shared public messages. See
+[API conventions](api.md) for status codes and response contracts.
+
 Beyond that, the database carries the invariants that must hold regardless of
 which code path writes: non-negative stock, `reserved <= on_hand`,
 `allocated <= reserved`, balanced journal entries, quantity dispositions summing
@@ -316,10 +323,17 @@ into `ORDER BY`.
   `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`;
 - SHA-256 checksum stored on upload.
 
+The ASGI request-body limit counts received bytes even when `Content-Length`
+is absent or incorrect. Multipart resources and partially written files are
+closed or removed on validation failure, transaction failure and request
+cancellation. Upload verification covers allowed content types; it is not an
+antivirus scan.
+
 Filesystem paths are never exposed. Nothing is served from a public directory.
 
-> **Known gap.** No malware scanning. Worth adding (ClamAV sidecar) if vendors
-> are given upload access from outside the network.
+> **Known gap.** No malware scanning. Authorized vendor portal uploads use the
+> same validation and private storage, but file-content validation does not
+> provide malware detection.
 
 ---
 
@@ -347,10 +361,10 @@ ahead of every other middleware.
 
 Two layers, because they see different things.
 
-| Layer | Keyed on | Catches |
-|---|---|---|
-| Nginx | client IP | volumetric floods, before they reach Python |
-| Application | account, then IP | targeted attacks that look fine per-IP |
+| Layer       | Keyed on         | Catches                                     |
+| ----------- | ---------------- | ------------------------------------------- |
+| Nginx       | client IP        | volumetric floods, before they reach Python |
+| Application | account, then IP | targeted attacks that look fine per-IP      |
 
 Named policies (`RateLimitPolicy`) give expensive operations their own budget:
 login, password reset, refresh, MRP runs, report exports, uploads, bulk imports.
@@ -365,19 +379,19 @@ authentication offline, and Nginx still provides a floor.
 
 ### Sizing, and why the two layers are set so differently
 
-A client address is a *site*, not a person: every user in the plant reaches the
+A client address is a _site_, not a person: every user in the plant reaches the
 ERP from one NAT address. So the Nginx layer cannot be a fair per-user budget,
 and sizing it as though it were is how you end up refusing the busiest, most
 legitimate office on the network. Fairness belongs to the application layer,
 which knows the authenticated user and can be both strict and fair.
 
-| Budget | Value | Keyed on | Reasoning |
-|---|---|---|---|
-| `api_general` (Nginx, both layers) | 3000 r/m, burst 300 | address | An office of 50 doing ~30 req/min of real navigation is 1500 r/m; this is twice that, and still an order of magnitude below a scraper. |
-| `api_auth` (Nginx) | 60 r/m, burst 30 | address | Deliberately looser than the application's own login budget, so that budget is the one that binds. |
-| `RATE_LIMIT_DEFAULT_PER_MINUTE` | 300 | authenticated user | A detail page fires ~5 queries and a dialog on it ~5 more, so a clerk moving through 15 documents a minute spends ~150. |
-| `RATE_LIMIT_AUTH_PER_MINUTE` | 20 (100 per 5-min window) | address | A shift change is 50 people signing in inside one window, some twice. Caps account *spraying* at 20 attempts a minute. |
-| `LOGIN_PER_EMAIL` | 5 per 5 min | account | Fixed security constant. This, with the lockout, is what stops credential stuffing — not the per-address budget. |
+| Budget                             | Value                     | Keyed on           | Reasoning                                                                                                                              |
+| ---------------------------------- | ------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `api_general` (Nginx, both layers) | 3000 r/m, burst 300       | address            | An office of 50 doing ~30 req/min of real navigation is 1500 r/m; this is twice that, and still an order of magnitude below a scraper. |
+| `api_auth` (Nginx)                 | 60 r/m, burst 30          | address            | Deliberately looser than the application's own login budget, so that budget is the one that binds.                                     |
+| `RATE_LIMIT_DEFAULT_PER_MINUTE`    | 300                       | authenticated user | A detail page fires ~5 queries and a dialog on it ~5 more, so a clerk moving through 15 documents a minute spends ~150.                |
+| `RATE_LIMIT_AUTH_PER_MINUTE`       | 20 (100 per 5-min window) | address            | A shift change is 50 people signing in inside one window, some twice. Caps account _spraying_ at 20 attempts a minute.                 |
+| `LOGIN_PER_EMAIL`                  | 5 per 5 min               | account            | Fixed security constant. This, with the lockout, is what stops credential stuffing — not the per-address budget.                       |
 
 Two of these were previously set as though the address budget were the fairness
 control: `api_general` at 120 r/m refused a single operator working properly, and
@@ -386,7 +400,7 @@ change — before their password was ever checked, which from the floor is
 indistinguishable from the ERP being down.
 
 When raising the per-address login budget, note what it does and does not
-defend. It bounds how many *different* accounts one address may try. It is not
+defend. It bounds how many _different_ accounts one address may try. It is not
 what stops one account being guessed repeatedly; `LOGIN_PER_EMAIL` and the
 account lockout do that, and both are fixed constants that no deployment tunes.
 
@@ -429,9 +443,16 @@ secrets, PAN, Aadhaar, bank and card fields — recursively, before any record i
 emitted. It does not rely on call sites remembering.
 
 Errors returned to clients carry a stable code, a usable message and the
-correlation id. Never a stack trace, never a SQL fragment, never a constraint or
-table name. Constraint violations are translated into business language by
-`exception_handlers.py`.
+correlation id. Never a stack trace, SQL fragment, constraint or table name.
+Constraint violations and transient PostgreSQL failures are translated into
+safe business or retryable errors by `exception_handlers.py`; unexpected errors
+are logged with their context and receive the shared generic response.
+
+Incoming request IDs are accepted only when they are at most 64 ASCII
+alphanumeric, hyphen, underscore or dot characters; otherwise the server
+generates an ID. Client IP candidates must parse as an IP address before they
+can enter logs or the audit table. Nginx overwrites proxy headers at the trusted
+edge; these format checks do not establish the identity of an untrusted proxy.
 
 ---
 
@@ -564,8 +585,11 @@ API responses or act as an offline ERP proxy.
 
 Encryption and VAPID follow [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291.html)
 and [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292.html). The deterministic VAPID
-key uses a separate HMAC purpose from the root credential key; rotating that root
-requires browsers to re-subscribe unless an explicit VAPID key is configured.
+key uses a separate HMAC purpose from the root credential key. An explicit VAPID
+key keeps that browser-facing identity independent, but stored subscription
+payloads are still encrypted under the root. Root-key rotation therefore also
+requires a deliberate re-encryption procedure or new device subscriptions; a
+stable VAPID key alone does not recover old ciphertext.
 
 ## Warehouse assignments on stock documents and movements (A02/A03)
 

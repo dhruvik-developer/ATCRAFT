@@ -1,5 +1,9 @@
 # Area map: masters and pricing (gaps 5 and 6, plus dealer pricing)
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 Paths are relative to `C:\Project\Other\ATCRAFT\apps\api\` for the backend and `C:\Project\Other\ATCRAFT\apps\web\src\` for the frontend, unless stated otherwise. The current Alembic head is `2f5e08c7ba61` (`migrations/versions/20260906_0902_grant_item_attribute_permissions.py`), so the next migration has `down_revision = "2f5e08c7ba61"`.
 
 **Checking the audit's claims for this area:**

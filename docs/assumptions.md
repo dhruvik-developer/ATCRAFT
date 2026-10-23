@@ -201,9 +201,10 @@ same independently rounded CGST/SGST halves as the sales order.
 
 **Assumed.** Reservations are released automatically when their demand document
 is cancelled. A scheduled job releases reservations whose demand has been
-inactive past `expires_at`. Reallocation of a `HARD` reservation always requires
-an approved `ReallocationRequest`; `SOFT` reservations may be taken by a
-higher-priority demand without approval.
+inactive past `expires_at`. Reallocation of either a `HARD` or `SOFT`
+reservation currently requires an approved `ReallocationRequest` and a separate
+approver. The SOFT classification does not bypass approval; automatic preemption
+would require an explicit policy and implementation change.
 
 **Why.** Stale reservations make MRP over-order, which is expensive. The
 hard/soft distinction is what the master rules provide for expressing "this one
@@ -1438,8 +1439,11 @@ result reports them instead; the requisition then stays partly ordered.
 the requisition line's `estimated_unit_price`, and
 `item_vendor_links.last_purchase_price` for that item and the resolved vendor.
 Never the item's `standard_cost`. A zero is a price. No price is an unresolved
-line. Converted orders are raised in the company's currency
-(`DEFAULT_CURRENCY`).
+line. Converted orders currently use the fixed `DEFAULT_CURRENCY` constant
+(`INR`), including their duplicate-order lookup, rather than loading the
+company's saved currency. This is a limitation for companies configured in
+another denomination; changing the environment setting with the same name does
+not change that constant or apply currency conversion.
 
 **Why.** `standard_cost` is what the company values the item at, not a price any
 vendor offered; a purchase order printed at it would put an internal costing
@@ -2850,23 +2854,24 @@ on inventory-adjacent data and needs a decision, not a query tweak.
 
 ---
 
-## §C3-10. Overdue invoices wait for sales invoicing
+## §C3-10. Dealer overdue invoice details await a portal projection
 
 **Assumed.** `GET /outstanding` returns the receivables ageing for the dealer
 (overdue = total less not-due, oldest due date, open document count) with an
-empty `overdue_invoices` list: sales invoices are not in this release, so
-there is no invoice document to name, and the FIFO-netted ageing is the
-overdue position.
+empty `overdue_invoices` list. Sales invoices are implemented, but this portal
+response does not yet project their individual outstanding balances. The
+ledger-based ageing remains the returned overdue position; an empty list does
+not mean the dealer has no issued or overdue invoices.
 
 **Why.** A placeholder row inventing invoice numbers would be mistaken for a
-receivable that exists; the ageing is the honest position until invoicing
-lands.
+receivable that exists. A tenant- and dealer-scoped invoice projection must be
+implemented before exposing invoice-level details here.
 
 **Where.** `src/modules/dealer_portal/service.py` - `outstanding`;
 `src/modules/dealer_portal/schemas.py` - `DealerOutstanding`.
 
-**Impact if wrong.** When sales invoices land, the list names them per the
-finance overdue shape.
+**Impact if wrong.** Dealer invoice-level overdue details require a new scoped
+projection; the present empty list must not be treated as an absence of debt.
 
 ---
 
@@ -3597,8 +3602,10 @@ module is used in production:
    `src/modules/inventory/service.py`) pending the business decision; there is
    no setting for it, and the OpenAPI description of `POST /inventory/adjustments`
    says so.
-3. **Multi-currency.** Everything is INR today. Are imports or exports priced in
-   another currency?
+3. **Multi-currency.** Companies have a configurable currency; customer orders,
+   invoices and credit flows use that company currency. Vendor documents can
+   carry other currencies, and reports keep denominations separate. Which FX
+   conversion, settlement and consolidated-reporting policies are required?
 4. **Batch and shelf life.** Which item groups genuinely require batch tracking?
    The current rule is blocking, not advisory: an expired or quarantined lot
    cannot be issued, and the daily sweep warns 30 days before expiry and marks

@@ -84,7 +84,8 @@ from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
 #: ISO-4217 alphabetic currency codes.
 
-#: Everything is INR today (docs/assumptions.md, open question 3).
+#: Customer postings use company currency; vendor amounts retain their currency.
+#: Reports separate denominations without implicit FX conversion (assumptions §3).
 
 # ASSUMPTION: a vendor invoice may differ from the purchase-order price by up to
 # 2%, and from the accepted goods-receipt quantity by 0%. Price rounding and

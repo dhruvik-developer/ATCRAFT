@@ -1,5 +1,9 @@
 # Procurement and vendor portal (audit gaps 2 and 8): code map
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 Path roots used below:
 - `API` = `C:\Project\Other\ATCRAFT\apps\api\src`
 - `TESTS` = `C:\Project\Other\ATCRAFT\apps\api\tests`

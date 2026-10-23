@@ -1,5 +1,9 @@
 I have everything needed. Here is the report.
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 # Customer returns (gap 4): inventory, dispatch and quality seams
 
 > **Post-E8b note - 22 October 2026.** This report is the pre-E8b audit behind

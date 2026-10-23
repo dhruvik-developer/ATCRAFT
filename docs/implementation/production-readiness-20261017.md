@@ -9,8 +9,8 @@
 > this update does not close unrelated business findings or certify the
 > historical CI/image/production-stack gates.
 
-**Decision: the complete proposed ERP is not ready for production sign-off.**
-The current implementation has useful, tested workflows, but confirmed financial
+**Decision at the reviewed revision: the complete proposed ERP was not ready for production sign-off.**
+The reviewed implementation had useful, tested workflows, but confirmed financial
 defects, failed release gates, missing proposal capabilities and incomplete UI
 flows remain. Passing unit tests and building the web application do not close
 those gaps.
@@ -76,7 +76,7 @@ PostgreSQL probes and the actual GitHub Actions results.
 > [the E8b specification](specs/E8b-batch-serial-tracking.md) and
 > [assumptions](../assumptions.md) sections E8b-1 to E8b-3.
 
-## Release gates currently failing
+## Release gates at the reviewed revision
 
 The [CI run for the reviewed application commit](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/38987034788)
 is **failed**, with these observed results:
@@ -100,68 +100,68 @@ behavior; their passing result confirms the reproduction, not correctness.
 
 | Finding                                                        | Observed behavior                                                                                                                                                                                              | Code to fix                                                                                                                                                                                                                                                                |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cumulative credits can exceed the remaining receivable         | Invoice **2,344**, paid **2,144**: two credits of **118** are both accepted. Payments plus credits exceed the invoice by **36**. The API still reports balance **200**.                                        | [Credit validation](../../apps/api/src/modules/finance/credit_note_service.py:237) checks paid amount plus the new credit without subtracting previous issued credits; [invoice summary](../../apps/api/src/modules/finance/sales_invoice_service.py:511) ignores credits. |
-| Receipt allocation ignores issued credits                      | Invoice **2,344** with an existing **118** credit still accepts payment allocation **2,344**, producing an economic over-settlement of **118** while the API reports zero balance/PAID.                        | [Allocation validation](../../apps/api/src/modules/finance/sales_invoice_service.py:765) and [status recomputation](../../apps/api/src/modules/finance/sales_invoice_service.py:792) use gross invoice amount and payments.                                                |
-| A fully paid invoice's return cannot be received               | Receiving a non-QC return against a fully paid invoice triggers automatic crediting, which raises “Credit notes are supported only for issued or partially paid invoices.” The receipt transaction rolls back. | [Credit-note status gate](../../apps/api/src/modules/finance/credit_note_service.py:184), called by [return receipt](../../apps/api/src/modules/sales_returns/service.py:406). A paid-return/refund or customer-credit policy and implementation are required.             |
-| Manual close bypasses return QC settlement                     | A received return can be closed while its inspection is pending. Accepting that inspection afterwards leaves the return CLOSED with **zero credit notes**.                                                     | [Return close path](../../apps/api/src/modules/sales_returns/router.py:86), [transition](../../apps/api/src/modules/sales_returns/service.py:409), and [QC callback status guard](../../apps/api/src/modules/sales_returns/service.py:466).                                |
-| Cancelling a credit can leave the invoice incorrectly CREDITED | Invoice **2,344**, payment **2,226**, credit **118** becomes CREDITED. Cancelling the credit leaves it CREDITED although **118** is again due.                                                                 | [Cancellation/recomputation](../../apps/api/src/modules/finance/credit_note_service.py:397) queries issued credits before flushing the cancellation; sessions disable autoflush.                                                                                           |
+| Cumulative credits can exceed the remaining receivable         | Invoice **2,344**, paid **2,144**: two credits of **118** are both accepted. Payments plus credits exceed the invoice by **36**. The API still reports balance **200**.                                        | [Credit validation](../../apps/api/src/modules/finance/credit_note_service.py#L237) checks paid amount plus the new credit without subtracting previous issued credits; [invoice summary](../../apps/api/src/modules/finance/sales_invoice_service.py#L511) ignores credits. |
+| Receipt allocation ignores issued credits                      | Invoice **2,344** with an existing **118** credit still accepts payment allocation **2,344**, producing an economic over-settlement of **118** while the API reports zero balance/PAID.                        | [Allocation validation](../../apps/api/src/modules/finance/sales_invoice_service.py#L765) and [status recomputation](../../apps/api/src/modules/finance/sales_invoice_service.py#L792) use gross invoice amount and payments.                                                |
+| A fully paid invoice's return cannot be received               | Receiving a non-QC return against a fully paid invoice triggers automatic crediting, which raises “Credit notes are supported only for issued or partially paid invoices.” The receipt transaction rolls back. | [Credit-note status gate](../../apps/api/src/modules/finance/credit_note_service.py#L184), called by [return receipt](../../apps/api/src/modules/sales_returns/service.py#L406). A paid-return/refund or customer-credit policy and implementation are required.             |
+| Manual close bypasses return QC settlement                     | A received return can be closed while its inspection is pending. Accepting that inspection afterwards leaves the return CLOSED with **zero credit notes**.                                                     | [Return close path](../../apps/api/src/modules/sales_returns/router.py#L86), [transition](../../apps/api/src/modules/sales_returns/service.py#L409), and [QC callback status guard](../../apps/api/src/modules/sales_returns/service.py#L466).                                |
+| Cancelling a credit can leave the invoice incorrectly CREDITED | Invoice **2,344**, payment **2,226**, credit **118** becomes CREDITED. Cancelling the credit leaves it CREDITED although **118** is again due.                                                                 | [Cancellation/recomputation](../../apps/api/src/modules/finance/credit_note_service.py#L397) queries issued credits before flushing the cancellation; sessions disable autoflush.                                                                                           |
 
 Additional confirmed source findings:
 
 - **Mixed QC/non-QC return lines can lose later automatic credit.**
-  [Return crediting](../../apps/api/src/modules/sales_returns/service.py:556)
+  [Return crediting](../../apps/api/src/modules/sales_returns/service.py#L556)
   stops when any credit already exists for the return. An immediate credit for
   non-QC lines can therefore suppress a later credit for QC-accepted lines.
 - **Serial returns created by the UI cannot be received.** The
-  [creation dialog](../../apps/web/src/features/sales/sales-returns-page.tsx:96)
+  [creation dialog](../../apps/web/src/features/sales/sales-returns-page.tsx#L96)
   always sends `requires_qc: true`, including when serial IDs are entered.
-  The [backend](../../apps/api/src/modules/sales_returns/service.py:333)
+  The [backend](../../apps/api/src/modules/sales_returns/service.py#L333)
   explicitly refuses QC-required serial returns until per-serial inspection
   disposition is implemented. The safe refusal is present; the UI offers an
   unsupported journey.
 - **Urgent reallocation does not update the recipient sales line.** Approval
-  creates a [reservation with `demand_line_id=None`](../../apps/api/src/modules/allocation/service.py:1490).
-  Sales and [dispatch](../../apps/api/src/modules/dispatch/service.py:1798)
+  creates a [reservation with `demand_line_id=None`](../../apps/api/src/modules/allocation/service.py#L1490).
+  Sales and [dispatch](../../apps/api/src/modules/dispatch/service.py#L1798)
   use the sales line's own `reservation_id`, so an approved urgent allocation
   can remain invisible to fulfilment. The request UI also lacks an approval inbox.
 - **MRP has known quantity/date limitations.** The
-  [engine documents overplanning](../../apps/api/src/modules/mrp/engine.py:123)
+  [engine documents overplanning](../../apps/api/src/modules/mrp/engine.py#L123)
   around live-job components and nested components also sold directly.
-  [Date phasing](../../apps/api/src/modules/mrp/engine.py:935) uses the root
+  [Date phasing](../../apps/api/src/modules/mrp/engine.py#L935) uses the root
   lead time rather than a complete per-level routing schedule.
 - **Restricted cost/value data has alternate report paths.**
-  [Product profitability](../../apps/api/src/modules/reports/router.py:362)
-  and [inventory valuation](../../apps/api/src/modules/reports/router.py:421)
+  [Product profitability](../../apps/api/src/modules/reports/router.py#L362)
+  and [inventory valuation](../../apps/api/src/modules/reports/router.py#L421)
   require only `report.view`. Their
-  [catalogue definitions](../../apps/api/src/modules/reports/service.py:674)
+  [catalogue definitions](../../apps/api/src/modules/reports/service.py#L674)
   also inherit that default, despite exposing cost/margin/value fields and
   separate inventory routes enforcing `inventory.valuation_view`. Complete the
   permission policy across direct reports, catalogue, jobs and generated files.
 - **Other accounting integrations need review.** The
-  [GST query](../../apps/api/src/modules/finance/repository.py:1938) aggregates
+  [GST query](../../apps/api/src/modules/finance/repository.py#L1938) aggregates
   invoice lines without issued-credit adjustments; customer outstanding
   projections are not updated by credit-note issuance/cancellation. Purchase
   invoice matching still reads
-  [gross accepted receipt quantity](../../apps/api/src/modules/finance/repository.py:1597)
+  [gross accepted receipt quantity](../../apps/api/src/modules/finance/repository.py#L1597)
   without netting purchase returns, and purchase returns lack the associated
   vendor debit/payables/tax journal workflow.
 
 ## Required features and UI journeys still incomplete
 
-These are current code findings, not claims that the whole associated module is
+These are findings at the reviewed revision, not claims that the whole associated module is
 absent. Existing staff production, assembly, core QC, job work, purchasing,
 dispatch, invoicing and payments should be retained.
 
 | Area                                  | Development still required                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Sales planning and MRP outputs        | Automatic, idempotent shortfall planning and replanning; complete order-to-fulfilment links; executable job-work, transfer/reallocation and assembly conversions. [Sales detail](../../apps/web/src/features/sales/sales-order-detail-page.tsx:290) still directs users to run MRP manually; [job-work conversion](../../apps/api/src/modules/job_work/service.py:3297) deliberately refuses.                                                    |
+| Sales planning and MRP outputs        | Automatic, idempotent shortfall planning and replanning; complete order-to-fulfilment links; executable job-work, transfer/reallocation and assembly conversions. [Sales detail](../../apps/web/src/features/sales/sales-order-detail-page.tsx#L290) still directs users to run MRP manually; [job-work conversion](../../apps/api/src/modules/job_work/service.py#L3297) deliberately refuses.                                                    |
 | Tracked stock                         | Batch/serial tracking E8b is implemented: serial GRN, tracked production/assembly output, transfer and adjustment unit capture, serial dispatch, batch job work and the `/inventory/tracking` register/lifecycle. Remaining boundaries: serial job work, serial bin moves/internal issues, tracked SKU transformations and printed or pattern-generated barcode/PDF labels. Live UAT remains outstanding. |
-| Vendor app and buyer inbound tracking | Backend support exists, but `/vendor/*` and `/procurement/inbound-tracking` screens are absent from the [route catalogue](../../apps/web/src/app/route-loaders.ts:26). Installable app/service worker and push opt-in/device controls are absent.                                                                                                                                                                                                |
-| Dealer storefront and promotions      | Dealer catalogue/cart/order APIs exist; `/dealer/*` storefront and promotion/banner management APIs/screens remain missing. [DealerBanner](../../apps/api/src/modules/dealer_portal/models.py:182) is groundwork, not a complete feature. Dealer lifecycle event names exist without the corresponding emitters.                                                                                                                                 |
-| Collections and product details       | Payment follow-up worklist, promises/notes/reminders and dealer-performance reporting remain. Item detail still explicitly returns empty [specifications/accessories](../../apps/api/src/modules/dealer_portal/service.py:501).                                                                                                                                                                                                                  |
+| Vendor app and buyer inbound tracking | Backend support exists, but `/vendor/*` and `/procurement/inbound-tracking` screens are absent from the [route catalogue](../../apps/web/src/app/route-loaders.ts#L26). Installable app/service worker and push opt-in/device controls are absent.                                                                                                                                                                                                |
+| Dealer storefront and promotions      | Dealer catalogue/cart/order APIs exist; `/dealer/*` storefront and promotion/banner management APIs/screens remain missing. [DealerBanner](../../apps/api/src/modules/dealer_portal/models.py#L182) is groundwork, not a complete feature. Dealer lifecycle event names exist without the corresponding emitters.                                                                                                                                 |
+| Collections and product details       | Payment follow-up worklist, promises/notes/reminders and dealer-performance reporting remain. Item detail still explicitly returns empty [specifications/accessories](../../apps/api/src/modules/dealer_portal/service.py#L501).                                                                                                                                                                                                                  |
 | Procurement completion                | Purchase-return financial settlement and QC replacement workflow; remaining requisition/GRN/PO edit-close/dispute screens; executable duplicate merge/increase/cancel; status synchronization and purchase cost-centre propagation. See the broader proposal comparison for work-package mapping.                                                                                                                                                |
-| Packing and dispatch                  | Item packing specifications, shortage-to-linked purchase requisition, generic/SO-origin packing UI, printable carton barcode labels and scan/history, forward dispatch planning and gate-time document panels. The [label service](../../apps/api/src/modules/packing/service.py:1881) returns data only; the [delivery UI](../../apps/web/src/features/dispatch/dispatch-page.tsx:602) omits supported actual delivery date input.              |
-| Alerts, approvals and navigation      | Timed smart alerts/settings/recovery and a usable approval queue performing business actions remain. Notification links still target nonexistent `/sales/orders/{id}`, `/dispatch/delayed` and `/allocation/reservations/{id}` routes: [dealer](../../apps/api/src/modules/dealer_portal/service.py:1158), [dispatch](../../apps/api/src/modules/dispatch/service.py:2260), [allocation](../../apps/api/src/modules/allocation/service.py:1899). |
+| Packing and dispatch                  | Item packing specifications, shortage-to-linked purchase requisition, generic/SO-origin packing UI, printable carton barcode labels and scan/history, forward dispatch planning and gate-time document panels. The [label service](../../apps/api/src/modules/packing/service.py#L1881) returns data only; the [delivery UI](../../apps/web/src/features/dispatch/dispatch-page.tsx#L602) omits supported actual delivery date input.              |
+| Alerts, approvals and navigation      | Timed smart alerts/settings/recovery and a usable approval queue performing business actions remain. Notification links still target nonexistent `/sales/orders/{id}`, `/dispatch/delayed` and `/allocation/reservations/{id}` routes: [dealer](../../apps/api/src/modules/dealer_portal/service.py#L1158), [dispatch](../../apps/api/src/modules/dispatch/service.py#L2260), [allocation](../../apps/api/src/modules/allocation/service.py#L1899). |
 | Reporting and final acceptance        | Actual invoice/credit/FIFO profitability, missing purchase/inbound/dealer reports and final restricted-role acceptance of all ten proposal scenarios. Existing profitability is based on order revenue and standard cost.                                                                                                                                                                                                                        |
 
 WhatsApp/SMS, courier-provider automation and PO digital signatures are also not

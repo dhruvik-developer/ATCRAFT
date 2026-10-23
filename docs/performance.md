@@ -13,15 +13,15 @@ off the request path, and measurement instead of guessing.
 Engineering targets, not guarantees. Finalise them against real Atcraft data and
 a load test.
 
-| Path | Target |
-|---|---|
-| Normal API request | < 200 ms |
-| Cache-served request | < 100 ms |
-| Simple indexed query | < 100 ms |
-| List endpoint (50 rows, filtered) | < 300 ms |
-| Dashboard (summary tables) | < 500 ms |
-| Large report | background job |
-| Large MRP run | background job |
+| Path                              | Target         |
+| --------------------------------- | -------------- |
+| Normal API request                | < 200 ms       |
+| Cache-served request              | < 100 ms       |
+| Simple indexed query              | < 100 ms       |
+| List endpoint (50 rows, filtered) | < 300 ms       |
+| Dashboard (summary tables)        | < 500 ms       |
+| Large report                      | background job |
+| Large MRP run                     | background job |
 
 Heavy planning and reporting work is explicitly exempt. Forcing a genuine
 five-minute calculation into a 200 ms budget produces a wrong answer quickly,
@@ -62,16 +62,20 @@ The rules:
   (`WHERE status = 'OPEN'`, `WHERE deleted_at IS NULL`);
 - prove it with `EXPLAIN ANALYZE` before and after.
 
-The indexes that carry the system:
+Representative implemented indexes are shown below. Check the owning models
+and migrations for the full definitions; document indexes follow their actual
+business dates rather than one universal status/creation-time shape.
 
 ```sql
 -- current stock: the most-read table in the application
-(company_id, item_id, warehouse_id)                          -- availability check
-(company_id, warehouse_id, available_quantity)               -- "what can I promise?"
+(company_id, item_id)                                       -- stock across warehouses
+(company_id, warehouse_id, item_id)                          -- warehouse stock list
+(company_id, item_id, warehouse_id) WHERE available_quantity > 0
 
 -- ledger: append-heavy, read by history and by cursor
 (company_id, item_id, warehouse_id, occurred_at DESC)        -- item movement history
-(company_id, occurred_at DESC, id DESC)                      -- keyset paging
+(company_id, occurred_at DESC, id DESC)                      -- business-time reports
+(company_id, created_at DESC, id DESC)                       -- keyset paging
 (company_id, reference_type, reference_id)                   -- "what did this GRN post?"
 
 -- reservations: read on every allocation decision
@@ -79,16 +83,15 @@ The indexes that carry the system:
 (company_id, demand_type, demand_id)
 
 -- documents: the list screens people live in
-(company_id, status, created_at DESC)                        -- per document table
-(company_id, vendor_id, status)                              -- purchase orders
-(company_id, customer_id, status)                            -- sales orders
+(company_id, status, required_date)                          -- sales orders
+(company_id, customer_id, order_date)                        -- sales orders
 
 -- audit: unbounded, cursor-paginated
-(company_id, created_at DESC, id DESC)
-(company_id, entity_type, entity_id, created_at DESC)
+(company_id, created_at, id)                                 -- also scans backwards
+(company_id, entity_type, entity_id, created_at)
 
 -- search, without Elasticsearch
-GIN (code gin_trgm_ops), GIN (name gin_trgm_ops)             -- items, partners
+GIN (code gin_trgm_ops), GIN (name gin_trgm_ops)              -- items
 ```
 
 ---
@@ -157,7 +160,10 @@ SELECT SUM(quantity) FROM inventory_transactions WHERE item_id = ...
 as the ledger row. `available_quantity` is a generated column, so it cannot drift
 from its inputs and can be indexed directly.
 
-Reconciliation between the two runs as a scheduled job, not on demand.
+The ledger repository exposes reconciliation queries for diagnostics; the beat
+schedule does not currently run a full ledger/balance reconciliation. Stock
+summary refreshes are separate from reconciliation and read the balance table.
+Do not describe a summary refresh as evidence that historical postings reconcile.
 
 ---
 
@@ -167,14 +173,18 @@ Redis is a cache. PostgreSQL is the truth. Every entry has a TTL, and keys are
 tenant-scoped (`atcraft:{company_id}:{namespace}:{key}`) so cross-tenant bleed is
 structurally impossible.
 
-| Namespace | TTL | Contents |
-|---|---|---|
-| `ref` | 60 min | UoM, categories, warehouse types |
-| `master` | 10 min | items, partners, warehouses |
-| `perm` | 5 min | resolved permission sets — explicitly invalidated on role change |
-| `list` | 2 min | filtered list pages |
-| `dash` | 1 min | dashboard tiles |
-| `report` | 5 min | completed report payloads |
+| Namespace    | TTL    | Contents                                                             |
+| ------------ | ------ | -------------------------------------------------------------------- |
+| `ref`        | 60 min | Tenant UoM conversion graph; invalidated on UoM/conversion writes    |
+| `sessrevoke` | 30 sec | Refresh-session liveness; revoked sessions are invalidated on writes |
+| `dash`       | 1 min  | dashboard tiles                                                      |
+| `report`     | 5 min  | completed report payloads                                            |
+
+These are the active server-side readers in `core/deps.py`, product services
+and report services. `CacheNamespace.PERMISSIONS` remains an invalidation
+compatibility namespace; permissions are currently resolved from database
+roles and direct grants/denials on every request. General master/list caching
+is not implemented on the server. The frontend has its own cache policy below.
 
 **Never cached:** inventory availability, reservation state, and anything an
 allocation decision reads. A stale available-quantity that lets two orders
@@ -194,7 +204,7 @@ Work that can outlive a request does not run in one:
 
 - MRP runs above the configured demand-line threshold
 - Excel and PDF generation
-- bulk import and export
+- report exports
 - inventory valuation across the whole company
 - notification fan-out
 - scheduled summary refresh and stale-reservation release
@@ -205,16 +215,23 @@ POST /reports/…  →  202 {job_id, status_url}
                  ←  client polls; UI shows Generating… → Download
 ```
 
-Queues are separated by shape (`mrp`, `reports`, `notifications`, `default`) so a
-long planning run never blocks a short notification.
+Queues are separated by shape (`mrp`, `reports`, `notifications`, `default`).
+The batch worker consumes `default,mrp,reports`; `celery-notify` consumes only
+`notifications`, so a long planning run cannot occupy a notification child.
+The host-run `dev-worker` target runs the batch queues; full Docker development
+also starts the dedicated notification worker. Imports are not a general Celery
+pipeline in the current implementation.
 
 ---
 
 ## Reporting
 
-Dashboards read summary tables, not hot transactional tables. `inventory_summary`
-is refreshed every 15 minutes by a beat task; the dashboard endpoint assembles
-its tiles from a small number of indexed queries and is cached for 60 seconds.
+The dashboard reads stock value from `inventory_summary`, refreshed every 15
+minutes by `maintenance.refresh_summary_views`. Its other operational tiles
+use indexed document counts, assembled in one statement. The response is cached
+for 60 seconds and includes the stock-summary timestamp. Other reports use their
+own bounded queries and cache policy; live availability and valuation reads are
+never served from the report cache.
 
 Escalation order — do not skip steps:
 
@@ -259,12 +276,22 @@ The UI must feel immediate even when the backend is doing real work.
 
 ## Measuring
 
-**Application.** Prometheus metrics on `/metrics`: request latency by route
-template, database query duration, cache hit ratio, Celery queue depth and task
-duration, plus the business signals that mean the ERP is producing wrong answers
-— lock conflicts, insufficient-stock refusals, blocked negative-balance writes.
+**Application.** `core/observability.py` registers HTTP request counts and
+latency by route template, Celery task counts/duration, inventory lock conflicts,
+insufficient-stock refusals and MRP counts/duration. `/metrics` exposes the API
+process registry. Worker metrics are process-local: no shared multiprocess
+collector or separate worker scrape endpoint is configured, so the API scrape
+does not aggregate Celery child metrics or every Gunicorn worker. Do not treat a
+zero on one process as proof that no worker encountered a business refusal.
 
-Labels use the route *template* (`/items/{item_id}`), never the concrete path.
+Database query duration, cache hit ratio, queue depth and a dedicated
+negative-balance counter are not currently exported by this registry. Add
+instrumentation and collection together before building alerts on them.
+Optional OpenTelemetry instruments FastAPI, SQLAlchemy and Redis when the
+`otel` dependency extra and collector are configured; this is separate from
+Prometheus collection.
+
+Labels use the route _template_ (`/items/{item_id}`), never the concrete path.
 Raw paths create one time series per record and will eventually take Prometheus
 down.
 

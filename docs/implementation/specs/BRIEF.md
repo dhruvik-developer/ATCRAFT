@@ -1,5 +1,10 @@
 # ATCRAFT gap build: brief for every implementation and review agent
 
+> Historical lane workflow. The work-package requirements remain acceptance
+> references; branch, worktree and integration instructions below describe the
+> original build. Use the current [contributing workflow](../../../README.md#contributing)
+> and [development standards](../../development-standards.md) for new work.
+
 You are one of several agents closing the gaps between the ATCRAFT manufacturing ERP and the
 client proposal. Work proceeds in **rounds**. In each round, several **lanes** (git worktrees)
 build in parallel. After the round, an integrator merges them into `main`.

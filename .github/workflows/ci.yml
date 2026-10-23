@@ -176,6 +176,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm audit --audit-level=high
+          npm run handbook:check
           npx playwright install --with-deps chromium
 
       - name: Run the journeys
@@ -241,7 +242,7 @@ jobs:
       - name: Reject tracked runtime storage
         run: test -z "$(git ls-files 'apps/api/storage/**' 'storage/**' ':!:**/.gitkeep')"
       - name: Validate release scripts
-        run: bash -n scripts/deploy.sh scripts/check-host-nginx.sh scripts/verify-isolation.sh
+        run: python3 scripts/hooks/check_shell.py scripts/deploy.sh scripts/check-host-nginx.sh scripts/verify-isolation.sh
       - name: Validate Compose configuration
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
       - name: Validate host nginx templates

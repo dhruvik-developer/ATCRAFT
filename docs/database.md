@@ -22,11 +22,12 @@ index. Fresh-upgrade, enforcement and downgrade tests live in
 |---|---|
 | Table names | `snake_case`, plural (`purchase_orders`, `inventory_transactions`) |
 | Primary key | `id UUID` (UUIDv7 via `src.core.ids.new_id`) |
-| Tenant column | `company_id UUID NOT NULL` on every table except `companies` |
+| Tenant column | `company_id UUID NOT NULL` on tenant-owned tables; `companies` is the tenant root and `user_roles` is scoped through its user and role |
 | Money | `Numeric(18,4)` — `src.core.types.Money`. Never float |
 | Unit price | `Numeric(18,6)` — `UnitPrice` |
 | Quantity | `Numeric(18,4)` — `Quantity` |
 | Percent / rate | `Numeric(9,4)` — `Percentage` |
+| UoM conversion factor | `Numeric(18,8)` — `ConversionFactor`; not money or a unit price |
 | Timestamps | `TIMESTAMPTZ`, UTC, via `TimestampMixin` |
 | Status columns | `String(24)`, values from a `StrEnum`, validated by a `StateMachine` |
 | Business codes | unique **per company**: `UniqueConstraint("company_id", "code")` |
@@ -68,7 +69,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `allocation` | `stock_reservations`, `reallocation_requests` |
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
-| `sales` | `sales_orders`, `sales_order_lines` |
+| `sales` | `sales_orders`, `sales_order_lines`, `sales_settings` |
 | `sales_returns` | `sales_returns`, `sales_return_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
 | `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
@@ -83,7 +84,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
 | `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
-| `dealer_portal` | `dealer_offers`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, carts and wishlists |
+| `dealer_portal` | `dealer_offers`, `dealer_banners`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, banner records, carts and wishlists |
 | `common` | `document_sequences` |
 
 ### Cost centres
@@ -335,11 +336,12 @@ Current stock is never computed by summing the ledger on a request path.
 | `location_id` | FK `storage_locations.id` nullable | |
 | `batch_id` | FK `stock_batches.id` nullable | required when `item.is_batch_tracked` |
 | `serial_id` | FK `stock_serials.id` nullable | |
-| `quantity` | `Quantity` | **signed**: `+` increases on-hand, `−` decreases |
+| `quantity` | `Quantity` | **signed** by transaction type; the source and target pools determine the on-hand change |
 | `unit_cost` | `UnitPrice` | valuation at movement time |
 | `total_cost` | `Money` | |
 | `balance_after` | `Quantity` | on-hand after this movement, for reconciliation |
 | `stock_state` | `String(24)` | `AVAILABLE / QC_HOLD / DAMAGED / IN_TRANSIT / JOB_WORK / SCRAP / RETURN` |
+| `source_state` | `String(24)` nullable | explicit source pool for reclassification; NULL uses the transaction type's default |
 | `reference_type` | `String(48)` | e.g. `goods_receipt`, `material_issue` |
 | `reference_id` | `UUID` | not an FK — the ledger outlives its source |
 | `reference_code` | `String(64)` | human-readable, e.g. `GRN/2026-27/00012` |
@@ -362,10 +364,19 @@ Reservation and allocation changes do **not** move on-hand quantity; they change
 `reserved_quantity` on the balance and are recorded in `stock_reservations` plus
 the audit log.
 
+Callers pass a positive magnitude; the movement type supplies its sign. An
+already negative issue is accepted, but a negative receipt is rejected.
+`QC_HOLD` and `QC_RELEASE` normally move stock between on-hand sub-pools without
+changing the physical total. `SCRAP_DISPOSAL` draws from the separate scrap
+pool. `movement_effect` in the inventory service derives the actual pool and
+on-hand deltas, including explicit `source_state` reclassifications; replaying
+stock by summing signed `quantity` alone is incorrect.
+
 Indexes:
 ```
 (company_id, item_id, warehouse_id, occurred_at DESC)   -- item movement history
-(company_id, occurred_at DESC, id DESC)                 -- keyset ledger paging
+(company_id, occurred_at DESC, id DESC)                 -- business-time reports
+(company_id, created_at DESC, id DESC)                  -- keyset ledger paging
 (company_id, reference_type, reference_id)              -- "what did this GRN post?"
 (company_id, transaction_type, occurred_at DESC)
 ```
@@ -373,8 +384,10 @@ Indexes:
 ### 4.3 `inventory_balances` (`TenantEntity`)
 
 Grain: **one row per (company, item, warehouse, location, batch)**, with a
-unique constraint on exactly that tuple. `location_id` and `batch_id` use a
-sentinel-free `COALESCE`-based unique index so NULLs do not create duplicates.
+unique index on that tuple. `location_id` and `batch_id` are coalesced to
+`GRAIN_NULL_SENTINEL` (the nil UUID) inside the index expression so NULLs do
+not create duplicate positions. The columns retain NULL; the same expressions
+form the movement engine's upsert conflict target.
 
 | Column | Meaning |
 |---|---|
@@ -399,6 +412,12 @@ CHECK (on_hand_quantity   >= 0)
 CHECK (reserved_quantity  >= 0)
 CHECK (allocated_quantity >= 0)
 CHECK (qc_hold_quantity   >= 0)
+CHECK (damaged_quantity   >= 0)
+CHECK (in_transit_quantity >= 0)
+CHECK (job_work_quantity  >= 0)
+CHECK (scrap_quantity     >= 0)
+CHECK (average_cost       >= 0)
+CHECK (stock_value        >= 0)
 CHECK (reserved_quantity  <= on_hand_quantity)      -- cannot promise what is not there
 CHECK (allocated_quantity <= reserved_quantity)     -- allocation is a subset of reservation
 ```
@@ -431,16 +450,18 @@ movements cannot both insert.
 
 ### 4.5 Public service API — call these, do not touch the tables
 
-`src.modules.inventory.service` exports (all async, all take an `AsyncSession`
-and a `TenantContext`, all must be called inside a `transaction(...)` block):
+`src.modules.inventory.service` exports the following async operations, each
+taking an `AsyncSession` and a `TenantContext`. Mutations establish their own
+business transaction and join a caller's larger `transaction(...)` through
+nested SAVEPOINTs; callers combine related business writes in that outer block.
 
 ```python
 async def post_movement(session, tenant, *, item_id, warehouse_id, quantity,
                         transaction_type, reference_type, reference_id,
                         reference_code, reason, location_id=None, batch_id=None,
-                        serial_id=None, unit_cost=None, stock_state="AVAILABLE",
+                        serial_id=None, unit_cost=None, stock_state=StockState.AVAILABLE,
                         occurred_at=None) -> InventoryTransaction
-    """Single signed movement. Locks the balance row, validates, writes ledger
+    """Single magnitude, signed by type. Locks the balance row, validates, writes ledger
     + balance + audit. THE only way stock changes."""
 
 async def post_movements(session, tenant, movements: list[MovementRequest]) -> list[InventoryTransaction]
@@ -452,11 +473,18 @@ async def get_available(session, tenant, item_id, warehouse_id=None) -> Decimal
     """Sum of available_quantity. Never cached — §34."""
 
 async def transfer_stock(session, tenant, *, item_id, from_warehouse_id,
-                         to_warehouse_id, quantity, reference_code, reason, ...) -> tuple[InventoryTransaction, InventoryTransaction]
-    """Two-legged TRANSFER_OUT / TRANSFER_IN."""
+                         to_warehouse_id, quantity, reference_code, reason,
+                         from_location_id=None, to_location_id=None, batch_id=None,
+                         unit_cost=None, reference_type="stock_transfer",
+                         reference_id=None, occurred_at=None) -> tuple[InventoryTransaction, InventoryTransaction]
+    """Immediate TRANSFER_OUT / TRANSFER_IN carrying the source FIFO costs.
+    Use StockTransferService for goods that spend time in transit."""
 
 async def change_stock_state(session, tenant, *, item_id, warehouse_id, quantity,
-                             from_state, to_state, reason, ...) -> InventoryTransaction
+                             from_state, to_state, reason, location_id=None,
+                             batch_id=None, serial_id=None,
+                             reference_type="stock_state_change", reference_id=None,
+                             reference_code=None, occurred_at=None) -> InventoryTransaction
     """QC_HOLD -> AVAILABLE, AVAILABLE -> DAMAGED, etc."""
 ```
 
@@ -464,16 +492,22 @@ async def change_stock_state(session, tenant, *, item_id, warehouse_id, quantity
 
 ```python
 async def reserve(session, tenant, *, item_id, warehouse_id, quantity,
-                  demand_type, demand_id, demand_line_id, reservation_type,
-                  priority, required_date, reason) -> StockReservation
+                  demand_type, demand_id, reason, demand_line_id=None,
+                  demand_code=None, reservation_type=ReservationType.HARD,
+                  priority=DEFAULT_RESERVATION_PRIORITY, required_date=None,
+                  expires_at=None, location_id=None, batch_id=None) -> StockReservation
 async def release(session, tenant, *, reservation_id, reason, quantity=None) -> StockReservation
 async def consume(session, tenant, *, reservation_id, quantity, reference_type,
-                  reference_id, reference_code) -> StockReservation
-    """Convert a reservation into an actual issue/dispatch movement."""
+                  reference_id, reference_code, transaction_type=None,
+                  occurred_at=None, serial_ids=()) -> StockReservation
+    """Release the reserved portion and post its issue/dispatch in one transaction.
+    Do not post a second movement for the consumed quantity."""
 async def suggest_reallocation(session, tenant, *, item_id, warehouse_id,
                                quantity_needed, for_demand_type, for_demand_id,
-                               required_date) -> list[ReallocationCandidate]
-async def reallocate(session, tenant, *, request_id, approved_by) -> ReallocationRequest
+                               required_date=None, priority=DEFAULT_RESERVATION_PRIORITY,
+                               policy=DEFAULT_POLICY, prefer_reservation_id=None) -> list[ReallocationCandidate]
+async def reallocate(session, tenant, *, request_id, approved_by,
+                     decision_note=None) -> ReallocationRequest
 async def available_to_promise(session, tenant, *, item_id, warehouse_id=None) -> Decimal
 ```
 
@@ -803,6 +837,7 @@ Assembly order    DRAFT -> APPROVED -> RELEASED -> COMPONENTS_ISSUED -> IN_PROGR
 
 Dispatch          NOT_DISPATCHED -> READY_FOR_DISPATCH -> DISPATCHED -> IN_TRANSIT
                         -> DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED
+                  (CANCELLED from NOT_DISPATCHED or READY_FOR_DISPATCH only)
 ```
 
 Assembly and job-work QC_PENDING have exactly one way out: the inspection
@@ -838,7 +873,7 @@ Every transition writes an audit row via `record_status_change`.
 | Event | Must also do |
 |---|---|
 | GRN posted | `inventory.post_movements` (`PURCHASE_RECEIPT`), advance PO status, create incoming QC inspection when the item requires it |
-| Material issue | `allocation.consume` the reservation, then `post_movements` (`MATERIAL_ISSUE`) |
+| Material issue | `allocation.consume` posts the reserved quantity's `MATERIAL_ISSUE`; `post_movements` posts only any unreserved remainder, under the same business transaction |
 | Production order released | Snapshot the approved BOM roll-up unit standard and its material, operation and direct-outsourced operation parts on `production_orders`; snapshot `routing_operations.is_outsourced` on each `work_orders` row |
 | Production completion | `post_movements` (`PRODUCTION_RECEIPT`) for output - into QC hold with an in-process inspection when the order holds output for QC - `ASSEMBLY_CONSUME`/`MATERIAL_ISSUE` for components; refused while any booked output is still held |
 | Production order closed | Freeze FIFO issue cost, internal work-order cost, accrued job-work receipt charges, good-unit actual cost and standard variances on the order in the same transaction as the CLOSED transition |
@@ -846,7 +881,7 @@ Every transition writes an audit row via `record_status_change`.
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
 | QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
 | Packing started | A FINAL inspection per line whose item requires final QC (stock reserved, not held); completion and hand-over refused until each is ACCEPTED; a REJECTED line is repacked and re-inspected |
-| Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
+| Dispatch | `allocation.consume` posts reserved sales stock with `DISPATCH`; `post_movements` posts direct free-stock lines only, without reposting consumed reservations |
 | Sales order confirmed | `allocation.reserve` per line against available stock; when the order is short and `sales_settings.auto_plan_on_confirm` is on (NULL reads as the code default, on), `mrp.plan_sales_order_shortfall` runs in the same transaction and raises DRAFT pegged supply - one production order per made line, one requisition per order for bought lines - and reports job-work needs. Nothing is released or converted, and a capability mismatch is a warning, not a refused confirmation |
 | Sales order line, quantity or date changed; order cancelled; top-up newly reserves stock | Re-run the same planner in the caller's transaction: resize or cancel only its own DRAFT production orders or requisition, withdraw a draft the item master no longer justifies, and warn about a submitted document instead of rewriting it |
 | Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company. A top-up that covers the order immediately replans and withdraws its still-DRAFT supply |
@@ -1039,6 +1074,15 @@ matching id column required and the others NULL - CHECKed),
 the audience; set means that dealer's negotiated scheme),
 `min_quantity`, `discount_percentage` (0 < x <= 100), validity window,
 `is_active`, `sort_order`. Best single offer wins; no stacking (§C3-3).
+
+**`dealer_banners`** (TenantMasterEntity) stores promotional banner records:
+company-unique `code`, `title`, optional `subtitle`, `image_document_id`,
+`link_kind` (`NONE | ITEM | CATEGORY | BRAND | OFFER`) and optional `link_id`,
+optional `audience_price_type`, `sort_order`, optional validity dates, and
+`status` (`ACTIVE | INACTIVE | ARCHIVED`). CHECK constraints enforce the known link and
+status values, a target exactly when the link kind needs one, valid audience
+values and an ordered validity window. Image and link IDs are bare references;
+this table definition alone does not imply an exposed banner API.
 
 **Cart and wishlist.** `dealer_carts` (TenantEntity + optimistic locking) - one
 per dealer user (`uq` on company and user) carrying that user's dealer.

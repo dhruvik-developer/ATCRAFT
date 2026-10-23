@@ -333,8 +333,9 @@ class DealerTracking(DealerDispatchSummary):
 class DealerOverdueInvoice(BaseModel):
     """A placeholder row for a sales invoice that is past due.
 
-    Sales invoices are not in this release. The list stays empty and the ageing
-    report is the overdue position. ASSUMPTION: docs/assumptions.md §C3-10.
+    Sales invoices exist, but their portal outstanding projection is not yet
+    implemented. This list stays empty; ledger-based ageing supplies the overdue
+    position. ASSUMPTION: docs/assumptions.md §C3-10.
     """
 
     document_id: uuid.UUID

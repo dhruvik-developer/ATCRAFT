@@ -46,12 +46,13 @@ convenience:
   PostgreSQL can satisfy the predicate from the partial index on open invoices
   instead of computing an interval per row.
 
-* **Receivable ageing is FIFO-netted in SQL.** There is no customer-invoice
-  document in the schema (database.md section 2), so an open receivable item is
-  a ledger debit the party's credits have not yet covered. That is a running-sum
-  problem, and :meth:`LedgerEntryRepository.receivable_ageing_stmt` solves it
-  with a window function rather than by pulling a party's whole ledger into
-  memory and looping.
+* **Receivable ageing is FIFO-netted in SQL.** An open receivable item is a
+  ledger debit the party's credits have not yet covered. Sales-invoice debits
+  age from the invoice's snapshotted due date; legacy journal debits use their
+  posting date. :meth:`LedgerEntryRepository.receivable_ageing_stmt` solves the
+  netting with a window function rather than by pulling a party's whole ledger
+  into memory and looping. Invoice-specific payment allocations remain a
+  separate settlement view; they do not change the ageing report's FIFO rule.
 
 * **Every lookup a write path needs is batched.** Items, purchase-order lines
   and goods-receipt lines are resolved a whole invoice at a time. A twenty-line
@@ -641,11 +642,12 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
     ) -> Any:
         """The FIFO-netted open receivable items, one row per unsettled debit.
 
-        ASSUMPTION: with no customer-invoice document in the schema, an open
-        receivable item is a ledger debit on the receivable control account that
-        the customer's credits have not yet covered, aged from its posting date.
-        Receipts are applied oldest-first, which is the ordinary rule where a
-        customer has not said which invoice they are paying.
+        An open receivable item is a ledger debit on the receivable control
+        account that the customer's credits have not yet covered. Invoice
+        debits age from their snapshotted due date; legacy journal debits fall
+        back to the posting date. Credits net against debits in posting order
+        per customer and currency. This report retains that FIFO convention
+        independently of invoice-specific payment allocations.
 
         The netting is a running sum: order a party's debits by date, and the
         unsettled part of each is ``least(debit, greatest(0, running_total -
@@ -1942,13 +1944,12 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
 
 
 class GstRepository(BaseRepository[VendorInvoiceLine]):
-    """Output tax from dispatched sales, input tax from approved purchases.
+    """Invoice-based output GST and input tax from approved purchases.
 
-    ASSUMPTION: output GST is recognised at the point goods leave - the dispatch
-    - because the schema defines no sales-invoice document (database.md section
-    2). Each dispatch line's share of its sales-order line's tax is apportioned
-    by quantity, so a partial dispatch accrues a partial liability instead of
-    the whole order's tax landing in whichever period the order was raised.
+    Output uses non-cancelled sales invoices by invoice date and their stored
+    HSN/rate snapshots, less issued credit notes by note date. Uninvoiced
+    dispatches are a separate operational projection; they do not contribute
+    to the output-tax total. Input uses vendor invoices accepted into the books.
     """
 
     model = VendorInvoiceLine

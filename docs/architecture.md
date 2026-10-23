@@ -121,6 +121,8 @@ Cross-cutting concerns every module depends on and none of them owns.
 | `permissions` | the permission registry and baseline roles |
 | `deps` | `Principal`, `TenantContext`, `require_permission` |
 | `errors` | the exception hierarchy and stable error codes |
+| `exception_handlers` | shared safe error envelopes, status mapping and correlation references |
+| `validation` | sanitized field errors and validation for manually assembled request models |
 | `messages` | user-facing sentences raised from more than one module, so wording is decided once |
 | `constants` | schema-level decisions shared by models and schemas (default currency, code widths) |
 | `responses` | the response envelope |
@@ -191,8 +193,9 @@ A vendor account cannot reach any other module: `core.deps` refuses every route
 outside `/vendor-portal/**`, `/notifications/**` and auth self-service for a
 principal with a `vendor_id` (docs/security.md section 4).
 
-`dealer_portal` (WP C3a) sits downstream of sales and owns four tables:
+`dealer_portal` sits downstream of sales and owns five tables:
 `dealer_offers` (percentage schemes, also used as ERP sales-order defaults),
+`dealer_banners` (promotional banner records),
 `dealer_carts` and `dealer_cart_lines` (quantities only - prices are read
 live), and `dealer_wishlist_items`. It is the dealer's whole surface:
 catalogue with channel pricing and availability bands, cart, wishlist,
@@ -211,6 +214,10 @@ It calls dispatch for shipped-line evidence, inventory for every receipt and
 stock-state movement, quality for non-serial return inspections, and finance for
 accepted-quantity credit notes. Staff routes explicitly reject vendor and dealer
 principals; the dealer portal does not reuse the staff return workflow.
+
+`sales` also owns `sales_settings`, the sparse per-company override for automatic
+shortfall planning on confirmation. Missing or NULL settings use the code
+default; explicit false disables the automatic draft-supply step.
 
 ## The two data patterns that matter
 
@@ -299,13 +306,19 @@ of receipt references so portal receipt pages avoid N+1 reads.
 
 ```
 Nginx mints X-Request-ID (or honours an inbound one)
-   → RequestContextMiddleware binds it to the execution context
+   → RequestContextMiddleware validates it and binds it to the execution context
    → every log line, audit row and Celery task carries it
    → the response returns it in X-Request-ID
 ```
 
 One identifier spans nginx, the API, the database logs and the worker. A support
 ticket quoting it finds the whole story.
+
+The API accepts at most 64 ASCII letters, digits, hyphens, underscores or full
+stops and replaces invalid request IDs. It also validates the client IP before
+storing audit metadata. Shared exception handlers map expected failures into
+the typed error envelope, log unexpected failures with their request reference,
+and keep SQL, submitted values and stack traces out of user-facing responses.
 
 ## Frontend
 
@@ -321,8 +334,17 @@ Server state lives in TanStack Query and is not duplicated into a global store.
 List state (page, size, sort, search, filters) lives in the URL, so a filtered
 view is shareable and survives the back button.
 
-`lib/api-client.ts` is the only place that calls `fetch`. Token refresh, the
-response envelope, error shaping and the correlation id are handled there once.
+`lib/api-client.ts` owns application API calls. Token refresh, the response
+envelope, error shaping and the correlation ID are handled there once. The
+separate `lib/error-reporting.ts` collector uses `sendBeacon`, with a
+credential-free `fetch` fallback, so reporting a crash never depends on the
+authenticated API client's refresh or error path.
+
+The client validates success and pagination envelopes against the shared
+contract and rejects malformed HTTP 200 bodies as `INVALID_RESPONSE`.
+`getPageOrAccepted` handles report queries that return either a page or a queued
+job; `useListQuery` exposes the latter as `acceptedJob`. Shared query defaults
+handle cancellation and avoid retrying validation and permission failures.
 
 `lib/constants.ts` holds every value that used to be repeated across feature
 folders - page sizes, the search debounce, browser-storage keys, date formats -

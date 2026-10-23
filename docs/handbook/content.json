@@ -3,7 +3,7 @@
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
     "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton cannot be unsealed, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
-    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
+    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, sales returns, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, the shift roster, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, sales invoices, credit notes, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, the organisation record and company settings. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
       {
         "step": 1,
@@ -194,7 +194,7 @@
         {
           "route": "/login",
           "title": "Signing in",
-          "purpose": "The only screen anyone sees before they are signed in. It takes the email address the account was created with and its password, and - if that person has switched on two-factor protection - a six-digit code from their authenticator app afterwards. Everything else in the system is closed until this succeeds, and every action taken after it is recorded against the name that signed in, which is why accounts are personal and not shared between a shift.",
+          "purpose": "The starting screen for signing in; password-recovery screens are also available without a session. It takes the email address the account was created with and its password, and - if that person has switched on two-factor protection - a six-digit code from their authenticator app afterwards. Everything else in the system is closed until this succeeds, and every action taken after it is recorded against the name that signed in, which is why accounts are personal and not shared between a shift.",
           "whoUses": "Everyone with an account, at the start of every shift.",
           "keyActions": [
             {
@@ -236,8 +236,66 @@
             "A successful password reset through the emailed link also lifts a lock, because whoever opened the mailbox has proved the account is theirs.",
             "The reset link is time-limited and arrives by email only. Nobody in the business, including an administrator, can read an existing password - a reset always replaces it."
           ],
-          "permission": "None. This is the only screen anyone can reach without an account.",
-          "notes": "This screen is not in the list of routes I was given, but the chapter has to cover signing in and the deck needs a screenshot of it. The forgotten-password screens live at /forgot-password and /reset-password if separate screenshots are wanted; the reset screen carries the same live password checklist described under Your account."
+          "permission": "None. Sign-in and password-recovery screens are public; business screens require an authenticated account.",
+          "notes": "Forgotten your password? opens /forgot-password. An emailed reset link opens /reset-password. A newly issued temporary password instead takes a signed-in user to /change-password before business screens become available."
+        },
+        {
+          "route": "/forgot-password",
+          "title": "Request a password reset",
+          "purpose": "Request a time-limited password-reset link when the current password is unavailable.",
+          "whoUses": "Anyone who needs to recover access to their own account.",
+          "keyActions": [
+            {
+              "action": "Request a link",
+              "how": "From Sign in, choose Forgotten your password?, enter the account email, add the company code when needed, and press Send reset link.",
+              "note": "Check your email is the same response whether or not an account matches."
+            },
+            {
+              "action": "Return to sign in",
+              "how": "Use Back to sign in."
+            }
+          ],
+          "flow": [
+            "Open Forgotten your password? from the sign-in screen.",
+            "Enter the account email and, where needed, company code.",
+            "Press Send reset link and use the link received in the account mailbox."
+          ],
+          "rules": [
+            "The response does not disclose whether an email address belongs to an account.",
+            "Delivery requires the configured email service. Repeated requests are subject to rate limits.",
+            "Requesting a link does not sign the user in or disclose the existing password."
+          ],
+          "permission": "None; this is a public authentication screen.",
+          "notes": "Use a development mail service when testing. The local demonstration seed suppresses external email delivery during seeding; it does not send password-reset links."
+        },
+        {
+          "route": "/reset-password",
+          "title": "Set a password from a reset link",
+          "purpose": "Replace a forgotten password using the time-limited link delivered to the account mailbox.",
+          "whoUses": "The account holder opening their own password-reset email.",
+          "keyActions": [
+            {
+              "action": "Set the new password",
+              "how": "Open the emailed link, enter the new password twice, and submit the form.",
+              "note": "Follow the same live password checklist used for account password changes."
+            },
+            {
+              "action": "Request a replacement link",
+              "how": "If Reset link unavailable appears, choose Request another link."
+            }
+          ],
+          "flow": [
+            "Open the password-reset link from the email.",
+            "Choose and confirm a new password that meets the checklist.",
+            "Submit the form and return to Sign in after Password updated appears."
+          ],
+          "rules": [
+            "A valid reset token is required; opening the route without one cannot change a password.",
+            "The link is time-limited and can be used only once. An expired or invalid link needs a new request.",
+            "The new password must meet the password policy. Existing sessions are revoked after a successful reset."
+          ],
+          "permission": "None beyond possession of a valid reset link.",
+          "notes": "The current email link carries its token in the URL fragment. The screen removes the token from the visible URL after reading it; do not share or capture a live reset link."
         },
         {
           "route": "/",
@@ -1492,6 +1550,54 @@
           "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line and another warehouse holding stock, so the Allocation panel, its amber banner, the Elsewhere column and the Raise transfer action are all visible; the Fulfilment trail below it should show at least one draft and one dispatch. On a draft the panel is replaced by a one-line notice. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
+          "route": "/sales-returns",
+          "title": "Sales returns",
+          "purpose": "Track goods returned from delivered sales dispatches, receive them into the warehouse, settle quality decisions and follow the resulting customer credit.",
+          "whoUses": "The sales desk and warehouse team, with quality staff deciding held stock and accounts following credits.",
+          "keyActions": [
+            {
+              "action": "Raise a return",
+              "how": "New return, choose a delivered sales dispatch, enter the returned quantities and reasons, and optionally choose a return warehouse.",
+              "note": "For serial-tracked lines, supply the returned serial IDs shown for that dispatch. Leaving the warehouse blank uses the dispatch warehouse."
+            },
+            {
+              "action": "Receive the goods",
+              "how": "Open the return code and press Receive while it is a draft.",
+              "note": "The screen creates lines requiring QC. Receipt posts the return through the stock ledger and holds the goods for inspection."
+            },
+            {
+              "action": "Settle returned serials",
+              "how": "On a received serial return, choose Dispose serial units and classify each pending unit as Accepted, Damaged or Scrapped.",
+              "note": "Accepted units return to usable stock; damaged and scrapped units remain unavailable."
+            },
+            {
+              "action": "Close the return",
+              "how": "Close a received return after every required QC inspection or serial disposition is settled.",
+              "note": "The quality callback can also close the return when its inspections are settled."
+            },
+            {
+              "action": "Cancel an eligible return",
+              "how": "Choose Cancel when offered and supply the cancellation reason.",
+              "note": "The service checks whether the current stock and credit state permits cancellation."
+            }
+          ],
+          "flow": [
+            "Raise the return against the delivered sales dispatch and the goods actually coming back.",
+            "Receive it when the warehouse takes the goods back.",
+            "Complete the linked quality inspections, or disposition every returned serial.",
+            "Close once the quality work is settled and check the credit on Credit notes."
+          ],
+          "rules": [
+            "Cumulative returns cannot exceed the quantity originally dispatched, and returned serials must belong to that dispatch.",
+            "Receipt records a real stock movement at the original dispatch cost; creating a draft does not change stock.",
+            "QC-held stock is unavailable until its quality disposition is recorded. A return with pending inspections or undispositioned serials cannot close.",
+            "Automatic return credits cover accepted quantities against the original issued sales invoice. Rejected, damaged or scrapped quantities do not earn an automatic return credit.",
+            "Stock receipt and a credit note are separate records; neither is evidence that a cash refund has been paid."
+          ],
+          "permission": "Viewing needs sales_return.view. Creating, receiving, serial disposition, closing and cancelling need sales_return.create. Reading and deciding linked inspections use the quality permissions.",
+          "notes": "The list opens details on the same screen. Customer credits are read under Finance > Credit notes and also appear in the originating sales order fulfilment trail."
+        },
+        {
           "route": "/customers",
           "title": "Customers",
           "purpose": "The account master \u2014 everybody the business sells to, whether a direct customer, an OEM buyer, a dealer or a distributor. Each account carries the two facts that govern order entry: which price list it is quoted from, and what credit it has been granted. This screen is where accounts are opened, amended, put on hold, released and eventually retired, and where the addresses and contact people behind each one are kept.",
@@ -2605,7 +2711,7 @@
             {
               "action": "Read what the job has cost",
               "how": "The Costing tab",
-              "note": "Only visible to someone with the right to see production costs. It is marked Provisional until the job is closed."
+              "note": "Only visible with the item-cost read right. Shows the standard release snapshot, actual costs and material/operation/total variances; marked Provisional until closure."
             }
           ],
           "flow": [
@@ -2637,7 +2743,7 @@
             "The costing is calculated by the system from the issues and bookings actually posted - material at what the movements were valued at, operations at the time actually clocked at the work centre's rate. The screen never re-adds them, so the figures always reconcile with the stock ledger. The Costing tab also shows the material quantities and movement cost by component, and charged time, rate and time/setup/process cost by work order.",
             "An operation with no rate behind it is flagged: its work centre carries no cost per hour, so the operation cost is an understatement rather than a complete figure."
           ],
-          "notes": "Two things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
+          "notes": "Start the job before recording output; the booking dialog describes this explicitly. Backflushed components are supported by the API, while the screen's Release action does not select them. Shift choices come from the company shift master, operators come from the active internal directory, and a work order may be selected for operation output. Downtime-only bookings are accepted; legacy shift codes remain visible read-only. The Costing tab compares the release snapshot with actual material and operation costs, with totals and variances frozen at closure."
         },
         {
           "route": "/production/work-orders",
@@ -3254,6 +3360,11 @@
           "whoUses": "The packing supervisor and the packers. The despatch bay reads it too, through the \"Awaiting dispatch\" filter.",
           "keyActions": [
             {
+              "action": "Raise a packing order",
+              "how": "New packing order, choose the customer and warehouse, planned date and at least one item/quantity line. A sales order also offers Create packing order with its unshipped lines prefilled.",
+              "note": "Review quantities before creating. The result is a draft packing order; creation does not consume finished goods or packing material."
+            },
+            {
               "action": "See what is on the bench and what is finished",
               "how": "The list, with the \"Still on the bench\" and \"Awaiting dispatch\" tick boxes",
               "note": "A packed order that no consignment has claimed shows \"Awaiting dispatch\" in amber. That is the despatch bay's queue."
@@ -3335,6 +3446,7 @@
             }
           ],
           "flow": [
+            "Create a draft from New packing order, Create packing order on a sales order, or Ready from assembly, then open it.",
             "Open the packing order and press Start packing.",
             "Add a carton: name the box, its type and its empty weight.",
             "Pack lines into it - quantity, net weight, and the batch or the individual serials where the item is tracked.",
@@ -3355,8 +3467,8 @@
             "A packed order can be claimed by one consignment only. A second, different consignment is refused, so two dispatchers cannot plan around the same boxes.",
             "Sealing needs the named packing material to be in stock at that warehouse. If none is, the form says so plainly, and no carton on that order can be sealed until some is."
           ],
-          "permission": "Seeing packing orders needs the packing view right. Starting an order, opening and filling cartons, sealing, completing, closing and cancelling all need the packing management right. Handing an order over to a consignment is the one exception: it needs the right to create dispatches, because that is a despatch decision rather than a packing one.",
-          "notes": "There is no way to raise a packing order from this screen - there is no New button, and no other screen in the application creates one either; the empty state says they come from allocated sales orders. It is worth confirming with the client how their packing orders will be raised in practice before this page is presented. Lines and carton contents display the item as a long identifier rather than a code or a name, and the order header says \"Against a sales order\" rather than showing the order number, so a screenshot of a real order will read thinner than the client expects."
+          "permission": "Seeing packing orders needs the packing view right. Creating or starting an order, opening and filling cartons, sealing, completing, closing and cancelling all need the packing management right. Handing an order over to a consignment is the one exception: it needs the right to create dispatches, because that is a despatch decision rather than a packing one.",
+          "notes": "Packing orders can be raised directly, from a sales order, or from completed assembly output. The sales-order form carries its source lines and prevents quantities above the remaining unshipped amount. Assembly output is linked in the same transaction so it cannot be packed twice."
         },
         {
           "route": "/dispatch",
@@ -3625,6 +3737,11 @@
               "action": "Ask for stock somebody else is holding",
               "how": "The actions menu, then \"Suggest reallocation\". Say how much more this demand needs and why.",
               "note": "You do not choose the donor. The system ranks every reservation that could give stock up and raises the request against the best one, then shows you what it chose, why, and what else it considered."
+            },
+            {
+              "action": "Decide a reallocation request",
+              "how": "Use the Reallocation approval inbox above the reservations list, then Approve or Reject.",
+              "note": "The confirmation names the donor, receiving demand, quantity and request reason. It is visible only with the allocation view and approval rights."
             }
           ],
           "flow": [
@@ -3633,7 +3750,8 @@
             "Read who is holding it, how urgent each holder is (lower priority number is more urgent) and when each needs it.",
             "If a holder no longer needs it \u2014 the order was cancelled \u2014 use Release, and record why.",
             "If it is a genuine contest, use Suggest reallocation on the row of the demand that needs helping, state the shortfall and the reason.",
-            "Read what the system decided: which reservation it proposes to take from, whether that donor's promise was firm, and whether the request now needs an approver."
+            "Read what the system decided: which reservation it proposes to take from, whether that donor's promise was firm, and whether the request now needs an approver.",
+            "If approval is required, an authorised approver decides the request in the Reallocation approval inbox on this screen."
           ],
           "rules": [
             "Reserving does not move stock. The quantity stays on hand and stays where it is; only the free figure falls. This is why a reservation writes nothing to the stock ledger \u2014 nothing moved.",
@@ -3644,8 +3762,8 @@
             "Releasing needs a written reason, because it takes stock away from an order that was promised it.",
             "A required date that has passed while the promise is still live is shown in red."
           ],
-          "permission": "Seeing the list needs the right to view reservations. Making one needs the right to create reservations, releasing one needs the right to release them, and asking for a reallocation needs the right to reallocate \u2014 three separate rights, deliberately. The live availability figure inside the Reserve form needs the allocation view right; without it the form still works and simply says that availability will be checked when the reservation is saved.",
-          "notes": "Three things the deck should be honest about. (1) The Reserve stock form asks for the **demand id to be pasted by hand** \u2014 there is no picker for it, because the six kinds of demand live in six other parts of the system. Reservations raised from a sales or production order carry it automatically; this form is genuinely the manual fallback and is fiddly. (2) **There is no screen anywhere in the application that lists or approves reallocation requests.** A request raised against a soft donor goes through; one raised against a hard donor is created and waits for an approver, and nothing in the interface can sign it. Worth flagging to the client as a gap rather than showing a flow that dead-ends. (3) Release here is all-or-nothing, although the system underneath can take back part of a reservation and leave the rest standing."
+          "permission": "Seeing the list needs the right to view reservations. Making one needs the right to create reservations, releasing one needs the right to release them, and asking for a reallocation needs the right to reallocate \u2014 three separate rights, deliberately. The live availability figure inside the Reserve form needs the allocation view right; without it the form still works and simply says that availability will be checked when the reservation is saved. Reading the reallocation approval inbox and deciding its requests additionally requires allocation.view and allocation.approve.",
+          "notes": "The manual Reserve stock form requires the demand document ID; reservations raised from sales and production carry that context automatically. The reallocation approval inbox handles requests against hard donors. Release from the row action gives back the whole remaining reservation; the API also supports partial release."
         },
         {
           "route": "/inventory/movements",
@@ -3951,7 +4069,7 @@
             {
               "action": "See every supplier bill that still owes money, oldest due first",
               "how": "Finance \u2192 Outstanding tab",
-              "note": "This tab is payables only. There is no customer invoice document in this system, so what customers owe is read on the Ageing tab instead."
+              "note": "This tab lists supplier payables. Customer receivables are shown on Ageing, and individual customer invoices are available on Sales invoices."
             },
             {
               "action": "Narrow the open bills to one supplier",
@@ -4023,10 +4141,10 @@
           "rules": [
             "Amounts in two different currencies are never added together, and no total spans them. There is no exchange-rate table in this system, so a combined figure would be a number with no meaning. Each currency is reported in its own block, and the screen tells you plainly when money is outstanding in a currency other than the one you are looking at.",
             "Ageing buckets are 0-30, 31-60, 61-90 and 90+ days, with anything still inside its terms shown as \"not due\". The same boundaries are used everywhere in the system, so the Outstanding list and the Ageing report can never disagree.",
-            "Payables are aged from the invoice due date. Receivables are aged from the date the entry was posted, because there is no customer invoice document in this system to carry a due date.",
+            "Payables are aged from the vendor-invoice due date. Receivables use the sales-invoice due date where an issued invoice exists, with the ledger posting date retained for legacy entries; credits and receipts are netted within the customer and currency.",
             "The inventory valuation shows two value columns \u2014 the value written on each stock position, and the same total recomputed from the underlying cost layers. They are an independent check on each other. A few paise of difference is ordinary rounding; a material difference means that position needs reconciling.",
             "Cost per unit in the valuation is shown to six decimal places, not two, because a washer that genuinely costs four-tenths of a paisa each would otherwise appear to cost nothing.",
-            "The GST figures come from what actually happened, not from what was ordered: output tax is taken from consignments dispatched in the period, and input credit from purchase invoices approved in the period. Document counts in the HSN tables are per rate slab and are never added up, because one invoice spanning two rates is counted under both."
+            "Output GST uses issued sales-invoice snapshots by invoice date, reduced by issued credit notes by credit-note date. Dispatched goods without an invoice are disclosed separately. Input tax comes from approved vendor invoices. Document counts are per HSN/rate slab and must not be added together across slabs."
           ]
         },
         {
@@ -4060,6 +4178,47 @@
           ],
           "permission": "View: sales_invoice.view. Issue: sales_invoice.create. Cancel: sales_invoice.cancel. Receipt allocation: payment.record. Report polling and document download retain their existing read rights.",
           "notes": "Totals round to the nearest rupee HALF_UP. Flat discounts across partial consignments reconcile on the final invoice. Issued invoice PDFs never expire."
+        },
+        {
+          "route": "/finance/credit-notes",
+          "title": "Credit notes",
+          "purpose": "Read customer credits issued against sales invoices, inspect their fixed line and tax snapshots, generate their PDFs and cancel an issued credit when permitted.",
+          "whoUses": "Accounts staff and other users who hold credit_note.view.",
+          "keyActions": [
+            {
+              "action": "Find a credit",
+              "how": "Search the credit-note register and open its number.",
+              "note": "The register shows its date, customer, reason, currency total and status."
+            },
+            {
+              "action": "Inspect the credit",
+              "how": "Read the selected credit detail below the register, including its source invoice, line quantities, taxable values and taxes."
+            },
+            {
+              "action": "Generate the PDF",
+              "how": "On the selected note, press Generate PDF and use the background-job download once it completes.",
+              "note": "The issued credit PDF is retained in document storage."
+            },
+            {
+              "action": "Cancel an issued note",
+              "how": "Cancel credit note is offered on an issued note to users with the cancellation right.",
+              "note": "Cancellation reverses its journal and credited invoice quantities; it retains the original document and cancellation record."
+            }
+          ],
+          "flow": [
+            "Open Credit notes under Finance.",
+            "Search for and open the credit number.",
+            "Review its original invoice and line/tax snapshots.",
+            "Generate its PDF when a document copy is needed."
+          ],
+          "rules": [
+            "An issued credit reduces the receivable and output GST through its own journal; it does not remove the original invoice.",
+            "Accepted sales returns can create their credit automatically when their quality work is settled.",
+            "The register has no manual New credit note action. Other supported credit reasons are issued through the finance API.",
+            "A credit note is not a payment or a stock movement. Returns and cash settlement follow their own workflows."
+          ],
+          "permission": "Read and generate PDF: credit_note.view. Cancel: credit_note.cancel. API issue: credit_note.create. Report polling and document downloads also enforce their existing read permissions.",
+          "notes": "The selected note opens on this page rather than on a separate detail route. A cancelled note remains visible for traceability."
         },
         {
           "route": "/finance/vendor-invoices",
@@ -4308,8 +4467,8 @@
             },
             {
               "action": "Narrow a report",
-              "how": "Reports \u2192 open a report \u2192 set Warehouse, Item, Vendor, Customer, Status or Age threshold \u2192 Run report",
-              "note": "The same six filters are offered on every report; a report that does not use one simply ignores it."
+              "how": "Reports, open a report, set the applicable Warehouse, Item, Vendor, Customer, Work centre, Cost centre, Status or Age threshold filters, then Run report.",
+              "note": "The common toolbar offers up to eight filters. Cost centre is shown only with the cost-centre read right. A report ignores filters that do not apply to it."
             },
             {
               "action": "Search within the results on screen",
@@ -4433,27 +4592,48 @@
               "action": "Run Consumption by department",
               "how": "Reports \u2192 Consumption by department",
               "note": "Posted internal issues grouped by department, cost centre and item over the period."
+            },
+            {
+              "action": "Run Rework rate",
+              "how": "Reports, then Rework rate",
+              "note": "Rework quantity and rate by item and vendor over the selected period."
+            },
+            {
+              "action": "Run Production cost",
+              "how": "Reports, then Production cost",
+              "note": "Closed production orders with the release-standard and actual costs and their variance, by item, work centre and cost centre. Needs the item-cost read right."
+            },
+            {
+              "action": "Run Job-work cost",
+              "how": "Reports, then Job-work cost",
+              "note": "Input cost frozen at challan issue, processing charges, vendor debits and output unit cost. Needs the item-cost read right."
+            },
+            {
+              "action": "Run Daily production by shift",
+              "how": "Reports, then Daily production by shift",
+              "note": "Output, rejections, downtime and yield by date and shift, work centre, machine and operator."
             }
           ],
           "flow": [
             "Open Reports from the left menu.",
             "Pick the report you want from the cards.",
             "If it is marked \"Needs dates\", set From and To \u2014 the last thirty days is offered by default.",
-            "Add any of the six filters that apply.",
+            "Add the filters that apply to the selected report.",
             "Press \"Run report\".",
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Twenty-six reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
-          "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
+          "notes": "The catalogue currently contains 26 tabular reports and is filtered by the permissions held by the account. The common toolbar has eight filter types; a category filter is accepted by the API but has no picker here, and Status expects an exact code. The dashboard is a separate screen. Packing, invoice, credit-note and delivery-challan PDFs are requested from their owning operational screens.",
+          "permission": "Opening Reports needs report.view. Product profitability, Production cost and Job-work cost additionally need item_cost.view; Inventory valuation needs inventory_valuation.view. The catalogue hides reports the account cannot read. Downloadable exports also need report.export, and cost-sensitive export polling and downloads retain their cost permission checks.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",
             "A result of up to 5,000 rows is shown on screen. Anything larger is prepared in the background as an Excel file, because no screen and no waiting user should sit on a query of that size.",
             "A generated file is reused for 24 hours for the same report and the same parameters. Five people opening the same link do not queue five identical exports \u2014 the later ones simply collect the file the first one produced.",
-            "Stock availability is never served from a stored copy, because an allocation decision made on a five-minute-old availability figure is an allocation of stock that may already be gone. The same applies to the tracking board and the valuation.",
+            "Stock availability and current valuation reports bypass the response cache. The tabular stock reports read the refreshed inventory summary and are indicative; allocation and shipment decisions re-read live locked stock. The transport tracking report also bypasses the response cache.",
             "The list of reports is served by the system itself rather than being written into the screen, so a report added later appears here without anything else changing.",
             "Scrap register shows scrap entering and leaving by source, at its recorded cost, over a chosen period.",
-            "Consumption by department groups only posted internal issues by department, cost centre and item over a chosen period."
+            "Consumption by department groups only posted internal issues by department, cost centre and item over a chosen period.",
+            "Exports are limited to 200,000 rows. Narrow the date range or filters when the result exceeds that limit."
           ]
         },
         {

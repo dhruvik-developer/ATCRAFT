@@ -1,60 +1,92 @@
 # The client handbook
 
-`Atcraft-ERP-Handbook.pdf` — 134 landscape pages, every screen of the ERP with a
-screenshot taken from the running system, what it is for, how to use it, and the
-rules it enforces.
+`content.json` is the maintained handbook source. It describes all 58 current
+application routes, three public authentication routes and selected master-data
+tabs: 70 screen/tab entries across eight chapters. Parameter names such as
+`:itemId` and `:id` describe the same detail route.
 
-## Rebuilding it
+`Atcraft-ERP-Handbook.pdf`, `handbook.html` and `screens/` are generated local
+outputs ignored by Git. A fixed page count is not part of the contract: it
+changes with the text and the available images. The cover states when the text
+was rebuilt, what capture dates are known, and which views have no stored image.
+A text-only rebuild does not establish that the screenshots match current code.
 
-The stack must be up and carrying demo data, because the screenshots are of real
-records rather than empty tables:
+## Check the source without a running stack
 
-```bash
-make dev-docker                      # or: docker compose ... up -d
-cd tests/e2e
-E2E_BASE_URL=http://127.0.0.1 node scripts/capture-screens.mjs
+From the repository root:
+
+```sh
+node tests/e2e/scripts/capture-screens.mjs --check
+```
+
+This checks the handbook against `apps/web/src/app/route-loaders.ts`, the public
+authentication routes and populated-detail resolvers. It also checks the capture
+request guard against the OpenAPI write endpoints. It starts no browser and
+performs no API requests. CI runs this validation through
+`npm run handbook:check` in `tests/e2e` before the browser journeys.
+
+## Refresh the screenshots
+
+Use a populated, disposable development/test stack. Follow the root
+[development setup](../../README.md) and [local seed guide](../local-seed-data.md)
+for the selected database; do not reset a database to refresh a handbook.
+
+Configure `tests/e2e/.env` from its example with the actual UI/API URLs and an
+administrator whose initial password change is already complete. For the
+standard host setup, the UI is `http://localhost:5173` and the API is
+`http://localhost:8000/api/v1`. A production-build preview normally uses UI port
+4173. Use the actual published nginx URL when capturing a Docker stack.
+
+From `tests/e2e`:
+
+```sh
+npm ci
+npx playwright install chromium
+node scripts/capture-screens.mjs --check
+node scripts/capture-screens.mjs
 node scripts/build-handbook.mjs
 ```
 
-`capture-screens.mjs` signs in once and walks every route, writing a PNG per
-screen into `screens/` plus an `index.json`. `build-handbook.mjs` pairs those
-with `content.json` and prints the PDF through Chromium.
+The capture signs in through the shared form helper, opens detail records from
+populated lists and navigates within the application. RFQs use their first data
+row, whose click handler opens the detail page without submitting a document. It captures every
+handbook entry and writes the capture date, route templates, image files and
+failures to `screens/index.json`. Missing detail data, redirects, API/render
+errors, error notifications or three or more identical images fail the command.
+Review failures before treating the capture as complete.
 
-## Two things worth knowing before you change the capture
+Only session login, refresh and logout writes are permitted during capture.
+Business writes, marking notifications read, password resets and password
+changes are blocked. The forced-change view is shown using a browser-only
+identity override in a separate session, and the reset-password form uses an
+unsubmitted, non-secret preview token. Neither changes a stored password. A
+capture account still requiring its initial change must be set up before running
+this script; capture never bootstraps or resets it.
 
-**Navigate inside the application, never with `page.goto`.** Every full page load
-restores the session from the refresh cookie, and refresh tokens rotate. Fifty
-loads in a row is fifty rotations, and the moment two overlap the token family is
-revoked as a replay and the app lands on `/login`. Two runs reported
-"53 captured, 0 skipped" while more than half the files were byte-identical
-pictures of the sign-in screen. The capture pushes a history entry and dispatches
-`popstate`, which React Router treats as a real navigation - one page load for
-the whole run.
+## Rebuild the text using preserved screenshots
 
-**The run fails if captures come out byte-identical.** That is the only automatic
-tell for the failure above, and without it the handbook ships with the same
-picture on thirty pages and nobody notices until the client opens it.
+After editing `content.json`, this command uses the existing local image set and
+needs no running application or database:
 
-## Editing the words
+```sh
+node tests/e2e/scripts/build-handbook.mjs
+```
 
-`content.json` holds the chapters. Each screen carries a purpose, what you can do
-there, a step-by-step flow, the rules it enforces and who may use it. Edit it and
-re-run `build-handbook.mjs`; no screenshots need retaking.
-
-Three screens have no picture, each for a stated reason printed in the PDF: the
-forced password-change screen only exists when a change is actually required, and
-the demonstration data holds no request for quotation to open.
+The builder requires a screenshot of the requested tab before illustrating an
+explicit query-string view; an image of another tab is not reused. It embeds
+available images, labels missing views and records capture
+provenance on the cover. Older indexes without a capture timestamp are identified
+as such; image file modification dates are reported as file dates, not invented
+capture dates. Inspect the rendered PDF after a rebuild, particularly long rules,
+new screens and chapter transitions. Refresh the screenshots separately before
+presenting an edition as current visual evidence.
 
 ## Inbound delivery tracking
 
-The buyer's inbound workflow records each consignment after vendor acceptance:
-carrier, tracking/LR reference, dispatch date, expected delivery, boxes and weight.
-Buyers can enter details phoned in by a vendor, correct tracking, mark delivery,
-and file LR copies, photographs, challans and invoices against the PO/consignment.
-All are visible to the vendor of that PO; creator, approvers and administrators
-receive a grouped shipment update. Vendor commitment is shown separately from
-the buyer planning date until a buyer accepts it. Tracking distinguishes ready,
-dispatched, in transit, delivered, warehouse receipt, QC pending and GRN completed.
-The staff board and vendor app screens arrive in C2; these operations are available
-through the procurement API in the C1 backend package. Regenerate screenshots/PDF
-when those screens land, rather than depicting screens that do not yet exist.
+The procurement API records vendor-accepted inbound consignments: carrier,
+tracking/LR reference, dispatch and expected-delivery dates, boxes, weight,
+delivery confirmation and associated documents. Vendor commitment remains
+separate from the buyer planning date until accepted. The current staff frontend
+route registry has no dedicated inbound-shipment board or vendor-portal screen;
+these API capabilities must not be presented as existing staff UI screens. Add
+their handbook entries and captures when corresponding routes are implemented.

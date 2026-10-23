@@ -1,5 +1,9 @@
 # Integrator procedure: merge one round's lanes into `main`
 
+> Historical lane integration procedure. Current development integrates on
+> `develop`; follow the [current contributing workflow](../../../README.md#contributing)
+> and [release runbook](../../../ONE-BOX-RUNBOOK.md) before merging or deploying.
+
 You work in the **main tree** `C:/Project/Other/ATCRAFT` (branch `main`). The lanes are:
 
 | Lane | Path | Branch |

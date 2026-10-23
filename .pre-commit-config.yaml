@@ -121,8 +121,8 @@ repos:
 
       # --- shell syntax -----------------------------------------------------
       - id: shell-syntax
-        name: bash -n (scripts)
-        entry: bash -n
+        name: Bash syntax (Git Bash on Windows)
+        entry: python scripts/hooks/check_shell.py
         language: system
         files: ^scripts/.*\.sh$
 

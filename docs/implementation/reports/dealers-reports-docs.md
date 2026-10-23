@@ -1,5 +1,9 @@
 # Customers/dealers, reports, dashboard and documents: map for audit gaps 1 and 10
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 This is a read-only survey; no file was changed. Line numbers are as of HEAD `cdac4e0`. I could not read the proposal PDF here: it is image-only and no page renderer is available. The proposal mapping below therefore uses the task's own list.
 
 **Path aliases (all absolute):**

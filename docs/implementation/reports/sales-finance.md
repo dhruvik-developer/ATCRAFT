@@ -1,5 +1,9 @@
 # Area report: sales, finance and GST (gaps 3, 7, 10, and the credit side of gap 4)
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 All four audit claims in this area hold. Several pieces already exist that the audit did not mention, and they are listed under each gap below. This was a read-only review: I changed no files and ran no tests.
 
 | Gap | Audit claim | Verified status |

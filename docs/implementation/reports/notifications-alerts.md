@@ -1,5 +1,9 @@
 # Notifications, push and timed alerts: area map (gaps 2-push and 9)
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 ## Verdict on the audit claims (verified in code)
 
 - **Push notifications are absent, as the audit says.** There is no `PUSH` channel, no subscription table, no VAPID setting, no service worker, no web manifest, and nothing in the frontend calls `Notification` or `PushManager`. WhatsApp and SMS are also absent. The only trace is `users.phone`, a `String(32)` with no validation.

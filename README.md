@@ -31,7 +31,9 @@ The shared implementation points and completion checks are mapped in
 
 ### Prerequisites
 
-Docker Desktop, Node 22.12+, Python 3.11+, Git.
+Docker Desktop, Node 22.12+, Python 3.11+, Git, and `pre-commit` on your PATH.
+Install the Git hook tool before `make install`, for example with
+`python -m pip install pre-commit` in your chosen tooling environment.
 
 ### 1. Configure
 
@@ -73,6 +75,7 @@ Infrastructure in Docker, application code on your machine with hot reload.
 
 ```bash
 make install
+source apps/api/.venv/bin/activate
 make dev               # infra + API + web together
 ```
 
@@ -300,8 +303,11 @@ succeed.
 
 ## Contributing
 
-Branches: `main` (deployment 1, the client's environment), `dev` (deployment
-2, integration testing), and `feature/*`, `bugfix/*`, `hotfix/*` off `dev`.
+Current development integrates on `develop`; base new `feature/*`, `bugfix/*`
+and `hotfix/*` branches there. Deployment names remain `main` and `dev`:
+`scripts/deploy.sh` deliberately requires the corresponding `main` or `dev`
+branch and its matching remote HEAD. Promoting `develop` into a deployment
+branch is a separate release step; passing `dev` selects that deployment.
 
 `make install` installs the git hooks from `.pre-commit-config.yaml`
 (`make hooks` on its own does the same). The pre-commit hook formats and lints
@@ -312,7 +318,7 @@ them with `--no-verify`.
 Before opening a pull request:
 
 ```bash
-make check              # contract check + lint + typecheck + tests + frontend tests
+make check              # contracts + lint/types + backend coverage + frontend tests + production build
 make hooks-run          # every hook on the whole tree, as a push would run it
 ```
 

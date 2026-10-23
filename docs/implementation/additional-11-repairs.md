@@ -70,8 +70,8 @@ conversion before they can be enabled, and noncash adjustments require an
 explicit counterpart journal workflow. Posted legacy foreign receipts/invoices require
 reconciliation. Existing financial data was not silently converted or corrected.
 
-This closes the eleven verified issue groups in the
-[additional bug audit](reports/additional-bugs-2026-10-13.md). The broader proposal
+This closes the eleven verified issue groups listed above. The original
+additional-bugs audit is not included in this checkout. The broader proposal
 checklist and separate administrator-removal concurrency investigation require
 their own completion audit; this report does not certify the whole ERP as
 production-ready.

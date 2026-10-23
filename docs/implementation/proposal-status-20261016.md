@@ -1,4 +1,10 @@
-# Proposal versus current code: pending work
+# Proposal comparison: October 2026 review and dated amendments
+
+> This is a historical proposal audit with dated follow-up notes. Its original
+> status rows and source line references describe the reviewed revisions. Use
+> the [current documentation](../README.md) and
+> [later verification record](development-standards-20261022.md) alongside the
+> code before treating an older gap as current.
 
 > **Production readiness refresh — 17 October 2026:** the full proposal is not
 > ready for production sign-off. See the [current release review](production-readiness-20261017.md)

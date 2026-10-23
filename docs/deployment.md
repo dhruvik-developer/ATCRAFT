@@ -6,6 +6,11 @@ deployments, host Nginx/TLS, backup and restore, isolation verification, and
 handover. Do not substitute a bare `docker compose up` command: the guarded
 deployment script supplies the project isolation boundary and release identity.
 
+The current integration branch is `develop`. The existing deployed stacks
+remain `main` and `dev`, with `DEPLOY_BRANCH=main` and `DEPLOY_BRANCH=dev` in
+their templates. Promote the tested integration revision to the intended
+deployment branch before releasing; the stack name does not select `develop`.
+
 ## Release workflow
 
 ```bash
@@ -26,8 +31,8 @@ git pull --ff-only origin main
 2. Build application images from refreshed, patch-pinned bases while the old
    release is still serving. Images are tagged and labelled with the exact Git
    revision.
-3. Stop Nginx, API, frontend, Celery worker, and Celery beat so no request or
-   background task writes during the schema transition.
+3. Stop Nginx, API, frontend, the batch and notification Celery workers, and
+   Celery beat so no request or background task writes during the schema transition.
 4. Take a PostgreSQL dump when this is an existing deployment.
 5. Update/start PostgreSQL and Redis. A fresh database runs
    `alembic upgrade head` from the new backend image. A database created before
@@ -36,7 +41,9 @@ git pull --ff-only origin main
    `alembic stamp --purge 20261021_0100`; see
    `docs/implementation/migration-squash-20261021.md`. An earlier revision must
    be upgraded through the old chain at tag `pre-migration-squash-20261019`
-   first. Never run the baseline upgrade against a populated pre-squash database.
+   first. Stamping records the baseline bridge only; run the normal guarded
+   release afterwards to apply all later migrations through the current head.
+   Never run the baseline upgrade against a populated pre-squash database.
 6. Start the new release only after migration succeeds and wait for all health
    checks. The backend health check uses `/health/ready`, which checks both
    PostgreSQL and Redis.
@@ -48,20 +55,27 @@ an unverified schema.
 This sequence provides correctness with a short maintenance window. Schema
 changes should still use expand/contract design when uptime requirements grow.
 
+Before promotion, run the shared quality gate (`make check` or
+`.\make.ps1 check`) and the additional CI/security/browser checks described in
+[`development-standards.md`](development-standards.md). Generated OpenAPI,
+Postman and frontend contract types must match the release source. A green local
+gate does not replace the backup, isolation, real-provider and restore checks
+below.
+
 ## Storage sizing
 
 A 100 GB server does not provide 100 GB to application data. A reasonable
 initial budget is:
 
-| Consumer | Reserve |
-|---|---:|
-| OS and packages | ~15 GB |
-| Docker images and layers | ~10 GB |
-| PostgreSQL data | ~30 GB |
-| PostgreSQL WAL | ~5 GB |
-| Uploaded files | ~20 GB |
-| Logs | ~5 GB |
-| Working headroom | ~15 GB |
+| Consumer                 | Reserve |
+| ------------------------ | ------: |
+| OS and packages          |  ~15 GB |
+| Docker images and layers |  ~10 GB |
+| PostgreSQL data          |  ~30 GB |
+| PostgreSQL WAL           |   ~5 GB |
+| Uploaded files           |  ~20 GB |
+| Logs                     |   ~5 GB |
+| Working headroom         |  ~15 GB |
 
 Alert at 80% filesystem usage. Production Compose rotates container logs, but
 database growth, backups, uploads, and old image layers still need monitoring.

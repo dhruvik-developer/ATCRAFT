@@ -32,7 +32,7 @@
 ================= G1
 Scope and baseline. This is a read-only audit of the main tree C:\Project\Other\ATCRAFT at HEAD cdac4e0, which was unchanged throughout. No round-1 lane (A1, B1, C0) is merged, so every status describes main. Paths in the evidence are relative to the repository root.
 
-Planned work packages. SPEC-INDEX gained D1–D5 during the audit. D5-specifications-accessories (R3/B) closes the 'specification masters' and 'accessories' gaps (S02.4, S02.5). C3a was revised at 17:08 to consume D5's batch helpers.
+Planned work packages. SPEC-INDEX gained D1โ€“D5 during the audit. D5-specifications-accessories (R3/B) closes the 'specification masters' and 'accessories' gaps (S02.4, S02.5). C3a was revised at 17:08 to consume D5's batch helpers.
 
 1. Dev and base worker queue defect (affects S01.1 and S02.9). The celery-worker in docker-compose.yml:250 and docker-compose.dev.yml:66, and the Makefile/make.ps1 dev-worker targets, run without -Q. celery_app.py routes mrp.* to 'mrp' and reports.* to 'reports', so in the dev stack these never execute:
    - MRP runs above 50 demand lines;
@@ -55,7 +55,7 @@ Planned work packages. SPEC-INDEX gained D1–D5 during the audit. D5-specificatio
 
 4. Sales lifecycle. SalesOrderStatus INVOICED and CLOSED are unreachable on main (no caller). A2 closes this.
 
-5. Mobile API (S02.15). It is planned as a PWA inside the same SPA (C3a/C4a). The refresh token is only in an HttpOnly cookie with X-CSRF-Token (assumptions ง14), so a native app would need a cookie jar. Confirm with the client whether any native app must keep working.
+5. Mobile API (S02.15). It is planned as a PWA inside the same SPA (C3a/C4a). The refresh token is only in an HttpOnly cookie with X-CSRF-Token (assumptions ยง14), so a native app would need a cookie jar. Confirm with the client whether any native app must keep working.
 
 6. Handover (N09). The repository has no git remote; plan the source handover mechanism.
 ================= G2
@@ -199,9 +199,9 @@ Paths are relative to C:\Project\Other\ATCRAFT. The audit is of main at cdac4e0:
      - Neither WP re-runs the check on PATCH /purchase-orders/{id}.
 
 4. **Security issues found in the audited flows** (all planned):
-   - T2: /check-duplicates lets vendor users read other vendors' open lines (C0 ง9).
-   - T3: assigned_vendor_user_id and the requisition/quotation line ids are unvalidated FKs (C0 ง7, ง10).
-   - Vendor users see DRAFT and PENDING_APPROVAL POs with prices, and land in the staff shell (C0 ง11, C2a).
+   - T2: /check-duplicates lets vendor users read other vendors' open lines (C0 ยง9).
+   - T3: assigned_vendor_user_id and the requisition/quotation line ids are unvalidated FKs (C0 ยง7, ยง10).
+   - Vendor users see DRAFT and PENDING_APPROVAL POs with prices, and land in the staff shell (C0 ยง11, C2a).
    - Vendor role presets open unscoped dispatch, finance, quality and documents (C1a P0 allow-list).
    - The internal 'Vendor acknowledged' button is gated on purchase_order.update, which vendor roles also hold.
 
@@ -342,7 +342,7 @@ Cross-cutting findings, each checked in code:
    - POST /procurement/purchase-orders/check-duplicates leaks other vendors' open POs.
    - Vendors see their own DRAFT and PENDING_APPROVAL POs.
 
-   No demo vendor users exist, but /admin/users can create them today. C1a P0 and C0 ง9/ง11 must ship before any vendor account is issued.
+   No demo vendor users exist, but /admin/users can create them today. C1a P0 and C0 ยง9/ยง11 must ship before any vendor account is issued.
 
 3. **Trap T7 is fixed by no work package.**
    - quality decide_inspection never updates GRN line qc_status (it is set only at procurement/service.py:2863-2866, 3162 and 3247).

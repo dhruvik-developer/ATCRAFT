@@ -1,5 +1,9 @@
 # Cross-cutting feature anatomy: how to add an entity, document or module and its screen (ATCRAFT ERP)
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 Scope: this is a read-only map of the shared plumbing every new feature goes through. All paths are relative to `C:\Project\Other\ATCRAFT`. Nothing was modified.
 
 ---

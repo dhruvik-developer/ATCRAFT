@@ -266,7 +266,7 @@ def create_access_token(
     Permissions are deliberately NOT embedded: a role change must take effect
     immediately, and a 15-minute window of stale authority is unacceptable for
     approval rights (section 39). Permissions are loaded per request instead,
-    from a Redis-cached, explicitly invalidated projection.
+    from the user's current database role grants.
     """
     return _encode(
         subject,

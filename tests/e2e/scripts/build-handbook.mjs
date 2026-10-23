@@ -1,6 +1,6 @@
 /**
- * Build the client handbook: one PDF, every screen, with a screenshot of each
- * taken from the running application.
+ * Build the client handbook from current text and an existing screenshot set.
+ * The output identifies historical images and views without a captured image.
  *
  * Renders an HTML document in a real browser and prints it. Playwright is
  * already here for the end-to-end tests and its `page.pdf()` is a real Chromium
@@ -17,11 +17,13 @@
  * Output:  docs/handbook/Atcraft-ERP-Handbook.pdf
  */
 
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
+
+import { createScreenshotLookup } from '../lib/handbook.mjs'
 
 const HANDBOOK = fileURLToPath(new URL('../../../docs/handbook/', import.meta.url))
 const SCREENS = path.join(HANDBOOK, 'screens')
@@ -29,39 +31,12 @@ const SCREENS = path.join(HANDBOOK, 'screens')
 const content = JSON.parse(await readFile(path.join(HANDBOOK, 'content.json'), 'utf8'))
 const shots = JSON.parse(await readFile(path.join(SCREENS, 'index.json'), 'utf8'))
 
-/**
- * Screenshot filename by route.
- *
- * The chapters name routes the way the application declares them - with a
- * parameter, `/items/:id` - while a capture necessarily names a real record,
- * `/items/01a071...`. Both are reduced to the same shape so the two meet: every
- * id-looking segment becomes `:id`, and the query string is dropped for a
- * second, looser key.
- */
-function shapes(route) {
-  const withoutQuery = route.split('?')[0]
-  const parameterised = withoutQuery
-    .split('/')
-    .map((segment) => (/^[0-9a-f-]{20,}$/i.test(segment) ? ':id' : segment))
-    .join('/')
-  return [route, withoutQuery, parameterised]
-}
-
-const byRoute = new Map()
-for (const shot of shots.captured) {
-  for (const key of shapes(shot.route)) if (!byRoute.has(key)) byRoute.set(key, shot.file)
-}
-// The sign-in screen is captured before the walk begins, so it is not in the index.
-byRoute.set('/login', '00-login.png')
-
-/** `:orderId`, `:bomId` and friends all mean the same thing as `:id` here. */
-function lookup(route) {
-  for (const key of shapes(route.replace(/:[A-Za-z]+/g, ':id'))) {
-    const file = byRoute.get(key)
-    if (file) return file
-  }
-  return null
-}
+// Older indexes omit the separately photographed sign-in screen.
+const findScreenshot = createScreenshotLookup([
+  ...shots.captured,
+  { route: '/login', file: '00-login.png' },
+])
+const lookup = (route) => findScreenshot(route)?.file ?? null
 
 const escape = (value) =>
   String(value ?? '')
@@ -79,23 +54,20 @@ const images = new Map()
 for (const shot of shots.captured) images.set(shot.file, await image(shot.file))
 images.set('00-login.png', await image('00-login.png'))
 
-/** Screens that genuinely cannot be photographed, and the honest reason. */
-const NO_SHOT = {
-  '/change-password':
-    'This screen only appears when a password change is actually required, so it '
-    + 'cannot be reached - or photographed - by an account that is already set up.',
-  '/procurement/rfqs/:id':
-    'The demonstration data contains no request for quotation to open. The screen '
-    + 'is built and works; there was simply no document to photograph.',
-}
-
 function figure(route, caption) {
   const file = lookup(route)
   if (!file || !images.has(file)) {
-    const why = NO_SHOT[route.replace(/:[A-Za-z]+/g, ':id')]
-    return `<p class="missing">${escape(why ?? 'No screenshot was captured for this screen.')}</p>`
+    return (
+      '<p class="missing">No image of this view exists in the preserved screenshot set. ' +
+      'The instructions describe the current implementation; this view has not been visually recaptured for this edition.</p>'
+    )
   }
-  return `<figure><img src="${images.get(file)}" alt="${escape(caption)}" /></figure>`
+  const state = findScreenshot(route)?.state
+  return (
+    `<figure><img src="${images.get(file)}" alt="${escape(caption)}" />` +
+    (state ? `<figcaption>${escape(state)}</figcaption>` : '') +
+    '</figure>'
+  )
 }
 
 // -----------------------------------------------------------------------------
@@ -103,6 +75,25 @@ function figure(route, caption) {
 // -----------------------------------------------------------------------------
 
 const { frame, chapters } = content
+const views = chapters.flatMap((chapter) => chapter.screens)
+const missingViews = views.filter((screen) => !lookup(screen.route))
+const imageDates = await Promise.all(
+  [...images.keys()].map(async (file) =>
+    (await stat(path.join(SCREENS, file))).mtime.toISOString().slice(0, 10),
+  ),
+)
+const dateRange = [...new Set(imageDates)].sort()
+const generatedAt = new Date().toISOString().slice(0, 10)
+const captureDescription = shots.capturedAt
+  ? `Screenshot capture recorded: ${shots.capturedAt}.`
+  : `The capture time was not recorded. Preserved image file dates: ${dateRange[0]} to ${dateRange.at(-1)}.`
+const captureStatus = shots.capturedAt
+  ? 'Images come from the recorded browser capture; this document build reads that stored set.'
+  : 'Images are historical references and were not recaptured for this text rebuild.'
+const imageNotice =
+  `${captureDescription} ${captureStatus} ` +
+  `${views.length - missingViews.length} of ${views.length} documented views ` +
+  `have an image; ${missingViews.length} views have no image in this set.`
 
 const contentsRows = chapters
   .map(
@@ -270,6 +261,7 @@ const html = `<!doctype html>
 
   figure { margin: 0; border: 1px solid var(--line); border-radius: 1.5mm; overflow: hidden; }
   figure img { display: block; width: 100%; }
+  figcaption { padding: 1.5mm 2mm; color: var(--muted); font-size: 8.5pt; }
 
   h4 {
     font-size: 8.5pt; text-transform: uppercase; letter-spacing: .4pt;
@@ -313,11 +305,13 @@ const html = `<!doctype html>
   th, td { text-align: left; padding: 2mm 3mm; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { background: var(--accent); color: var(--brand); font-size: 9pt; text-transform: uppercase; letter-spacing: .3pt; }
   td.role { font-weight: 600; white-space: nowrap; }
+  tr { break-inside: avoid; }
 
   .lead { font-size: 12pt; max-width: 200mm; }
   .callout {
     background: var(--accent); border-left: 3px solid var(--brand);
     padding: 3mm 4mm; border-radius: 0 2mm 2mm 0; margin: 4mm 0;
+    break-inside: avoid;
   }
 </style></head>
 <body>
@@ -326,8 +320,12 @@ const html = `<!doctype html>
   <div class="mark">A</div>
   <h1>Atcraft Manufacturing ERP</h1>
   <p class="sub">A guide to every screen, what it is for, and how your team will use it.</p>
-  <p class="foot">Prepared for the owner and staff of Atcraft &middot; every screenshot in this
-  document was taken from the working system.</p>
+  <div class="callout">
+    <p><strong>Guide text rebuilt: ${escape(generatedAt)}.</strong></p>
+    <p>${escape(imageNotice)}</p>
+    <p>Views without a preserved image: ${escape(missingViews.map((screen) => screen.route).join(', ') || 'none')}.</p>
+  </div>
+  <p class="foot">Prepared for the owner and staff of Atcraft. A text rebuild does not certify a fresh visual audit.</p>
 </section>
 
 <section>
@@ -376,11 +374,12 @@ ${chapterPages}
 
 </body></html>`
 
-await writeFile(path.join(HANDBOOK, 'handbook.html'), html)
+const printableHtml = html.replace(/[\u2011-\u2014\u2212]/g, '-')
+await writeFile(path.join(HANDBOOK, 'handbook.html'), printableHtml)
 
 const browser = await chromium.launch()
 const page = await browser.newPage()
-await page.setContent(html, { waitUntil: 'load' })
+await page.setContent(printableHtml, { waitUntil: 'load' })
 await page.emulateMedia({ media: 'print' })
 
 const out = path.join(HANDBOOK, 'Atcraft-ERP-Handbook.pdf')
@@ -395,7 +394,7 @@ await page.pdf({
   footerTemplate: `
     <div style="width:100%;font:8pt 'Segoe UI',sans-serif;color:#5b6472;
                 padding:0 14mm;display:flex;justify-content:space-between;">
-      <span>Atcraft Manufacturing ERP — guide</span>
+      <span>Atcraft Manufacturing ERP - guide</span>
       <span class="pageNumber"></span>
     </div>`,
 })
@@ -403,4 +402,7 @@ await browser.close()
 
 const screenCount = chapters.reduce((n, c) => n + c.screens.length, 0)
 console.log(`\n${out}`)
-console.log(`${chapters.length} chapters, ${screenCount} screens, ${images.size} screenshots`)
+console.log(
+  `${chapters.length} chapters, ${screenCount} views, ${images.size} screenshots; ${missingViews.length} views without an image`,
+)
+console.log(imageNotice)

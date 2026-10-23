@@ -98,9 +98,9 @@ service. They explicitly require no inspection; no QC decision is bypassed.
 **A chart with a shape.** ``ensure_system_accounts`` provisions the nine control
 accounts on first use; this stage calls it up front so the chart screen has rows
 before the first document rather than after it, and then opens a small revenue
-branch - a parent and two children - because nothing in the finance module posts
-income, there being no customer invoice to post it from. Every account it opens
-is posted to; an account nobody posts to is clutter.
+branch - a parent and two children - for the retained legacy customer-charge
+examples. Issued sales invoices use their normal sales-revenue control account.
+Every account it opens is posted to; an account nobody posts to is clutter.
 
 Where the balances end up
 -------------------------
@@ -749,19 +749,19 @@ async def _seed_job_work_invoice(
 # -----------------------------------------------------------------------------
 # Customer charges
 # -----------------------------------------------------------------------------
-# There is no customer invoice document in this schema (database.md section 2): an
-# open receivable is a ledger debit the customer's credits have not covered,
-# FIFO-netted in SQL by ``receivable_ageing_stmt``. So a demonstration receivable
-# is a direct journal, which is the one case ``post_journal`` documents itself as
-# being for.
+# These direct customer-charge journals retain the legacy ageing examples.
+# They are not substitutes for the statutory invoices issued later by
+# ``_seed_sales_invoices``. Open receivables are FIFO-netted in SQL by
+# ``receivable_ageing_stmt``; these journal-only charges age from their entry
+# dates, while invoice-sourced debits use the invoice due date.
 #
 # Each charge does two things in one call and they belong together: it posts
 # Dr receivable / Cr revenue / Cr output tax, and it raises the customer's cached
 # ``outstanding_amount`` by the same total through the customers module's own
 # service. Writing one without the other is how a cached balance starts lying.
 #
-# Receivable ageing buckets on the *entry date* - a ledger debit has no due date -
-# so the dates below are what spread these across the buckets. FIFO netting
+# These legacy charges have no invoice due date, so their entry dates spread
+# them across the receivable ageing buckets. FIFO netting
 # settles the oldest debit first, which is why Archway gets two charges and a
 # receipt covering less than the older one: it ends with money in the 90+ bucket
 # *and* money in 31-60, and a netting bug that settles the wrong end shows up
@@ -961,8 +961,9 @@ PAYMENTS: tuple[_Payment, ...] = (
         approve=False,
         notes="Cheque drawn for the carton bill; held until the print check is signed off.",
     ),
-    # Receipts. Neither is allocated and neither can be - see the note this stage
-    # records at the end. They reduce the customer's cached balance directly.
+    # Receipts initially post without an allocation and reduce the customer's
+    # cached outstanding balance. After issuing sales invoices, the later pass
+    # allocates one eligible receipt through the normal finance service.
     _Payment(
         marker=("RCPT", "ARCH"),
         payment_type=PaymentType.RECEIPT,

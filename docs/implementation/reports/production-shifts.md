@@ -1,5 +1,9 @@
 ## Verdict on the audit claim (gap 11)
 
+> Historical implementation research from the proposal build. Source references
+> and status descriptions apply to that checkpoint. Consult the
+> [current guides](../../README.md) and source before following operational advice.
+
 The audit is right, with a few nuances.
 
 - **Shift is free text in two places, not one.** It is a `String(16)` column on `work_orders.shift` and on `production_entries.shift`. It also passes through `POST /production/{id}/complete` (`CompleteRequest.shift`).

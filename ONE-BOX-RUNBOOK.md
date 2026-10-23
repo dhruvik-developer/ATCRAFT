@@ -1,8 +1,9 @@
 # ONE-BOX RUNBOOK
 
 Two independent deployments of the Atcraft ERP on a single host, plus the local
-development setup. Every command here has been run; where a command is
-destructive it says so before the command, not after.
+development setup. Commands describe the checked-in scripts and configuration;
+host setup and external-provider checks still need to be run on the target
+installation. Destructive operations are identified before their commands.
 
 If you read one thing, read [What keeps the two deployments
 apart](#what-keeps-the-two-deployments-apart). The failure this architecture
@@ -55,7 +56,8 @@ inspection.
     frontend   (static SPA)         frontend   (static SPA)
     backend    (gunicorn x4)        backend    (gunicorn x2)
     celery-worker                   celery-worker
-    celery-beat                      celery-beat
+    celery-notify                   celery-notify
+    celery-beat                     celery-beat
     postgres  ── volume              postgres  ── volume
     redis     ── volume              redis     ── volume
               ── storage volume                ── storage volume
@@ -68,26 +70,31 @@ inspection.
 Both deployments run the **same** compose files. Everything that differs
 between them lives in `deploy/main.env` and `deploy/dev.env`.
 
-| | Deployment 1 | Deployment 2 |
-|---|---|---|
-| name | `main` | `dev` |
-| compose project | `atcraft-main` | `atcraft-dev` |
-| git branch | `main` | `dev` |
-| loopback port | `8081` | `8082` |
-| domain | `erp.example.com` | `dev.erp.example.com` |
-| `APP_ENV` | `production` | `staging` |
-| database | `atcraft_erp` in `atcraft-main_postgres-data` | `atcraft_erp` in `atcraft-dev_postgres-data` |
-| Redis | `atcraft-main_redis-data` | `atcraft-dev_redis-data` |
-| uploads | `atcraft-main_storage-data` | `atcraft-dev_storage-data` |
-| gunicorn workers | 4 | 2 |
-| Postgres RAM | `shared_buffers=1GB`, limit 4G | `shared_buffers=256MB`, limit 1G |
+`develop` is the current code integration branch. The deployment named `dev`
+still tracks the separate `dev` branch in its environment template and branch
+guard. Promote tested changes from `develop` to `dev` before deploying them;
+do not treat the deployment name as an alias for `develop`.
+
+|                  | Deployment 1                                  | Deployment 2                                 |
+| ---------------- | --------------------------------------------- | -------------------------------------------- |
+| name             | `main`                                        | `dev`                                        |
+| compose project  | `atcraft-main`                                | `atcraft-dev`                                |
+| git branch       | `main`                                        | `dev`                                        |
+| loopback port    | `8081`                                        | `8082`                                       |
+| domain           | `erp.example.com`                             | `dev.erp.example.com`                        |
+| `APP_ENV`        | `production`                                  | `staging`                                    |
+| database         | `atcraft_erp` in `atcraft-main_postgres-data` | `atcraft_erp` in `atcraft-dev_postgres-data` |
+| Redis            | `atcraft-main_redis-data`                     | `atcraft-dev_redis-data`                     |
+| uploads          | `atcraft-main_storage-data`                   | `atcraft-dev_storage-data`                   |
+| gunicorn workers | 4                                             | 2                                            |
+| Postgres RAM     | `shared_buffers=1GB`, limit 4G                | `shared_buffers=256MB`, limit 1G             |
 
 The database **name** is the same in both. That is deliberate and harmless:
 they are different clusters, in different containers, on different volumes, on
 different networks. Nothing in either deployment can resolve the other's
 hostname, so there is no context in which the shared name is ambiguous.
 
-### Why there is an nginx in each deployment *and* one on the host
+### Why there is an nginx in each deployment _and_ one on the host
 
 They do different jobs, and putting both jobs in one place breaks something:
 
@@ -97,7 +104,7 @@ They do different jobs, and putting both jobs in one place breaks something:
 - **Deployment nginx** owns `/api` routing, per-endpoint rate limits, the
   response security headers, the SPA fallback and asset caching. Keeping it
   means each deployment is complete and testable on its own — `curl
-  http://127.0.0.1:8081/healthz` answers before the host nginx is configured at
+http://127.0.0.1:8081/healthz` answers before the host nginx is configured at
   all — and the deployment behaves the same in the isolation test as it does in
   production.
 
@@ -121,7 +128,7 @@ and to nothing else — DNS for a project exists only on that project's network.
 This is why both deployments can use identical service names and identical
 database names without ambiguity.
 
-Four things enforce it, and each replaces a failure that produces a *working*
+Four things enforce it, and each replaces a failure that produces a _working_
 system:
 
 1. **`docker-compose.yml` requires `COMPOSE_PROJECT_NAME`.** A bare
@@ -176,26 +183,36 @@ cp .env.example .env
 Then edit `.env` and set, at minimum:
 
 ```ini
-POSTGRES_PASSWORD=<anything, this is a laptop>
+POSTGRES_PASSWORD=<a unique local password; URL-encode it in the DSNs below>
 JWT_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(64))">
+CREDENTIAL_ENCRYPTION_KEY=<generate independently with the same command>
 POSTGRES_PORT=5433          # 5432 is often already taken by a host Postgres
 REDIS_PORT=6380
-DATABASE_URL=postgresql+asyncpg://atcraft:<password>@localhost:5433/atcraft_erp
-DATABASE_SYNC_URL=postgresql+psycopg://atcraft:<password>@localhost:5433/atcraft_erp
-REDIS_URL=redis://localhost:6380/0
-CELERY_BROKER_URL=redis://localhost:6380/1
-CELERY_RESULT_BACKEND=redis://localhost:6380/2
+DATABASE_URL=postgresql+asyncpg://atcraft:<encoded-password>@127.0.0.1:5433/atcraft_erp
+DATABASE_SYNC_URL=postgresql+psycopg://atcraft:<encoded-password>@127.0.0.1:5433/atcraft_erp
+REDIS_URL=redis://127.0.0.1:6380/0
+CELERY_BROKER_URL=redis://127.0.0.1:6380/1
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6380/2
 ```
 
 Install dependencies:
 
+`pre-commit` must already be on your PATH when `install` registers the Git
+hooks. Install it in your tooling environment with
+`python -m pip install pre-commit`; see the [setup prerequisites](README.md#prerequisites).
+
 ```bash
 # Linux / macOS
 make install
+source apps/api/.venv/bin/activate
 
 # Windows
 .\make.ps1 install
 ```
+
+Activate that virtual environment in every macOS/Linux terminal that runs
+Python-backed Make targets. The PowerShell wrapper selects the virtual
+environment's interpreter automatically.
 
 ### Hybrid mode — the daily driver
 
@@ -210,13 +227,20 @@ That brings up infrastructure and then runs both dev servers. First time only,
 in another terminal:
 
 ```bash
-make migrate             # create the schema
-make seed                # roles, permissions, units of measure, warehouse types
-make demo-data           # a working business to click around in
+make seed-local          # migrations, baseline, demonstration data and seeded PDFs
+# Windows: .\make.ps1 seed-local
 ```
 
 - API: <http://localhost:8000>, docs at `/docs`
 - Web: <http://localhost:5173>
+
+The seed displays the generated password for a newly created administrator
+(`admin@atcraft.example` by default); change it on first login. Repeated runs
+preserve existing passwords. See [Local testing seed data](docs/local-seed-data.md)
+for account overrides, dataset coverage and recovery of interrupted runs.
+For new background reports or MRP jobs while testing, start `make dev-worker`
+(`.\make.ps1 dev-worker` on Windows); the notification queue has its own Docker
+worker in the full stack.
 
 ### Full-Docker development
 
@@ -227,34 +251,44 @@ Everything in containers, hot reload through the deployment nginx on
 make dev-docker
 ```
 
-### The single demo dataset
+### Local demonstration data
 
-There is exactly one database with demo data in it: `atcraft_erp` in the local
-stack. `atcraft_erp_test` alongside it is created and dropped by pytest and is
-not a dataset.
+`atcraft_erp` is the normal local database. `seed-local` targets the matching
+loopback database configured by the two DSNs and accepts only `development` or
+`test` mode; it never resets the database. `atcraft_erp_test` is the separate
+test database used by pytest, not a persistent UI dataset.
 
 ```bash
 make db-fresh       # DESTROYS the local database, rebuilds it with demo data
 make db-handover    # DESTROYS it, rebuilds with the BASELINE ONLY - no demo rows
 ```
 
-`db-fresh` rebuilds rather than deletes because the demo rows span 33 tables
+`db-fresh` rebuilds rather than deletes because the demo rows span many tables
 joined by foreign keys and only the parents carry a recognisable `DM-` code —
 there is no reliable way to delete "just the demo data" afterwards. Run
 `db-handover` before giving the client a database.
 
-A full load registers **234 records across 34 kinds** and is idempotent: running
-it again creates nothing. It prints what it skipped and why, which is worth
-reading — several skips are the business rules refusing an unrealistic
-combination rather than a failure.
+Use `seed-local` for the complete current fixture, including generated invoice
+and credit-note PDFs and stock summaries. `db-fresh` remains a destructive
+baseline/demo reset helper. The [seed reference](docs/local-seed-data.md) records
+the current coverage and repeated-run verification; record counts change as
+supported workflows grow. Read the final report for unavailable scenarios and
+unexpected skips.
 
 ### Tests
 
 ```bash
 make test           # backend unit + integration + api
 make test-web       # frontend unit tests
-make check          # everything CI runs: contract, lint, typecheck, tests
+make check          # contracts, lint/type checks, backend coverage, UI tests, build
+make clean          # generated outputs only; retains configuration, data, dependencies
 ```
+
+PowerShell equivalents are `.\make.ps1 <target>`.
+`make check` is the shared application gate. CI additionally runs dependency
+and security audits, schema checks, browser coverage and deployment checks; see
+[Development standards](docs/development-standards.md). Preview cleanup with
+`python scripts/clean.py --dry-run` before removing local generated artifacts.
 
 ---
 
@@ -397,7 +431,7 @@ confirmation if you try, because `APP_ENV=production` there.
 
 ### 8. Certificates
 
-Issue the certificates *before* the host configs go in. The `:443` server
+Issue the certificates _before_ the host configs go in. The `:443` server
 blocks in `atcraft-main.conf` and `atcraft-dev.conf` name
 `/etc/letsencrypt/live/<hostname>/`, so on a bare host `nginx -t` fails on
 those files every time until the certificates exist — not conditionally — and
@@ -494,55 +528,58 @@ run it from a directory that has both.
 Consumed by Docker Compose interpolation. `(UNIQUE)` must differ between the
 two deployments.
 
-| Variable | Example | Notes |
-|---|---|---|
-| `COMPOSE_PROJECT_NAME` | `atcraft-main` | **(UNIQUE)** The isolation boundary. Required. |
-| `DEPLOY_BRANCH` | `main` | Branch this deployment tracks; `deploy.sh` enforces it. |
-| `HTTP_PORT` | `8081` | **(UNIQUE)** Loopback port. Must match the host nginx `proxy_pass`. Required. |
-| `APP_ENV` | `production` | `production` / `staging` / `development`. |
-| `LOG_LEVEL` | `INFO` | |
-| `CORS_ORIGINS` | `https://erp.example.com` | Comma-separated. Never `*` with credentials. |
-| `ALLOWED_HOSTS` | `erp.example.com` | Hostnames only. Required; never `*`. |
-| `EMAIL_PROVIDER` | `smtp` | Required; `doctor` refuses anything else. A deployment fails closed without working mail. |
-| `PUBLIC_WEB_URL` | `https://erp.example.com` | The origin password-reset links point at. Must be `https://`; must not contain `example.com`. |
-| `EMAIL_FROM_ADDRESS` | `no-reply@example.com` | Sender address. Required; must not contain `example.com`. |
-| `EMAIL_FROM_NAME` | `Atcraft Manufacturing ERP` | Sender display name. |
-| `SMTP_HOST` | `smtp.example.com` | The relay. Required; must not contain `example.com`. |
-| `SMTP_PORT` | `587` | |
-| `SMTP_SECURITY` | `starttls` | `starttls` or `tls`; `doctor` refuses anything else. |
-| `SMTP_USERNAME` | *(empty)* | Only if the relay authenticates. Set both or neither. |
-| `SMTP_PASSWORD` | *(empty)* | Paired with `SMTP_USERNAME`. |
-| `SMTP_TIMEOUT_SECONDS` | `15` | |
-| `WEB_PUSH_ENABLED` | `false` | Device channel; true in local dev overlay. |
-| `WEB_PUSH_VAPID_PRIVATE_KEY` | *(empty)* | Optional base64url P-256 scalar; default derives from credential root. |
-| `WEB_PUSH_SUBJECT` | *(empty)* | mailto: or https: contact; falls back to EMAIL_FROM_ADDRESS; required deployed/enabled. |
-| `WEB_PUSH_TTL_SECONDS` | `86400` | Provider retention, 0..2419200 seconds. |
-| `WEB_PUSH_TIMEOUT_SECONDS` | `10` | HTTPS transport timeout, 1..60 seconds. |
-| `WEB_PUSH_ALLOWED_HOSTS` | Google FCM, Mozilla, Windows, Apple | Dot-boundary suffixes: fcm.googleapis.com, updates.push.services.mozilla.com, push.services.mozilla.com, notify.windows.com, web.push.apple.com, push.apple.com. |
-| `POSTGRES_DB` | `atcraft_erp` | May match the other deployment. |
-| `POSTGRES_USER` | `atcraft` | May match. |
-| `POSTGRES_PASSWORD` | — | **(UNIQUE)** Required, no default. |
-| `JWT_SECRET` | — | **(UNIQUE)** Required. Sharing it means a dev token works in production. |
-| `CREDENTIAL_ENCRYPTION_KEY` | - | **(UNIQUE)** Required; encrypts MFA and reset-delivery credentials and must differ from `JWT_SECRET`. |
-| `JWT_ISSUER` | `atcraft-erp-main` | **(UNIQUE)** |
-| `JWT_AUDIENCE` | `atcraft-erp-main` | **(UNIQUE)** |
-| `IMAGE_PREFIX` | `atcraft` | |
-| `IMAGE_TAG` | *(derived)* | `deploy.sh` forces the exact 12-character Git revision. |
-| `VITE_ERROR_REPORT_URL` | *(empty)* | Empty disables browser crash reporting. Use a same-origin collector path unless its HTTPS origin is deliberately added to the CSP. |
-| `SENTRY_DSN` | *(empty)* | Empty disables scrubbed backend exception reporting. Use a different Sentry project for each deployment. |
-| `PG_MAX_CONNECTIONS` | `200` | |
-| `PG_SHARED_BUFFERS` | `1GB` | ~25% of this deployment's RAM allowance. |
-| `PG_EFFECTIVE_CACHE_SIZE` | `3GB` | ~50–75% of it. |
-| `PG_WORK_MEM` | `16MB` | |
-| `PG_MAINTENANCE_WORK_MEM` | `256MB` | |
-| `PG_LOG_MIN_DURATION_MS` | `500` | Slow-query threshold. |
-| `PG_MEM_LIMIT` | `4G` | Container ceiling. |
-| `REDIS_MAXMEMORY` | `1gb` | |
-| `REDIS_MEM_LIMIT` | `1500M` | |
-| `GUNICORN_WORKERS` | `4` | |
-| `BACKEND_MEM_LIMIT` | `2G` | |
-| `CELERY_CONCURRENCY` | `4` | |
-| `WORKER_MEM_LIMIT` | `2G` | |
+| Variable                                        | Example                             | Notes                                                                                                                                                            |
+| ----------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COMPOSE_PROJECT_NAME`                          | `atcraft-main`                      | **(UNIQUE)** The isolation boundary. Required.                                                                                                                   |
+| `DEPLOY_BRANCH`                                 | `main`                              | Branch this deployment tracks; `deploy.sh` enforces it.                                                                                                          |
+| `HTTP_PORT`                                     | `8081`                              | **(UNIQUE)** Loopback port. Must match the host nginx `proxy_pass`. Required.                                                                                    |
+| `APP_ENV`                                       | `production`                        | `production` for main, `staging` for deployed dev.                                                                                                               |
+| `LOG_LEVEL`                                     | `INFO`                              |                                                                                                                                                                  |
+| `CORS_ORIGINS`                                  | `https://erp.example.com`           | Comma-separated. Never `*` with credentials.                                                                                                                     |
+| `ALLOWED_HOSTS`                                 | `erp.example.com`                   | Hostnames only. Required; never `*`.                                                                                                                             |
+| `EMAIL_PROVIDER`                                | `smtp`                              | Required; `doctor` refuses anything else. A deployment fails closed without working mail.                                                                        |
+| `PUBLIC_WEB_URL`                                | `https://erp.example.com`           | The origin password-reset links point at. Must be `https://`; must not contain `example.com`.                                                                    |
+| `EMAIL_FROM_ADDRESS`                            | `no-reply@example.com`              | Sender address. Required; must not contain `example.com`.                                                                                                        |
+| `EMAIL_FROM_NAME`                               | `Atcraft Manufacturing ERP`         | Sender display name.                                                                                                                                             |
+| `SMTP_HOST`                                     | `smtp.example.com`                  | The relay. Required; must not contain `example.com`.                                                                                                             |
+| `SMTP_PORT`                                     | `587`                               |                                                                                                                                                                  |
+| `SMTP_SECURITY`                                 | `starttls`                          | `starttls` or `tls`; `doctor` refuses anything else.                                                                                                             |
+| `SMTP_USERNAME`                                 | _(empty)_                           | Only if the relay authenticates. Set both or neither.                                                                                                            |
+| `SMTP_PASSWORD`                                 | _(empty)_                           | Paired with `SMTP_USERNAME`.                                                                                                                                     |
+| `SMTP_TIMEOUT_SECONDS`                          | `15`                                |                                                                                                                                                                  |
+| `WEB_PUSH_ENABLED`                              | `false`                             | Device channel; true for container-run API/workers in the local dev overlay. Host-run processes use `.env`.                                                      |
+| `WEB_PUSH_VAPID_PRIVATE_KEY`                    | _(empty)_                           | Optional base64url P-256 scalar; default derives from credential root.                                                                                           |
+| `WEB_PUSH_SUBJECT`                              | _(empty)_                           | mailto: or https: contact; falls back to EMAIL_FROM_ADDRESS; required deployed/enabled.                                                                          |
+| `WEB_PUSH_TTL_SECONDS`                          | `86400`                             | Provider retention, 0..2419200 seconds.                                                                                                                          |
+| `WEB_PUSH_TIMEOUT_SECONDS`                      | `10`                                | HTTPS transport timeout, 1..60 seconds.                                                                                                                          |
+| `WEB_PUSH_ALLOWED_HOSTS`                        | Google FCM, Mozilla, Windows, Apple | Dot-boundary suffixes: fcm.googleapis.com, updates.push.services.mozilla.com, push.services.mozilla.com, notify.windows.com, web.push.apple.com, push.apple.com. |
+| `POSTGRES_DB`                                   | `atcraft_erp`                       | May match the other deployment.                                                                                                                                  |
+| `POSTGRES_USER`                                 | `atcraft`                           | May match.                                                                                                                                                       |
+| `POSTGRES_PASSWORD`                             | —                                   | **(UNIQUE)** Required, no default.                                                                                                                               |
+| `JWT_SECRET`                                    | —                                   | **(UNIQUE)** Required. Sharing it means a dev token works in production.                                                                                         |
+| `CREDENTIAL_ENCRYPTION_KEY`                     | -                                   | **(UNIQUE)** Required; encrypts MFA and reset-delivery credentials and must differ from `JWT_SECRET`.                                                            |
+| `JWT_ISSUER`                                    | `atcraft-erp-main`                  | **(UNIQUE)**                                                                                                                                                     |
+| `JWT_AUDIENCE`                                  | `atcraft-erp-main`                  | **(UNIQUE)**                                                                                                                                                     |
+| `IMAGE_PREFIX`                                  | `atcraft`                           |                                                                                                                                                                  |
+| `IMAGE_TAG`                                     | _(derived)_                         | `deploy.sh` forces the exact 12-character Git revision.                                                                                                          |
+| `VITE_ERROR_REPORT_URL`                         | _(empty)_                           | Empty disables browser crash reporting. Use a same-origin collector path unless its HTTPS origin is deliberately added to the CSP.                               |
+| `SENTRY_DSN`                                    | _(empty)_                           | Empty disables scrubbed backend exception reporting. Use a different Sentry project for each deployment.                                                         |
+| `PG_MAX_CONNECTIONS`                            | `150`                               | Reconcile all API, batch, notification and beat pools.                                                                                                           |
+| `PG_SHARED_BUFFERS`                             | `1GB`                               | ~25% of this deployment's RAM allowance.                                                                                                                         |
+| `PG_EFFECTIVE_CACHE_SIZE`                       | `3GB`                               | ~50–75% of it.                                                                                                                                                   |
+| `PG_WORK_MEM`                                   | `8MB`                               | Per sort/hash node; not a per-connection cap.                                                                                                                    |
+| `PG_MAINTENANCE_WORK_MEM`                       | `256MB`                             |                                                                                                                                                                  |
+| `PG_LOG_MIN_DURATION_MS`                        | `500`                               | Slow-query threshold.                                                                                                                                            |
+| `PG_MEM_LIMIT`                                  | `4G`                                | Container ceiling.                                                                                                                                               |
+| `REDIS_MAXMEMORY`                               | `1gb`                               |                                                                                                                                                                  |
+| `REDIS_MEM_LIMIT`                               | `1500M`                             |                                                                                                                                                                  |
+| `GUNICORN_WORKERS`                              | `4`                                 |                                                                                                                                                                  |
+| `BACKEND_MEM_LIMIT`                             | `2G`                                |                                                                                                                                                                  |
+| `CELERY_CONCURRENCY`                            | `4`                                 |                                                                                                                                                                  |
+| `WORKER_MEM_LIMIT`                              | `2G`                                |                                                                                                                                                                  |
+| `NOTIFY_CONCURRENCY`                            | `2`                                 | Dedicated notification worker; dev uses `1`.                                                                                                                     |
+| `NOTIFY_DB_POOL_SIZE`, `NOTIFY_DB_MAX_OVERFLOW` | `2`, `2`                            | Per notification child.                                                                                                                                          |
+| `NOTIFY_MEM_LIMIT`                              | `512M`                              | Dev uses `256M`.                                                                                                                                                 |
 
 Both Postgres clusters share one box's RAM. Size them together: the sum of the
 two `PG_MEM_LIMIT`s plus both backends and both workers must fit, with room for
@@ -554,7 +591,7 @@ Two sums have to be reconciled whenever any of these numbers change, and
 nothing enforces them, so check them by hand.
 
 **Connections.** Every gunicorn worker and every Celery prefork child builds
-its own SQLAlchemy pool, so the demand is per *process*, not per container:
+its own SQLAlchemy pool, so the demand is per _process_, not per container:
 
 ```
   GUNICORN_WORKERS   x (DB_POOL_SIZE + DB_MAX_OVERFLOW)          4 x 20 =  80
@@ -699,17 +736,17 @@ commit. Images are tagged and labelled with the
 exact commit, so the running artifact can be traced and an old commit's image
 cannot be silently overwritten by a later branch build.
 
-Normal flow is dev first:
+Promote the integration revision through the guarded deployment branches:
 
 ```
-feature branch → dev → deployment 2 → verify → merge to main → deployment 1
+feature branch → develop → dev → deployment 2 → verify → main → deployment 1
 ```
 
 ### Once, when upgrading past the tax-identifier release
 
 GSTIN validation now verifies the check digit, which earlier releases did not.
 Reads are unaffected - lists, reports and documents all work - but the value is
-checked when a record is *saved*, and the customer and vendor forms resend the
+checked when a record is _saved_, and the customer and vendor forms resend the
 number they loaded. A row holding a figure that an earlier release accepted
 therefore cannot be saved again until it is corrected, and whoever edits it is
 stopped by a field they never touched.
@@ -893,7 +930,7 @@ or a compromised dependency would run from — and requires each attempt to fail
    subnets differ, and no container is attached to both networks.
 2. **Database** — deployment 2's container hostnames do not resolve; a TCP
    connection to its Postgres IP does not open; and a connection attempt
-   *holding deployment 2's real password* still fails. The boundary is the
+   _holding deployment 2's real password_ still fails. The boundary is the
    network, not the credential.
 3. **Redis** — same, in both directions. A shared Redis would mean one
    deployment's Celery worker running real business logic against the other's
@@ -901,7 +938,7 @@ or a compromised dependency would run from — and requires each attempt to fail
 4. **Host exposure** — neither Postgres nor Redis publishes a host port.
 5. **Serving** — each loopback port answers ready, and a marker row written to
    deployment 1's database is absent from deployment 2's. Health checks cannot
-   tell you *which* database answered; a marker row can.
+   tell you _which_ database answered; a marker row can.
 6. **Tokens** — the two deployments sign with different secrets and declare
    different audiences.
 7. **A real session, replayed** — opt-in. Signs in to both deployments and
@@ -934,8 +971,9 @@ apart](#what-keeps-the-two-deployments-apart).
 
 ### `deployment 'dev' tracks branch 'dev' but the working tree is on 'main'`
 
-`git checkout dev`, or use a second checkout. To override for one command:
-`DEPLOY_BRANCH_OVERRIDE=1 ./scripts/deploy.sh dev up`.
+`git checkout dev`, or use a second checkout. The current integration branch
+`develop` must be promoted to `dev` first. Do not bypass the branch guard as a
+normal release procedure.
 
 ### `HEAD is not the tested upstream revision`
 

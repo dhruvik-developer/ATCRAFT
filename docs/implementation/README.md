@@ -16,7 +16,7 @@ preserve their original planning and audit evidence.
 
 ## Current checkpoint
 
-Updated 23 October 2026. The migration chain has seven revisions: the verified
+Updated 24 October 2026. The migration chain has seven revisions: the verified
 `20261021_0100` baseline and six forward revisions through `20261027_0100`.
 The original 58-revision squash is recorded in
 [migration-squash-20261021.md](migration-squash-20261021.md). Application-wide
@@ -27,6 +27,9 @@ the repeatable demonstration seed are documented in the
 procurement plan is in
 [d4-dsc-pades-compliance-20261019.md](d4-dsc-pades-compliance-20261019.md). Work
 continues on `develop`; the lane checkpoints and procedures below are historical.
+The [24 October repository synchronization](repository-sync-20261024.md)
+records the subsequent documentation, configuration, generated-contract and
+handbook refresh, including the deployment and shell-check corrections.
 
 ### Round-2 integration checkpoint (14 October 2026)
 
@@ -79,7 +82,7 @@ To resume a lane, follow `specs/BRIEF.md` section 1a:
 The specs in `specs/` are the single source of truth. `specs/PLAN.md` holds the schedule and a status log.
 `workflows/` keeps the Claude Workflow scripts that run the lanes (`lane-build.js`) and the round integration (`integrate.js`); they read the specs from this directory.
 
-## Completion sequence
+## Historical completion sequence
 
 Finish and independently review the round-2 packages, verify each lane, and
 commit each lane with the repository hooks. Then follow
@@ -89,5 +92,9 @@ application and migrate the development database. Continue rounds 3–8 from the
 master plan. A package or round is not complete merely because code exists.
 
 Keep the original proposal PDF untracked. Do not change shared virtual
-environments or dependency junctions. Do not bypass Git hooks. No Git remote is
-configured, so any eventual push needs a configured remote.
+environments or dependency junctions. Do not bypass Git hooks.
+
+The original checkpoint had no remote configured. The repository now has
+`origin`, and current work is committed and pushed to `develop`. Use the current
+[contributing workflow](../../README.md#contributing) and
+[development standards](../development-standards.md) for new changes.

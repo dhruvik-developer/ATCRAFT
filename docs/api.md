@@ -1,6 +1,7 @@
 # API conventions
 
-Base path `/api/v1`. Interactive documentation at `/docs` (disabled in
+Default base path `/api/v1`, configured by `API_V1_PREFIX`. Interactive
+documentation at `/docs` (disabled in staging and
 production — the schema is an accurate map of every endpoint and its
 permissions).
 
@@ -8,12 +9,13 @@ permissions).
 
 | Artefact | What it is |
 |---|---|
-| `openapi.json` | The contract. Generated from the running app by `make contract`, committed, and checked by CI and the pre-push hook, so it cannot drift from the code. |
+| `openapi.json` | The contract. Generated from the application by `make contract`, committed, and checked by CI and the pre-push hook, so it cannot drift from the code. |
 | `/docs`, `/redoc` | Swagger UI and ReDoc, served from that same schema in development. Both are **off in staging and production**: the schema lists every endpoint and the permission it needs, which is a map worth not publishing. Read it from the committed file instead. |
 | `apps/web/src/types/openapi.ts` | The frontend's types, generated from the contract. |
 | `postman_collection.json` | A Postman collection, generated from the contract. |
 
-All four are regenerated together:
+The schema, frontend types and Postman collection are regenerated together;
+development documentation renders the same schema:
 
 ```bash
 make contract          # writes all of them (Windows: .\make.ps1 contract)
@@ -301,6 +303,10 @@ POST /api/v1/auth/login
 { "email": "planner@atcraft.example", "password": "...", "device_label": "Chrome on the planning PC" }
 ```
 
+Add `company_code` when the same email belongs to more than one company. It
+disambiguates the login; tenant IDs on authenticated requests still come from
+the verified principal.
+
 `data` takes one of two shapes. Without MFA on the account the sign-in
 completes:
 
@@ -346,7 +352,8 @@ server sets two cookies:
 | `atcraft_refresh` | `HttpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`, `Secure` when deployed | the refresh JWT itself; script cannot read it |
 | `atcraft_csrf` | readable, `SameSite=Strict`, `Path=/` | an HMAC of that JWT, not a secret; the double-submit value |
 
-Access tokens last 15 minutes. Refresh with a body-less `POST /auth/refresh`,
+Access tokens last 15 minutes by default, and refresh tokens seven days;
+deployments can configure both lifetimes. Refresh with a body-less `POST /auth/refresh`,
 sending the cookies plus the header `X-CSRF-Token: <value of atcraft_csrf>`.
 `data` is `{ "access_token", "token_type", "expires_in", "refresh_expires_in",
 "session_id" }` and both cookies are re-set: the refresh token **rotates** on
@@ -466,16 +473,19 @@ runs, exports, uploads and bulk imports.
 
 ## Long-running operations
 
-Anything that can outlive a request returns 202 and a job id:
+Large calculations return 202 and a job ID. For MRP, the server compares the
+demand-line count with `MRP_SYNC_THRESHOLD_DEMAND_LINES`: smaller runs finish
+inline with 200, while runs above the threshold are queued with 202.
 
 ```
-POST /api/v1/mrp/runs                → 202 {job_id, status_url}
-GET  /api/v1/mrp/runs/{id}           → status: QUEUED | RUNNING | COMPLETED | FAILED
+POST /api/v1/mrp/runs                → 200 completed run, or 202 {job_id, status_url}
+GET  /api/v1/mrp/runs/{id}           → status: QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
 GET  /api/v1/mrp/runs/{id}/suggestions
 ```
 
-Reports and exports follow the same pattern and finish with a document id to
-download. No endpoint holds a connection open for a calculation.
+Report queries likewise return an inline page or an accepted job according to
+their bounded-query rules. Queued exports finish with a document ID to
+download; long work runs in a worker rather than holding the HTTP request open.
 
 ---
 
@@ -493,10 +503,13 @@ download. No endpoint holds a connection open for a calculation.
                       prices · vendor links
 /customers  /vendors  business partners · transporters
 /inventory            balances · ledger · transfers · adjustments · physical counts
+                      batches · serials · bin moves · scrap disposals · internal issues
 /allocation           reservations · release · available-to-promise · reallocation
 /bom                  BOMs · versions · approve · explode · cost · where-used
 /routing              routings · operations · work centres · machines
 /sales                sales orders · confirm · allocation status · demand summary
+                      planning settings
+/sales-returns        returns · receive · serial dispositions · credit note · close
 /mrp                  runs · suggestions · convert · shortage report · demand
                       sales-order expected availability
 /procurement          requisitions · close · convert to POs by category · RFQs · quotations
@@ -510,15 +523,19 @@ download. No endpoint holds a connection open for a calculation.
 /quality              templates · inspections · results · decide · reports
 /packing              packing orders · cartons · packing list · from-assembly
 /dispatch             dispatches · tracking events · tracking board · delayed
-/finance              ledgers · vendor invoices · match · payments · ageing · GST · valuation
+/finance              ledgers · vendor/sales invoices · credit notes · match · payments
+                      return-debit allocations · ageing · GST · valuation
 /reports              catalogue · dashboard · background report jobs · one route per
                       report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
-/notifications        list · unread count · read · preferences
+/notifications        list · unread count · read · preferences · push devices
+/vendor-portal        orders · consignments · shared documents · bills · payments · QC
+/dealer-portal        catalogue · pricing · cart · wishlist · checkout · orders · statement
 /audit                logs · entity history · approvals
 ```
 
-Full request and response schemas are generated from the code at `/docs`.
+Full request and response schemas are generated from the code in
+`openapi.json` and, in development, at `/docs`.
 
 ## Inventory operation documents
 

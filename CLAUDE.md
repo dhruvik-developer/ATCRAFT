@@ -73,7 +73,7 @@ possible and must never be simulated by fetching everything and filtering.
 | Document numbers | `src.common.codes.next_document_number` |
 | Timestamps | UTC, via `src.core.clock.utcnow()` |
 | Errors | raise from `src.core.errors`; never leak SQL or stack traces |
-| Responses | `ApiResponse` / `PaginatedResponse` from `src.core.responses` |
+| Responses | `ApiResponse`, `PaginatedResponse` and `CursorPaginatedResponse` from `src.core.responses` |
 | Permissions | `require_permission(Permission.X)` on every route |
 | Shared constants | backend `src/core/constants.py` for schema-level decisions (`DEFAULT_CURRENCY`, code widths); frontend `lib/constants.ts` for page sizes, debounce, storage keys, formats and env — the only file that reads `import.meta.env` |
 | Shared messages | backend `src/core/messages.py` for any sentence raised from two or more modules; frontend `lib/messages.ts` for the shared error headlines, empty states, prompts and the success builders for the standard verbs (created/updated/approved/...) — a bespoke confirmation that names its own action stays with its screen, and API messages are shown verbatim |
@@ -593,19 +593,27 @@ make install        # venv + deps + git hooks; uses scripts.install_requirements
                     # the locks are Linux-resolved and pin uvloop, which has no Windows build
 make dev            # hybrid development (Windows: .\make.ps1 dev, then dev-api / dev-web)
 make migrate        # apply migrations
+make seed-local     # migrate and populate a local database, including demo PDFs
 make test           # unit + integration
-make contract       # regenerate openapi.json and the frontend types after an API change
+make contract       # regenerate OpenAPI, frontend types and Postman after an API change
 make check          # contract + lint + typecheck + tests + production web build
 make hooks          # install the git pre-commit + pre-push hooks (done by `make install`)
 make hooks-run      # run every hook on the whole tree, exactly as a push would
+make clean          # remove generated outputs; preserve source, local data and dependencies
 ```
 
-Branches: `main` is deployment 1 (the client's environment), `dev` is
-deployment 2 (integration testing); feature, bugfix and hotfix branches come off
-`dev`.
+Install `pre-commit` as a tooling prerequisite before `make install`. GNU Make
+uses commands from PATH: activate `apps/api/.venv` after installation before
+running the local development and checking targets. The PowerShell wrapper uses
+the backend interpreter explicitly for its backend commands.
+
+Current integration work and feature, bugfix and hotfix branches use `develop`.
+The deployment guard still maps deployment `main` to branch `main` and deployment
+`dev` to branch `dev`; promote reviewed changes into those deployment branches
+before running `scripts/deploy.sh`. Deployment names are not integration aliases.
 
 The hooks are defined in `.pre-commit-config.yaml`. `pre-commit` runs the
 formatters, linters and file-hygiene checks on the staged files; `pre-push`
-runs mypy, the unit tests, vitest, the type check, the OpenAPI contract check
-and a Compose config parse on the whole tree. Never bypass them with
+runs mypy, backend unit tests, Vitest, the frontend type check, OpenAPI/Postman
+and generated-type checks, and a Compose config parse on the whole tree. Never bypass them with
 `--no-verify`; fix what they report.
