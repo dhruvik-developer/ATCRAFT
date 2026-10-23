@@ -13,6 +13,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api-client'
+import { describeError, fileMessages, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
 import { jobWorkKeys, useReportJob, type QueuedJobData } from './job-work-model'
@@ -40,12 +41,12 @@ export function ChallanDownload({
     try {
       const queuedJob = await api.post<QueuedJobData>(`/job-work/challans/${challanId}/pdf`, {})
       setJobId(queuedJob.job_id)
-      toast.success('Challan queued', 'The PDF is being generated.')
+      toast.show(success.queued('Challan'), fileMessages.generating)
     } catch (error) {
       setQueued(false)
-      const message = error instanceof Error ? error.message : ''
+      const message = describeError(error)
       setFailed(message)
-      toast.error('Could not queue the challan', message)
+      toast.failure(error, 'Could not queue the challan')
     } finally {
       void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
     }
@@ -57,7 +58,7 @@ export function ChallanDownload({
     try {
       await api.download(`/reports/jobs/${jobId}/download`, `${challanCode}.pdf`)
     } catch (error) {
-      toast.error('Could not download the challan', error instanceof Error ? error.message : '')
+      toast.failure(error, 'Could not download the challan')
     } finally {
       setDownloading(false)
     }
@@ -76,7 +77,7 @@ export function ChallanDownload({
           Retry status
         </Button>
         <p role="alert" className="break-words text-xs text-destructive">
-          Could not check the challan: {job.error.message}
+          Could not check the challan: {describeError(job.error)}
         </p>
       </div>
     )
@@ -92,7 +93,7 @@ export function ChallanDownload({
 
   const failedMessage =
     failed ??
-    (status === 'FAILED' ? (job.data?.error_message ?? 'Generation failed - try again') : null)
+    (status === 'FAILED' ? (job.data?.error_message ?? fileMessages.generationFailed) : null)
 
   return (
     <div className="max-w-xs space-y-1">

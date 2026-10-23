@@ -41,6 +41,8 @@ export function Toaster() {
         return (
           <div
             key={item.id}
+            role={item.variant === 'error' ? 'alert' : 'status'}
+            data-toast-variant={item.variant}
             className={cn(
               'pointer-events-auto flex items-start gap-3 rounded-lg border p-3.5 shadow-lg',
               'animate-in slide-in-from-right-4 fade-in-0',

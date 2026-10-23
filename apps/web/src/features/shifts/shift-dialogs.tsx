@@ -14,7 +14,7 @@ import {
 import { Alert, AlertDescription, Input, Label } from '@/components/ui/primitives'
 import type { ShiftOption } from '@/hooks/use-shift-options'
 import { api } from '@/lib/api-client'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
@@ -79,7 +79,7 @@ export function ShiftFormDialog({
           <DialogBody className="space-y-4">
             {save.error && (
               <Alert variant="destructive">
-                <AlertDescription>{save.error.message}</AlertDescription>
+                <AlertDescription>{describeError(save.error)}</AlertDescription>
               </Alert>
             )}
             <div>

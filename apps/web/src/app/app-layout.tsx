@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -197,7 +198,7 @@ export function AppLayout() {
                     className="relative"
                     title={
                       unreadUnavailable
-                        ? `The unread count could not be loaded: ${(unread.error as Error).message}`
+                        ? `The unread count could not be loaded: ${describeError(unread.error)}`
                         : undefined
                     }
                   >
@@ -347,7 +348,7 @@ function SidebarContent({
         </div>
         <div className={cn('min-w-0 flex-1', collapsed && 'lg:hidden')}>
           <p className="truncate text-sm font-semibold text-white">Atcraft ERP</p>
-          <p className="truncate text-2xs text-sidebar-foreground/60">{companyName ?? ''}</p>
+          <p className="truncate text-2xs text-sidebar-foreground/70">{companyName ?? ''}</p>
         </div>
         {mobile && (
           <DialogPrimitive.Close asChild>

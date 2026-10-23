@@ -35,10 +35,10 @@ import {
   Input,
   Label,
 } from '@/components/ui/primitives'
-import { api, ApiError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, formatRelative } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -311,7 +311,7 @@ function MfaCard() {
       setCode('')
       setSetupResult(null)
       toast.success(
-        'Two-factor authentication enabled',
+        success.enabled('Two-factor authentication'),
         `${result.revoked_sessions} other session(s) were signed out.`,
       )
       await refreshUser()
@@ -328,7 +328,7 @@ function MfaCard() {
       setCurrentPassword('')
       setCode('')
       toast.success(
-        'Two-factor authentication disabled',
+        success.disabled('Two-factor authentication'),
         `${result.revoked_sessions} other session(s) were signed out.`,
       )
       await refreshUser()
@@ -337,14 +337,7 @@ function MfaCard() {
 
   const activeMutation = user?.mfa_enabled ? disable : setupResult ? confirm : setup
   const error = activeMutation.error
-  const errorMessage =
-    error instanceof ApiError
-      ? error.message
-      : error instanceof Error
-        ? error.message
-        : error
-          ? 'The request could not be completed.'
-          : null
+  const errorMessage = error ? describeError(error) : null
 
   return (
     <Card>

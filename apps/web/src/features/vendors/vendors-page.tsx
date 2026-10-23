@@ -54,7 +54,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatNumber, formatPercent, humanise, toDecimal } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { describeError, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -231,7 +231,7 @@ function VendorRatingDialog({
 
       if (result.applied) {
         toast.success(
-          'Vendor rating recorded',
+          success.recorded('Vendor rating'),
           `${toDecimal(result.rating).toDecimalPlaces(2).toFixed(2)} out of ${MAX_VENDOR_RATING} from ${result.receipt_count} receipt${result.receipt_count === 1 ? '' : 's'}`,
         )
         return
@@ -295,7 +295,7 @@ function VendorRatingDialog({
           {!rating.isLoading && rating.error && (
             <Alert variant="destructive">
               <AlertTitle>Could not work out this rating</AlertTitle>
-              <AlertDescription>{rating.error.message}</AlertDescription>
+              <AlertDescription>{describeError(rating.error)}</AlertDescription>
             </Alert>
           )}
 

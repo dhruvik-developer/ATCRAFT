@@ -20,4 +20,8 @@ DEFAULT_CURRENCY = "INR"
 #: ISO 4217 codes are exactly three letters.
 CURRENCY_CODE_LENGTH = 3
 
-__all__ = ["CURRENCY_CODE_LENGTH", "DEFAULT_CURRENCY"]
+#: The audit trail persists the same correlation id that HTTP responses and
+#: workers carry. Keep input validation aligned with ``audit_logs.request_id``.
+MAX_REQUEST_ID_LENGTH = 64
+
+__all__ = ["CURRENCY_CODE_LENGTH", "DEFAULT_CURRENCY", "MAX_REQUEST_ID_LENGTH"]

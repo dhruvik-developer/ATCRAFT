@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * The production planning board: one week of work per work centre and machine.
  *
@@ -284,200 +285,212 @@ export default function PlanningPage() {
 
         <Tabs value={view} onValueChange={(next) => setView(next as BoardView)}>
           <TabsList aria-label="Timeline rows">
-            <TabsTrigger value="centre">By work centre</TabsTrigger>
-            <TabsTrigger value="machine">By machine</TabsTrigger>
+            <TabsTrigger id="planning-by-centre" aria-controls="planning-timeline" value="centre">
+              By work centre
+            </TabsTrigger>
+            <TabsTrigger id="planning-by-machine" aria-controls="planning-timeline" value="machine">
+              By machine
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
-      {capacity.isLoading || board.isLoading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-64 w-full" />
-        </div>
-      ) : capacity.error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load capacity</AlertTitle>
-          <AlertDescription>{(capacity.error as Error).message}</AlertDescription>
-        </Alert>
-      ) : board.error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load the week&apos;s operations</AlertTitle>
-          <AlertDescription>{(board.error as Error).message}</AlertDescription>
-        </Alert>
-      ) : groups.length === 0 ? (
-        <EmptyState
-          title="No work centres to plan"
-          description="Work centres are the rows this board plans against. Create one on the Routings page first."
-        />
-      ) : (
-        <div className="space-y-6">
-          <section aria-label="Capacity heat strip">
-            <h2 className="mb-2 text-sm font-semibold">
-              Load against capacity
-              <span className="ml-2 font-normal text-muted-foreground">
-                Planned / available minutes per day. Over marks the days the plan does not fit.
-              </span>
-            </h2>
-            <HeatStrip days={week} groups={groups} />
-          </section>
-
-          <section aria-label="Timeline">
-            <h2 className="mb-2 text-sm font-semibold">
-              {view === 'centre' ? 'Operations by work centre' : 'Operations by machine'}
-              <span className="ml-2 font-normal text-muted-foreground">
-                {canManage
-                  ? 'Select an operation to reschedule it.'
-                  : 'Rescheduling needs the work-order management right.'}
-              </span>
-            </h2>
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[42rem] border-collapse text-xs">
-                <thead>
-                  <tr className="bg-muted/50">
-                    <th className="sticky left-0 min-w-[10rem] bg-muted/50 p-2 text-left font-medium">
-                      {view === 'centre' ? 'Work centre' : 'Machine'}
-                    </th>
-                    {week.map((day) => (
-                      <th key={day} className="min-w-[7rem] p-2 text-left font-medium">
-                        {columnLabel(day)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {view === 'centre'
-                    ? groups.map((group) => (
-                        <tr key={group.centreId} className="border-t align-top">
-                          <th className="sticky left-0 bg-background p-2 text-left font-medium">
-                            {group.code}
-                            <span className="block truncate text-2xs font-normal text-muted-foreground">
-                              {group.name}
-                            </span>
-                          </th>
-                          {week.map((day, column) => (
-                            <td key={day} className="space-y-1 border-l p-1.5">
-                              {operations
-                                .filter(
-                                  (row) =>
-                                    row.work_center_id === group.centreId &&
-                                    touchedColumns(row, week).includes(column),
-                                )
-                                .map((row) => (
-                                  <OperationChip
-                                    key={row.id}
-                                    workOrder={row}
-                                    clashing={clashing.has(row.id)}
-                                    onReschedule={reschedule(row)}
-                                  />
-                                ))}
-                            </td>
-                          ))}
-                        </tr>
-                      ))
-                    : machineRows.map((machine) => (
-                        <tr key={machine.id} className="border-t align-top">
-                          <th className="sticky left-0 bg-background p-2 text-left font-medium">
-                            {machine.code}
-                            <span className="block truncate text-2xs font-normal text-muted-foreground">
-                              {machine.name}
-                            </span>
-                          </th>
-                          {week.map((day, column) => (
-                            <td key={day} className="space-y-1 border-l p-1.5">
-                              {operations
-                                .filter(
-                                  (row) =>
-                                    row.machine_id === machine.id &&
-                                    touchedColumns(row, week).includes(column),
-                                )
-                                .map((row) => (
-                                  <OperationChip
-                                    key={row.id}
-                                    workOrder={row}
-                                    clashing={clashing.has(row.id)}
-                                    onReschedule={reschedule(row)}
-                                  />
-                                ))}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                  {view === 'machine' && (
-                    <tr className="border-t align-top">
-                      <th className="sticky left-0 bg-background p-2 text-left font-medium">
-                        No machine
-                        <span className="block text-2xs font-normal text-muted-foreground">
-                          Planned at the centre, not yet on a seat
-                        </span>
-                      </th>
-                      {week.map((day, column) => (
-                        <td key={day} className="space-y-1 border-l p-1.5">
-                          {operations
-                            .filter(
-                              (row) =>
-                                (workCentreId ? row.work_center_id === workCentreId : true) &&
-                                !row.machine_id &&
-                                touchedColumns(row, week).includes(column),
-                            )
-                            .map((row) => (
-                              <OperationChip
-                                key={row.id}
-                                workOrder={row}
-                                clashing={false}
-                                onReschedule={reschedule(row)}
-                              />
-                            ))}
-                        </td>
-                      ))}
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {unscheduled.length > 0 && (
-            <section aria-label="Unscheduled operations">
+      {/* Both views control the same dynamic panel, including its loading/error states. */}
+      <div
+        id="planning-timeline"
+        role="tabpanel"
+        aria-labelledby={view === 'centre' ? 'planning-by-centre' : 'planning-by-machine'}
+        tabIndex={0}
+      >
+        {capacity.isLoading || board.isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        ) : capacity.error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load capacity</AlertTitle>
+            <AlertDescription>{describeError(capacity.error)}</AlertDescription>
+          </Alert>
+        ) : board.error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load the week&apos;s operations</AlertTitle>
+            <AlertDescription>{describeError(board.error)}</AlertDescription>
+          </Alert>
+        ) : groups.length === 0 ? (
+          <EmptyState
+            title="No work centres to plan"
+            description="Work centres are the rows this board plans against. Create one on the Routings page first."
+          />
+        ) : (
+          <div className="space-y-6">
+            <section aria-label="Capacity heat strip">
               <h2 className="mb-2 text-sm font-semibold">
-                Without a planned window
+                Load against capacity
                 <span className="ml-2 font-normal text-muted-foreground">
-                  Open operations the board cannot place. Give them a window to plan them.
+                  Planned / available minutes per day. Over marks the days the plan does not fit.
                 </span>
               </h2>
-              <ul className="divide-y rounded-md border">
-                {unscheduled.map((row) => {
-                  const plan = reschedule(row)
-                  return (
-                    <li key={row.id} className="flex flex-wrap items-center gap-2 p-2 text-xs">
-                      <StatusBadge status={row.status} />
-                      <span className="font-medium">{row.operation_name}</span>
-                      <span className="text-muted-foreground">{row.code}</span>
-                      <Link
-                        to={`/production/${row.production_order_id}`}
-                        className="text-muted-foreground hover:underline"
-                      >
-                        Open the job
-                      </Link>
-                      {plan && (
-                        <Button variant="outline" size="sm" className="ml-auto" onClick={plan}>
-                          Plan it
-                        </Button>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
+              <HeatStrip days={week} groups={groups} />
             </section>
-          )}
 
-          <p className="text-xs text-muted-foreground">
-            Day columns follow the date where this browser sits; the load figures above it are
-            company dates from the API. Clash badges compare the operations loaded for this week -
-            the assignment itself re-validates against everything.
-          </p>
-        </div>
-      )}
+            <section aria-label="Timeline">
+              <h2 className="mb-2 text-sm font-semibold">
+                {view === 'centre' ? 'Operations by work centre' : 'Operations by machine'}
+                <span className="ml-2 font-normal text-muted-foreground">
+                  {canManage
+                    ? 'Select an operation to reschedule it.'
+                    : 'Rescheduling needs the work-order management right.'}
+                </span>
+              </h2>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[42rem] border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-muted/50">
+                      <th className="sticky left-0 min-w-[10rem] bg-muted/50 p-2 text-left font-medium">
+                        {view === 'centre' ? 'Work centre' : 'Machine'}
+                      </th>
+                      {week.map((day) => (
+                        <th key={day} className="min-w-[7rem] p-2 text-left font-medium">
+                          {columnLabel(day)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {view === 'centre'
+                      ? groups.map((group) => (
+                          <tr key={group.centreId} className="border-t align-top">
+                            <th className="sticky left-0 bg-background p-2 text-left font-medium">
+                              {group.code}
+                              <span className="block truncate text-2xs font-normal text-muted-foreground">
+                                {group.name}
+                              </span>
+                            </th>
+                            {week.map((day, column) => (
+                              <td key={day} className="space-y-1 border-l p-1.5">
+                                {operations
+                                  .filter(
+                                    (row) =>
+                                      row.work_center_id === group.centreId &&
+                                      touchedColumns(row, week).includes(column),
+                                  )
+                                  .map((row) => (
+                                    <OperationChip
+                                      key={row.id}
+                                      workOrder={row}
+                                      clashing={clashing.has(row.id)}
+                                      onReschedule={reschedule(row)}
+                                    />
+                                  ))}
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      : machineRows.map((machine) => (
+                          <tr key={machine.id} className="border-t align-top">
+                            <th className="sticky left-0 bg-background p-2 text-left font-medium">
+                              {machine.code}
+                              <span className="block truncate text-2xs font-normal text-muted-foreground">
+                                {machine.name}
+                              </span>
+                            </th>
+                            {week.map((day, column) => (
+                              <td key={day} className="space-y-1 border-l p-1.5">
+                                {operations
+                                  .filter(
+                                    (row) =>
+                                      row.machine_id === machine.id &&
+                                      touchedColumns(row, week).includes(column),
+                                  )
+                                  .map((row) => (
+                                    <OperationChip
+                                      key={row.id}
+                                      workOrder={row}
+                                      clashing={clashing.has(row.id)}
+                                      onReschedule={reschedule(row)}
+                                    />
+                                  ))}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                    {view === 'machine' && (
+                      <tr className="border-t align-top">
+                        <th className="sticky left-0 bg-background p-2 text-left font-medium">
+                          No machine
+                          <span className="block text-2xs font-normal text-muted-foreground">
+                            Planned at the centre, not yet on a seat
+                          </span>
+                        </th>
+                        {week.map((day, column) => (
+                          <td key={day} className="space-y-1 border-l p-1.5">
+                            {operations
+                              .filter(
+                                (row) =>
+                                  (workCentreId ? row.work_center_id === workCentreId : true) &&
+                                  !row.machine_id &&
+                                  touchedColumns(row, week).includes(column),
+                              )
+                              .map((row) => (
+                                <OperationChip
+                                  key={row.id}
+                                  workOrder={row}
+                                  clashing={false}
+                                  onReschedule={reschedule(row)}
+                                />
+                              ))}
+                          </td>
+                        ))}
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            {unscheduled.length > 0 && (
+              <section aria-label="Unscheduled operations">
+                <h2 className="mb-2 text-sm font-semibold">
+                  Without a planned window
+                  <span className="ml-2 font-normal text-muted-foreground">
+                    Open operations the board cannot place. Give them a window to plan them.
+                  </span>
+                </h2>
+                <ul className="divide-y rounded-md border">
+                  {unscheduled.map((row) => {
+                    const plan = reschedule(row)
+                    return (
+                      <li key={row.id} className="flex flex-wrap items-center gap-2 p-2 text-xs">
+                        <StatusBadge status={row.status} />
+                        <span className="font-medium">{row.operation_name}</span>
+                        <span className="text-muted-foreground">{row.code}</span>
+                        <Link
+                          to={`/production/${row.production_order_id}`}
+                          className="text-muted-foreground hover:underline"
+                        >
+                          Open the job
+                        </Link>
+                        {plan && (
+                          <Button variant="outline" size="sm" className="ml-auto" onClick={plan}>
+                            Plan it
+                          </Button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              Day columns follow the date where this browser sits; the load figures above it are
+              company dates from the API. Clash badges compare the operations loaded for this week -
+              the assignment itself re-validates against everything.
+            </p>
+          </div>
+        )}
+      </div>
 
       {canManage && (
         <WorkOrderAssignDialog

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './api-client'
 import { errors } from './messages'
+import * as errorReporting from './error-reporting'
 import { queryClient, queryKeys } from './query-client'
 import { toast } from './toast'
 
@@ -47,6 +48,17 @@ afterEach(() => {
 })
 
 describe('the mutation error net', () => {
+  it('reports unexpected failures and shows only a safe public description', () => {
+    const shown = vi.spyOn(toast, 'error')
+    const reported = vi.spyOn(errorReporting, 'reportError').mockImplementation(() => {})
+    const error = new TypeError('Internal credentials cannot be read')
+
+    failMutation(error)
+
+    expect(reported).toHaveBeenCalledWith(error, { source: 'mutation' })
+    expect(shown).toHaveBeenCalledWith(errors.unexpected, errors.unexpectedDetail)
+  })
+
   it('says a model-level refusal aloud, since not every form has a root slot', () => {
     const shown = vi.spyOn(toast, 'error')
 
@@ -83,9 +95,46 @@ describe('the mutation error net', () => {
 
     expect(shown).toHaveBeenCalledWith(errors.notEnoughStock, 'Only 4 available')
   })
+
+  it('does not suppress a response with empty field-error arrays', () => {
+    const shown = vi.spyOn(toast, 'error')
+    failMutation(validationError({ quantity: [], _root: [' '] }))
+    expect(shown).toHaveBeenCalledWith(errors.checkTheForm, 'Invalid request')
+  })
+
+  it('toasts a bare query validation error as one punctuated sentence', () => {
+    const shown = vi.spyOn(toast, 'error')
+    failMutation(validationError({ query: ['Choose a start date.', 'Choose an end date.'] }))
+    expect(shown).toHaveBeenCalledWith(
+      errors.checkTheForm,
+      'Choose a start date. Choose an end date.',
+    )
+  })
 })
 
 describe('the query error net', () => {
+  it('reports unexpected query failures and gives the first load a safe notification', () => {
+    const shown = vi.spyOn(toast, 'error')
+    const reported = vi.spyOn(errorReporting, 'reportError').mockImplementation(() => {})
+    const error = new TypeError('Internal document metadata could not be read')
+
+    failQuery(error)
+
+    expect(reported).toHaveBeenCalledWith(error, { source: 'query' })
+    expect(shown).toHaveBeenCalledWith(errors.loadFailed, errors.unexpectedDetail)
+  })
+
+  it('reports an unexpected background failure without interrupting a populated screen', () => {
+    const shown = vi.spyOn(toast, 'error')
+    const reported = vi.spyOn(errorReporting, 'reportError').mockImplementation(() => {})
+    const error = new Error('Internal data transformation failed')
+
+    onQueryError?.(error, { state: { data: [] } } as unknown as QueryErrorArgs[1])
+
+    expect(reported).toHaveBeenCalledWith(error, { source: 'query' })
+    expect(shown).not.toHaveBeenCalled()
+  })
+
   it('lets a query that renders its own expected rejection opt out', () => {
     const shown = vi.spyOn(toast, 'error')
 
@@ -109,5 +158,23 @@ describe('query keys', () => {
   it('files the approval queue and the report catalogue under their namespaces', () => {
     expect(queryKeys.audit.approvals({ limit: 6 })).toEqual(['audit', 'approvals', { limit: 6 }])
     expect(queryKeys.reports.catalogue).toEqual(['reports', 'catalogue'])
+  })
+})
+
+describe('query retries', () => {
+  it('retries only transient transport failures with a bounded attempt count', () => {
+    const retry = queryClient.getDefaultOptions().queries?.retry
+    expect(typeof retry).toBe('function')
+    if (typeof retry !== 'function') throw new Error('The query retry policy must be callable')
+
+    expect(retry(0, new TypeError('Invalid data transformation'))).toBe(false)
+    expect(retry(0, new ApiError(422, 'VALIDATION_ERROR', 'Invalid input'))).toBe(false)
+    expect(retry(0, new ApiError(403, 'FORBIDDEN', 'Not permitted'))).toBe(false)
+    expect(retry(0, new ApiError(409, 'CONFLICT', 'Changed by someone else'))).toBe(false)
+    expect(retry(0, new ApiError(429, 'RATE_LIMITED', 'Wait'))).toBe(true)
+    expect(retry(1, new ApiError(429, 'RATE_LIMITED', 'Wait'))).toBe(false)
+    expect(retry(1, new ApiError(0, 'NETWORK_ERROR', 'Connection interrupted'))).toBe(true)
+    expect(retry(1, new ApiError(503, 'SERVICE_UNAVAILABLE', 'Retry later'))).toBe(true)
+    expect(retry(2, new ApiError(503, 'SERVICE_UNAVAILABLE', 'Retry later'))).toBe(false)
   })
 })

@@ -45,7 +45,25 @@ Do not edit the file by hand — `make contract` overwrites it.
 
 ## Response envelope
 
-Every response has the same shape. Clients never have to guess.
+Every JSON API response uses the shared envelope models in
+`apps/api/src/core/responses.py`. The frontend derives envelope metadata from
+the generated OpenAPI types and validates it at the HTTP boundary. Clients
+never have to guess whether a response is wrapped.
+
+Success bodies always contain `success: true`, `data` (which may be `null`),
+and a string `message`. Lists also contain `pagination`. Error bodies always
+contain `success: false`, `error` and `request_id`; `error.details` and
+`request_id` are `null` when unavailable. HTTP status codes still indicate
+success or failure.
+
+`make contract` and `make contract-check` reject missing or inconsistent JSON
+response schemas, including every alternative of a permission-dependent
+response. Routes that hide costs retain their runtime permission filtering
+while documenting both permitted response shapes.
+
+File downloads retain their binary content type. HTTP 204/205 responses have
+no JSON body. Operational `/health/*` probes, Prometheus `/metrics`, and
+successful CORS preflights retain their protocol-specific formats.
 
 **Success**
 
@@ -85,7 +103,8 @@ notifications, which grow without bound.
 {
   "success": true,
   "data": [ ... ],
-  "pagination": { "limit": 50, "next_cursor": "eyJ0Ijoi...", "has_next": true }
+  "pagination": { "limit": 50, "next_cursor": "eyJ0Ijoi...", "has_next": true },
+  "message": "Operation completed successfully"
 }
 ```
 
@@ -147,6 +166,7 @@ page; it remains scoped to the verified tenant and any supplied `item_id`.
 | 401 | not authenticated, or token invalid/expired/revoked |
 | 403 | authenticated but missing the required permission |
 | 404 | not found **in your tenant** |
+| 405 | HTTP method not allowed; see the `Allow` header |
 | 409 | conflict: concurrent edit, duplicate document, invalid state transition, lock timeout |
 | 413 | body too large |
 | 422 | validation or business-rule failure |
@@ -167,7 +187,7 @@ Stable strings the frontend switches on. Renaming one is a breaking change.
 |---|---|
 | Auth | `UNAUTHENTICATED` `INVALID_CREDENTIALS` `TOKEN_EXPIRED` `TOKEN_INVALID` `TOKEN_REVOKED` `ACCOUNT_LOCKED` `ACCOUNT_INACTIVE` `PASSWORD_POLICY` `MFA_INVALID` `PASSWORD_CHANGE_REQUIRED` |
 | Authz | `FORBIDDEN` `PERMISSION_DENIED` `TENANT_MISMATCH` `SCOPE_DENIED` `CSRF_VALIDATION_FAILED` |
-| Generic | `VALIDATION_ERROR` `NOT_FOUND` `CONFLICT` `RATE_LIMITED` `PAYLOAD_TOO_LARGE` `SERVICE_UNAVAILABLE` `INTERNAL_ERROR` |
+| Generic | `VALIDATION_ERROR` `NOT_FOUND` `CONFLICT` `RATE_LIMITED` `PAYLOAD_TOO_LARGE` `SERVICE_UNAVAILABLE` `INTERNAL_ERROR` `HTTP_ERROR` |
 | Business | `BUSINESS_RULE_VIOLATION` `INVALID_STATE_TRANSITION` `APPROVAL_REQUIRED` `DUPLICATE_DOCUMENT` `REFERENCED_RECORD_IN_USE` |
 | Inventory | `INSUFFICIENT_STOCK` `INSUFFICIENT_AVAILABLE_STOCK` `STOCK_LOCK_TIMEOUT` `NEGATIVE_STOCK_BLOCKED` `BATCH_REQUIRED` `SERIAL_REQUIRED` `RESERVATION_NOT_FOUND` `RESERVATION_ALREADY_CONSUMED` |
 | BOM / MRP | `BOM_NOT_FOUND` `BOM_CYCLE_DETECTED` `BOM_DEPTH_EXCEEDED` `BOM_NOT_APPROVED` `MRP_RUN_IN_PROGRESS` |
@@ -200,13 +220,75 @@ Validation failures carry field paths so a form can map them onto controls:
 
 ```json
 {
+  "success": false,
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Some fields need attention.",
     "details": { "fields": { "lines.0.quantity": ["Input should be greater than 0"] } }
-  }
+  },
+  "request_id": "9f2c4a1b8e7d..."
 }
 ```
+
+The frontend uses `api.get`, `post`, `put`, `patch` and `delete` for unwrapped
+`data`, `api.getPage` for offset lists, and `api.getCursorPage` for cursor
+lists. `api.download` and `api.blobUrl` read binary responses. Malformed JSON
+success bodies raise `ApiError` with code `INVALID_RESPONSE`; server errors
+use their `error.code`, `error.message`, `error.details` and request ID.
+
+Report lists use `api.getPageOrAccepted` through
+`useListQuery({ allowAccepted: true })` because the same operation may return
+an inline page or an HTTP 202 job. The hook exposes queued work as
+`acceptedJob`; ordinary lists remain arrays with pagination.
+
+## Request validation and naming
+
+Routes accept typed Pydantic request bodies and typed query/path parameters.
+Dependencies that assemble filter or period models from query parameters use
+`bind_query_filters`, which applies the same field-error formatter as body
+validation. Manually assembled multipart body metadata uses
+`bind_request_model` at the input boundary. Invalid JSON returns **400**;
+valid JSON, multipart metadata or query parameters that
+fail schema or business validation return **422**. A server-side model failure
+remains **500**.
+
+Validation details contain only field paths and messages. Body paths match
+form controls (`lines.0.quantity`); query, path, header and cookie errors retain
+their transport prefix (`query.search`, `path.item_id`). Whole-body failures
+use `_root`. Raw submitted values, parser offsets and validator context are not
+copied into error metadata.
+
+The body-size ceiling applies to bytes actually received, including chunked
+requests and bodies larger than their declared `Content-Length`. Exceeding it
+returns **413** with the standard error envelope; partially parsed upload files
+are closed when parsing stops. Unexpected server errors omit technical details
+even with development debug logging enabled. Database connection/pool failures
+and statement timeouts return **503**; concurrent transaction conflicts and lock
+timeouts return **409**.
+
+Paths use lowercase words separated by hyphens, with plural resource names
+where appropriate. Path and query parameter names and JSON fields use
+`snake_case`. Existing action paths (such as `/approve`) describe explicit
+business transitions. Every operation has a summary, tag and unique operation
+ID in OpenAPI. HTTP 201 identifies creation, 200 identifies reads and completed
+actions, and 202 identifies queued work; successful updates and removals that
+return an envelope use 200.
+
+## Message conventions
+
+Shared backend copy lives in `src/core/messages.py`; shared frontend copy lives
+in `src/lib/messages.ts`. Standard success titles name the subject and use a
+past-tense outcome, such as `Purchase order created`, without exclamation marks
+or redundant “successfully”. Backend routes use `success_message`, and frontend
+notifications use the `success` builders. Document codes and useful
+workflow-specific details remain available.
+
+Validation and error descriptions use clear sentences that explain the problem
+and, where possible, the next action. Repeated validation headlines and generic
+failure messages come from the shared catalogues. Stable error codes remain
+machine-readable; the UI preserves API business messages and field errors.
+Notifications use consistent titles and descriptions, and server failures
+include the request reference for support.
 
 ---
 
@@ -360,7 +442,12 @@ Every request carries `X-Request-ID`, minted by Nginx or by the API, returned in
 the response, stamped on every log line and audit row, and propagated into Celery
 tasks. Quote it in a support ticket and the whole story is findable.
 
-You may supply your own; it will be honoured.
+You may supply your own using 1–64 ASCII letters, digits, hyphens, underscores
+or full stops. Other values are replaced with a generated identifier so a
+correlation header cannot break an audit write or inject response/log content.
+Request IP provenance accepts valid IPv4/IPv6 addresses; a malformed
+`X-Real-IP` falls back to the valid peer address, or no address when neither is
+valid.
 
 ---
 

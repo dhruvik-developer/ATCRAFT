@@ -119,6 +119,9 @@ describe('MRP job-work conversion', () => {
       },
     })
 
+    // The run must settle before its dependent suggestions query is enabled.
+    await screen.findByRole('heading', { name: run.code })
+    await waitFor(() => fetch.requestFor('GET', `/mrp/runs/${RUN_ID}/suggestions`))
     await user.click(await screen.findByRole('checkbox', { name: 'Select BRASS-ROD-12' }))
     await user.click(screen.getByRole('button', { name: 'Convert selected' }))
 
@@ -152,7 +155,7 @@ describe('MRP job-work conversion', () => {
 
 describe('MRP shortage supply', () => {
   it('shows job-work output and its late interval on the requirement row', async () => {
-    renderScreen(<MrpRunDetailPage />, {
+    const { fetch } = renderScreen(<MrpRunDetailPage />, {
       route: `/mrp/runs/${RUN_ID}`,
       path: '/mrp/runs/:runId',
       permissions: [P.MRP_VIEW],
@@ -163,6 +166,9 @@ describe('MRP shortage supply', () => {
       },
     })
 
+    // The shortage panel is mounted only after the parent run has loaded.
+    await screen.findByRole('heading', { name: run.code })
+    await waitFor(() => fetch.requestFor('GET', '/mrp/shortage-report'))
     const row = (await screen.findByText('BRASS-ROD-12')).closest('tr')
     expect(row).not.toBeNull()
     const cells = within(row as HTMLElement)

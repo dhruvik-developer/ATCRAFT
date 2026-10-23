@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Company settings that change how other screens behave.
  *
@@ -93,7 +94,7 @@ export default function SettingsPage() {
             {settings.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not read the settings</AlertTitle>
-                <AlertDescription>{settings.error.message}</AlertDescription>
+                <AlertDescription>{describeError(settings.error)}</AlertDescription>
               </Alert>
             )}
 

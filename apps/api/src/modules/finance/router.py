@@ -33,6 +33,7 @@ from src.core.deps import (
     forbid_vendor_users,
     require_permission,
 )
+from src.core.messages import success_message
 from src.core.pagination import (
     PageParams,
     SortParams,
@@ -142,7 +143,7 @@ async def create_credit_note(
     payload: CreditNoteCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[CreditNoteDetail]:
     note = await credit_note_service.issue_credit_note(session, tenant, payload)
-    return ApiResponse[CreditNoteDetail].ok(note, "Credit note issued")
+    return ApiResponse[CreditNoteDetail].ok(note, success_message("Credit note", "issued"))
 
 
 @router.get(
@@ -170,7 +171,7 @@ async def cancel_credit_note(
     tenant: Tenant,
 ) -> ApiResponse[CreditNoteDetail]:
     note = await credit_note_service.cancel_credit_note(session, tenant, note_id, payload.reason)
-    return ApiResponse[CreditNoteDetail].ok(note, "Credit note cancelled")
+    return ApiResponse[CreditNoteDetail].ok(note, success_message("Credit note", "cancelled"))
 
 
 @router.post(
@@ -202,7 +203,8 @@ def account_filters(
     is_active: Annotated[bool | None, Query()] = None,
     is_system: Annotated[bool | None, Query()] = None,
 ) -> LedgerAccountFilters:
-    return LedgerAccountFilters(
+    return bind_query_filters(
+        LedgerAccountFilters,
         search=search,
         account_type=account_type,
         parent_id=parent_id,
@@ -246,7 +248,7 @@ async def create_account(
     session: DbSession, tenant: Tenant, payload: LedgerAccountCreate
 ) -> ApiResponse[LedgerAccountRead]:
     account = await service.create_account(session, tenant, payload)
-    return ApiResponse[LedgerAccountRead].ok(account, "Ledger account created")
+    return ApiResponse[LedgerAccountRead].ok(account, success_message("Ledger account", "created"))
 
 
 @router.get(
@@ -276,7 +278,7 @@ async def update_account(
     session: DbSession, tenant: Tenant, account_id: uuid.UUID, payload: LedgerAccountUpdate
 ) -> ApiResponse[LedgerAccountRead]:
     account = await service.update_account(session, tenant, account_id, payload)
-    return ApiResponse[LedgerAccountRead].ok(account, "Ledger account updated")
+    return ApiResponse[LedgerAccountRead].ok(account, success_message("Ledger account", "updated"))
 
 
 @router.delete(
@@ -293,7 +295,7 @@ async def delete_account(
     session: DbSession, tenant: Tenant, account_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_account(session, tenant, account_id, reason=reason)
-    return ApiResponse[None].ok(None, "Ledger account retired")
+    return ApiResponse[None].ok(None, success_message("Ledger account", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -390,7 +392,8 @@ def invoice_filters(
     open_only: Annotated[bool, Query(description="Only invoices that still owe money")] = False,
     overdue_only: Annotated[bool, Query(description="Only invoices past their due date")] = False,
 ) -> VendorInvoiceFilters:
-    return VendorInvoiceFilters(
+    return bind_query_filters(
+        VendorInvoiceFilters,
         search=search,
         status=invoice_status,
         match_status=match_status,
@@ -441,7 +444,9 @@ async def create_vendor_invoice(
     session: DbSession, tenant: Tenant, payload: VendorInvoiceCreate
 ) -> ApiResponse[VendorInvoiceDetail]:
     invoice = await service.create_invoice(session, tenant, payload)
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Vendor invoice recorded")
+    return ApiResponse[VendorInvoiceDetail].ok(
+        invoice, success_message("Vendor invoice", "recorded")
+    )
 
 
 @router.get(
@@ -475,7 +480,9 @@ async def update_vendor_invoice(
     payload: VendorInvoiceUpdate,
 ) -> ApiResponse[VendorInvoiceDetail]:
     invoice = await service.update_invoice(session, tenant, invoice_id, payload)
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Vendor invoice updated")
+    return ApiResponse[VendorInvoiceDetail].ok(
+        invoice, success_message("Vendor invoice", "updated")
+    )
 
 
 @router.delete(
@@ -489,7 +496,7 @@ async def delete_vendor_invoice(
     session: DbSession, tenant: Tenant, invoice_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_invoice(session, tenant, invoice_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft invoice deleted")
+    return ApiResponse[None].ok(None, success_message("Draft invoice", "deleted"))
 
 
 @router.post(
@@ -508,7 +515,9 @@ async def submit_vendor_invoice(
     invoice = await service.submit_invoice(
         session, tenant, invoice_id, reason=payload.reason if payload else None
     )
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Submitted for approval")
+    return ApiResponse[VendorInvoiceDetail].ok(
+        invoice, success_message("Vendor invoice", "submitted")
+    )
 
 
 @router.get(
@@ -548,7 +557,9 @@ async def approve_vendor_invoice(
     payload: InvoiceApproval,
 ) -> ApiResponse[VendorInvoiceDetail]:
     invoice = await service.approve_invoice(session, tenant, principal, invoice_id, payload)
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Vendor invoice approved")
+    return ApiResponse[VendorInvoiceDetail].ok(
+        invoice, success_message("Vendor invoice", "approved")
+    )
 
 
 @router.post(
@@ -565,7 +576,9 @@ async def dispute_vendor_invoice(
     session: DbSession, tenant: Tenant, invoice_id: uuid.UUID, payload: DisputeRequest
 ) -> ApiResponse[VendorInvoiceDetail]:
     invoice = await service.dispute_invoice(session, tenant, invoice_id, reason=payload.reason)
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Vendor invoice disputed")
+    return ApiResponse[VendorInvoiceDetail].ok(
+        invoice, success_message("Vendor invoice", "disputed")
+    )
 
 
 @router.post(
@@ -578,7 +591,7 @@ async def resolve_vendor_invoice_dispute(
     session: DbSession, tenant: Tenant, invoice_id: uuid.UUID, payload: ReasonRequest
 ) -> ApiResponse[VendorInvoiceDetail]:
     invoice = await service.resolve_dispute(session, tenant, invoice_id, reason=payload.reason)
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Dispute resolved")
+    return ApiResponse[VendorInvoiceDetail].ok(invoice, success_message("Dispute", "resolved"))
 
 
 @router.post(
@@ -592,7 +605,9 @@ async def cancel_vendor_invoice(
     session: DbSession, tenant: Tenant, invoice_id: uuid.UUID, payload: ReasonRequest
 ) -> ApiResponse[VendorInvoiceDetail]:
     invoice = await service.cancel_invoice(session, tenant, invoice_id, reason=payload.reason)
-    return ApiResponse[VendorInvoiceDetail].ok(invoice, "Vendor invoice cancelled")
+    return ApiResponse[VendorInvoiceDetail].ok(
+        invoice, success_message("Vendor invoice", "cancelled")
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -615,7 +630,8 @@ def payment_filters(
         bool, Query(description="Approved money not yet matched to invoices")
     ] = False,
 ) -> PaymentFilters:
-    return PaymentFilters(
+    return bind_query_filters(
+        PaymentFilters,
         search=search,
         status=payment_status,
         payment_type=payment_type,
@@ -662,7 +678,7 @@ async def create_payment(
     session: DbSession, tenant: Tenant, payload: PaymentCreate
 ) -> ApiResponse[PaymentDetail]:
     payment = await service.create_payment(session, tenant, payload)
-    return ApiResponse[PaymentDetail].ok(payment, "Payment recorded")
+    return ApiResponse[PaymentDetail].ok(payment, success_message("Payment", "recorded"))
 
 
 @router.get(
@@ -689,7 +705,7 @@ async def update_payment(
     session: DbSession, tenant: Tenant, payment_id: uuid.UUID, payload: PaymentUpdate
 ) -> ApiResponse[PaymentDetail]:
     payment = await service.update_payment(session, tenant, payment_id, payload)
-    return ApiResponse[PaymentDetail].ok(payment, "Payment updated")
+    return ApiResponse[PaymentDetail].ok(payment, success_message("Payment", "updated"))
 
 
 @router.delete(
@@ -702,7 +718,7 @@ async def delete_payment(
     session: DbSession, tenant: Tenant, payment_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_payment(session, tenant, payment_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft payment deleted")
+    return ApiResponse[None].ok(None, success_message("Draft payment", "deleted"))
 
 
 @router.post(
@@ -726,7 +742,7 @@ async def approve_payment(
     payment = await service.approve_payment(
         session, tenant, principal, payment_id, reason=payload.reason if payload else None
     )
-    return ApiResponse[PaymentDetail].ok(payment, "Payment approved")
+    return ApiResponse[PaymentDetail].ok(payment, success_message("Payment", "approved"))
 
 
 @router.post(
@@ -762,7 +778,7 @@ async def allocate_payment(
     session: DbSession, tenant: Tenant, payment_id: uuid.UUID, payload: AllocationRequest
 ) -> ApiResponse[PaymentDetail]:
     payment = await service.allocate_payment(session, tenant, payment_id, payload)
-    return ApiResponse[PaymentDetail].ok(payment, "Payment allocated")
+    return ApiResponse[PaymentDetail].ok(payment, success_message("Payment", "allocated"))
 
 
 @router.post(
@@ -787,7 +803,7 @@ async def allocate_purchase_return_debit(
         session, tenant, principal, purchase_return_id, payload
     )
     return ApiResponse[PurchaseReturnDebitAllocationResult].ok(
-        result, "Vendor debit note allocated"
+        result, success_message("Vendor debit note", "allocated")
     )
 
 
@@ -835,7 +851,9 @@ async def post_customer_adjustment(
     adjustment = await service.post_customer_adjustment(
         session, tenant, principal, payload.customer_id, payload
     )
-    return ApiResponse[CustomerAdjustmentRead].ok(adjustment, "Customer adjustment posted")
+    return ApiResponse[CustomerAdjustmentRead].ok(
+        adjustment, success_message("Customer adjustment", "posted")
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -963,7 +981,9 @@ async def inventory_valuation(
     item_id: Annotated[uuid.UUID | None, Query()] = None,
     category_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ApiResponse[InventoryValuationPage]:
-    filters = ValuationFilters(warehouse_id=warehouse_id, item_id=item_id, category_id=category_id)
+    filters = bind_query_filters(
+        ValuationFilters, warehouse_id=warehouse_id, item_id=item_id, category_id=category_id
+    )
     rows, summary, pagination = await service.inventory_valuation(
         session, tenant, filters=filters, params=params
     )
@@ -995,7 +1015,9 @@ async def export_inventory_valuation(
     category_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> AcceptedJobResponse:
     job_id = await service.queue_inventory_valuation(
-        session, tenant, ValuationFilters(warehouse_id=warehouse_id, category_id=category_id)
+        session,
+        tenant,
+        bind_query_filters(ValuationFilters, warehouse_id=warehouse_id, category_id=category_id),
     )
     return AcceptedJobResponse.create(
         job_id=job_id,
@@ -1044,7 +1066,8 @@ def sales_invoice_filters(
     overdue_only: bool = False,
     open_only: bool = False,
 ) -> SalesInvoiceFilters:
-    return SalesInvoiceFilters(
+    return bind_query_filters(
+        SalesInvoiceFilters,
         search=search,
         status=invoice_status,
         customer_id=customer_id,
@@ -1104,7 +1127,7 @@ async def issue_sales_invoice(
 ) -> ApiResponse[SalesInvoiceDetail]:
     return ApiResponse[SalesInvoiceDetail].ok(
         await sales_invoice_service.issue_sales_invoice(session, tenant, payload),
-        "Sales invoice issued",
+        success_message("Sales invoice", "issued"),
     )
 
 
@@ -1135,7 +1158,7 @@ async def cancel_sales_invoice(
         await sales_invoice_service.cancel_sales_invoice(
             session, tenant, invoice_id, reason=payload.reason
         ),
-        "Sales invoice cancelled",
+        success_message("Sales invoice", "cancelled"),
     )
 
 

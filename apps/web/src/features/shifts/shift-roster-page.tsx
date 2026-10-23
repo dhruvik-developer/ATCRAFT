@@ -15,6 +15,7 @@ import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
+import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
 
@@ -97,7 +98,7 @@ export default function ShiftRosterPage() {
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: queryKeys.routing.all })
-      toast.success('Roster updated')
+      toast.success(success.updated('Roster'))
       setConfirm(null)
       setReason('')
     },
@@ -291,7 +292,7 @@ export default function ShiftRosterPage() {
             </div>
             {list.error && (
               <Alert variant="destructive">
-                <AlertDescription>{list.error.message}</AlertDescription>
+                <AlertDescription>{describeError(list.error)}</AlertDescription>
               </Alert>
             )}
             {list.pagination?.has_next && (
@@ -464,7 +465,7 @@ export default function ShiftRosterPage() {
           minLength={3}
           maxLength={255}
         />
-        {action.error && <p className="text-sm text-destructive">{action.error.message}</p>}
+        {action.error && <p className="text-sm text-destructive">{describeError(action.error)}</p>}
       </ConfirmDialog>
     </>
   )

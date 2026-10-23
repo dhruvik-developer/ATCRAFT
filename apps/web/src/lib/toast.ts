@@ -8,7 +8,9 @@
 
 import { useSyncExternalStore } from 'react'
 
+import { ApiError } from '@/lib/api-client'
 import { MAX_VISIBLE_TOASTS, TOAST_DURATION_MS } from '@/lib/constants'
+import { describeError, errorTitle, errors } from '@/lib/messages'
 
 export type ToastVariant = 'default' | 'success' | 'warning' | 'error'
 
@@ -57,6 +59,14 @@ export const toast = {
   /** Errors do not auto-dismiss: the user may need to read a correlation id. */
   error: (title: string, description?: string) =>
     push({ title, description, variant: 'error', duration: TOAST_DURATION_MS.error }),
+  /** Direct request handlers share the global error headlines and correlation formatting. */
+  failure: (error: unknown, title?: string) =>
+    push({
+      title: title ?? (error instanceof ApiError ? errorTitle(error) : errors.unexpected),
+      description: describeError(error),
+      variant: 'error',
+      duration: TOAST_DURATION_MS.error,
+    }),
   action: (title: string, label: string, onClick: () => void, description?: string) =>
     push({
       title,

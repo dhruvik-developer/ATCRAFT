@@ -57,7 +57,7 @@ export const CardTitle = forwardRef<
   HTMLHeadingElement,
   HTMLAttributes<HTMLHeadingElement> & { asChild?: boolean }
 >(({ className, asChild = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : 'h3'
+  const Comp = asChild ? Slot : 'h2'
   return (
     <Comp
       ref={ref}

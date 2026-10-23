@@ -39,8 +39,11 @@ export const STORAGE_KEYS = {
 
 // --------------------------------------------------------------- lists -----
 
-/** Page sizes a data table offers. The API caps `limit` at 200. */
-export const PAGE_SIZES = [25, 50, 100, 200] as const
+/** Maximum `limit` accepted and returned by the API's pagination contract. */
+export const MAX_PAGE_SIZE = 200
+
+/** Page sizes a data table offers. */
+export const PAGE_SIZES = [25, 50, 100, MAX_PAGE_SIZE] as const
 
 /** Default rows per page on a list screen. */
 export const DEFAULT_PAGE_SIZE = 50
@@ -56,7 +59,7 @@ export const PICKER_PAGE_SIZE = 20
  * for a select). This is the API's maximum page size; a reference list that
  * outgrows it needs a picker, not a bigger number.
  */
-export const LOOKUP_LIST_LIMIT = 200
+export const LOOKUP_LIST_LIMIT = MAX_PAGE_SIZE
 
 /** Delay between the last keystroke and the search request. */
 export const SEARCH_DEBOUNCE_MS = 300

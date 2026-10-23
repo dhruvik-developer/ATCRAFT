@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * One MRP run: what it found, and what to do about it.
  *
@@ -853,7 +854,7 @@ export default function MrpRunDetailPage() {
         <PageHeader title="MRP run" breadcrumbs={[{ label: 'MRP', to: '/mrp' }]} />
         <Alert variant="destructive">
           <AlertTitle>Could not load this run</AlertTitle>
-          <AlertDescription>{(runQuery.error as Error).message}</AlertDescription>
+          <AlertDescription>{describeError(runQuery.error)}</AlertDescription>
           <Button
             variant="outline"
             size="sm"

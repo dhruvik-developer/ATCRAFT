@@ -21,6 +21,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 
 import { BASE_URL, api } from '@/lib/api-client'
+import { fileMessages } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import type { AcceptedJob } from '@/types/api'
 
@@ -142,13 +143,13 @@ export function useReportJob(): ReportJobController {
         // Said here rather than thrown: the mutation cache replaces anything
         // that is not an `ApiError` with the generic "something went wrong",
         // and the one thing worth telling the user would be lost.
-        toast.error('Nothing to download', 'This job finished without producing a file.')
+        toast.error(fileMessages.noFileTitle, fileMessages.noFile)
         return
       }
       await api.download(target)
       // After the await, so it can only follow a download that actually began.
       // A failed one throws an `ApiError`, which the mutation cache toasts.
-      toast.success('Download started', 'The file is saving to your device.')
+      toast.success(fileMessages.downloadStarted, fileMessages.downloading)
     },
   })
 
@@ -156,7 +157,7 @@ export function useReportJob(): ReportJobController {
     // `AcceptedJobResponse.create()` builds
     // `data={"job_id", "status", "status_url"}` (api/src/core/responses.py), and
     // the client strips the envelope before this is reached - `api.post` returns
-    // `envelope.data`, `useListQuery` returns `envelope.data`. So `status_url`
+    // `envelope.data`, `useListQuery` exposes `acceptedJob`. So `status_url`
     // is read off the top level of what the caller holds.
     //
     // Reaching for `accepted.data?.status_url` type-checked perfectly against
@@ -166,7 +167,7 @@ export function useReportJob(): ReportJobController {
     const statusUrl = accepted.status_url
     if (typeof statusUrl !== 'string') return
     setStatusPath(toApiPath(statusUrl))
-    toast.show('Queued', 'The file is being generated in the background.')
+    toast.show(fileMessages.queued, fileMessages.generating)
   }, [])
 
   const reset = useCallback(() => setStatusPath(null), [])

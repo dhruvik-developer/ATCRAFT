@@ -8,9 +8,6 @@ correlation id that lets support find the full detail in the logs.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
-
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import (
@@ -19,6 +16,7 @@ from sqlalchemy.exc import (
     OperationalError,
     SQLAlchemyError,
 )
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
@@ -26,26 +24,32 @@ from starlette.responses import JSONResponse
 from src.core.config import settings
 from src.core.errors import AppError, ErrorCode
 from src.core.logging import get_logger, get_request_id
-from src.core.messages import FIELDS_NEED_ATTENTION, SHIFT_ASSIGNMENT_OVERLAP
+from src.core.messages import (
+    FIELDS_NEED_ATTENTION,
+    MALFORMED_JSON,
+    SERVICE_UNAVAILABLE,
+    SHIFT_ASSIGNMENT_OVERLAP,
+    UNEXPECTED_ERROR,
+)
+from src.core.responses import ErrorResponse
+from src.core.validation import validation_field_errors
 
 log = get_logger("errors")
 
 
 def _payload(
+    request: Request,
     code: ErrorCode | str,
     message: str,
     details: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    body: dict[str, object] = {
-        "success": False,
-        "error": {"code": str(code), "message": message},
-    }
-    if details:
-        body["error"]["details"] = details  # type: ignore[index]
-    request_id = get_request_id()
-    if request_id:
-        body["request_id"] = request_id
-    return body
+    # ServerErrorMiddleware runs outside the request-context middleware. Its
+    # handler runs after that middleware has cleared the logging context, while
+    # the correlation id deliberately remains available on the request scope.
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
+    return ErrorResponse.create(str(code), message, details or None, request_id).model_dump(
+        mode="json"
+    )
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
@@ -63,7 +67,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         headers["Retry-After"] = str(getattr(exc, "retry_after_seconds", 60))
     response = JSONResponse(
         status_code=exc.status_code,
-        content=_payload(exc.code, exc.message, exc.details),
+        content=_payload(request, exc.code, exc.message, exc.details),
         headers=headers,
     )
     # A rejected refresh credential cannot recover on the next attempt. Expire
@@ -79,46 +83,24 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return response
 
 
-#: Pydantic v2 prefixes the message of a validator that raised with the kind of
-#: exception it caught. The sentence after the prefix is the one written for the
-#: user; the prefix is a framework detail the form must never show.
-_PYDANTIC_MESSAGE_PREFIXES = ("Value error, ", "Assertion failed, ")
-
-
-def _field_message(error: Mapping[str, Any]) -> str:
-    """The user-facing sentence for one pydantic error.
-
-    A ``ValueError`` raised inside a schema validator is the original exception
-    under ``ctx.error``; prefer its text, which is exactly what the validator
-    wrote. Fall back to stripping the prefix off ``msg`` for errors that arrive
-    already serialised.
-    """
-    ctx = error.get("ctx") or {}
-    if error.get("type") in {"value_error", "assertion_error"} and ctx.get("error") is not None:
-        return str(ctx["error"])
-    message = str(error.get("msg") or "Invalid value")
-    for prefix in _PYDANTIC_MESSAGE_PREFIXES:
-        message = message.removeprefix(prefix)
-    return message
-
-
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """Pydantic request validation, reshaped into the standard envelope.
 
-    Field paths are flattened into ``body.lines.0.quantity`` form so the frontend
-    can map an error straight onto the form control that produced it.
+    Body field paths use ``lines.0.quantity`` so the frontend can map an error
+    straight onto the form control that produced it. Invalid JSON is a malformed
+    request (400); well-formed inputs that fail their schema are 422.
     """
-    field_errors: dict[str, list[str]] = {}
-    for error in exc.errors():
-        location = ".".join(str(part) for part in error.get("loc", ()) if part != "body")
-        field_errors.setdefault(location or "_root", []).append(_field_message(error))
+    errors = exc.errors()
+    field_errors = validation_field_errors(errors)
+    malformed_json = any(error.get("type") == "json_invalid" for error in errors)
 
     log.info("error.validation", path=request.url.path, fields=sorted(field_errors))
     return JSONResponse(
-        status_code=422,
+        status_code=400 if malformed_json else 422,
         content=_payload(
+            request,
             ErrorCode.VALIDATION_ERROR,
-            FIELDS_NEED_ATTENTION,
+            MALFORMED_JSON if malformed_json else FIELDS_NEED_ATTENTION,
             {"fields": field_errors},
         ),
     )
@@ -135,6 +117,14 @@ SQLSTATE_FOREIGN_KEY_VIOLATION = "23503"
 SQLSTATE_UNIQUE_VIOLATION = "23505"
 SQLSTATE_CHECK_VIOLATION = "23514"
 SQLSTATE_EXCLUSION_VIOLATION = "23P01"
+
+# asyncpg adapts lock/statement timeouts and transaction conflicts to a generic
+# DBAPIError rather than OperationalError. Classify the driver code before the
+# SQLAlchemy wrapper so the same failure has one public HTTP outcome.
+SQLSTATE_LOCK_NOT_AVAILABLE = "55P03"
+SQLSTATE_QUERY_CANCELED = "57014"
+SQLSTATE_TRANSACTION_CONFLICTS = frozenset({"40001", "40P01"})
+SQLSTATE_DATABASE_UNAVAILABLE = frozenset({"53300", "57P01", "57P02", "57P03"})
 
 _DUPLICATE = (ErrorCode.DUPLICATE_DOCUMENT, "A record with these details already exists.", 409)
 _REFERENCED_IN_USE = (
@@ -227,7 +217,7 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
     log.warning("error.integrity", path=request.url.path, sqlstate=_sqlstate(exc), detail=raw[:500])
 
     code, message, status = classify_integrity_error(exc)
-    return JSONResponse(status_code=status, content=_payload(code, message))
+    return JSONResponse(status_code=status, content=_payload(request, code, message))
 
 
 async def stale_data_handler(request: Request, exc: StaleDataError) -> JSONResponse:
@@ -236,6 +226,7 @@ async def stale_data_handler(request: Request, exc: StaleDataError) -> JSONRespo
     return JSONResponse(
         status_code=409,
         content=_payload(
+            request,
             ErrorCode.CONFLICT,
             "This record was changed by someone else while you were editing. "
             "Reload to see the current version, then reapply your change.",
@@ -243,24 +234,41 @@ async def stale_data_handler(request: Request, exc: StaleDataError) -> JSONRespo
     )
 
 
-async def operational_error_handler(request: Request, exc: OperationalError) -> JSONResponse:
+async def operational_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """Lock timeouts, statement timeouts and connection loss."""
     raw = str(getattr(exc, "orig", exc)).lower()
+    sqlstate = _sqlstate(exc)
 
-    if "lock" in raw and "timeout" in raw:
+    if sqlstate == SQLSTATE_LOCK_NOT_AVAILABLE or ("lock" in raw and "timeout" in raw):
         log.warning("error.lock_timeout", path=request.url.path)
         return JSONResponse(
             status_code=409,
             content=_payload(
+                request,
                 ErrorCode.STOCK_LOCK_TIMEOUT,
                 "Another operation is updating this record. Please retry in a moment.",
             ),
         )
-    if "statement timeout" in raw or "canceling statement" in raw:
+    if sqlstate in SQLSTATE_TRANSACTION_CONFLICTS:
+        log.warning("error.transaction_conflict", path=request.url.path, sqlstate=sqlstate)
+        return JSONResponse(
+            status_code=409,
+            content=_payload(
+                request,
+                ErrorCode.CONFLICT,
+                "Another operation changed this data. Please retry in a moment.",
+            ),
+        )
+    if (
+        sqlstate == SQLSTATE_QUERY_CANCELED
+        or "statement timeout" in raw
+        or "canceling statement" in raw
+    ):
         log.error("error.statement_timeout", path=request.url.path)
         return JSONResponse(
             status_code=503,
             content=_payload(
+                request,
                 ErrorCode.SERVICE_UNAVAILABLE,
                 "This request took too long and was stopped. "
                 "Narrow the filters, or run it as a background report.",
@@ -270,16 +278,26 @@ async def operational_error_handler(request: Request, exc: OperationalError) -> 
     log.error("error.database_operational", path=request.url.path, detail=raw[:500])
     return JSONResponse(
         status_code=503,
-        content=_payload(ErrorCode.SERVICE_UNAVAILABLE, "The service is temporarily unavailable."),
+        content=_payload(request, ErrorCode.SERVICE_UNAVAILABLE, SERVICE_UNAVAILABLE),
     )
 
 
 async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
-    """Any other database failure - always a bug, never explained to the client."""
+    """Separate transient database failures from implementation defects."""
+    sqlstate = _sqlstate(exc)
+    if (
+        isinstance(exc, SQLAlchemyTimeoutError)
+        or (isinstance(exc, DBAPIError) and exc.connection_invalidated)
+        or sqlstate in {SQLSTATE_LOCK_NOT_AVAILABLE, SQLSTATE_QUERY_CANCELED}
+        or sqlstate in SQLSTATE_TRANSACTION_CONFLICTS
+        or sqlstate in SQLSTATE_DATABASE_UNAVAILABLE
+        or (sqlstate is not None and sqlstate.startswith("08"))
+    ):
+        return await operational_error_handler(request, exc)
     log.exception("error.database", path=request.url.path)
     return JSONResponse(
         status_code=500,
-        content=_payload(ErrorCode.INTERNAL_ERROR, "An unexpected error occurred."),
+        content=_payload(request, ErrorCode.INTERNAL_ERROR, UNEXPECTED_ERROR),
     )
 
 
@@ -292,14 +310,23 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         404: ErrorCode.NOT_FOUND,
         409: ErrorCode.CONFLICT,
         413: ErrorCode.PAYLOAD_TOO_LARGE,
+        422: ErrorCode.VALIDATION_ERROR,
         429: ErrorCode.RATE_LIMITED,
-    }.get(exc.status_code, ErrorCode.INTERNAL_ERROR)
+        503: ErrorCode.SERVICE_UNAVAILABLE,
+    }.get(
+        exc.status_code,
+        ErrorCode.INTERNAL_ERROR if exc.status_code >= 500 else ErrorCode.HTTP_ERROR,
+    )
 
+    message = str(exc.detail) if exc.detail else "Request could not be completed."
+    if exc.status_code >= 500:
+        # Framework/integration HTTP errors may carry private upstream details.
+        # Log them locally, but keep the same safe public server-error wording.
+        log.error("error.http_server", path=request.url.path, status=exc.status_code)
+        message = SERVICE_UNAVAILABLE if exc.status_code == 503 else UNEXPECTED_ERROR
     return JSONResponse(
         status_code=exc.status_code,
-        content=_payload(
-            code, str(exc.detail) if exc.detail else "Request could not be completed."
-        ),
+        content=_payload(request, code, message),
         headers=getattr(exc, "headers", None),
     )
 
@@ -307,22 +334,26 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """The final net. Anything reaching here is a defect.
 
-    The full traceback is logged with the correlation id. Outside development the
-    response carries nothing but the code and that id.
+    The full traceback is logged with the correlation id. Responses remain safe
+    even when development logging is enabled: exception text can carry secrets.
     """
-    log.exception("error.unhandled", path=request.url.path, exc_type=type(exc).__name__)
-
-    details: dict[str, object] | None = None
-    if settings.app_debug and not settings.is_production:
-        details = {"exception": type(exc).__name__, "message": str(exc)[:500]}
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
+    log.exception(
+        "error.unhandled",
+        path=request.url.path,
+        exc_type=type(exc).__name__,
+        request_id=request_id,
+    )
 
     return JSONResponse(
         status_code=500,
         content=_payload(
+            request,
             ErrorCode.INTERNAL_ERROR,
-            "An unexpected error occurred. Quote the request id when reporting this.",
-            details,
+            UNEXPECTED_ERROR,
         ),
+        # This response bypasses the inner middleware on its way out.
+        headers={"X-Request-ID": request_id} if request_id else None,
     )
 
 

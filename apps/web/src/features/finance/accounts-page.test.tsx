@@ -436,6 +436,6 @@ describe('the states with no rows in them', () => {
     })
 
     expect(await screen.findByText('Could not load this list')).toBeInTheDocument()
-    expect(screen.getByText('The ledger is being rebuilt')).toBeInTheDocument()
+    expect(screen.getByText('The ledger is being rebuilt', { exact: false })).toBeInTheDocument()
   })
 })

@@ -66,7 +66,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { raisedDocuments } from '@/lib/messages'
+import { describeError, raisedDocuments } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -419,7 +419,7 @@ export default function RequisitionConversionDialog({
               <Alert variant="destructive">
                 <AlertTitle>The proposal could not be worked out</AlertTitle>
                 <AlertDescription>
-                  {preview.error.message}
+                  {describeError(preview.error)}
                   <span className="mt-3 flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => void preview.refetch()}>
                       <RefreshCw />

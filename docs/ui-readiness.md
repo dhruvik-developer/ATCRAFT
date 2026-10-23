@@ -4,6 +4,10 @@ Use a populated development or test environment. The checks exercise the real
 API, including authentication, tenant permissions, validation and pagination.
 The browser journeys create their own test records.
 
+The [22–23 October standards verification](implementation/development-standards-20261022.md)
+records the latest populated route, theme and error-contract checks. Earlier
+dated results below remain historical evidence for their stated source.
+
 ## Verified on 16 October 2026
 
 The audit used a separate, populated test database and the production web build.
@@ -40,6 +44,7 @@ npx playwright test
 node scripts/permission-sweep.mjs
 node scripts/data-sweep.mjs
 node scripts/theme-sweep.mjs
+node scripts/a11y-sweep.mjs
 ```
 
 The permission sweep uses a separate restricted account. Its five explicit
@@ -53,6 +58,13 @@ and 1440 pixel widths. A missing detail fixture, failed request, API error,
 render failure, horizontal page overflow or clipped form fails the check.
 Tables may scroll within their own containers.
 
+Rendered error notifications also fail the sweep, including a malformed HTTP 200
+response rejected by the client. The forced-password screen is checked in a
+separate browser session with an intercepted identity response; no stored
+account password is changed. Keep application source and test files unchanged
+while a development-server sweep runs: a file-watcher reload invalidates its
+navigation and in-flight request evidence.
+
 The JSON results are written to `tests/e2e/sweep-ui-readiness.json`; screenshots
 are kept in `tests/e2e/readiness-artifacts/`. These generated files are ignored
 by Git. `READINESS_WIDTHS`, `READINESS_ROUTES` and `SWEEP_OUT` can narrow a
@@ -63,6 +75,13 @@ $env:READINESS_WIDTHS = '320,667'
 $env:READINESS_ROUTES = '/items,/finance'
 npm run test:readiness
 ```
+
+The accessibility sweep includes login and all configured static screens and
+checks API, network and render failures as well as WCAG rules. Run it once per
+theme with `A11Y_COLOR_SCHEME=light` and `A11Y_COLOR_SCHEME=dark`, using separate
+`SWEEP_OUT` reports. `A11Y_ROUTES=/items,/warehouses` narrows a reproduction; a
+filtered run does not verify the omitted screens. JSON reports include each
+screen's failures and aggregated accessibility rules.
 
 The additional `ui-layout.spec.ts` browser regressions cover phone navigation
 focus and resizing, long account names, short-screen dropdown/select scrolling,

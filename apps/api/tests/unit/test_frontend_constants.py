@@ -33,9 +33,17 @@ _SET_TIMEOUT = re.compile(r"\bsetTimeout\s*\(")
 
 
 def _constant(name: str) -> int:
-    match = re.search(rf"^export const {name}\s*=\s*(\d+)\b", CONSTANTS.read_text("utf-8"), re.M)
-    assert match, f"{name} is not a numeric export of lib/constants.ts; the guard is stale"
-    return int(match.group(1))
+    source = CONSTANTS.read_text("utf-8")
+    visited: set[str] = set()
+    while name not in visited:
+        visited.add(name)
+        match = re.search(rf"^export const {name}\s*=\s*(\d+|[A-Z][A-Z0-9_]*)\b", source, re.M)
+        assert match, f"{name} is not a numeric constant or alias in lib/constants.ts"
+        value = match.group(1)
+        if value.isdigit():
+            return int(value)
+        name = value
+    raise AssertionError(f"Circular constant alias in lib/constants.ts: {name}")
 
 
 def _parenthesised(text: str, start: int) -> str:

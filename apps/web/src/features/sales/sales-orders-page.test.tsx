@@ -460,7 +460,9 @@ describe('the order book', () => {
 
     // The server's own wording, not "request failed": it is the only thing that
     // tells the user whether waiting will help.
-    expect(await screen.findByText('The order service is failing over')).toBeVisible()
+    expect(
+      await screen.findByText('The order service is failing over (reference test)'),
+    ).toBeVisible()
     expect(screen.getByRole('button', { name: /try again/i })).toBeVisible()
   })
 })
@@ -655,7 +657,7 @@ describe('what the new-order form sends', () => {
       }),
     })
     await openForm(user, fetch)
-    await screen.findAllByText('Customer addresses are temporarily unavailable')
+    await screen.findAllByText('Customer addresses are temporarily unavailable (reference test)')
     expect(screen.getByRole('combobox', { name: 'Bill to' })).toHaveAttribute(
       'aria-invalid',
       'true',
@@ -921,7 +923,7 @@ describe('the line editor', () => {
     await openLineEditor(user, fetch)
     await user.click(screen.getByRole('button', { name: 'Add line' }))
 
-    expect(await screen.findByText('Choose an item')).toBeVisible()
+    expect(await screen.findByText('Choose an item.')).toBeVisible()
   })
 
   it('previews the net of discount with decimal arithmetic', async () => {

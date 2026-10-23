@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * The assembly board: open work per line, planned against actual.
  *
@@ -149,7 +150,7 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
             ))}
           </div>
         ) : lines.error ? (
-          <p className="text-sm text-destructive">{lines.error.message}</p>
+          <p className="text-sm text-destructive">{describeError(lines.error)}</p>
         ) : lines.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No open assembly orders. Raise one to start planning the benches.
@@ -174,7 +175,7 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
         {orders.isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : orders.error ? (
-          <p className="text-sm text-destructive">{orders.error.message}</p>
+          <p className="text-sm text-destructive">{describeError(orders.error)}</p>
         ) : orders.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing is past its planned end. The full open list, line by line, is on the orders tab.

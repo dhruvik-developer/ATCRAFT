@@ -13,25 +13,28 @@
  * state-changing auth calls and the hint used to restore a session after F5.
  */
 
-import { API_BASE_URL, CSRF_COOKIE_NAME, STORAGE_KEYS } from '@/lib/constants'
-import type { ApiEnvelope, PaginatedEnvelope } from '@/types/api'
+import { API_BASE_URL, CSRF_COOKIE_NAME, MAX_PAGE_SIZE, STORAGE_KEYS } from '@/lib/constants'
+import { errors } from '@/lib/messages'
+import type {
+  AcceptedJob,
+  ApiEnvelope,
+  CursorEnvelope,
+  ErrorResponse,
+  PaginatedEnvelope,
+} from '@/types/api'
 
 const BASE_URL = API_BASE_URL
 const SESSION_SUPPRESS_KEY = STORAGE_KEYS.sessionSuppressed
-
-/** Messages composed here rather than in lib/messages: that module imports this one. */
-const SERVICE_UNAVAILABLE_MESSAGE = 'The service is temporarily unavailable. Please try again.'
-const REQUEST_FAILED_MESSAGE = 'Request failed'
 
 // ---------------------------------------------------------------- errors ----
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly code: string,
+    readonly code: ErrorResponse['error']['code'],
     message: string,
-    readonly details?: Record<string, unknown>,
-    readonly requestId?: string,
+    readonly details?: NonNullable<ErrorResponse['error']['details']>,
+    readonly requestId?: NonNullable<ErrorResponse['request_id']>,
   ) {
     super(message)
     this.name = 'ApiError'
@@ -40,7 +43,13 @@ export class ApiError extends Error {
   /** Field-level messages from a 422, keyed by form field path. */
   get fieldErrors(): Record<string, string[]> {
     const fields = this.details?.fields
-    return typeof fields === 'object' && fields !== null ? (fields as Record<string, string[]>) : {}
+    if (!isRecord(fields)) return {}
+    return Object.fromEntries(
+      Object.entries(fields).filter(
+        (entry): entry is [string, string[]] =>
+          Array.isArray(entry[1]) && entry[1].every((message) => typeof message === 'string'),
+      ),
+    )
   }
 
   get isAuthError(): boolean {
@@ -51,9 +60,9 @@ export class ApiError extends Error {
     return this.status === 403
   }
 
-  /** Conflicts and rate limits are worth retrying; a 422 never is. */
+  /** Read requests may retry connection failures, rate limits and server outages. */
   get isRetryable(): boolean {
-    return this.status === 429 || this.status >= 500
+    return this.status === 0 || this.status === 429 || this.status >= 500
   }
 }
 
@@ -73,6 +82,28 @@ export function emptyOnPermissionError<T>(error: unknown): T[] {
 // ----------------------------------------------------------------- tokens ---
 
 let accessToken: string | null = null
+// Storage can be blocked by a browser policy. Keep the last failed write's
+// decision in memory so sign-out still suppresses restoration in this tab.
+let sessionSuppressionOverride: boolean | undefined
+
+function writeSessionSuppression(suppressed: boolean): void {
+  try {
+    if (suppressed) localStorage.setItem(SESSION_SUPPRESS_KEY, '1')
+    else localStorage.removeItem(SESSION_SUPPRESS_KEY)
+    sessionSuppressionOverride = undefined
+  } catch {
+    sessionSuppressionOverride = suppressed
+  }
+}
+
+function sessionRestoreSuppressed(): boolean {
+  if (sessionSuppressionOverride !== undefined) return sessionSuppressionOverride
+  try {
+    return localStorage.getItem(SESSION_SUPPRESS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 function cookieValue(name: string): string | null {
   const prefix = `${encodeURIComponent(name)}=`
@@ -80,7 +111,13 @@ function cookieValue(name: string): string | null {
     .split(';')
     .map((part) => part.trim())
     .find((part) => part.startsWith(prefix))
-  return found ? decodeURIComponent(found.slice(prefix.length)) : null
+  if (!found) return null
+  try {
+    return decodeURIComponent(found.slice(prefix.length))
+  } catch {
+    // An invalid cookie is no session hint; it must not prevent a new sign-in.
+    return null
+  }
 }
 
 type AuthListener = (authenticated: boolean) => void
@@ -93,7 +130,7 @@ export function onAuthChange(listener: AuthListener): () => void {
 
 export function setTokens(access: string | null): void {
   accessToken = access
-  if (access) localStorage.removeItem(SESSION_SUPPRESS_KEY)
+  if (access) writeSessionSuppression(false)
   authListeners.forEach((l) => l(Boolean(access)))
 }
 
@@ -102,14 +139,12 @@ export function clearTokens(): void {
   // JavaScript cannot and must not erase the HttpOnly cookie. This marker stops
   // a failed logout request from silently restoring that cookie on the next
   // reload; a later successful login/refresh clears it.
-  localStorage.setItem(SESSION_SUPPRESS_KEY, '1')
+  writeSessionSuppression(true)
   authListeners.forEach((listener) => listener(false))
 }
 
 export function hasRefreshToken(): boolean {
-  return (
-    localStorage.getItem(SESSION_SUPPRESS_KEY) !== '1' && Boolean(cookieValue(CSRF_COOKIE_NAME))
-  )
+  return !sessionRestoreSuppressed() && Boolean(cookieValue(CSRF_COOKIE_NAME))
 }
 
 // ------------------------------------------------------- refresh handling ---
@@ -139,10 +174,12 @@ async function refreshAccessToken(): Promise<boolean> {
         clearTokens()
         return false
       }
-      const body = (await response.json()) as ApiEnvelope<{
-        access_token: string
-      }>
-      if (!body.data?.access_token) {
+      const body = await readEnvelope(response)
+      if (
+        !isRecord(body?.data) ||
+        typeof body.data.access_token !== 'string' ||
+        !body.data.access_token
+      ) {
         clearTokens()
         return false
       }
@@ -167,8 +204,6 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
   params?: Record<string, unknown>
   /** Skip the bearer header - used only by the login endpoint. */
   anonymous?: boolean
-  /** Return the raw Response (file downloads) instead of unwrapping JSON. */
-  raw?: boolean
 }
 
 function buildUrl(path: string, params?: Record<string, unknown>): string {
@@ -188,32 +223,143 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
 async function toApiError(response: Response): Promise<ApiError> {
   const requestId = response.headers.get('X-Request-ID') ?? undefined
   try {
-    const body = await response.json()
-    const error = body?.error ?? {}
+    const body: unknown = await response.json()
+    if (!isErrorEnvelope(body)) throw invalidResponse(response)
+    const error = body.error
     return new ApiError(
       response.status,
-      error.code ?? 'UNKNOWN',
-      error.message ?? response.statusText,
-      error.details,
-      body?.request_id ?? requestId,
+      error.code,
+      error.message,
+      error.details ?? undefined,
+      body.request_id ?? requestId,
     )
-  } catch {
-    // A non-JSON body means the failure happened before the app (nginx 502,
-    // gateway timeout). There is nothing structured to report.
+  } catch (error) {
+    if (isAbortError(error)) throw error
+    // A proxy or gateway can fail before the app supplies a valid envelope.
     return new ApiError(
       response.status,
       response.status >= 500 ? 'SERVICE_UNAVAILABLE' : 'UNKNOWN',
       response.status >= 500
-        ? SERVICE_UNAVAILABLE_MESSAGE
-        : response.statusText || REQUEST_FAILED_MESSAGE,
+        ? errors.serviceUnavailable
+        : response.statusText || errors.requestFailed,
       undefined,
       requestId,
     )
   }
 }
 
-async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, params, anonymous, raw, headers, ...rest } = options
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isAbortError(error: unknown): boolean {
+  return isRecord(error) && error.name === 'AbortError'
+}
+
+function isErrorEnvelope(value: unknown): value is ErrorResponse {
+  return (
+    isRecord(value) &&
+    value.success === false &&
+    isRecord(value.error) &&
+    typeof value.error.code === 'string' &&
+    typeof value.error.message === 'string' &&
+    (value.error.details == null || isRecord(value.error.details)) &&
+    (value.request_id == null || typeof value.request_id === 'string')
+  )
+}
+
+function isAcceptedJobData(value: unknown): value is AcceptedJob['data'] {
+  return (
+    isRecord(value) &&
+    typeof value.job_id === 'string' &&
+    Boolean(value.job_id) &&
+    typeof value.status === 'string' &&
+    Boolean(value.status) &&
+    typeof value.status_url === 'string' &&
+    Boolean(value.status_url)
+  )
+}
+
+function invalidResponse(response: Response): ApiError {
+  return new ApiError(
+    response.status,
+    'INVALID_RESPONSE',
+    errors.invalidResponse,
+    undefined,
+    response.headers.get('X-Request-ID') ?? undefined,
+  )
+}
+
+/** Validate shared metadata once; resource data remains the caller's generic type. */
+async function readEnvelope(response: Response): Promise<ApiEnvelope<unknown> | undefined> {
+  if (response.status === 204 || response.status === 205) return undefined
+  let value: unknown
+  try {
+    value = await response.json()
+  } catch (error) {
+    if (isAbortError(error)) throw error
+    throw invalidResponse(response)
+  }
+  if (
+    !isRecord(value) ||
+    value.success !== true ||
+    !Object.hasOwn(value, 'data') ||
+    value.data === undefined ||
+    typeof value.message !== 'string' ||
+    (response.status === 202 && !isAcceptedJobData(value.data))
+  ) {
+    throw invalidResponse(response)
+  }
+  return value as ApiEnvelope<unknown>
+}
+
+function isNonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+function isPageSize(value: unknown): boolean {
+  return isNonnegativeInteger(value) && value >= 1 && value <= MAX_PAGE_SIZE
+}
+
+async function readPage<T, Cursor extends boolean>(
+  response: Response,
+  cursor: Cursor,
+): Promise<Cursor extends true ? CursorEnvelope<T> : PaginatedEnvelope<T>> {
+  if (response.status === 202) throw invalidResponse(response)
+  const envelope = await readEnvelope(response)
+  const pagination = envelope && 'pagination' in envelope ? envelope.pagination : undefined
+  if (
+    !envelope ||
+    !Array.isArray(envelope.data) ||
+    !isRecord(pagination) ||
+    !isPageSize(pagination.limit) ||
+    typeof pagination.has_next !== 'boolean' ||
+    (cursor
+      ? pagination.page !== undefined ||
+        (pagination.next_cursor != null && typeof pagination.next_cursor !== 'string') ||
+        (pagination.has_next && !pagination.next_cursor)
+      : !isNonnegativeInteger(pagination.page) ||
+        pagination.page < 1 ||
+        typeof pagination.has_previous !== 'boolean' ||
+        (pagination.total != null && !isNonnegativeInteger(pagination.total)) ||
+        (pagination.total_pages != null && !isNonnegativeInteger(pagination.total_pages)))
+  ) {
+    throw invalidResponse(response)
+  }
+  return envelope as Cursor extends true ? CursorEnvelope<T> : PaginatedEnvelope<T>
+}
+
+async function requestData<T>(method: string, path: string, options?: RequestOptions): Promise<T> {
+  const envelope = await readEnvelope(await request(method, path, options))
+  return envelope?.data as T
+}
+
+async function request(
+  method: string,
+  path: string,
+  options: RequestOptions = {},
+): Promise<Response> {
+  const { body, params, anonymous, headers, ...rest } = options
 
   const send = async (): Promise<Response> => {
     const finalHeaders = new Headers(headers)
@@ -233,13 +379,25 @@ async function request<T>(method: string, path: string, options: RequestOptions 
       payload = JSON.stringify(body)
     }
 
-    return fetch(buildUrl(path, params), {
-      ...rest,
-      method,
-      credentials: rest.credentials ?? 'include',
-      headers: finalHeaders,
-      body: payload,
-    })
+    try {
+      return await fetch(buildUrl(path, params), {
+        ...rest,
+        method,
+        credentials: rest.credentials ?? 'include',
+        headers: finalHeaders,
+        body: payload,
+      })
+    } catch (error) {
+      // Cancellation belongs to the caller/query lifecycle, rather than an outage notice.
+      if (isAbortError(error)) throw error
+      const failure = new ApiError(
+        0,
+        'NETWORK_ERROR',
+        navigator.onLine === false ? errors.networkOffline : errors.networkFailed,
+      )
+      failure.cause = error
+      throw failure
+    }
   }
 
   let response = await send()
@@ -255,10 +413,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   }
 
   if (!response.ok) throw await toApiError(response)
-  if (raw) return response as unknown as T
-  if (response.status === 204) return undefined as T
-
-  return (await response.json()) as T
+  return response
 }
 
 // --------------------------------------------------------------- surface ----
@@ -266,33 +421,45 @@ async function request<T>(method: string, path: string, options: RequestOptions 
 export const api = {
   /** Unwraps the envelope and returns `data`. */
   async get<T>(path: string, options?: RequestOptions): Promise<T> {
-    const envelope = await request<ApiEnvelope<T>>('GET', path, options)
-    return envelope.data as T
+    return requestData<T>('GET', path, options)
   },
 
   /** Keeps the envelope so `pagination` is available to the table. */
   async getPage<T>(path: string, options?: RequestOptions): Promise<PaginatedEnvelope<T>> {
-    return request<PaginatedEnvelope<T>>('GET', path, options)
+    return readPage<T, false>(await request('GET', path, options), false)
+  },
+
+  /** A report can return inline rows or escalate to a background job with HTTP 202. */
+  async getPageOrAccepted<T>(
+    path: string,
+    options?: RequestOptions,
+  ): Promise<PaginatedEnvelope<T> | AcceptedJob> {
+    const response = await request('GET', path, options)
+    if (response.status !== 202) return readPage<T, false>(response, false)
+    const envelope = await readEnvelope(response)
+    if (!envelope || 'pagination' in envelope) throw invalidResponse(response)
+    return envelope as AcceptedJob
+  },
+
+  /** Keeps cursor pagination for append-heavy lists. */
+  async getCursorPage<T>(path: string, options?: RequestOptions): Promise<CursorEnvelope<T>> {
+    return readPage<T, true>(await request('GET', path, options), true)
   },
 
   async post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    const envelope = await request<ApiEnvelope<T>>('POST', path, { ...options, body })
-    return envelope.data as T
+    return requestData<T>('POST', path, { ...options, body })
   },
 
   async put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    const envelope = await request<ApiEnvelope<T>>('PUT', path, { ...options, body })
-    return envelope.data as T
+    return requestData<T>('PUT', path, { ...options, body })
   },
 
   async patch<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    const envelope = await request<ApiEnvelope<T>>('PATCH', path, { ...options, body })
-    return envelope.data as T
+    return requestData<T>('PATCH', path, { ...options, body })
   },
 
   async delete<T = void>(path: string, options?: RequestOptions): Promise<T> {
-    const envelope = await request<ApiEnvelope<T>>('DELETE', path, options)
-    return envelope?.data as T
+    return requestData<T>('DELETE', path, options)
   },
 
   /**
@@ -303,7 +470,7 @@ export const api = {
    * URL rather than an <a href> the browser fetches without a bearer token.
    */
   async download(path: string, filename?: string, options?: RequestOptions): Promise<void> {
-    const response = await request<Response>('GET', path, { ...options, raw: true })
+    const response = await request('GET', path, options)
     const blob = await response.blob()
 
     const disposition = response.headers.get('Content-Disposition') ?? ''
@@ -328,7 +495,7 @@ export const api = {
    * and shown in `<img>` tags. The caller revokes the URL when it unmounts.
    */
   async blobUrl(path: string, options?: RequestOptions): Promise<string> {
-    const response = await request<Response>('GET', path, { ...options, raw: true })
+    const response = await request('GET', path, options)
     return URL.createObjectURL(await response.blob())
   },
 }

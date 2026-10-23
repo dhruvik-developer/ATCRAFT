@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Ageing by party, bucketed by days past due, one denomination at a time.
  *
@@ -363,7 +364,7 @@ export function AgeingTab() {
       {report.error && !report.isLoading && (
         <Alert variant="destructive">
           <AlertTitle>The ageing report could not be loaded</AlertTitle>
-          <AlertDescription>{report.error.message}</AlertDescription>
+          <AlertDescription>{describeError(report.error)}</AlertDescription>
         </Alert>
       )}
 

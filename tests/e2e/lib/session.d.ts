@@ -16,7 +16,11 @@ export interface BootstrapAccount extends Account {
   bootstrapPassword?: string
 }
 
+export interface BrowserAccount extends Account {
+  allowTemporaryPassword?: boolean
+}
+
 export function postJson(path: string, payload: unknown, token?: string): Promise<ApiReply>
 export function login(email: string, password: string): Promise<ApiReply>
 export function readyAdminToken(account?: BootstrapAccount): Promise<string>
-export function signInThroughForm(page: Page, account?: Account): Promise<void>
+export function signInThroughForm(page: Page, account?: BrowserAccount): Promise<void>

@@ -64,7 +64,9 @@ export function login(email, password) {
 /** @param {ApiReply} reply */
 function describe(reply) {
   const error = reply.body?.error
-  return error ? `${reply.status} ${error.code ?? ''} ${error.message ?? ''}`.trim() : String(reply.status)
+  return error
+    ? `${reply.status} ${error.code ?? ''} ${error.message ?? ''}`.trim()
+    : String(reply.status)
 }
 
 /**
@@ -156,7 +158,7 @@ export async function readyAdminToken(account = {}) {
  * failure would otherwise surface as a timeout on the next screen.
  *
  * @param {import('@playwright/test').Page} page
- * @param {{ email?: string, password?: string }} [account]
+ * @param {{ email?: string, password?: string, allowTemporaryPassword?: boolean }} [account]
  */
 export async function signInThroughForm(page, account = {}) {
   const email = account.email ?? ADMIN_EMAIL
@@ -183,7 +185,10 @@ export async function signInThroughForm(page, account = {}) {
     )
   }
 
-  if (new URL(page.url()).pathname.startsWith('/change-password')) {
+  if (
+    new URL(page.url()).pathname.startsWith('/change-password') &&
+    !account.allowTemporaryPassword
+  ) {
     throw new Error(
       `${email} is still on a temporary password and was routed to /change-password. ` +
         'Bootstrap the account first: readyAdminToken() does it through the API.',

@@ -14,8 +14,9 @@
 import { QueryCache, QueryClient, MutationCache } from '@tanstack/react-query'
 
 import { ApiError, clearTokens } from './api-client'
+import { reportError } from './error-reporting'
 import { partitionFieldErrors } from './form-errors'
-import { errorDescription, errorTitle, errors } from './messages'
+import { errorDescription, errorTitle, errors, joinValidationMessages } from './messages'
 import { toast } from './toast'
 
 /** How long a domain's data may be served from cache before it is refetched. */
@@ -34,12 +35,12 @@ export const staleTimes = {
 } as const
 
 function shouldRetry(failureCount: number, error: unknown): boolean {
-  if (error instanceof ApiError) {
-    if (!error.isRetryable) return false
-    // A 429 is retried once, with the backoff below giving the window time to
-    // roll over rather than hammering it.
-    if (error.status === 429) return failureCount < 1
-  }
+  // Transport errors are shaped by api-client. Re-running a transformation or
+  // rendering bug cannot recover and only repeats the same failed processing.
+  if (!(error instanceof ApiError) || !error.isRetryable) return false
+  // A 429 is retried once, with the backoff below giving the window time to
+  // roll over rather than hammering it.
+  if (error.status === 429) return failureCount < 1
   return failureCount < 2
 }
 
@@ -64,7 +65,13 @@ export const queryClient = new QueryClient({
 
   queryCache: new QueryCache({
     onError: (error, query) => {
-      if (!(error instanceof ApiError)) return
+      if (!(error instanceof ApiError)) {
+        reportError(error, { source: 'query' })
+        if (query.state.data === undefined && !query.meta?.suppressErrorToast) {
+          toast.error(errors.loadFailed, errors.unexpectedDetail)
+        }
+        return
+      }
       if (error.isAuthError) {
         clearTokens()
         return
@@ -86,6 +93,7 @@ export const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onError: (error) => {
       if (!(error instanceof ApiError)) {
+        reportError(error, { source: 'mutation' })
         toast.error(errors.unexpected, errors.unexpectedDetail)
         return
       }
@@ -100,7 +108,7 @@ export const queryClient = new QueryClient({
         // said here. `applyFieldErrors` puts the same text on `root` for the
         // forms that do.
         if (orphans.length > 0) {
-          toast.error(errors.checkTheForm, orphans.join('. '))
+          toast.error(errors.checkTheForm, joinValidationMessages(orphans))
           return
         }
         // Field errors are rendered inline on the form; a toast on top would

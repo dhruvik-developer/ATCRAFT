@@ -30,7 +30,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.allocation.models import (
@@ -72,7 +73,8 @@ def reservation_filters(
     reservation_type: Annotated[ReservationType | None, Query()] = None,
     open_only: Annotated[bool, Query(description="Only reservations still holding stock")] = False,
 ) -> ReservationFilters:
-    return ReservationFilters(
+    return bind_query_filters(
+        ReservationFilters,
         item_id=item_id,
         warehouse_id=warehouse_id,
         demand_type=demand_type,
@@ -89,7 +91,8 @@ def reallocation_filters(
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     to_demand_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ReallocationFilters:
-    return ReallocationFilters(
+    return bind_query_filters(
+        ReallocationFilters,
         status=status_filter,
         item_id=item_id,
         warehouse_id=warehouse_id,
@@ -167,7 +170,7 @@ async def create_reservation(
     payload: ReservationCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[ReservationRead]:
     created = await AllocationService(session, tenant).create_reservation(payload)
-    return ApiResponse[ReservationRead].ok(created, "Stock reserved")
+    return ApiResponse[ReservationRead].ok(created, success_message("Stock", "reserved"))
 
 
 @router.get(
@@ -203,7 +206,7 @@ async def release_reservation(
     released = await AllocationService(session, tenant).release_reservation(
         reservation_id, reason=payload.reason, quantity=payload.quantity
     )
-    return ApiResponse[ReservationRead].ok(released, "Reservation released")
+    return ApiResponse[ReservationRead].ok(released, success_message("Reservation", "released"))
 
 
 # -----------------------------------------------------------------------------
@@ -253,7 +256,9 @@ async def create_reallocation_request(
     payload: ReallocationRequestCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[ReallocationRequestRead]:
     created = await AllocationService(session, tenant).create_reallocation_request(payload)
-    return ApiResponse[ReallocationRequestRead].ok(created, "Reallocation requested")
+    return ApiResponse[ReallocationRequestRead].ok(
+        created, success_message("Reallocation", "requested")
+    )
 
 
 @router.get(
@@ -309,7 +314,9 @@ async def reject_reallocation_request(
     rejected = await AllocationService(session, tenant).reject_reallocation_request(
         request_id, decision_note=payload.decision_note
     )
-    return ApiResponse[ReallocationRequestRead].ok(rejected, "Reallocation rejected")
+    return ApiResponse[ReallocationRequestRead].ok(
+        rejected, success_message("Reallocation", "rejected")
+    )
 
 
 __all__ = ["router"]

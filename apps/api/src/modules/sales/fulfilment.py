@@ -35,6 +35,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.deps import TenantContext
 from src.core.types import ZERO
@@ -105,7 +106,7 @@ def _document(
 
 
 async def _mrp_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
     """Suggestions whose source demands include this order, one statement.
 
@@ -127,7 +128,8 @@ async def _mrp_documents(
         .order_by(MrpSuggestion.required_date, MrpSuggestion.item_code)
     )
     documents: list[FulfilmentDocumentRead] = []
-    for suggestion, run_code in (await session.execute(stmt)).all():
+    # Typed tuples retain the mapped model when unpacking joined query results.
+    for suggestion, run_code in (await session.execute(stmt)).tuples().all():
         line_id = None
         for ref in suggestion.source_demands or ():
             if str(ref.get("source_id", "")).lower() != str(order_id).lower():
@@ -150,7 +152,7 @@ async def _mrp_documents(
                 item_code=suggestion.item_code,
                 quantity=suggestion.suggested_quantity,
                 document_date=suggestion.required_date,
-                expected_date=suggestion.expected_date,
+                expected_date=suggestion.expected_available_date,
                 line_id=line_id,
                 detail=str(suggestion.suggestion_type),
             )
@@ -164,7 +166,7 @@ async def _mrp_documents(
 
 
 async def _production_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> tuple[list[FulfilmentDocumentRead], list[uuid.UUID]]:
     """Production orders sourced from the order, plus their work-order ids."""
     from src.modules.production.models import ProductionOrder, ProductionSourceType, WorkOrder
@@ -210,7 +212,7 @@ async def _production_documents(
 
 
 async def _assembly_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
     from src.modules.assembly.models import AssemblyOrder, AssemblySourceType
 
@@ -238,7 +240,7 @@ async def _assembly_documents(
 
 
 async def _job_work_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
     from src.modules.job_work.models import JobWorkOrder, JobWorkSourceType
 
@@ -283,7 +285,7 @@ def _ref_line_id(refs: Sequence[dict[str, Any]] | None, order_id: uuid.UUID) -> 
 
 
 async def _procurement_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> tuple[list[FulfilmentDocumentRead], list[uuid.UUID]]:
     """Requisitions, their purchase orders and the goods receipts against them.
 
@@ -371,8 +373,8 @@ async def _procurement_documents(
                     )
                 ).scalars()
             }
-            for line in po_lines:
-                po = headers.get(line.purchase_order_id)
+            for po_line in po_lines:
+                po = headers.get(po_line.purchase_order_id)
                 if po is None:
                     continue
                 documents.append(
@@ -382,13 +384,17 @@ async def _procurement_documents(
                         code=po.code,
                         status=po.status,
                         url=f"/procurement/purchase-orders/{po.id}",
-                        item_id=line.item_id,
-                        quantity=line.quantity,
-                        secondary_quantity=line.received_quantity,
+                        item_id=po_line.item_id,
+                        quantity=po_line.quantity,
+                        secondary_quantity=po_line.received_quantity,
                         document_date=po.po_date,
-                        expected_date=line.required_date or po.expected_delivery_date,
-                        line_id=line_attribution.get(line.requisition_line_id),
-                        detail=f"line {line.line_number}: {line.status}",
+                        expected_date=po_line.required_date or po.expected_delivery_date,
+                        line_id=(
+                            line_attribution.get(po_line.requisition_line_id)
+                            if po_line.requisition_line_id is not None
+                            else None
+                        ),
+                        detail=f"line {po_line.line_number}: {po_line.status}",
                     )
                 )
 
@@ -431,7 +437,7 @@ async def _procurement_documents(
 
 
 async def _quality_documents(
-    session: Any,
+    session: AsyncSession,
     tenant: TenantContext,
     *,
     work_order_ids: Iterable[uuid.UUID],
@@ -494,7 +500,7 @@ async def _quality_documents(
 
 
 async def _packing_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
     from src.modules.packing.models import PackingOrder
 
@@ -519,7 +525,7 @@ async def _packing_documents(
 
 
 async def _dispatch_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> tuple[list[FulfilmentDocumentRead], list[uuid.UUID]]:
     """Dispatches and their latest tracking event, two statements."""
     from src.modules.dispatch.models import Dispatch, DispatchTrackingEvent
@@ -535,7 +541,7 @@ async def _dispatch_documents(
         ).scalars()
     )
     dispatch_ids = [dispatch.id for dispatch in dispatches]
-    latest: dict[uuid.UUID, Any] = {}
+    latest: dict[uuid.UUID, DispatchTrackingEvent] = {}
     if dispatch_ids:
         events = (
             await session.execute(
@@ -554,14 +560,14 @@ async def _dispatch_documents(
 
     documents = []
     for dispatch in dispatches:
-        event = latest.get(dispatch.id)
+        latest_event = latest.get(dispatch.id)
         detail_parts = [f"{dispatch.total_boxes} box(es)"]
         if dispatch.tracking_id:
             detail_parts.append(f"tracking {dispatch.tracking_id}")
-        if event is not None:
+        if latest_event is not None:
             detail_parts.append(
-                f"latest: {event.event_status}"
-                + (f" at {event.location}" if event.location else "")
+                f"latest: {latest_event.event_status}"
+                + (f" at {latest_event.location}" if latest_event.location else "")
             )
         documents.append(
             _document(
@@ -580,7 +586,7 @@ async def _dispatch_documents(
 
 
 async def _transfer_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
     from src.modules.inventory.models import StockTransfer, TransferSourceType
 
@@ -611,7 +617,7 @@ async def _transfer_documents(
 
 
 async def _finance_documents(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
     """Invoices and the credit notes raised against them, two statements."""
     from src.modules.finance.models import CreditNote, SalesInvoice
@@ -667,7 +673,7 @@ async def _finance_documents(
 
 
 async def _return_documents(
-    session: Any, tenant: TenantContext, dispatch_ids: Sequence[uuid.UUID]
+    session: AsyncSession, tenant: TenantContext, dispatch_ids: Sequence[uuid.UUID]
 ) -> list[FulfilmentDocumentRead]:
     if not dispatch_ids:
         return []
@@ -697,7 +703,7 @@ async def _return_documents(
 
 
 async def order_fulfilment(
-    session: Any, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> FulfilmentRead:
     """Everything that has happened, or is planned, for one sales order."""
     order = await SalesOrderRepository(session, tenant).get_or_404(order_id)

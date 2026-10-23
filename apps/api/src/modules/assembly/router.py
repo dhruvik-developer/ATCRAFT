@@ -19,6 +19,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_any_permission, require_permission
+from src.core.messages import success_message
 from src.core.pagination import (
     PageParams,
     SortParams,
@@ -79,7 +80,8 @@ def order_filters(
     planned_from: Annotated[datetime | None, Query()] = None,
     planned_to: Annotated[datetime | None, Query()] = None,
 ) -> AssemblyOrderFilters:
-    return AssemblyOrderFilters(
+    return bind_query_filters(
+        AssemblyOrderFilters,
         search=search,
         item_id=item_id,
         warehouse_id=warehouse_id,
@@ -243,7 +245,8 @@ async def create_order(
 ) -> ApiResponse[AssemblyOrderDetail]:
     order, components = await service.create_order(session, tenant, payload)
     return ApiResponse[AssemblyOrderDetail].ok(
-        service.order_detail(order, components), f"Assembly order {order.code} created"
+        service.order_detail(order, components),
+        success_message(f"Assembly order {order.code}", "created"),
     )
 
 
@@ -279,7 +282,8 @@ async def update_order(
 ) -> ApiResponse[AssemblyOrderDetail]:
     order, components = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[AssemblyOrderDetail].ok(
-        service.order_detail(order, components), f"Assembly order {order.code} updated"
+        service.order_detail(order, components),
+        success_message(f"Assembly order {order.code}", "updated"),
     )
 
 
@@ -294,7 +298,7 @@ async def delete_order(
     order_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_order(session, tenant, order_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft assembly order deleted")
+    return ApiResponse[None].ok(None, success_message("Draft assembly order", "deleted"))
 
 
 @router.get(
@@ -351,7 +355,8 @@ async def approve_order(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.approve_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order), f"Assembly order {order.code} approved"
+        AssemblyOrderSummary.model_validate(order),
+        success_message(f"Assembly order {order.code}", "approved"),
     )
 
 
@@ -374,7 +379,7 @@ async def release_order(
     )
     return ApiResponse[AssemblyOrderDetail].ok(
         service.order_detail(order, components),
-        f"Assembly order {order.code} released and components reserved",
+        success_message(f"Assembly order {order.code} released and components", "reserved"),
     )
 
 
@@ -420,7 +425,8 @@ async def start_assembly(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.start_assembly(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order), f"Assembly order {order.code} started"
+        AssemblyOrderSummary.model_validate(order),
+        success_message(f"Assembly order {order.code}", "started"),
     )
 
 
@@ -489,7 +495,8 @@ async def close_order(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.close_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order), f"Assembly order {order.code} closed"
+        AssemblyOrderSummary.model_validate(order),
+        success_message(f"Assembly order {order.code}", "closed"),
     )
 
 
@@ -508,7 +515,8 @@ async def cancel_order(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.cancel_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order), f"Assembly order {order.code} cancelled"
+        AssemblyOrderSummary.model_validate(order),
+        success_message(f"Assembly order {order.code}", "cancelled"),
     )
 
 

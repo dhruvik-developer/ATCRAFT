@@ -96,7 +96,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -297,7 +297,7 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
       }),
     onSuccess: (carton) => {
       void queryClient.invalidateQueries({ queryKey: packingKeys.all })
-      toast.success('Carton added', `Carton ${carton.carton_number} is open for contents.`)
+      toast.success(success.added('Carton'), `Carton ${carton.carton_number} is open for contents.`)
       setLength('')
       setWidth('')
       setHeight('')
@@ -699,9 +699,7 @@ function CartonLabelPreview({ label }: { label: CartonLabel }) {
       })
       .catch((error: unknown) => {
         if (active) {
-          setBarcodeError(
-            error instanceof Error ? error.message : 'The barcode renderer could not be loaded.',
-          )
+          setBarcodeError(describeError(error, 'The barcode renderer could not be loaded.'))
         }
       })
     return () => {
@@ -849,7 +847,7 @@ function CartonCard({
       api.delete(`/packing/${order.id}/cartons/${carton.id}`, { params: { reason } }),
     onSuccess: () => {
       invalidate()
-      toast.success('Carton removed', 'Its contents have gone back to the order lines.')
+      toast.success(success.removed('Carton'), 'Its contents have gone back to the order lines.')
       setDeleteOpen(false)
     },
   })
@@ -1035,7 +1033,7 @@ function CartonCard({
             {label.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load carton label</AlertTitle>
-                <AlertDescription>{label.error.message}</AlertDescription>
+                <AlertDescription>{describeError(label.error)}</AlertDescription>
               </Alert>
             )}
             {label.data && <CartonLabelPreview label={label.data} />}
@@ -1083,7 +1081,7 @@ function PackingListAction({ order }: { order: PackingOrderDetail }) {
       // here that can watch it, so the button is not left spinning forever.
       if (!can(P.REPORT_VIEW)) {
         toast.show(
-          'Packing list queued',
+          success.queued('Packing list'),
           'Watching it needs the report permission, which your role does not have. Ask someone who holds it for the document.',
         )
         return
@@ -1327,7 +1325,7 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
                 ))}
               </SelectContent>
             </Select>
-            {dispatches.error && <FieldError message={dispatches.error.message} />}
+            {dispatches.error && <FieldError message={describeError(dispatches.error)} />}
             {!dispatches.isLoading && !dispatches.error && rows.length === 0 && (
               <FieldError message="This customer has no consignment waiting to be loaded. Create one on the dispatch screen first." />
             )}
@@ -1434,7 +1432,7 @@ export function PackingOrderDialog({
           {!detail.isLoading && detail.error && (
             <Alert variant="destructive">
               <AlertTitle>Could not load this packing order</AlertTitle>
-              <AlertDescription>{detail.error.message}</AlertDescription>
+              <AlertDescription>{describeError(detail.error)}</AlertDescription>
             </Alert>
           )}
 

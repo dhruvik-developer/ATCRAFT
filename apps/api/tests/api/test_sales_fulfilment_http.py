@@ -31,6 +31,7 @@ from src.core.permissions import Permission
 from src.modules.allocation.models import ReservationStatus, StockReservation
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import TransactionType
+from src.modules.mrp.models import MrpRun, MrpSuggestion, MrpSuggestionType
 from src.modules.products.models import ItemGroup
 from src.modules.sales import service as sales
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
@@ -137,6 +138,48 @@ async def test_the_allocation_read_reports_what_the_dispatch_screen_prefills(
     assert _money(line["reserved_quantity"]) == Decimal("200")
     assert _money(line["dispatchable_quantity"]) == Decimal("200")
     assert _money(line["shortfall_quantity"]) == Decimal("300")
+
+
+@pytest.mark.parametrize("expected_offset", [None, 4])
+async def test_fulfilment_reads_the_mrp_availability_date_including_legacy_nulls(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    partly_reserved: Order,
+    expected_offset: int | None,
+) -> None:
+    """A populated MRP trail must serialize the actual mapped date, not an old field name."""
+    run = MrpRun(company_id=tenant.company_id, code=f"MRP-{uuid.uuid4().hex}", horizon_days=30)
+    session.add(run)
+    await session.flush()
+    expected = today() + timedelta(days=expected_offset) if expected_offset is not None else None
+    suggestion = MrpSuggestion(
+        company_id=tenant.company_id,
+        run_id=run.id,
+        item_id=partly_reserved.item_id,
+        item_code="FULFILMENT-ITEM",
+        suggestion_type=MrpSuggestionType.PURCHASE,
+        required_quantity=Decimal("300"),
+        suggested_quantity=Decimal("300"),
+        shortage_quantity=Decimal("300"),
+        required_date=today() + timedelta(days=7),
+        suggested_order_date=today(),
+        expected_available_date=expected,
+        source_demands=[
+            {"source_id": str(partly_reserved.id), "source_line_id": str(partly_reserved.line_id)}
+        ],
+    )
+    session.add(suggestion)
+    await session.flush()
+
+    response = await api_client.get(f"/sales/{partly_reserved.id}/fulfilment")
+
+    assert response.status_code == 200, response.text
+    documents = response.json()["data"]["mrp_suggestions"]
+    assert len(documents) == 1
+    assert documents[0]["id"] == str(suggestion.id)
+    assert documents[0]["line_id"] == str(partly_reserved.line_id)
+    assert documents[0]["expected_date"] == (expected.isoformat() if expected else None)
 
 
 async def test_a_ui_shaped_consignment_consumes_the_reservation_and_moves_the_order(

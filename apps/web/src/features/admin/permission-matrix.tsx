@@ -32,7 +32,7 @@ import {
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatNumber } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -146,7 +146,7 @@ export function PermissionMatrix({
     return (
       <Alert variant="destructive">
         <AlertTitle>Could not load the permission matrix</AlertTitle>
-        <AlertDescription>{error.message}</AlertDescription>
+        <AlertDescription>{describeError(error)}</AlertDescription>
       </Alert>
     )
   }

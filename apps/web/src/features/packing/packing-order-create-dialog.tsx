@@ -23,7 +23,7 @@ import type { ItemDetail } from '@/features/items/item-model'
 import type { SalesOrderDetail } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
 import { formatQuantity, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -245,7 +245,7 @@ export function PackingOrderCreateDialog({
               )}
               {salesOrderQuery.error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{salesOrderQuery.error.message}</AlertDescription>
+                  <AlertDescription>{describeError(salesOrderQuery.error)}</AlertDescription>
                 </Alert>
               )}
               {salesOrder && (
@@ -445,7 +445,7 @@ export function PackingOrderCreateDialog({
 
               {create.error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{create.error.message}</AlertDescription>
+                  <AlertDescription>{describeError(create.error)}</AlertDescription>
                 </Alert>
               )}
             </DialogBody>

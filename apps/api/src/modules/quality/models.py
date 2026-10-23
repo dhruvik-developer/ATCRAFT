@@ -776,6 +776,9 @@ class QcInspectionDecision(ImmutableLedgerEntity):
             "inspection_id", "sequence", name="uq_qc_inspection_decisions_inspection_sequence"
         ),
         Index("ix_qc_inspection_decisions_inspection", "company_id", "inspection_id", "sequence"),
+        # Preserve the baseline's chronological index; the inspection lookup
+        # starts with company_id and cannot replace its ordering.
+        Index("ix_qc_inspection_decisions_created_at", "created_at"),
         CheckConstraint(f"result IN ({sql_in_list(tuple(InspectionResult))})", name="result_known"),
         CheckConstraint("sequence >= 1", name="sequence_positive"),
         CheckConstraint("accepted_quantity >= 0", name="accepted_non_negative"),

@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Quality reporting: how one item behaves over time, and which vendors are
  * costing the plant money.
@@ -238,7 +239,7 @@ function ItemQualityHistory({ windowDays }: { windowDays: string }) {
       {itemId && !history.isLoading && history.error && (
         <Alert variant="destructive">
           <AlertTitle>Could not load the item history</AlertTitle>
-          <AlertDescription>{history.error.message}</AlertDescription>
+          <AlertDescription>{describeError(history.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -411,7 +412,7 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
       {vendorId && !summary.isLoading && summary.error && (
         <Alert variant="destructive">
           <AlertTitle>Could not load the vendor record</AlertTitle>
-          <AlertDescription>{summary.error.message}</AlertDescription>
+          <AlertDescription>{describeError(summary.error)}</AlertDescription>
         </Alert>
       )}
 

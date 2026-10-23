@@ -80,7 +80,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -483,7 +483,7 @@ export function VendorInvoiceMatchDialog({
             {invoiceQuery.error && !invoiceQuery.isLoading && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load this invoice</AlertTitle>
-                <AlertDescription>{invoiceQuery.error.message}</AlertDescription>
+                <AlertDescription>{describeError(invoiceQuery.error)}</AlertDescription>
               </Alert>
             )}
 
@@ -609,7 +609,8 @@ export function VendorInvoiceMatchDialog({
               <Alert variant="destructive">
                 <AlertTitle>The match could not be read</AlertTitle>
                 <AlertDescription>
-                  {matchQuery.error.message} Approval stays unavailable until the match is known.
+                  {describeError(matchQuery.error)} Approval stays unavailable until the match is
+                  known.
                 </AlertDescription>
               </Alert>
             )}

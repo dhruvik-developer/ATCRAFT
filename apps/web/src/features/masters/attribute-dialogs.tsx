@@ -48,7 +48,7 @@ import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { itemAttributeOptionKeys } from '@/hooks/use-item-attribute-options'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
 import { mastersKeys, type ItemAttributeRow } from './masters-model'
@@ -69,8 +69,8 @@ const attributeSchema = z.object({
     .refine((value): boolean => ATTRIBUTE_KINDS.some((kind) => kind.value === value), {
       message: 'Choose which attribute this value belongs to.',
     }),
-  code: z.string().trim().min(1, 'A code is required.').max(32),
-  name: z.string().trim().min(1, 'A name is required.').max(64),
+  code: z.string().trim().min(1, validation.required('Code')).max(32),
+  name: z.string().trim().min(1, validation.required('Name')).max(64),
   sort_order: z.string().trim(),
   is_active: z.boolean(),
 })

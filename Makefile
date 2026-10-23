@@ -6,10 +6,10 @@
 # =============================================================================
 .DEFAULT_GOAL := help
 .PHONY: help dev dev-api dev-web dev-worker dev-docker up down restart logs ps \
-        migrate migrate-down migration seed demo-data db-fresh db-handover \
+        migrate migrate-down migration seed seed-local demo-data db-fresh db-handover \
         deployment-guard deploy-init deploy-doctor deploy-up deploy-down \
         deploy-migrate deploy-health deploy-backup deploy-verify \
-        test test-unit test-integration test-cov test-web test-e2e test-load lint format \
+        test test-unit test-integration test-cov test-web test-e2e test-load build-web lint format \
         typecheck contract contract-check postman check lock hooks hooks-run \
         shell-api shell-db backup clean install
 
@@ -96,6 +96,9 @@ migration: ## Autogenerate a migration:  make migration m="add xyz table"
 seed: ## Load baseline reference data (roles, permissions, UoM, warehouse types)
 	cd $(API_DIR) && python -m src.core.seed
 
+seed-local: ## Migrate and populate a local database with all demonstration workflows
+	cd $(API_DIR) && python -m scripts.seed_local
+
 demo-data: ## Fill a development database with a working business (run after `seed`)
 	cd $(API_DIR) && python -m src.core.demo_data
 
@@ -118,6 +121,9 @@ test-cov: ## Backend tests with coverage report
 
 test-web: ## Frontend unit tests
 	cd $(WEB_DIR) && npm run test
+
+build-web: ## Production frontend build, bundle budgets and secret scan
+	cd $(WEB_DIR) && npm run build
 
 test-e2e: ## Playwright end-to-end tests against a running stack
 	cd tests/e2e && npx playwright test
@@ -154,7 +160,7 @@ contract-check: ## Fail if the contract, the generated types or the collection a
 postman: ## Regenerate the Postman collection from the committed OpenAPI contract
 	cd $(API_DIR) && python -m scripts.export_postman
 
-check: contract-check lint test test-web ## Everything CI runs
+check: contract-check lint test-cov test-web build-web ## Application contract, quality, coverage, tests and production build
 
 shell-api: ## Shell inside the backend container
 	$(DC_DEV) exec backend bash

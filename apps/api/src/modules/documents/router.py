@@ -22,9 +22,11 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
+from src.core.validation import bind_request_model
 from src.modules.documents.models import DocumentCategory
 from src.modules.documents.schemas import (
     DocumentFilters,
@@ -66,7 +68,8 @@ def document_filters(
         bool, Query(description="Include documents past their retention date")
     ] = False,
 ) -> DocumentFilters:
-    return DocumentFilters(
+    return bind_query_filters(
+        DocumentFilters,
         search=search,
         category=category,
         entity_type=entity_type,
@@ -106,15 +109,18 @@ async def upload_document(
     # The form fields are re-validated as a model rather than trusted as bound
     # scalars: the cross-field rules (an entity reference is both halves or
     # neither, a retention date is in the future) live on the schema.
-    payload = DocumentUploadRequest(
-        category=category,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        is_public=is_public,
-        expires_at=expires_at,
+    payload = bind_request_model(
+        DocumentUploadRequest,
+        {
+            "category": category,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "is_public": is_public,
+            "expires_at": expires_at,
+        },
     )
     document = await DocumentService(session, tenant).upload(file, payload)
-    return ApiResponse[DocumentRead].ok(document, "File uploaded")
+    return ApiResponse[DocumentRead].ok(document, success_message("File", "uploaded"))
 
 
 @router.get(
@@ -158,7 +164,14 @@ async def get_document(
         "with `X-Content-Type-Options: nosniff`."
     ),
     response_class=StreamingResponse,
-    responses={200: {"content": {"application/octet-stream": {}}, "description": "File content"}},
+    responses={
+        200: {
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            },
+            "description": "File content; the Content-Type header identifies its actual media type",
+        }
+    },
     dependencies=[require_permission(Permission.DOCUMENT_VIEW)],
 )
 async def download_document(
@@ -196,7 +209,7 @@ async def delete_document(
     await DocumentService(session, tenant).delete_document(
         document_id, reason=reason, principal=principal
     )
-    return ApiResponse[None].ok(None, "Document deleted")
+    return ApiResponse[None].ok(None, success_message("Document", "deleted"))
 
 
 __all__ = ["router"]

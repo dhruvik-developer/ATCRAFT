@@ -115,13 +115,9 @@ export interface MarkAllReadResult {
   remaining_unread: number
 }
 
-/**
- * `api.getPage` returns the envelope untouched; only its TypeScript shape
- * assumes offset pagination. This endpoint's envelope is cursor-shaped.
- */
+/** Notifications use the client's validated cursor envelope. */
 export async function fetchNotificationPage(
   params: Record<string, unknown>,
 ): Promise<CursorEnvelope<NotificationRow>> {
-  const envelope = await api.getPage<NotificationRow>('/notifications', { params })
-  return envelope as unknown as CursorEnvelope<NotificationRow>
+  return api.getCursorPage<NotificationRow>('/notifications', { params })
 }

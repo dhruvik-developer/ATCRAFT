@@ -21,7 +21,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.bom import service
@@ -63,7 +64,8 @@ def bom_filters(
         date | None, Query(description="Only structures effective on this date")
     ] = None,
 ) -> BomFilters:
-    return BomFilters(
+    return bind_query_filters(
+        BomFilters,
         search=search,
         item_id=item_id,
         status=bom_status,
@@ -154,7 +156,7 @@ async def create_bom(
 ) -> ApiResponse[BomDetail]:
     bom, lines, operations = await service.create_bom(session, tenant, payload)
     detail = service.bom_detail_response(bom, lines, operations, principal)
-    return ApiResponse[BomDetail].ok(detail, "Bill of materials created")
+    return ApiResponse[BomDetail].ok(detail, success_message("Bill of materials", "created"))
 
 
 @router.get(
@@ -185,7 +187,7 @@ async def update_bom(
 ) -> ApiResponse[BomDetail]:
     bom, lines, operations = await service.update_bom(session, tenant, bom_id, payload)
     detail = service.bom_detail_response(bom, lines, operations, principal)
-    return ApiResponse[BomDetail].ok(detail, "Bill of materials updated")
+    return ApiResponse[BomDetail].ok(detail, success_message("Bill of materials", "updated"))
 
 
 @router.delete(
@@ -198,7 +200,7 @@ async def delete_bom(
     bom_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_bom(session, tenant, bom_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft bill of materials deleted")
+    return ApiResponse[None].ok(None, success_message("Draft bill of materials", "deleted"))
 
 
 # -----------------------------------------------------------------------------
@@ -216,7 +218,9 @@ async def submit_bom(
     bom_id: uuid.UUID, payload: BomStatusChange, session: DbSession, tenant: Tenant
 ) -> ApiResponse[BomSummary]:
     bom = await service.submit_bom(session, tenant, bom_id, reason=payload.reason)
-    return ApiResponse[BomSummary].ok(BomSummary.model_validate(bom), "Submitted for approval")
+    return ApiResponse[BomSummary].ok(
+        BomSummary.model_validate(bom), success_message("Bill of materials", "submitted")
+    )
 
 
 @router.post(
@@ -237,7 +241,9 @@ async def approve_bom(
     principal: CurrentUser,
 ) -> ApiResponse[BomSummary]:
     bom = await service.approve_bom(session, tenant, principal, bom_id, reason=payload.reason)
-    return ApiResponse[BomSummary].ok(BomSummary.model_validate(bom), "Bill of materials approved")
+    return ApiResponse[BomSummary].ok(
+        BomSummary.model_validate(bom), success_message("Bill of materials", "approved")
+    )
 
 
 @router.post(
@@ -250,7 +256,9 @@ async def reject_bom(
     bom_id: uuid.UUID, payload: BomStatusChange, session: DbSession, tenant: Tenant
 ) -> ApiResponse[BomSummary]:
     bom = await service.reject_bom(session, tenant, bom_id, reason=payload.reason)
-    return ApiResponse[BomSummary].ok(BomSummary.model_validate(bom), "Returned to draft")
+    return ApiResponse[BomSummary].ok(
+        BomSummary.model_validate(bom), "Bill of materials returned to draft"
+    )
 
 
 @router.post(
@@ -263,7 +271,9 @@ async def obsolete_bom(
     bom_id: uuid.UUID, payload: BomStatusChange, session: DbSession, tenant: Tenant
 ) -> ApiResponse[BomSummary]:
     bom = await service.obsolete_bom(session, tenant, bom_id, reason=payload.reason)
-    return ApiResponse[BomSummary].ok(BomSummary.model_validate(bom), "Bill of materials retired")
+    return ApiResponse[BomSummary].ok(
+        BomSummary.model_validate(bom), success_message("Bill of materials", "retired")
+    )
 
 
 @router.post(

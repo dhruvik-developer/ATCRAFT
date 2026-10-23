@@ -35,7 +35,8 @@ from src.core.deps import (
     Tenant,
     require_permission,
 )
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -101,7 +102,8 @@ def user_filters(
     ] = None,
     include_deleted: Annotated[bool, Query(description="Include retired accounts")] = False,
 ) -> UserFilters:
-    return UserFilters(
+    return bind_query_filters(
+        UserFilters,
         search=search,
         is_active=is_active,
         is_superuser=is_superuser,
@@ -129,7 +131,8 @@ def role_filters(
     ] = None,
     include_deleted: Annotated[bool, Query(description="Include retired roles")] = False,
 ) -> RoleFilters:
-    return RoleFilters(
+    return bind_query_filters(
+        RoleFilters,
         search=search,
         is_system=is_system,
         is_vendor_role=is_vendor_role,
@@ -185,7 +188,7 @@ async def create_user(
     it is never stored, logged or echoed back.
     """
     created = await UserService(session, tenant).create_user(principal, payload)
-    return ApiResponse.ok(created, "User created")
+    return ApiResponse.ok(created, success_message("User", "created"))
 
 
 @users_router.get(
@@ -220,7 +223,7 @@ async def update_user(
     see which fields the payload changed relative to the stored row.
     """
     updated = await UserService(session, tenant).update_user(principal, user_id, payload)
-    return ApiResponse.ok(updated, "User updated")
+    return ApiResponse.ok(updated, success_message("User", "updated"))
 
 
 @users_router.post(
@@ -243,7 +246,7 @@ async def assign_roles(
     telephone number.
     """
     updated = await UserService(session, tenant).assign_roles(principal, user_id, payload)
-    return ApiResponse.ok(updated, "Roles updated")
+    return ApiResponse.ok(updated, success_message("Roles", "updated"))
 
 
 @users_router.post(
@@ -262,7 +265,7 @@ async def activate_user(
     updated = await UserService(session, tenant).set_active(
         principal, user_id, active=True, reason=payload.reason
     )
-    return ApiResponse.ok(updated, "User activated")
+    return ApiResponse.ok(updated, success_message("User", "activated"))
 
 
 @users_router.post(
@@ -282,7 +285,7 @@ async def deactivate_user(
     updated = await UserService(session, tenant).set_active(
         principal, user_id, active=False, reason=payload.reason
     )
-    return ApiResponse.ok(updated, "User deactivated and sessions revoked")
+    return ApiResponse.ok(updated, success_message("User deactivated and sessions", "revoked"))
 
 
 @users_router.post(
@@ -351,7 +354,7 @@ async def retire_user(
     every document the person created (section 28).
     """
     await UserService(session, tenant).delete_user(user_id, reason=reason)
-    return ApiResponse.ok(None, "User retired and sessions revoked")
+    return ApiResponse.ok(None, success_message("User retired and sessions", "revoked"))
 
 
 # -----------------------------------------------------------------------------
@@ -412,7 +415,7 @@ async def create_role(
     the system.
     """
     created = await RoleService(session, tenant).create_role(principal, payload)
-    return ApiResponse.ok(created, "Role created")
+    return ApiResponse.ok(created, success_message("Role", "created"))
 
 
 @roles_router.get(
@@ -447,7 +450,7 @@ async def update_role(
     ``IMMUTABLE_ROLE_CODES``.
     """
     updated = await RoleService(session, tenant).update_role(principal, role_id, payload)
-    return ApiResponse.ok(updated, "Role updated")
+    return ApiResponse.ok(updated, success_message("Role", "updated"))
 
 
 @roles_router.delete(
@@ -464,7 +467,7 @@ async def delete_role(
 ) -> ApiResponse[None]:
     """Soft-delete a role that nobody holds. System roles cannot be deleted."""
     await RoleService(session, tenant).delete_role(role_id, reason=reason)
-    return ApiResponse.ok(None, "Role retired")
+    return ApiResponse.ok(None, success_message("Role", "retired"))
 
 
 # The single router ``src/api/router.py`` mounts. Users first so the identity

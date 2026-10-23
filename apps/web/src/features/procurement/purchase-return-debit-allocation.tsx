@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
 import { Loader2, Plus, X } from 'lucide-react'
@@ -173,13 +174,13 @@ export function PurchaseReturnDebitAllocation({
       {allocations.error && (
         <Alert variant="destructive">
           <AlertTitle>Could not load vendor debit allocations</AlertTitle>
-          <AlertDescription>{allocations.error.message}</AlertDescription>
+          <AlertDescription>{describeError(allocations.error)}</AlertDescription>
         </Alert>
       )}
       {save.error && (
         <Alert variant="destructive">
           <AlertTitle>Could not save this allocation</AlertTitle>
-          <AlertDescription>{save.error.message}</AlertDescription>
+          <AlertDescription>{describeError(save.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -259,7 +260,7 @@ export function PurchaseReturnDebitAllocation({
 
       {invoices.error && (
         <p role="alert" className="text-sm text-destructive">
-          Could not load open vendor invoices: {invoices.error.message}
+          Could not load open vendor invoices: {describeError(invoices.error)}
         </p>
       )}
       {(invoices.data?.pagination.has_previous || invoices.data?.pagination.has_next) && (

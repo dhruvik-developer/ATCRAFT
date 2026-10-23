@@ -207,6 +207,7 @@ from src.modules.inventory.schemas import (
     ScrapDisposalLineReadWithCost,
     ScrapDisposalReadWithCost,
     StockAdjustmentCreate,
+    StockAdjustmentLineCreate,
     StockAdjustmentLineRead,
     StockAdjustmentRead,
     StockAdjustmentUpdate,
@@ -218,6 +219,7 @@ from src.modules.inventory.schemas import (
     StockSerialDetail,
     StockSerialRead,
     StockTransferCreate,
+    StockTransferLineCreate,
     StockTransferLineRead,
     StockTransferRead,
     StockTransferUpdate,
@@ -1550,8 +1552,10 @@ def validate_movement(
     # decides the unit's next status - so this rule and the lifecycle cannot
     # drift apart: exactly the movements that change whose hands hold the unit
     # are the ones that must name it. A movement that leaves the status alone (a
-    # QC hold, either leg of a transfer) moves a quantity rather than a unit, so
-    # it stays ungated and cannot trap a pool.
+    # QC hold or release, or disposal out of the scrap pool) moves a quantity
+    # rather than a unit, so it stays ungated and cannot trap a pool. Both legs
+    # of a transfer now change status - IN_TRANSIT, then IN_STOCK - and are
+    # gated like any other movement of a known unit.
     #
     # This cannot strand stock the way the ungated batch rule did, because the
     # situation is closed at source: ``products._assert_tracking_change_is_safe``
@@ -1999,8 +2003,9 @@ BATCH_FLOW: StateMachine[BatchStatus] = StateMachine(
 
 #: :data:`~src.modules.inventory.models.SERIAL_IN_WAREHOUSE_STATUSES` is
 #: re-exported here because it is half of this graph: a movement that handles a
-#: unit without changing whose hands it is in - a QC hold, a QC release, either
-#: leg of a transfer - still requires the unit to be in a warehouse.
+#: unit without changing whose hands it is in - a QC hold or a QC release -
+#: still requires the unit to be in a warehouse. A transfer changes the unit's
+#: status on both legs: IN_TRANSIT at dispatch, IN_STOCK at receipt.
 
 # ASSUMPTION: which serial status each movement type leaves the unit in. The
 # contract fixes the vocabulary of both enums but not the mapping between them.
@@ -2014,8 +2019,10 @@ BATCH_FLOW: StateMachine[BatchStatus] = StateMachine(
 # one that never left.
 #
 #: ``None`` means the movement does not change whose hands the unit is in - it
-#: moves between pools of the same position, or between two of our own
-#: warehouses - so the status is left alone and only the position is updated.
+#: moves between pools of the same position - so the status is left alone and
+#: only the quantity at that position is updated. A warehouse transfer is not in
+#: this group: its outbound leg parks the unit IN_TRANSIT and its inbound leg
+#: lands it IN_STOCK at the destination.
 SERIAL_MOVEMENT_TARGETS: dict[TransactionType, SerialStatus | None] = {
     # --- back into our own stock -------------------------------------------
     TransactionType.PURCHASE_RECEIPT: SerialStatus.IN_STOCK,
@@ -4876,6 +4883,64 @@ def _carried_layers(
     )
 
 
+async def _adopt_named_serials(
+    session: AsyncSession,
+    tenant: TenantContext,
+    lines: Sequence[StockTransferLineCreate | StockAdjustmentLineCreate],
+    items: dict[uuid.UUID, ItemFacts],
+) -> None:
+    """Turn typed or scanned labels on document lines into serial ids.
+
+    The stock screens capture the label printed on the unit because that is what
+    the operator can read; the ledger keys the immutable serial id. Resolving
+    here, in one query for the whole document, keeps that translation out of the
+    UI without putting a lookup inside a line loop. Only already-registered
+    units are adopted: a transfer or adjustment moves stock that exists, and
+    minting a label on this path would create a unit with nothing behind it.
+    """
+    labelled = [line for line in lines if line.serial_numbers]
+    if not labelled:
+        return
+
+    pairs = [
+        (line.item_id, serial_number) for line in labelled for serial_number in line.serial_numbers
+    ]
+    serials = await StockSerialRepository(session, tenant).by_number_pairs(pairs)
+
+    for number, line in enumerate(lines, start=1):
+        if not line.serial_numbers:
+            continue
+        item = items[line.item_id]
+        if not item.is_serial_tracked:
+            raise BusinessRuleError(
+                f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                details={"line_number": number, "item_code": item.code},
+            )
+        resolved: list[uuid.UUID] = []
+        for serial_number in line.serial_numbers:
+            serial = serials.get((line.item_id, serial_number))
+            if serial is None:
+                raise BusinessRuleError(
+                    f"Line {number}: serial {serial_number} is not registered for {item.code}.",
+                    code=ErrorCode.SERIAL_REQUIRED,
+                    details={
+                        "line_number": number,
+                        "serial_number": serial_number,
+                        "item_code": item.code,
+                    },
+                )
+            resolved.append(serial.id)
+        line.serial_ids = resolved
+
+    # The request validators can prove ids are unique, or labels are unique, but
+    # not that a label on one line names the same unit as an id on another. Now
+    # that both have become ids, check the whole document before it can move a
+    # unit twice.
+    moved = [serial_id for line in lines for serial_id in line.serial_ids]
+    if len(set(moved)) != len(moved):
+        raise BusinessRuleError("The same unit is named on more than one line of this document.")
+
+
 class StockTransferService:
     """The stock transfer document lifecycle.
 
@@ -4935,6 +5000,7 @@ class StockTransferService:
             if missing:
                 raise NotFoundError("Item", missing[0])
 
+            await _adopt_named_serials(self.session, self.tenant, payload.lines, items)
             await self._assert_lines_are_traceable(payload, items)
             await self._validate_line_locations(payload, warehouses)
 
@@ -5739,6 +5805,7 @@ class StockAdjustmentService:
         if missing:
             raise NotFoundError("Item", missing[0])
 
+        await _adopt_named_serials(self.session, self.tenant, payload.lines, items)
         serial_ids = [serial_id for line in payload.lines for serial_id in line.serial_ids]
         serials = await StockSerialRepository(self.session, self.tenant).by_ids(serial_ids)
         missing_serials = [serial_id for serial_id in serial_ids if serial_id not in serials]
@@ -6467,6 +6534,9 @@ class PhysicalCountService:
                 if entry.notes is not None:
                     line.notes = entry.notes
 
+            # Sessions disable autoflush. The completion query must see the
+            # entries just recorded, or the last entered line remains pending.
+            await self.session.flush()
             remaining = await self.line_repo.uncounted_count(count_id)
             previous = count.status
             if remaining == 0:

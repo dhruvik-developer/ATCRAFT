@@ -11,7 +11,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
+import { cursorPage, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import DashboardPage from './dashboard-page'
@@ -34,6 +34,25 @@ const SUMMARY = {
 function renderDashboard(permissions: string[], routes: RouteTable = {}) {
   return renderScreen(<DashboardPage />, { permissions, routes })
 }
+
+it('reads recent activity using the audit endpoint cursor contract', async () => {
+  renderDashboard([P.AUDIT_LOG_VIEW], {
+    'GET /audit/logs': cursorPage([
+      {
+        id: 'audit-1',
+        action: 'CREATE',
+        entity_type: 'item',
+        entity_id: 'item-1',
+        entity_code: 'ITEM-1',
+        summary: 'Catalogue item created',
+        actor_label: 'Operator',
+        created_at: '2026-09-04T06:00:00Z',
+      },
+    ]),
+  })
+  expect(await screen.findByText(/Catalogue item created/)).toBeVisible()
+  expect(screen.queryByText('Activity unavailable')).not.toBeInTheDocument()
+})
 
 describe('the summary is requested only with dashboard.view', () => {
   it('shows the tiles the account may open once the summary arrives', async () => {

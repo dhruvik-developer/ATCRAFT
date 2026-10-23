@@ -64,7 +64,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, joinValidationMessages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -74,7 +74,7 @@ import type { SchemaOf } from '@/types/api'
 import { ItemPicker, WarehouseSelect } from './pickers'
 import { LocationPicker } from './location-picker'
 import { SerialNumbersField } from './serial-numbers-field'
-import { splitSerialNumbers } from './serial-numbers'
+import { SERIAL_BULK_MAX, splitSerialNumbers } from './serial-numbers'
 import { ADJUSTMENT_REASON_CODES, type PhysicalCountLineRow, type PhysicalCountRow } from './types'
 
 // --------------------------------------------------------- validation ------
@@ -335,14 +335,14 @@ function LineEditor<T extends LineFields>({
  */
 const transferSchema = z
   .object({
-    from_warehouse_id: z.string().min(1, 'Choose the warehouse the stock leaves.'),
-    to_warehouse_id: z.string().min(1, 'Choose the warehouse the stock arrives at.'),
-    transfer_date: z.string().min(1, 'A transfer date is required.'),
+    from_warehouse_id: z.string().min(1, validation.choose('the warehouse the stock leaves')),
+    to_warehouse_id: z.string().min(1, validation.choose('the warehouse the stock arrives at')),
+    transfer_date: z.string().min(1, validation.required('Transfer date')),
     reason: z.string().trim().min(5, 'Say why the stock is moving.'),
     lines: z
       .array(
         z.object({
-          item_id: z.string().min(1, 'Choose an item.'),
+          item_id: z.string().min(1, validation.choose('an item')),
           batch_id: z.string().optional(),
           serial_numbers: z.string().optional(),
           from_location_id: z.string().optional(),
@@ -357,6 +357,27 @@ const transferSchema = z
   .refine((values) => values.from_warehouse_id !== values.to_warehouse_id, {
     message: 'The source and destination warehouses must differ.',
     path: ['to_warehouse_id'],
+  })
+  .superRefine((values, ctx) => {
+    values.lines.forEach((line, index) => {
+      const serials = splitSerialNumbers(line.serial_numbers ?? '')
+      if (serials.length === 0) return
+      if (serials.length > SERIAL_BULK_MAX) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'serial_numbers'],
+          message: `The API accepts at most ${SERIAL_BULK_MAX} serials at a time.`,
+        })
+        return
+      }
+      if (!toDecimal(line.quantity).equals(serials.length)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'serial_numbers'],
+          message: `Name one serial per unit moved - ${line.quantity || '0'} moved, ${serials.length} captured`,
+        })
+      }
+    })
   })
 
 type TransferForm = z.infer<typeof transferSchema>
@@ -554,39 +575,61 @@ export function CreateTransferDialog({
 
 // ---------------------------------------------------------- adjustment -----
 
-const adjustmentSchema = z.object({
-  warehouse_id: z.string().min(1, 'Choose the warehouse being adjusted.'),
-  adjustment_date: z.string().min(1, 'An adjustment date is required.'),
-  reason_code: z.string().min(1, 'Classify the cause of the adjustment.'),
-  // Master rules 83: no stock change without a recorded reason. The code says
-  // what kind of loss it was; this says what actually happened.
-  reason: z.string().trim().min(10, 'Describe what happened in enough detail to audit later.'),
-  /** Empty means unallocated: the write-off is charged to no cost centre. */
-  cost_centre_id: z.string(),
-  lines: z
-    .array(
-      z.object({
-        item_id: z.string().min(1, 'Choose an item.'),
-        batch_id: z.string().optional(),
-        serial_numbers: z.string().optional(),
-        location_id: z.string().optional(),
-        unit_cost: z
-          .string()
-          .optional()
-          .refine(
-            (value) => !value || /^\d+(\.\d{1,6})?$/.test(value.trim()),
-            'Enter a non-negative cost, to 6 decimal places.',
-          ),
-        quantity: z
-          .string()
-          .refine(
-            isNonZeroQuantity,
-            'Enter a signed quantity, e.g. -12 to write stock off or 12 to add it.',
-          ),
-      }),
-    )
-    .min(1, 'An adjustment needs at least one line.'),
-})
+const adjustmentSchema = z
+  .object({
+    warehouse_id: z.string().min(1, validation.choose('the warehouse being adjusted')),
+    adjustment_date: z.string().min(1, validation.required('Adjustment date')),
+    reason_code: z.string().min(1, 'Classify the cause of the adjustment.'),
+    // Master rules 83: no stock change without a recorded reason. The code says
+    // what kind of loss it was; this says what actually happened.
+    reason: z.string().trim().min(10, 'Describe what happened in enough detail to audit later.'),
+    /** Empty means unallocated: the write-off is charged to no cost centre. */
+    cost_centre_id: z.string(),
+    lines: z
+      .array(
+        z.object({
+          item_id: z.string().min(1, validation.choose('an item')),
+          batch_id: z.string().optional(),
+          serial_numbers: z.string().optional(),
+          location_id: z.string().optional(),
+          unit_cost: z
+            .string()
+            .optional()
+            .refine(
+              (value) => !value || /^\d+(\.\d{1,6})?$/.test(value.trim()),
+              'Enter a non-negative cost, to 6 decimal places.',
+            ),
+          quantity: z
+            .string()
+            .refine(
+              isNonZeroQuantity,
+              'Enter a signed quantity, e.g. -12 to write stock off or 12 to add it.',
+            ),
+        }),
+      )
+      .min(1, 'An adjustment needs at least one line.'),
+  })
+  .superRefine((values, ctx) => {
+    values.lines.forEach((line, index) => {
+      const serials = splitSerialNumbers(line.serial_numbers ?? '')
+      if (serials.length === 0) return
+      if (serials.length > SERIAL_BULK_MAX) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'serial_numbers'],
+          message: `The API accepts at most ${SERIAL_BULK_MAX} serials at a time.`,
+        })
+        return
+      }
+      if (!toDecimal(line.quantity).abs().equals(serials.length)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'serial_numbers'],
+          message: `Name one serial per unit moved - ${line.quantity || '0'} moved, ${serials.length} captured`,
+        })
+      }
+    })
+  })
 
 type AdjustmentForm = z.infer<typeof adjustmentSchema>
 
@@ -823,8 +866,8 @@ export function CreateAdjustmentDialog({
 
 const physicalCountSchema = z.object({
   location_id: z.string().optional(),
-  warehouse_id: z.string().min(1, 'Choose the warehouse being counted.'),
-  count_date: z.string().min(1, 'A count date is required.'),
+  warehouse_id: z.string().min(1, validation.choose('the warehouse being counted')),
+  count_date: z.string().min(1, validation.required('Count date')),
   // Required by the API, not optional decoration. It was missing entirely, so
   // every attempt to open a count sheet came back a validation error naming a
   // field the form did not have.
@@ -857,7 +900,7 @@ export function CreatePhysicalCountDialog({
         ...(values.location_id ? { location_id: values.location_id } : {}),
       }),
     onSuccess: (result) => {
-      toast.success('Count sheet opened', result.code + ' is ready to be counted.')
+      toast.success(success.opened('Count sheet'), result.code + ' is ready to be counted.')
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       form.reset()
       onOpenChange(false)
@@ -1143,8 +1186,8 @@ export function ConfirmPhysicalCountDialog({
           <Alert variant="warning">
             <AlertTitle>The line-by-line breakdown could not be read</AlertTitle>
             <AlertDescription>
-              {lines.error.message} The sheet totals above come from the count itself and still
-              stand; only the detail behind them is missing.
+              {describeError(lines.error)} The sheet totals above come from the count itself and
+              still stand; only the detail behind them is missing.
             </AlertDescription>
           </Alert>
         )}
@@ -1420,11 +1463,11 @@ export function EnterCountsDialog({
       for (const [path, messages] of Object.entries(save.error.fieldErrors)) {
         const position = /^entries\.(\d+)/.exec(path)
         const lineId = position ? save.variables[Number(position[1])]?.line_id : undefined
-        if (lineId) byLine[lineId] = messages.join('. ')
+        if (lineId) byLine[lineId] = joinValidationMessages(messages)
         else general.push(...messages)
       }
     }
-    return { byLine, general: general.length > 0 ? general.join('. ') : undefined }
+    return { byLine, general: general.length > 0 ? joinValidationMessages(general) : undefined }
   }, [save.error, save.variables])
 
   const hasServerError = save.error !== null

@@ -39,6 +39,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from src.core.deps import (
     CurrentUser,
@@ -49,7 +50,7 @@ from src.core.deps import (
     require_permission,
 )
 from src.core.errors import ValidationError
-from src.core.pagination import PageParams, page_params
+from src.core.pagination import PageParams, bind_query_filters, page_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -123,7 +124,7 @@ def report_period(
             "A report period needs both date_from and date_to.",
             details={"date_from": str(date_from), "date_to": str(date_to)},
         )
-    return ReportPeriod(date_from=date_from, date_to=date_to)
+    return bind_query_filters(ReportPeriod, date_from=date_from, date_to=date_to)
 
 
 def report_filters(
@@ -141,7 +142,8 @@ def report_filters(
     ] = None,
     search: Annotated[str | None, Query(max_length=120)] = None,
 ) -> ReportFilters:
-    return ReportFilters(
+    return bind_query_filters(
+        ReportFilters,
         item_id=item_id,
         warehouse_id=warehouse_id,
         vendor_id=vendor_id,
@@ -158,17 +160,22 @@ def report_filters(
 PeriodDep = Annotated[ReportPeriod | None, Depends(report_period)]
 FilterDep = Annotated[ReportFilters, Depends(report_filters)]
 
-#: Documented on every report route, so the two possible shapes of a report
-#: response are visible without reading the description.
-REPORT_RESPONSES: dict[int | str, dict[str, Any]] = {
-    200: {"description": "The report, paginated"},
-    202: {
-        "model": AcceptedJobResponse,
-        "description": (
-            "Too large to return inline. Generated in the background; poll the status URL."
-        ),
-    },
-}
+
+def _report_responses(model: type[BaseModel]) -> dict[int | str, dict[str, Any]]:
+    """Document each report's inline rows and its background-job alternative.
+
+    The models describe OpenAPI only: the service chooses the actual envelope,
+    and a response model must not filter either runtime result into the other.
+    """
+    return {
+        200: {"model": model, "description": "The report, paginated"},
+        202: {
+            "model": AcceptedJobResponse,
+            "description": (
+                "Too large to return inline. Generated in the background; poll the status URL."
+            ),
+        },
+    }
 
 
 async def _run(
@@ -283,6 +290,14 @@ async def get_job(
     "/jobs/{job_id}/download",
     summary="Download the generated file authorized by its originating job",
     response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            },
+            "description": "File content; the Content-Type header identifies its actual media type",
+        }
+    },
     dependencies=[
         require_permission(
             Permission.REPORT_VIEW,
@@ -319,7 +334,7 @@ async def download_job(
     "/sales-order-status",
     response_model=None,
     summary="Sales order status",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[SalesOrderStatusRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def sales_order_status(
@@ -340,7 +355,7 @@ async def sales_order_status(
     "/order-delay",
     response_model=None,
     summary="Order delay",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[OrderDelayRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def order_delay(
@@ -361,7 +376,7 @@ async def order_delay(
     "/product-profitability",
     response_model=None,
     summary="Product profitability",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ProductProfitabilityRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def product_profitability(
@@ -400,7 +415,7 @@ async def product_profitability(
         "live stock under a row lock (master rules section 34), and this endpoint is "
         "never cached for the same reason."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[StockAvailabilityRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def stock_availability(
@@ -420,7 +435,7 @@ async def stock_availability(
     "/inventory-valuation",
     response_model=None,
     summary="Inventory valuation",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[InventoryValuationRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def inventory_valuation(
@@ -444,7 +459,7 @@ async def inventory_valuation(
         "Positions holding stock that has not moved for longer than the ageing "
         f"threshold. Defaults to {service.DEAD_STOCK_DAYS} days; override with `min_days`."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[DeadStockRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def dead_stock(
@@ -464,7 +479,7 @@ async def dead_stock(
     "/fast-moving",
     response_model=None,
     summary="Fast-moving items",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ItemMovementRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def fast_moving(
@@ -485,7 +500,7 @@ async def fast_moving(
     "/slow-moving",
     response_model=None,
     summary="Slow-moving items",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ItemMovementRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def slow_moving(
@@ -506,7 +521,7 @@ async def slow_moving(
     "/mrp-shortage",
     response_model=None,
     summary="MRP shortage",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[MrpShortageRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def mrp_shortage(
@@ -532,7 +547,7 @@ async def mrp_shortage(
     "/purchase-pending",
     response_model=None,
     summary="Purchase pending",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[PurchasePendingRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def purchase_pending(
@@ -553,7 +568,7 @@ async def purchase_pending(
     "/production-pending",
     response_model=None,
     summary="Production pending",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ProductionPendingRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def production_pending(
@@ -574,7 +589,7 @@ async def production_pending(
     "/job-work-pending",
     response_model=None,
     summary="Job-work pending",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[JobWorkPendingRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def job_work_pending(
@@ -595,7 +610,7 @@ async def job_work_pending(
     "/production-efficiency",
     response_model=None,
     summary="Production efficiency",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ProductionEfficiencyRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def production_efficiency(
@@ -626,7 +641,7 @@ async def production_efficiency(
     description=(
         "Closed production orders costed in the selected period. Requires item-cost visibility."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ProductionCostRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def production_cost(
@@ -652,7 +667,7 @@ async def production_cost(
         "processing charges, with vendor debits and cost per unit. Requires "
         "item-cost visibility."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[JobWorkCostRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def job_work_cost(
@@ -679,7 +694,7 @@ async def job_work_cost(
         "makes no weekend or holiday assumption. Separate rostered minutes and "
         "rostered utilisation use planned shift assignments less their breaks."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[MachineUtilisationRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def machine_utilisation(
@@ -706,7 +721,7 @@ async def machine_utilisation(
         "yield. The shift is the code recorded on each booking, so bookings made before "
         "the shift master existed appear under the code that was typed."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ShiftProductionRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def shift_production(
@@ -732,7 +747,7 @@ async def shift_production(
     "/qc-rejection",
     response_model=None,
     summary="QC rejection",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[QcRejectionRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def qc_rejection(
@@ -757,7 +772,7 @@ async def qc_rejection(
         "Rework quantity and rate per item and vendor over the period, from decided "
         "inspections. A pending inspection has no verdict and is not counted."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ReworkRateRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def rework_rate(
@@ -783,7 +798,7 @@ async def rework_rate(
         "against an order with no promised delivery date is excluded from the "
         "on-time figure entirely rather than counted as either early or late."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[VendorPerformanceRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def vendor_performance(
@@ -809,7 +824,7 @@ async def vendor_performance(
     "/dispatch",
     response_model=None,
     summary="Dispatch",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[DispatchRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def dispatch_report(
@@ -830,7 +845,7 @@ async def dispatch_report(
     "/courier-tracking",
     response_model=None,
     summary="Courier and transport tracking",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[CourierTrackingRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def courier_tracking(
@@ -851,7 +866,7 @@ async def courier_tracking(
     "/vendor-dispatch-history",
     response_model=None,
     summary="Vendor dispatch history",
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[VendorDispatchHistoryRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def vendor_dispatch_history(
@@ -890,7 +905,7 @@ async def vendor_dispatch_history(
         "minus credit: positive is cost, negative is income. A retired cost centre still "
         "appears - posted history keeps it."
     ),
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[CostCentreExpenseRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def cost_centre_expense(
@@ -910,7 +925,7 @@ async def cost_centre_expense(
 @router.get(
     "/scrap-register",
     response_model=None,
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ScrapRegisterRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def scrap_register(
@@ -930,7 +945,7 @@ async def scrap_register(
 @router.get(
     "/consumption-by-department",
     response_model=None,
-    responses=REPORT_RESPONSES,
+    responses=_report_responses(PaginatedResponse[ConsumptionByDepartmentRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
 async def consumption_by_department(

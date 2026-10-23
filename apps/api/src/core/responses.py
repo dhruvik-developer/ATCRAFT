@@ -6,7 +6,8 @@ Every successful response is::
 
 Every paginated response adds a ``pagination`` block. Every error is::
 
-    {"success": false, "error": {"code": "...", "message": "..."}, "request_id": "..."}
+    {"success": false, "error": {"code": "...", "message": "...", "details": null},
+     "request_id": "..."}
 
 Routes return these models directly so the shape is enforced by the type system
 and reflected accurately in the generated OpenAPI document.
@@ -14,11 +15,12 @@ and reflected accurately in the generated OpenAPI document.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Generic, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.config import settings
+from src.core.messages import JOB_QUEUED, OPERATION_COMPLETED
 
 T = TypeVar("T")
 
@@ -28,13 +30,13 @@ class ApiResponse(BaseModel, Generic[T]):
 
     model_config = ConfigDict(from_attributes=True)
 
-    success: bool = True
+    success: Literal[True] = True
     data: T | None = None
-    message: str = "Operation completed successfully"
+    message: str = OPERATION_COMPLETED
 
     @classmethod
     def ok(cls, data: T | None = None, message: str | None = None) -> ApiResponse[T]:
-        return cls(data=data, message=message or "Operation completed successfully")
+        return cls(data=data, message=message or OPERATION_COMPLETED)
 
 
 class OffsetPagination(BaseModel):
@@ -64,19 +66,19 @@ class CursorPagination(BaseModel):
 class PaginatedResponse(BaseModel, Generic[T]):
     """Offset-paginated list envelope."""
 
-    success: bool = True
+    success: Literal[True] = True
     data: list[T] = Field(default_factory=list)
     pagination: OffsetPagination = Field(default_factory=OffsetPagination)
-    message: str = "Operation completed successfully"
+    message: str = OPERATION_COMPLETED
 
 
 class CursorPaginatedResponse(BaseModel, Generic[T]):
     """Cursor-paginated list envelope."""
 
-    success: bool = True
+    success: Literal[True] = True
     data: list[T] = Field(default_factory=list)
     pagination: CursorPagination = Field(default_factory=CursorPagination)
-    message: str = "Operation completed successfully"
+    message: str = OPERATION_COMPLETED
 
 
 class ErrorDetail(BaseModel):
@@ -88,9 +90,27 @@ class ErrorDetail(BaseModel):
 class ErrorResponse(BaseModel):
     """Documented error shape - referenced by every route's responses map."""
 
-    success: bool = False
+    success: Literal[False] = False
     error: ErrorDetail
     request_id: str | None = None
+
+    @classmethod
+    def create(
+        cls,
+        code: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+        request_id: str | None = None,
+    ) -> ErrorResponse:
+        """Build the same error body for routes, handlers and middleware.
+
+        Optional values remain explicit JSON nulls so callers never have to
+        distinguish an absent field from an error without additional details.
+        """
+        return cls(
+            error=ErrorDetail(code=code, message=message, details=details),
+            request_id=request_id,
+        )
 
 
 class AcceptedJobResponse(BaseModel):
@@ -99,9 +119,9 @@ class AcceptedJobResponse(BaseModel):
     The client polls ``status_url`` instead of holding a long request open.
     """
 
-    success: bool = True
+    success: Literal[True] = True
     data: dict[str, Any]
-    message: str = "Job accepted"
+    message: str = JOB_QUEUED
 
     @classmethod
     def create(
@@ -109,7 +129,7 @@ class AcceptedJobResponse(BaseModel):
     ) -> AcceptedJobResponse:
         return cls(
             data={"job_id": job_id, "status": "queued", "status_url": status_url},
-            message=message or "Job queued for background processing",
+            message=message or JOB_QUEUED,
         )
 
 
@@ -134,13 +154,16 @@ COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "Authenticated but missing the required permission",
     },
     404: {"model": ErrorResponse, "description": "Record not found in this tenant"},
+    405: {"model": ErrorResponse, "description": "HTTP method not allowed"},
     409: {
         "model": ErrorResponse,
         "description": "Conflict: concurrent edit, duplicate, or invalid state transition",
     },
+    413: {"model": ErrorResponse, "description": "Request body too large"},
     422: {"model": ErrorResponse, "description": "Validation or business-rule failure"},
     429: {"model": ErrorResponse, "description": "Rate limit exceeded"},
     500: {"model": ErrorResponse, "description": "Unexpected server error"},
+    503: {"model": ErrorResponse, "description": "Service temporarily unavailable"},
 }
 
 __all__ = [

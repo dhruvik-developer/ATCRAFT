@@ -78,7 +78,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { describeError, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -213,7 +213,7 @@ function TrackingPanel({ orderId }: { orderId: string }) {
         {!tracking.isLoading && tracking.error && (
           <Alert variant="destructive">
             <AlertTitle>Could not load tracking</AlertTitle>
-            <AlertDescription>{(tracking.error as Error).message}</AlertDescription>
+            <AlertDescription>{describeError(tracking.error)}</AlertDescription>
             <Button
               variant="outline"
               size="sm"
@@ -708,7 +708,7 @@ export default function PurchaseOrderDetailPage() {
         />
         <Alert variant="destructive">
           <AlertTitle>Could not load this order</AlertTitle>
-          <AlertDescription>{orderQuery.error.message}</AlertDescription>
+          <AlertDescription>{describeError(orderQuery.error)}</AlertDescription>
           <Button
             variant="outline"
             size="sm"

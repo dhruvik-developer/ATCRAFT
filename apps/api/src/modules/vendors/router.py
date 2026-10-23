@@ -24,7 +24,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -109,7 +110,8 @@ def vendor_filters(
     ] = None,
     include_deleted: Annotated[bool, Query(description="Include retired vendors")] = False,
 ) -> VendorFilters:
-    return VendorFilters(
+    return bind_query_filters(
+        VendorFilters,
         search=search,
         vendor_type=vendor_type,
         item_category_id=item_category_id,
@@ -130,7 +132,8 @@ def contact_filters(
     search: Annotated[str | None, Query(max_length=120)] = None,
     include_deleted: Annotated[bool, Query()] = False,
 ) -> VendorContactFilters:
-    return VendorContactFilters(
+    return bind_query_filters(
+        VendorContactFilters,
         vendor_id=vendor_id,
         contact_role=contact_role,
         is_active=is_active,
@@ -166,7 +169,8 @@ def category_filters(
     item_category_id: Annotated[uuid.UUID | None, Query()] = None,
     is_preferred: Annotated[bool | None, Query()] = None,
 ) -> VendorCategoryFilters:
-    return VendorCategoryFilters(
+    return bind_query_filters(
+        VendorCategoryFilters,
         vendor_id=vendor_id,
         item_category_id=item_category_id,
         is_preferred=is_preferred,
@@ -179,7 +183,8 @@ def transporter_filters(
     is_active: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query()] = False,
 ) -> TransporterFilters:
-    return TransporterFilters(
+    return bind_query_filters(
+        TransporterFilters,
         search=search,
         transporter_type=transporter_type,
         is_active=is_active,
@@ -244,7 +249,7 @@ async def update_contact(
     tenant: Tenant,
 ) -> ApiResponse[VendorContactRead]:
     contact = await VendorContactService(session, tenant).update_contact(contact_id, payload)
-    return ApiResponse[VendorContactRead].ok(contact, "Contact updated")
+    return ApiResponse[VendorContactRead].ok(contact, success_message("Contact", "updated"))
 
 
 @vendors_router.post(
@@ -257,7 +262,7 @@ async def set_primary_contact(
     contact_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[VendorContactRead]:
     contact = await VendorContactService(session, tenant).set_primary(contact_id)
-    return ApiResponse[VendorContactRead].ok(contact, "Primary contact updated")
+    return ApiResponse[VendorContactRead].ok(contact, success_message("Primary contact", "updated"))
 
 
 @vendors_router.delete(
@@ -273,7 +278,7 @@ async def delete_contact(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await VendorContactService(session, tenant).delete_contact(contact_id, reason=reason)
-    return ApiResponse[None].ok(None, "Contact removed")
+    return ApiResponse[None].ok(None, success_message("Contact", "removed"))
 
 
 # -----------------------------------------------------------------------------
@@ -313,7 +318,7 @@ async def update_category_link(
     tenant: Tenant,
 ) -> ApiResponse[VendorCategoryRead]:
     link = await VendorCategoryService(session, tenant).update(link_id, payload)
-    return ApiResponse[VendorCategoryRead].ok(link, "Qualification updated")
+    return ApiResponse[VendorCategoryRead].ok(link, success_message("Qualification", "updated"))
 
 
 @vendors_router.delete(
@@ -329,7 +334,7 @@ async def delete_category_link(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await VendorCategoryService(session, tenant).remove(link_id, reason=reason)
-    return ApiResponse[None].ok(None, "Qualification revoked")
+    return ApiResponse[None].ok(None, success_message("Qualification", "revoked"))
 
 
 # -----------------------------------------------------------------------------
@@ -415,7 +420,7 @@ async def update_vendor(
     tenant: Tenant,
 ) -> ApiResponse[VendorRead]:
     vendor = await VendorService(session, tenant).update_vendor(vendor_id, payload)
-    return ApiResponse[VendorRead].ok(vendor, "Vendor updated")
+    return ApiResponse[VendorRead].ok(vendor, success_message("Vendor", "updated"))
 
 
 @vendors_router.post(
@@ -431,7 +436,7 @@ async def approve_vendor(
     tenant: Tenant,
 ) -> ApiResponse[VendorRead]:
     vendor = await VendorService(session, tenant).approve_vendor(vendor_id, reason=payload.reason)
-    return ApiResponse[VendorRead].ok(vendor, "Vendor approved")
+    return ApiResponse[VendorRead].ok(vendor, success_message("Vendor", "approved"))
 
 
 @vendors_router.post(
@@ -467,7 +472,7 @@ async def activate_vendor(
     vendor = await VendorService(session, tenant).set_active(
         vendor_id, active=True, reason=payload.reason
     )
-    return ApiResponse[VendorRead].ok(vendor, "Vendor reactivated")
+    return ApiResponse[VendorRead].ok(vendor, success_message("Vendor", "reactivated"))
 
 
 @vendors_router.post(
@@ -485,7 +490,7 @@ async def deactivate_vendor(
     vendor = await VendorService(session, tenant).set_active(
         vendor_id, active=False, reason=payload.reason
     )
-    return ApiResponse[VendorRead].ok(vendor, "Vendor suspended")
+    return ApiResponse[VendorRead].ok(vendor, success_message("Vendor", "suspended"))
 
 
 @vendors_router.post(
@@ -514,7 +519,7 @@ async def delete_vendor(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await VendorService(session, tenant).delete_vendor(vendor_id, reason=reason)
-    return ApiResponse[None].ok(None, "Vendor retired")
+    return ApiResponse[None].ok(None, success_message("Vendor", "retired"))
 
 
 # --- rating ------------------------------------------------------------------
@@ -602,7 +607,7 @@ async def create_vendor_contact(
     tenant: Tenant,
 ) -> ApiResponse[VendorContactRead]:
     contact = await VendorContactService(session, tenant).create_contact(vendor_id, payload)
-    return ApiResponse[VendorContactRead].ok(contact, "Contact added")
+    return ApiResponse[VendorContactRead].ok(contact, success_message("Contact", "added"))
 
 
 @vendors_router.get(
@@ -619,7 +624,9 @@ async def list_vendor_categories(
     sort: SortDep,
     is_preferred: Annotated[bool | None, Query()] = None,
 ) -> PaginatedResponse[VendorCategoryRead]:
-    filters = VendorCategoryFilters(vendor_id=vendor_id, is_preferred=is_preferred)
+    filters = bind_query_filters(
+        VendorCategoryFilters, vendor_id=vendor_id, is_preferred=is_preferred
+    )
     items, pagination = await VendorCategoryService(session, tenant).list_categories(
         filters, params, sort
     )
@@ -693,7 +700,7 @@ async def create_transporter(
     payload: TransporterCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[TransporterRead]:
     transporter = await TransporterService(session, tenant).create_transporter(payload)
-    return ApiResponse[TransporterRead].ok(transporter, "Transporter created")
+    return ApiResponse[TransporterRead].ok(transporter, success_message("Transporter", "created"))
 
 
 @transporters_router.get(
@@ -740,7 +747,7 @@ async def update_transporter(
     transporter = await TransporterService(session, tenant).update_transporter(
         transporter_id, payload
     )
-    return ApiResponse[TransporterRead].ok(transporter, "Transporter updated")
+    return ApiResponse[TransporterRead].ok(transporter, success_message("Transporter", "updated"))
 
 
 @transporters_router.post(
@@ -758,7 +765,7 @@ async def activate_transporter(
     transporter = await TransporterService(session, tenant).set_active(
         transporter_id, active=True, reason=payload.reason
     )
-    return ApiResponse[TransporterRead].ok(transporter, "Transporter activated")
+    return ApiResponse[TransporterRead].ok(transporter, success_message("Transporter", "activated"))
 
 
 @transporters_router.post(
@@ -776,7 +783,9 @@ async def deactivate_transporter(
     transporter = await TransporterService(session, tenant).set_active(
         transporter_id, active=False, reason=payload.reason
     )
-    return ApiResponse[TransporterRead].ok(transporter, "Transporter deactivated")
+    return ApiResponse[TransporterRead].ok(
+        transporter, success_message("Transporter", "deactivated")
+    )
 
 
 @transporters_router.post(
@@ -805,7 +814,7 @@ async def delete_transporter(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await TransporterService(session, tenant).delete_transporter(transporter_id, reason=reason)
-    return ApiResponse[None].ok(None, "Transporter retired")
+    return ApiResponse[None].ok(None, success_message("Transporter", "retired"))
 
 
 router.include_router(vendors_router)

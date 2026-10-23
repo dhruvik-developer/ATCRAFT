@@ -17,12 +17,13 @@ import {
   Input,
   Label,
 } from '@/components/ui/primitives'
+import { describeError, validation } from '@/lib/messages'
 import { ApiError, api } from '@/lib/api-client'
 
 import { passwordField } from './password-policy'
 
 const requestSchema = z.object({
-  email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
+  email: z.string().min(1, validation.required('Email')).email(validation.email),
   company_code: z.string().max(32, 'Company code is too long').optional(),
 })
 
@@ -49,7 +50,7 @@ function AuthCard({ children }: { children: ReactNode }) {
 
 function errorMessage(error: unknown): string {
   return error instanceof ApiError
-    ? error.message
+    ? describeError(error)
     : 'Could not reach the server. Check your connection and try again.'
 }
 

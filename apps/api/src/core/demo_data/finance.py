@@ -20,8 +20,8 @@ row in one status teaches nobody what the statuses mean.
   and the 150 burred ones were refused. Quantity tolerance is zero, so the match
   blocks it - which is the whole point of having an approval queue.
 * ``DM-VI-METALS`` and ``DM-VI-RFQ`` are three-way matched *by construction*:
-  their lines are built from the goods receipt's accepted quantity at the
-  purchase order's own net price, read out of the same two tables the matcher
+  their lines use the receipt's net accepted quantity after purchase returns and
+  the purchase order's own net price, read out of the same two tables the matcher
   reads. They approve with no override because there is genuinely nothing out of
   tolerance to override.
 * ``DM-VI-JW-PLATE`` is a job-work bill of type ``JOB_WORK``: it names the
@@ -90,6 +90,11 @@ journals stay as historical examples; new invoices use the statutory SI series a
 post to the sales revenue control account. Fictional bank details fill only empty
 company fields, so the demo PDF footer is complete without rewriting client data.
 
+**Sales returns with linked credits.** Three unopened, non-serial surplus returns
+reuse the delivered handle consignment: one DRAFT, one RECEIVED, and one CLOSED.
+The latter two restore stock and issue RETURN credit notes through the return
+service. They explicitly require no inspection; no QC decision is bypassed.
+
 **A chart with a shape.** ``ensure_system_accounts`` provisions the nine control
 accounts on first use; this stage calls it up front so the chart screen has rows
 before the first document rather than after it, and then opens a small revenue
@@ -126,6 +131,8 @@ kind                    codes
                         ``DM-PAY-PACK``, ``DM-RCPT-ARCH``, ``DM-RCPT-VASTU``
 ``ledger_journal``      ``DM-SC-ARCH-1``, ``DM-SC-ARCH-2``, ``DM-SC-SKYLINE``,
                         ``DM-SC-METRO``, ``DM-SC-VASTU``, ``DM-SC-WEST``
+``sales_return``        ``DM-SR-DRAFT``, ``DM-SR-RECEIVED``, ``DM-SR-CLOSED``
+``credit_note``         the two generated statutory CN codes linked to those returns
 ======================  =====================================================
 
 Idempotence
@@ -168,6 +175,7 @@ from src.modules.customers.service import apply_outstanding_delta
 from src.modules.finance import service as finance
 from src.modules.finance.models import (
     ALLOCATABLE_PAYMENT_STATUSES,
+    EDITABLE_INVOICE_STATUSES,
     LedgerAccount,
     LedgerAccountType,
     LedgerEntry,
@@ -191,9 +199,11 @@ from src.modules.finance.schemas import (
     VendorInvoiceCreate,
     VendorInvoiceDetail,
     VendorInvoiceLineIn,
+    VendorInvoiceUpdate,
 )
 from src.modules.organization.models import Company
 from src.modules.procurement.models import GoodsReceiptLine, PurchaseOrderLine
+from src.modules.sales_returns.models import SalesReturn, SalesReturnStatus
 from src.modules.vendors.models import Vendor
 
 STAGE = "finance"
@@ -402,8 +412,8 @@ class _OrderedInvoice:
 ORDERED_INVOICES: tuple[_OrderedInvoice, ...] = (
     # The big one, and the one that ends up part-paid. Ex-works Jamnagar, so the
     # vendor billed on despatch - four days before the lorry reached the gate. Two
-    # ingot bundles were refused on arrival; this bills the 780 accepted, not the
-    # 800 sent, which is the bill a payables clerk should be prepared to insist on.
+    # ingot bundles were refused on arrival and 60 accepted units were returned
+    # later; this bills the 720 retained, not the 800 sent.
     _OrderedInvoice(
         marker=("VI", "METALS"),
         vendor="VEN-BRASS",
@@ -1132,7 +1142,9 @@ async def _lines_from_receipt(
     lines: list[VendorInvoiceLineIn] = []
     for receipt_line, order_line in (await ctx.session.execute(stmt)).all():
         quantity = to_quantity(
-            receipt_line.accepted_quantity if accepted else receipt_line.received_quantity
+            receipt_line.accepted_quantity - receipt_line.returned_quantity
+            if accepted
+            else receipt_line.received_quantity
         )
         # A line refused in full is not billed at all rather than billed at zero:
         # the schema requires a positive quantity, and a nil line on a bill is a
@@ -1191,6 +1203,48 @@ async def _seed_ordered_invoice(
     if known is not None:
         invoice_id, status = known
         _seen(ctx, "vendor_invoice", marker, invoice_id, created=False)
+        if (
+            spec.bill_accepted
+            and spec.stop_at is VendorInvoiceStatus.APPROVED
+            and status in EDITABLE_INVOICE_STATUSES
+        ):
+            # An interrupted seed may hold the older gross-accepted bill. Repair
+            # only our unapproved example, through the ordinary amendment service;
+            # approved/paid documents and the intentional COMP variance stay intact.
+            order_id = ctx.maybe_id("purchase_order", ctx.code(*spec.order))
+            receipt_id = ctx.maybe_id("goods_receipt", ctx.code(*spec.receipt))
+            if order_id is not None and receipt_id is not None:
+                lines = await _lines_from_receipt(
+                    ctx,
+                    order_id=order_id,
+                    receipt_id=receipt_id,
+                    accepted=True,
+                    interstate=_vendor(ctx, spec.vendor) in interstate,
+                )
+                try:
+                    existing_detail = await finance.get_invoice_detail(
+                        ctx.session, ctx.tenant, invoice_id
+                    )
+                    fields = {
+                        "item_id",
+                        "purchase_order_line_id",
+                        "goods_receipt_line_id",
+                        "quantity",
+                        "uom_id",
+                        "unit_price",
+                        "discount_amount",
+                        "tax_rate",
+                    }
+                    actual = [line.model_dump(include=fields) for line in existing_detail.lines]
+                    expected = [line.model_dump(include=fields) for line in lines]
+                    if lines and actual != expected:
+                        amended = await finance.update_invoice(
+                            ctx.session, ctx.tenant, invoice_id, VendorInvoiceUpdate(lines=lines)
+                        )
+                        status = amended.status
+                except (BusinessRuleError, NotFoundError) as exc:
+                    ctx.skipped.append((STAGE, f"{marker} not amended: {exc}"))
+                    return
         await _walk_invoice(ctx, marker, invoice_id, status, spec.stop_at, override_reason=None)
         return
 
@@ -1733,6 +1787,151 @@ async def _seed_sales_invoices(ctx: DemoContext) -> None:
                 break
 
 
+@dataclass(frozen=True, slots=True)
+class _SalesReturnSource:
+    dispatch_id: uuid.UUID
+    dispatch_line_id: uuid.UUID
+    warehouse_id: uuid.UUID
+
+
+SALES_RETURN_EXAMPLES = (
+    ("DRAFT", SalesReturnStatus.DRAFT),
+    ("RECEIVED", SalesReturnStatus.RECEIVED),
+    ("CLOSED", SalesReturnStatus.CLOSED),
+)
+SALES_RETURN_QUANTITY = Decimal("1")
+
+
+async def _sales_return_source(
+    ctx: DemoContext, minimum_quantity: Decimal
+) -> _SalesReturnSource | None:
+    """An invoiced line from the demo delivery, never an unrelated user's shipment."""
+    from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchType
+    from src.modules.finance.models import SalesInvoice, SalesInvoiceLine, SalesInvoiceStatus
+    from src.modules.products.models import Item
+
+    stmt = (
+        select(Dispatch.id, DispatchLine.id, Dispatch.warehouse_id)
+        .join(DispatchLine, DispatchLine.dispatch_id == Dispatch.id)
+        .join(SalesInvoice, SalesInvoice.dispatch_id == Dispatch.id)
+        .join(
+            SalesInvoiceLine,
+            (SalesInvoiceLine.sales_invoice_id == SalesInvoice.id)
+            & (SalesInvoiceLine.dispatch_line_id == DispatchLine.id),
+        )
+        .join(Item, Item.id == DispatchLine.item_id)
+        .where(
+            Dispatch.company_id == ctx.company_id,
+            DispatchLine.company_id == ctx.company_id,
+            SalesInvoice.company_id == ctx.company_id,
+            SalesInvoiceLine.company_id == ctx.company_id,
+            Item.company_id == ctx.company_id,
+            Dispatch.dispatch_type == DispatchType.SALES,
+            Dispatch.notes.like(f"{ctx.code('DSP', 'DELIVERED')} -%"),
+            SalesInvoice.status.not_in((SalesInvoiceStatus.CANCELLED, SalesInvoiceStatus.CREDITED)),
+            Item.can_return.is_(True),
+            Item.is_serial_tracked.is_(False),
+            DispatchLine.quantity - DispatchLine.returned_quantity >= minimum_quantity,
+            SalesInvoiceLine.quantity - SalesInvoiceLine.credited_quantity >= minimum_quantity,
+        )
+        .order_by(Dispatch.created_at, Dispatch.id, DispatchLine.line_number, DispatchLine.id)
+        .limit(1)
+    )
+    row = (await ctx.session.execute(stmt)).tuples().first()
+    return _SalesReturnSource(*row) if row is not None else None
+
+
+async def _return_credit_notes(
+    ctx: DemoContext, return_ids: list[uuid.UUID]
+) -> list[tuple[uuid.UUID, str]]:
+    from src.modules.finance.models import CreditNote, CreditNoteStatus
+
+    if not return_ids:
+        return []
+    stmt = (
+        select(CreditNote.id, CreditNote.code)
+        .where(
+            CreditNote.company_id == ctx.company_id,
+            CreditNote.sales_return_id.in_(return_ids),
+            CreditNote.status == CreditNoteStatus.ISSUED,
+        )
+        .order_by(CreditNote.created_at, CreditNote.id)
+    )
+    return list((await ctx.session.execute(stmt)).tuples())
+
+
+async def _seed_sales_returns(ctx: DemoContext) -> None:
+    """Unopened surplus: draft, received with credit, and closed with credit.
+
+    These non-serial goods are explicitly accepted without QC. Receiving them
+    through the return service restores stock and issues the linked credit note;
+    this stage never repeats those inventory or receivable postings itself.
+    """
+    from src.modules.sales_returns import service as sales_returns
+    from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
+
+    existing_ids = {marker: row.id for marker, row in (await _existing(ctx, SalesReturn)).items()}
+    prior_credit_ids = {
+        note_id for note_id, _ in await _return_credit_notes(ctx, list(existing_ids.values()))
+    }
+    missing = sum(ctx.code("SR", suffix) not in existing_ids for suffix, _ in SALES_RETURN_EXAMPLES)
+    source = await _sales_return_source(ctx, SALES_RETURN_QUANTITY * missing) if missing else None
+    return_ids: list[uuid.UUID] = []
+    for suffix, target in SALES_RETURN_EXAMPLES:
+        marker = ctx.code("SR", suffix)
+        known_id = existing_ids.get(marker)
+        try:
+            if known_id is None:
+                if source is None:
+                    ctx.skipped.append(
+                        (
+                            STAGE,
+                            f"{marker} not raised: no invoiced demo delivery has enough "
+                            "returnable non-serial quantity",
+                        )
+                    )
+                    continue
+                detail = await sales_returns.create_return(
+                    ctx.session,
+                    ctx.tenant,
+                    SalesReturnCreate(
+                        dispatch_id=source.dispatch_id,
+                        return_warehouse_id=source.warehouse_id,
+                        notes=_tagged(
+                            marker,
+                            "Unopened surplus handle set returned intact by the customer; "
+                            "accepted without inspection.",
+                        ),
+                        lines=[
+                            SalesReturnLineIn(
+                                dispatch_line_id=source.dispatch_line_id,
+                                quantity=SALES_RETURN_QUANTITY,
+                                reason_code="SURPLUS",
+                                note="Unopened, unused surplus accepted without QC.",
+                                requires_qc=False,
+                            )
+                        ],
+                    ),
+                )
+            else:
+                detail = await sales_returns.get_return(ctx.session, ctx.tenant, known_id)
+            return_id = _seen(ctx, "sales_return", marker, detail.id, created=known_id is None)
+            return_ids.append(return_id)
+            if target != SalesReturnStatus.DRAFT and detail.status == SalesReturnStatus.DRAFT:
+                detail = await sales_returns.transition_return(
+                    ctx.session, ctx.tenant, return_id, SalesReturnStatus.RECEIVED
+                )
+            if target == SalesReturnStatus.CLOSED and detail.status == SalesReturnStatus.RECEIVED:
+                await sales_returns.transition_return(
+                    ctx.session, ctx.tenant, return_id, SalesReturnStatus.CLOSED
+                )
+        except (BusinessRuleError, NotFoundError) as exc:
+            ctx.skipped.append((STAGE, f"{marker} left at its last valid state: {exc}"))
+
+    for note_id, code in await _return_credit_notes(ctx, return_ids):
+        _seen(ctx, "credit_note", code, note_id, created=note_id not in prior_credit_ids)
+
+
 # =============================================================================
 # Entry point
 # =============================================================================
@@ -1760,3 +1959,4 @@ async def seed(ctx: DemoContext) -> None:
     await _seed_payments(ctx)
 
     await _seed_sales_invoices(ctx)
+    await _seed_sales_returns(ctx)

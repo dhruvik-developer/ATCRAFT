@@ -21,7 +21,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -84,7 +85,8 @@ def order_filters(
     planned_from: Annotated[date | None, Query()] = None,
     planned_to: Annotated[date | None, Query()] = None,
 ) -> PackingOrderFilters:
-    return PackingOrderFilters(
+    return bind_query_filters(
+        PackingOrderFilters,
         search=search,
         status=order_status,
         customer_id=customer_id,
@@ -243,7 +245,8 @@ async def create_order(
 ) -> ApiResponse[PackingOrderDetail]:
     order, lines = await service.create_order(session, tenant, payload)
     return ApiResponse[PackingOrderDetail].ok(
-        service.order_detail(order, lines), message=f"Packing order {order.code} created"
+        service.order_detail(order, lines),
+        message=success_message(f"Packing order {order.code}", "created"),
     )
 
 
@@ -297,7 +300,8 @@ async def update_order(
 ) -> ApiResponse[PackingOrderDetail]:
     order, lines = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[PackingOrderDetail].ok(
-        service.order_detail(order, lines), message=f"Packing order {order.code} updated"
+        service.order_detail(order, lines),
+        message=success_message(f"Packing order {order.code}", "updated"),
     )
 
 
@@ -311,7 +315,7 @@ async def delete_order(
     session: DbSession, tenant: Tenant, order_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_order(session, tenant, order_id, reason=reason)
-    return ApiResponse[None].ok(message="Draft packing order deleted")
+    return ApiResponse[None].ok(message=success_message("Draft packing order", "deleted"))
 
 
 # -----------------------------------------------------------------------------
@@ -407,7 +411,8 @@ async def close_order(
 ) -> ApiResponse[PackingOrderSummary]:
     order = await service.close_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[PackingOrderSummary].ok(
-        PackingOrderSummary.model_validate(order), message=f"{order.code} closed"
+        PackingOrderSummary.model_validate(order),
+        message=success_message(f"{order.code}", "closed"),
     )
 
 
@@ -422,7 +427,8 @@ async def cancel_order(
 ) -> ApiResponse[PackingOrderSummary]:
     order = await service.cancel_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[PackingOrderSummary].ok(
-        PackingOrderSummary.model_validate(order), message=f"{order.code} cancelled"
+        PackingOrderSummary.model_validate(order),
+        message=success_message(f"{order.code}", "cancelled"),
     )
 
 
@@ -463,7 +469,9 @@ async def add_carton(
     session: DbSession, tenant: Tenant, order_id: uuid.UUID, payload: CartonCreate
 ) -> ApiResponse[CartonDetail]:
     carton = await service.add_carton(session, tenant, order_id, payload)
-    return ApiResponse[CartonDetail].ok(carton, message=f"Carton {carton.barcode} opened")
+    return ApiResponse[CartonDetail].ok(
+        carton, message=success_message(f"Carton {carton.barcode}", "opened")
+    )
 
 
 @router.get(
@@ -498,7 +506,9 @@ async def replace_contents(
     payload: CartonContentsReplace,
 ) -> ApiResponse[CartonDetail]:
     carton = await service.replace_carton_contents(session, tenant, order_id, carton_id, payload)
-    return ApiResponse[CartonDetail].ok(carton, message="Carton contents updated")
+    return ApiResponse[CartonDetail].ok(
+        carton, message=success_message("Carton contents", "updated")
+    )
 
 
 @router.post(
@@ -536,7 +546,7 @@ async def remove_carton(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await service.remove_carton(session, tenant, order_id, carton_id, reason=reason)
-    return ApiResponse[None].ok(message="Carton removed")
+    return ApiResponse[None].ok(message=success_message("Carton", "removed"))
 
 
 @router.get(

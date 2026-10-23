@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * The RFQ comparison board: one column per vendor, one row per item.
  *
@@ -126,7 +127,7 @@ export function RfqComparisonPanel({
     return (
       <Alert variant="destructive">
         <AlertTitle>Could not build the comparison</AlertTitle>
-        <AlertDescription>{comparison.error.message}</AlertDescription>
+        <AlertDescription>{describeError(comparison.error)}</AlertDescription>
       </Alert>
     )
   }

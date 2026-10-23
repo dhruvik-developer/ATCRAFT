@@ -2,6 +2,20 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { DateRangeFilter, StatusBadge } from './shared'
+import { CardTitle } from './ui/primitives'
+
+describe('CardTitle', () => {
+  it('follows the page heading and preserves an explicit heading level', () => {
+    const { rerender } = render(<CardTitle>Section</CardTitle>)
+    expect(screen.getByRole('heading', { name: 'Section', level: 2 })).toBeVisible()
+    rerender(
+      <CardTitle asChild>
+        <h1>Sign in</h1>
+      </CardTitle>,
+    )
+    expect(screen.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible()
+  })
+})
 
 describe('StatusBadge', () => {
   it('colours a lifecycle status instead of falling through to the unmapped grey', () => {

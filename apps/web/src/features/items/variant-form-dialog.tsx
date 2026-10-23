@@ -31,7 +31,7 @@ import {
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -44,8 +44,16 @@ const COST_DELTA = /^(-?\d{1,14}(\.\d{1,4})?)?$/
 
 const schema = z
   .object({
-    code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
-    name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+    code: z
+      .string()
+      .trim()
+      .min(1, validation.required('Code'))
+      .max(64, 'Code is at most 64 characters'),
+    name: z
+      .string()
+      .trim()
+      .min(1, validation.required('Name'))
+      .max(255, 'Name is at most 255 characters'),
     finish_id: z.string(),
     size_id: z.string(),
     colour_id: z.string(),

@@ -17,6 +17,7 @@ from sqlalchemy import ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.core.constants import MAX_REQUEST_ID_LENGTH
 from src.core.models import ImmutableLedgerEntity
 from src.core.types import GUID
 
@@ -90,7 +91,7 @@ class AuditLog(ImmutableLedgerEntity):
     context: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     # Request provenance (section 41): who, from where, on which request.
-    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(MAX_REQUEST_ID_LENGTH), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(INET, nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
 

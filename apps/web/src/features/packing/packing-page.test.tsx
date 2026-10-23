@@ -19,7 +19,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { fail, ok, page, renderScreen, type RouteRequest } from '@/test/harness'
+import { cursorPage, fail, ok, page, renderScreen, type RouteRequest } from '@/test/harness'
 
 import PackingPage from './packing-page'
 import type { PackingOrderRow, PackingStatus } from './packing-types'
@@ -374,7 +374,7 @@ describe('carton barcode lookup', () => {
         'GET /audit/logs': ({ url }) => {
           expect(url.searchParams.get('action')).toBe('SCAN')
           expect(url.searchParams.get('entity_type')).toBe('carton_scan')
-          return page([
+          return cursorPage([
             {
               id: '01a00000-0000-7000-8000-0000000000sc',
               action: 'SCAN',
@@ -490,7 +490,9 @@ describe('the hand-over gate', () => {
       },
     )
     await user.click(screen.getByRole('button', { name: /hand to dispatch/i }))
-    expect(await screen.findByText('Consignments are temporarily unavailable')).toBeVisible()
+    expect(
+      await screen.findByText('Consignments are temporarily unavailable (reference test)'),
+    ).toBeVisible()
     expect(screen.queryByText(/no consignment waiting to be loaded/i)).toBeNull()
     expect(screen.getByRole('combobox')).toBeDisabled()
   })
@@ -726,7 +728,7 @@ describe('packing list status recovery', () => {
     await waitFor(() => expect(h.queryClient.getQueryState(jobKey)?.status).toBe('success'))
     state = 'error'
     await h.queryClient.invalidateQueries({ queryKey: jobKey })
-    expect(await screen.findByText('Status service unavailable')).toBeVisible()
+    expect(await screen.findByText('Status service unavailable (reference test)')).toBeVisible()
     state = 'complete'
     await h.user.click(screen.getByRole('button', { name: 'Retry status' }))
     expect(await screen.findByText('Packing list is ready')).toBeVisible()

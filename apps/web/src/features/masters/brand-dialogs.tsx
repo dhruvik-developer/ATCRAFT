@@ -47,7 +47,7 @@ import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { toast } from '@/lib/toast'
 import { asId, asText } from '@/lib/utils'
@@ -59,8 +59,8 @@ import { RetireWithReasonDialog } from './masters-shared'
 const MAX_POSITION = 9999
 
 const brandSchema = z.object({
-  code: z.string().trim().min(1, 'A code is required.').max(32, 'At most 32 characters.'),
-  name: z.string().trim().min(1, 'A name is required.').max(120, 'At most 120 characters.'),
+  code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters.'),
+  name: z.string().trim().min(1, validation.required('Name')).max(120, 'At most 120 characters.'),
   manufacturer_id: z.string(),
   // Annotated `boolean`: since TypeScript 5.5 a bare predicate of this shape is
   // inferred as a type guard, which would narrow the field.

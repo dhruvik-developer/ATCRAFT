@@ -2,6 +2,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { API_URL, BASE_URL } from '../lib/env.mjs'
+import { errorToastFailures } from '../lib/navigation.mjs'
 import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 test.use({ storageState: { cookies: [], origins: [] } })
@@ -113,4 +114,22 @@ test('the ageing chart screen reader table does not widen a phone page', async (
   ).toHaveCount(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
   await page.screenshot({ path: 'readiness-artifacts/mobile-ageing.png' })
+})
+
+test('readiness sweeps flag an invalid HTTP 200 response shown as an error toast', async ({
+  page,
+}) => {
+  await signInThroughForm(page)
+  await page.route('**/api/v1/products/items?**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [] }),
+    }),
+  )
+  await page.goto(`${BASE_URL}/items`)
+  await expect(page.getByRole('alert').first()).toBeVisible()
+  expect(await errorToastFailures(page)).toEqual(
+    expect.arrayContaining([expect.stringContaining('invalid response')]),
+  )
 })

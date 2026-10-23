@@ -11,6 +11,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { chromium } from '@playwright/test'
 import { API_URL, BASE_URL } from '../lib/env.mjs'
+import { createNavigator, errorToastFailures } from '../lib/navigation.mjs'
 import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 const registry = readFileSync(
@@ -61,6 +62,15 @@ for (const route of registered) {
   })
 }
 if (!routes.length) throw new Error('No screens match the requested route filters.')
+let forcedIdentity = null
+if (routes.some((route) => route.template === '/change-password')) {
+  const response = await fetch(`${API_URL}/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const body = await response.json()
+  if (!response.ok || !body.success) throw new Error('Cannot resolve the password-screen identity.')
+  forcedIdentity = { ...body, data: { ...body.data, must_change_password: true } }
+}
 
 /** Kept inside the browser: scrollable tables may overflow internally. */
 function measureLayout() {
@@ -114,6 +124,7 @@ const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
 })
 const page = await context.newPage()
+const { navigate, settle } = createNavigator(page)
 const results = []
 if (!filters.length) {
   const publicContext = await browser.newContext()
@@ -129,43 +140,13 @@ if (!filters.length) {
       })
       await publicPage.locator('h1, h2').first().waitFor()
       const layout = await publicPage.evaluate(measureLayout)
-      const flags = layout.overflow > 1 || layout.offenders.length ? ['page-overflow'] : []
+      const flags = await errorToastFailures(publicPage)
+      if (layout.overflow > 1 || layout.offenders.length) flags.push('page-overflow')
       results.push({ width, route, ...layout, flags })
       console.log(`${flags.length ? 'FAIL' : 'ok'} ${width} ${route}`)
     }
   }
   await publicContext.close()
-}
-let pending = 0
-const relevant = (request) =>
-  ['fetch', 'xhr', 'script', 'stylesheet'].includes(request.resourceType())
-page.on('request', (request) => {
-  if (relevant(request)) pending += 1
-})
-const finished = (request) => {
-  if (relevant(request)) pending = Math.max(0, pending - 1)
-}
-page.on('requestfinished', finished)
-page.on('requestfailed', finished)
-async function settle() {
-  let quiet = null
-  const start = Date.now()
-  while (Date.now() - start < 20_000) {
-    if (pending === 0) {
-      quiet ??= Date.now()
-      if (Date.now() - quiet > 400) return
-    } else quiet = null
-    await page.waitForTimeout(100)
-  }
-  throw new Error('Screen requests did not settle within 20 seconds.')
-}
-async function navigate(route) {
-  await page.evaluate((path) => {
-    history.pushState({}, '', path)
-    dispatchEvent(new PopStateEvent('popstate'))
-  }, route)
-  await settle()
-  await page.locator('h1, h2').first().waitFor({ timeout: 20_000 })
 }
 await signInThroughForm(page)
 await settle()
@@ -176,6 +157,34 @@ for (const width of widths) {
     height: width === 667 ? 375 : width >= 1000 ? 900 : width >= 700 ? 1024 : 667,
   })
   for (const route of routes) {
+    if (route.template === '/change-password') {
+      // Model the restricted identity in a fresh session without changing the
+      // account, submitting a password, or disturbing the normal sweep session.
+      const forcedContext = await browser.newContext({ viewport: page.viewportSize() })
+      const forcedPage = await forcedContext.newPage()
+      try {
+        await forcedPage.route('**/api/v1/auth/me', async (request) => {
+          await request.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(forcedIdentity),
+          })
+        })
+        await signInThroughForm(forcedPage, { allowTemporaryPassword: true })
+        await forcedPage.getByRole('heading', { name: 'Choose a new password' }).waitFor()
+        const layout = await forcedPage.evaluate(measureLayout)
+        const flags = await errorToastFailures(forcedPage)
+        if (layout.overflow > 1 || layout.offenders.length) flags.push('page-overflow')
+        results.push({ width, ...route, state: 'temporary-password', ...layout, flags })
+        console.log(`${flags.length ? 'FAIL' : 'ok'} ${width} ${route.template}`)
+      } catch (error) {
+        results.push({ width, ...route, flags: [String(error)] })
+        console.log(`FAIL ${width} ${route.template}: ${String(error).slice(0, 250)}`)
+      } finally {
+        await forcedContext.close()
+      }
+      continue
+    }
     const failures = []
     const onError = (error) => failures.push(`render: ${error.message}`)
     const onResponse = (response) => {
@@ -209,7 +218,7 @@ for (const width of widths) {
           await settle()
         }
         const layout = await page.evaluate(measureLayout)
-        const flags = [...new Set(failures)]
+        const flags = [...new Set([...failures, ...(await errorToastFailures(page))])]
         if (layout.overflow > 1 || layout.offenders.length) flags.push('page-overflow')
         if (
           await page
@@ -239,7 +248,8 @@ for (const width of widths) {
           break
         }
         // Requests made by the opened form are part of its readiness too.
-        for (const failure of failures) if (!flags.includes(failure)) flags.push(failure)
+        for (const failure of [...failures, ...(await errorToastFailures(page))])
+          if (!flags.includes(failure)) flags.push(failure)
         const result = {
           width,
           route: route.path,

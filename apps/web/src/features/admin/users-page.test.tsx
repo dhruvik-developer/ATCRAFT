@@ -274,7 +274,9 @@ describe('what the dialogs do when the record behind them cannot be loaded', () 
     await user.click(screen.getByRole('menuitem', { name: /assign roles/i }))
 
     expect(await screen.findByText("Could not load this account's roles")).toBeVisible()
-    expect(screen.getByText('The directory is temporarily unavailable')).toBeVisible()
+    expect(
+      screen.getByText('The directory is temporarily unavailable', { exact: false }),
+    ).toBeVisible()
     expect(screen.getByRole('button', { name: /save roles/i })).toBeDisabled()
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByLabelText(/^reason/i)).toBeNull()
@@ -695,7 +697,9 @@ describe('the states the list can be in', () => {
     })
 
     expect(await screen.findByText('Could not load this list')).toBeVisible()
-    expect(screen.getByText('The directory is temporarily unavailable')).toBeVisible()
+    expect(
+      screen.getByText('The directory is temporarily unavailable', { exact: false }),
+    ).toBeVisible()
     // A failed list with no retry leaves a full page reload as the only option,
     // which also loses whatever filters were set.
     expect(screen.getByRole('button', { name: /try again/i })).toBeVisible()

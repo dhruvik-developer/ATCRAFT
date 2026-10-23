@@ -28,6 +28,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import CurrentUser, DbSession, Principal, Tenant, require_permission
+from src.core.messages import success_message
 from src.core.pagination import (
     CursorParams,
     PageParams,
@@ -323,6 +324,7 @@ def _sees_cost(principal: Principal) -> bool:
     # reintroduces the very field the route withheld. See the module docstring
     # of `products/router.py`.
     response_model=None,
+    responses={200: {"model": PaginatedResponse[BalanceRead | BalanceReadWithCost]}},
     summary="List stock positions",
     dependencies=[require_permission(Permission.INVENTORY_VIEW)],
 )
@@ -399,6 +401,7 @@ async def list_ledger(
 @router.get(
     "/items/{item_id}/summary",
     response_model=None,
+    responses={200: {"model": PaginatedResponse[ItemStockSummary | ItemStockSummaryWithCost]}},
     summary="Stock of one item across warehouses",
     dependencies=[require_permission(Permission.INVENTORY_VIEW)],
 )
@@ -476,7 +479,7 @@ async def create_batch(
     payload: StockBatchCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockBatchRead]:
     created = await TraceabilityService(session, tenant).create_batch(payload)
-    return ApiResponse[StockBatchRead].ok(created, "Batch recorded")
+    return ApiResponse[StockBatchRead].ok(created, success_message("Batch", "recorded"))
 
 
 @router.get(
@@ -505,7 +508,7 @@ async def quarantine_batch(
     tenant: Tenant,
 ) -> ApiResponse[StockBatchRead]:
     batch = await TraceabilityService(session, tenant).quarantine_batch(batch_id, payload)
-    return ApiResponse[StockBatchRead].ok(batch, "Batch quarantined")
+    return ApiResponse[StockBatchRead].ok(batch, success_message("Batch", "quarantined"))
 
 
 @router.post(
@@ -521,7 +524,7 @@ async def activate_batch(
     tenant: Tenant,
 ) -> ApiResponse[StockBatchRead]:
     batch = await TraceabilityService(session, tenant).activate_batch(batch_id, payload)
-    return ApiResponse[StockBatchRead].ok(batch, "Batch activated")
+    return ApiResponse[StockBatchRead].ok(batch, success_message("Batch", "activated"))
 
 
 @router.post(
@@ -537,7 +540,7 @@ async def expire_batch(
     tenant: Tenant,
 ) -> ApiResponse[StockBatchRead]:
     batch = await TraceabilityService(session, tenant).expire_batch(batch_id, payload)
-    return ApiResponse[StockBatchRead].ok(batch, "Batch expired")
+    return ApiResponse[StockBatchRead].ok(batch, success_message("Batch", "expired"))
 
 
 @router.get(
@@ -578,7 +581,9 @@ async def bulk_create_serials(
     payload: StockSerialBulkCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[list[StockSerialRead]]:
     created = await TraceabilityService(session, tenant).bulk_create_serials(payload)
-    return ApiResponse[list[StockSerialRead]].ok(created, "Serials recorded")
+    return ApiResponse[list[StockSerialRead]].ok(
+        created, success_message("Serial numbers", "recorded")
+    )
 
 
 @router.get(
@@ -605,7 +610,7 @@ async def create_serial(
     payload: StockSerialCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockSerialRead]:
     created = await TraceabilityService(session, tenant).create_serial(payload)
-    return ApiResponse[StockSerialRead].ok(created, "Serial recorded")
+    return ApiResponse[StockSerialRead].ok(created, success_message("Serial number", "recorded"))
 
 
 # -----------------------------------------------------------------------------
@@ -643,7 +648,7 @@ async def create_transfer(
     payload: StockTransferCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockTransferRead]:
     created = await StockTransferService(session, tenant).create(payload)
-    return ApiResponse[StockTransferRead].ok(created, "Stock transfer created")
+    return ApiResponse[StockTransferRead].ok(created, success_message("Stock transfer", "created"))
 
 
 @router.get(
@@ -673,7 +678,7 @@ async def update_transfer(
     tenant: Tenant,
 ) -> ApiResponse[StockTransferRead]:
     updated = await StockTransferService(session, tenant).update(transfer_id, payload)
-    return ApiResponse[StockTransferRead].ok(updated, "Stock transfer updated")
+    return ApiResponse[StockTransferRead].ok(updated, success_message("Stock transfer", "updated"))
 
 
 @router.post(
@@ -686,7 +691,7 @@ async def approve_transfer(
     transfer_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockTransferRead]:
     updated = await StockTransferService(session, tenant).approve(transfer_id)
-    return ApiResponse[StockTransferRead].ok(updated, "Stock transfer approved")
+    return ApiResponse[StockTransferRead].ok(updated, success_message("Stock transfer", "approved"))
 
 
 @router.post(
@@ -704,7 +709,9 @@ async def dispatch_transfer(
     transfer_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockTransferRead]:
     updated = await StockTransferService(session, tenant).dispatch(transfer_id)
-    return ApiResponse[StockTransferRead].ok(updated, "Stock transfer dispatched")
+    return ApiResponse[StockTransferRead].ok(
+        updated, success_message("Stock transfer", "dispatched")
+    )
 
 
 @router.post(
@@ -717,7 +724,7 @@ async def receive_transfer(
     transfer_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockTransferRead]:
     updated = await StockTransferService(session, tenant).receive(transfer_id)
-    return ApiResponse[StockTransferRead].ok(updated, "Stock transfer received")
+    return ApiResponse[StockTransferRead].ok(updated, success_message("Stock transfer", "received"))
 
 
 @router.post(
@@ -733,7 +740,9 @@ async def cancel_transfer(
     tenant: Tenant,
 ) -> ApiResponse[StockTransferRead]:
     updated = await StockTransferService(session, tenant).cancel(transfer_id, payload.reason)
-    return ApiResponse[StockTransferRead].ok(updated, "Stock transfer cancelled")
+    return ApiResponse[StockTransferRead].ok(
+        updated, success_message("Stock transfer", "cancelled")
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -780,7 +789,9 @@ async def create_adjustment(
     created = await StockAdjustmentService(session, tenant).create(
         payload, can_enter_cost=_sees_cost(principal)
     )
-    return ApiResponse[StockAdjustmentRead].ok(created, "Stock adjustment drafted")
+    return ApiResponse[StockAdjustmentRead].ok(
+        created, success_message("Stock adjustment", "drafted")
+    )
 
 
 @router.patch(
@@ -805,7 +816,9 @@ async def update_adjustment(
     updated = await StockAdjustmentService(session, tenant).update(
         adjustment_id, payload, can_enter_cost=_sees_cost(principal)
     )
-    return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment updated")
+    return ApiResponse[StockAdjustmentRead].ok(
+        updated, success_message("Stock adjustment", "updated")
+    )
 
 
 @router.get(
@@ -832,7 +845,9 @@ async def submit_adjustment(
     adjustment_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockAdjustmentRead]:
     updated = await StockAdjustmentService(session, tenant).submit(adjustment_id)
-    return ApiResponse[StockAdjustmentRead].ok(updated, "Submitted for approval")
+    return ApiResponse[StockAdjustmentRead].ok(
+        updated, success_message("Stock adjustment", "submitted")
+    )
 
 
 @router.post(
@@ -848,7 +863,9 @@ async def approve_adjustment(
     tenant: Tenant,
 ) -> ApiResponse[StockAdjustmentRead]:
     updated = await StockAdjustmentService(session, tenant).approve(adjustment_id, payload.note)
-    return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment approved")
+    return ApiResponse[StockAdjustmentRead].ok(
+        updated, success_message("Stock adjustment", "approved")
+    )
 
 
 @router.post(
@@ -864,7 +881,9 @@ async def reject_adjustment(
     tenant: Tenant,
 ) -> ApiResponse[StockAdjustmentRead]:
     updated = await StockAdjustmentService(session, tenant).reject(adjustment_id, payload.note)
-    return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment rejected")
+    return ApiResponse[StockAdjustmentRead].ok(
+        updated, success_message("Stock adjustment", "rejected")
+    )
 
 
 @router.post(
@@ -877,7 +896,9 @@ async def post_adjustment(
     adjustment_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockAdjustmentRead]:
     updated = await StockAdjustmentService(session, tenant).post(adjustment_id)
-    return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment posted")
+    return ApiResponse[StockAdjustmentRead].ok(
+        updated, success_message("Stock adjustment", "posted")
+    )
 
 
 @router.post(
@@ -893,7 +914,9 @@ async def cancel_adjustment(
     tenant: Tenant,
 ) -> ApiResponse[StockAdjustmentRead]:
     updated = await StockAdjustmentService(session, tenant).cancel(adjustment_id, payload.reason)
-    return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment cancelled")
+    return ApiResponse[StockAdjustmentRead].ok(
+        updated, success_message("Stock adjustment", "cancelled")
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -1172,7 +1195,9 @@ async def submit_internal_issue(
     issue_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
 ) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
     updated = await InternalIssueService(session, tenant).submit(issue_id)
-    return _internal_issue_answer(updated, principal, "Submitted for approval")
+    return _internal_issue_answer(
+        updated, principal, success_message("Internal issue", "submitted")
+    )
 
 
 @router.post(
@@ -1279,7 +1304,7 @@ async def create_count(
     payload: PhysicalCountCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PhysicalCountRead]:
     created = await PhysicalCountService(session, tenant).create(payload)
-    return ApiResponse[PhysicalCountRead].ok(created, "Stock count opened")
+    return ApiResponse[PhysicalCountRead].ok(created, success_message("Stock count", "opened"))
 
 
 @router.get(
@@ -1322,7 +1347,7 @@ async def start_count(
     count_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PhysicalCountRead]:
     updated = await PhysicalCountService(session, tenant).start(count_id)
-    return ApiResponse[PhysicalCountRead].ok(updated, "Counting started")
+    return ApiResponse[PhysicalCountRead].ok(updated, success_message("Stock count", "started"))
 
 
 @router.post(
@@ -1338,7 +1363,9 @@ async def enter_counts(
     tenant: Tenant,
 ) -> ApiResponse[PhysicalCountRead]:
     updated = await PhysicalCountService(session, tenant).enter_counts(count_id, payload)
-    return ApiResponse[PhysicalCountRead].ok(updated, "Counts recorded")
+    return ApiResponse[PhysicalCountRead].ok(
+        updated, success_message("Stock count quantities", "recorded")
+    )
 
 
 @router.post(
@@ -1354,7 +1381,7 @@ async def recount(
     tenant: Tenant,
 ) -> ApiResponse[PhysicalCountRead]:
     updated = await PhysicalCountService(session, tenant).recount(count_id, payload.reason)
-    return ApiResponse[PhysicalCountRead].ok(updated, "Sheet reopened for recount")
+    return ApiResponse[PhysicalCountRead].ok(updated, "Stock count reopened for recount")
 
 
 @router.post(
@@ -1373,7 +1400,9 @@ async def confirm_count(
     count_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PhysicalCountRead]:
     updated = await PhysicalCountService(session, tenant).confirm(count_id)
-    return ApiResponse[PhysicalCountRead].ok(updated, "Stock count confirmed and variance posted")
+    return ApiResponse[PhysicalCountRead].ok(
+        updated, success_message("Stock count confirmed and variance", "posted")
+    )
 
 
 @router.post(
@@ -1389,7 +1418,7 @@ async def cancel_count(
     tenant: Tenant,
 ) -> ApiResponse[PhysicalCountRead]:
     updated = await PhysicalCountService(session, tenant).cancel(count_id, payload.reason)
-    return ApiResponse[PhysicalCountRead].ok(updated, "Stock count cancelled")
+    return ApiResponse[PhysicalCountRead].ok(updated, success_message("Stock count", "cancelled"))
 
 
 __all__ = ["router"]

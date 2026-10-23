@@ -50,3 +50,18 @@ export function createNavigator(page) {
 
   return { navigate, settle }
 }
+
+/**
+ * A successful HTTP status can still fail the client's response contract.
+ * Read the rendered error notifications so a sweep cannot pass that screen.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<string[]>}
+ */
+export async function errorToastFailures(page) {
+  const messages = await page.locator('[data-toast-variant="error"]').allTextContents()
+  return messages
+    .map((message) => message.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .map((message) => `ui-error: ${message}`)
+}

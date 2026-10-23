@@ -1,4 +1,4 @@
-"""User-facing sentences that more than one module raises.
+"""Shared user-facing success, validation and failure messages.
 
 The error classes in :mod:`src.core.errors` carry a default message each, and a
 service composes its own sentence when the situation is specific to it - that
@@ -6,14 +6,83 @@ is right, because the service knows why it refused. What does *not* belong in
 a service is a general-purpose sentence copied nineteen times: when the wording
 changes, or is translated, every copy has to be found.
 
-Rules for adding one here:
+Rules for adding shared copy here:
 
-* it is raised, verbatim, from at least two modules;
-* it reads as a complete sentence a user can act on;
+* it is used by at least two modules or defines a common response outcome;
+* success titles name the subject and a past-tense outcome;
+* validation and failure descriptions read as clear sentences a user can act on;
 * it names no internals (tables, columns, exception classes).
 """
 
 from __future__ import annotations
+
+from typing import Literal
+
+# --- successes ----------------------------------------------------------------
+
+OPERATION_COMPLETED = "Operation completed successfully"
+JOB_QUEUED = "Job queued for background processing"
+
+SuccessAction = Literal[
+    "created",
+    "updated",
+    "saved",
+    "deleted",
+    "retired",
+    "restored",
+    "submitted",
+    "approved",
+    "rejected",
+    "confirmed",
+    "cancelled",
+    "closed",
+    "reopened",
+    "opened",
+    "released",
+    "completed",
+    "posted",
+    "uploaded",
+    "sent",
+    "raised",
+    "activated",
+    "deactivated",
+    "reset",
+    "changed",
+    "revoked",
+    "recorded",
+    "added",
+    "removed",
+    "received",
+    "dispatched",
+    "drafted",
+    "quarantined",
+    "expired",
+    "issued",
+    "allocated",
+    "disputed",
+    "resolved",
+    "blocked",
+    "reserved",
+    "requested",
+    "linked",
+    "started",
+    "enabled",
+    "disabled",
+    "refreshed",
+    "cleared",
+    "suspended",
+    "reactivated",
+]
+
+
+def success_message(subject: str, action: SuccessAction) -> str:
+    """A short outcome, matching the frontend's standard success titles.
+
+    Name the record or operation, optionally with its document code, and use a
+    past-tense verb. Workflow-specific explanations remain with their module.
+    """
+    return f"{subject} {action}"
+
 
 # --- validation ---------------------------------------------------------------
 
@@ -21,6 +90,14 @@ from __future__ import annotations
 #: ``details.fields`` - the request validator's and a router's own field-level
 #: refusals read the same way.
 FIELDS_NEED_ATTENTION = "Some fields need attention."
+INVALID_VALUE = "Enter a valid value."
+MALFORMED_JSON = "The request body must contain valid JSON."
+
+# --- request failures ----------------------------------------------------------
+
+RATE_LIMITED = "Too many requests. Please slow down."
+SERVICE_UNAVAILABLE = "The service is temporarily unavailable. Please try again."
+UNEXPECTED_ERROR = "An unexpected error occurred. Quote the request id when reporting this."
 
 # --- updates ------------------------------------------------------------------
 
@@ -89,11 +166,20 @@ __all__ = [
     "CURRENT_PASSWORD_INCORRECT",
     "FIELDS_NEED_ATTENTION",
     "INVALID_MFA_CHALLENGE",
+    "INVALID_VALUE",
+    "JOB_QUEUED",
+    "MALFORMED_JSON",
     "NO_FIELDS_TO_UPDATE",
+    "OPERATION_COMPLETED",
+    "RATE_LIMITED",
+    "SERVICE_UNAVAILABLE",
     "SESSION_ENDED_FOR_SECURITY",
     "SHIFT_ASSIGNMENT_OVERLAP",
+    "UNEXPECTED_ERROR",
+    "SuccessAction",
     "date_before",
     "held_for_inspection",
     "inactive_record",
+    "success_message",
     "verdict_differs_from_inspection",
 ]

@@ -66,7 +66,7 @@ import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { attributeLabeller, useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
 import { manufacturerLabeller, useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { reportFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1185,7 +1185,7 @@ export default function ItemDetailPage() {
         <PageHeader title="Item" breadcrumbs={[{ label: 'Items', to: '/items' }]} />
         <Alert variant="destructive">
           <AlertTitle>Could not load this item</AlertTitle>
-          <AlertDescription>{itemQuery.error.message}</AlertDescription>
+          <AlertDescription>{describeError(itemQuery.error)}</AlertDescription>
           <Button
             variant="outline"
             size="sm"

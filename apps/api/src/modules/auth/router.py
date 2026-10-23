@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 
 from src.core.deps import CurrentUser, DbSession
 from src.core.errors import AuthenticationError, ErrorCode
+from src.core.messages import success_message
 from src.core.pagination import PageParams, page_params
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -150,7 +151,7 @@ async def refresh(
     )
     set_refresh_cookies(response, tokens.refresh_token)
     public = AccessTokenResponse.model_validate(tokens.model_dump(exclude={"refresh_token"}))
-    return ApiResponse.ok(public, "Token refreshed")
+    return ApiResponse.ok(public, success_message("Session", "refreshed"))
 
 
 @router.post(
@@ -241,7 +242,7 @@ async def setup_mfa(
         await AuthService(session).setup_mfa(
             principal, payload, ip_address=client_ip(request), user_agent=user_agent(request)
         ),
-        "Scan the authenticator secret, then confirm a code",
+        "Add this account to your authenticator app, then enter a code to confirm.",
     )
 
 
@@ -255,7 +256,7 @@ async def confirm_mfa(
 ) -> ApiResponse[MfaChangeResult]:
     return ApiResponse.ok(
         await AuthService(session).confirm_mfa(principal, payload),
-        "Multi-factor authentication enabled",
+        success_message("Multi-factor authentication", "enabled"),
     )
 
 
@@ -271,7 +272,7 @@ async def disable_mfa(
         await AuthService(session).disable_mfa(
             principal, payload, ip_address=client_ip(request), user_agent=user_agent(request)
         ),
-        "Multi-factor authentication disabled",
+        success_message("Multi-factor authentication", "disabled"),
     )
 
 
@@ -292,7 +293,7 @@ async def change_password(
     result = await AuthService(session).change_password(
         principal, payload, ip_address=client_ip(request), user_agent=user_agent(request)
     )
-    return ApiResponse.ok(result, "Password changed")
+    return ApiResponse.ok(result, success_message("Password", "changed"))
 
 
 @router.post(
@@ -357,7 +358,7 @@ async def revoke_session(
     an id exists elsewhere is itself a disclosure.
     """
     await AuthService(session).revoke_session(principal, session_id)
-    return ApiResponse.ok(AcknowledgedResult(), "Session revoked")
+    return ApiResponse.ok(AcknowledgedResult(), success_message("Session", "revoked"))
 
 
 __all__ = ["router"]

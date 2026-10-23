@@ -15,6 +15,8 @@
  * takes, so the single copy of the 422-to-control mapping stays there.
  */
 
+import { joinValidationMessages } from '@/lib/messages'
+
 import { ApiError } from '@/lib/api-client'
 
 /** Form indices of the lines the mutation actually sent, in payload order. */
@@ -35,5 +37,5 @@ export function serverFieldMessage(error: unknown, field: string): string | null
   if (!(error instanceof ApiError)) return null
   const fields = error.fieldErrors
   const messages = fields[field] ?? fields[`query.${field}`]
-  return messages && messages.length > 0 ? messages.join('. ') : null
+  return messages && messages.length > 0 ? joinValidationMessages(messages) : null
 }

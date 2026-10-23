@@ -53,7 +53,7 @@ import {
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, PAN_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -80,8 +80,8 @@ import {
 
 const schema = z
   .object({
-    code: z.string().trim().min(1, 'Code is required').max(32, 'At most 32 characters'),
-    name: z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters'),
+    name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
     transporter_type: z.enum(TRANSPORTER_TYPES),
 
     gstin: z
@@ -100,10 +100,7 @@ const schema = z
     email: z
       .string()
       .trim()
-      .refine(
-        (v) => v === '' || z.string().email().safeParse(v).success,
-        'Not a valid email address',
-      ),
+      .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
     phone: z.string().trim().max(32, 'At most 32 characters'),
     mobile: z.string().trim().max(32, 'At most 32 characters'),
     website: z.string().trim().max(255, 'At most 255 characters'),
@@ -116,7 +113,11 @@ const schema = z
       .trim()
       .refine((v) => v === '' || STATE_CODE_PATTERN.test(v), 'Two digits, as printed on the GSTIN'),
     postal_code: z.string().trim().max(16, 'At most 16 characters'),
-    country: z.string().trim().min(1, 'Country is required').max(80, 'At most 80 characters'),
+    country: z
+      .string()
+      .trim()
+      .min(1, validation.required('Country'))
+      .max(80, 'At most 80 characters'),
 
     tracking_url_template: z
       .string()

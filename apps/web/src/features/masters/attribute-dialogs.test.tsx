@@ -68,7 +68,7 @@ describe('creating a value', () => {
     await user.type(screen.getByLabelText('Code'), 'ANTIQUE-BRASS')
     await user.click(screen.getByRole('button', { name: /create value/i }))
 
-    expect(await screen.findByText('A name is required.')).toBeVisible()
+    expect(await screen.findByText('Name is required.')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 

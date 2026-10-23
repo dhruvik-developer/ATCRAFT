@@ -59,7 +59,7 @@ import {
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -80,8 +80,16 @@ import {
 // -------------------------------------------------------------- the unit ----
 
 const uomSchema = z.object({
-  code: z.string().trim().min(1, 'Code is required').max(16, 'Code is at most 16 characters'),
-  name: z.string().trim().min(1, 'Name is required').max(64, 'Name is at most 64 characters'),
+  code: z
+    .string()
+    .trim()
+    .min(1, validation.required('Code'))
+    .max(16, 'Code is at most 16 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(64, 'Name is at most 64 characters'),
   uom_category: z.enum(UOM_CATEGORIES),
   is_base: z.boolean(),
   decimal_places: z
@@ -360,12 +368,12 @@ export function UomFormDialog({
 
 const conversionSchema = z
   .object({
-    from_uom_id: z.string().min(1, 'Choose the unit being converted from'),
-    to_uom_id: z.string().min(1, 'Choose the unit being converted to'),
+    from_uom_id: z.string().min(1, validation.choose('the unit being converted from')),
+    to_uom_id: z.string().min(1, validation.choose('the unit being converted to')),
     factor: z
       .string()
       .trim()
-      .min(1, 'A factor is required')
+      .min(1, validation.required('Factor'))
       .regex(FACTOR_PATTERN, 'Up to 10 digits and 8 decimal places, no sign')
       .refine((value) => toDecimal(value).greaterThan(0), 'The factor must be greater than nought'),
   })
@@ -797,7 +805,7 @@ export function UomConversionCheckDialog({
           {asked && answer.error && (
             <Alert variant="destructive">
               <AlertTitle>No conversion for that pair</AlertTitle>
-              <AlertDescription>{answer.error.message}</AlertDescription>
+              <AlertDescription>{describeError(answer.error)}</AlertDescription>
             </Alert>
           )}
 

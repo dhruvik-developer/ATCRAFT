@@ -95,3 +95,24 @@ def test_make_and_powershell_both_regenerate_the_collection() -> None:
     for name in ("contract", "contract-check", "postman"):
         assert "scripts.export_postman" in _ps_case(name, ps1), name
     assert "'postman'" in ps1.split("switch ($Target)", 1)[0]
+
+
+def test_local_completion_gate_includes_the_production_build() -> None:
+    """A type check cannot catch bundling failures, size regressions or bundled secrets."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert re.search(r"^build-web:.*\n\tcd \$\(WEB_DIR\) && npm run build$", makefile, re.M)
+    make_check = re.search(r"^check:([^#\n]*)", makefile, re.M)
+    assert make_check is not None
+    required = {"contract-check", "lint", "test-cov", "test-web", "build-web"}
+    assert required <= set(make_check.group(1).split())
+
+    ps1 = (REPO_ROOT / "make.ps1").read_text(encoding="utf-8")
+    assert "npm run build" in _ps_case("build-web", ps1)
+    ps_check = _ps_case("check", ps1)
+    for target in required:
+        assert re.search(rf"& \$PSCommandPath {re.escape(target)}(?:;|\s*$)", ps_check), target
+
+    package = json.loads((REPO_ROOT / "apps/web/package.json").read_text(encoding="utf-8"))
+    build = package["scripts"]["build"]
+    assert "check-bundle-budget.mjs" in build
+    assert "check-bundle-secrets.mjs" in build

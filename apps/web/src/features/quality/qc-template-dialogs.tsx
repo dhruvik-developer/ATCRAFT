@@ -77,7 +77,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, joinValidationMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -510,9 +510,9 @@ function formError(error: unknown): string | null {
   if (error === null || error === undefined) return null
   if (!(error instanceof ApiError)) return 'Something went wrong. The change was not saved.'
   const root = error.fieldErrors._root
-  if (root && root.length > 0) return root.join('. ')
+  if (root && root.length > 0) return joinValidationMessages(root)
   if (error.status === 422 && Object.keys(error.fieldErrors).length > 0) return null
-  return error.message
+  return describeError(error)
 }
 
 /** The refusal that means "this version is frozen; fork it instead". */
@@ -1173,7 +1173,7 @@ export function QcTemplateFormDialog({
             {detail.error ? (
               <Alert variant="destructive">
                 <AlertTitle>Could not load this specification</AlertTitle>
-                <AlertDescription>{detail.error.message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             ) : (
               <FormSkeleton />
@@ -1443,7 +1443,7 @@ export function QcTemplateVersionDialog({
             {detail.error ? (
               <Alert variant="destructive">
                 <AlertTitle>Could not load the version being forked</AlertTitle>
-                <AlertDescription>{detail.error.message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             ) : (
               <FormSkeleton />
@@ -1773,7 +1773,7 @@ function VersionHistory({
   if (history.error) {
     return (
       <p className="text-sm text-muted-foreground">
-        The revision history could not be loaded: {history.error.message}
+        The revision history could not be loaded: {describeError(history.error)}
       </p>
     )
   }
@@ -1899,7 +1899,7 @@ export function QcTemplateDetailDialog({
           {!detail.isLoading && detail.error && (
             <Alert variant="destructive">
               <AlertTitle>Could not load this specification</AlertTitle>
-              <AlertDescription>{detail.error.message}</AlertDescription>
+              <AlertDescription>{describeError(detail.error)}</AlertDescription>
             </Alert>
           )}
 

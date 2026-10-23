@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import { useSearchParams } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { page, renderScreen } from '@/test/harness'
 
@@ -37,6 +37,61 @@ function IndependentLists() {
 }
 
 describe('independent list URL state', () => {
+  it.each([
+    ['page=NaN&limit=Infinity&dir=sideways', '1', '50', 'asc'],
+    ['page=0&limit=0&dir=', '1', '50', 'asc'],
+    ['page=-2&limit=-5', '1', '50', 'asc'],
+    ['page=1.5&limit=2.5', '1', '50', 'asc'],
+    ['page=1e2&limit=2e1', '1', '50', 'asc'],
+    ['page=9007199254740992&limit=201', '1', '50', 'asc'],
+    ['page=&limit=', '1', '50', 'asc'],
+    ['page=3&limit=20&dir=desc', '3', '20', 'desc'],
+    ['page=3&limit=200&dir=asc', '3', '200', 'asc'],
+  ])(
+    'normalizes list URL parameters: %s',
+    async (query, expectedPage, expectedLimit, expectedDir) => {
+      const requests: URLSearchParams[] = []
+      renderScreen(<IndependentLists />, {
+        route: `/?sort=code&${query}`,
+        routes: {
+          'GET /register': ({ url }) => {
+            requests.push(url.searchParams)
+            return page([])
+          },
+          'GET /lines': page([]),
+          'GET /orders': page([]),
+        },
+      })
+      await waitFor(() => expect(requests).toHaveLength(1))
+      expect(requests[0]?.get('page')).toBe(expectedPage)
+      expect(requests[0]?.get('limit')).toBe(expectedLimit)
+      expect(requests[0]?.get('sort_dir')).toBe(expectedDir)
+    },
+  )
+
+  it('cancels a pending list request when its screen unmounts', async () => {
+    const { unmount } = renderScreen(<IndependentLists />, {
+      routes: {
+        'GET /register': () => new Promise(() => {}),
+        'GET /lines': page([]),
+        'GET /orders': page([]),
+      },
+    })
+    await waitFor(() => {
+      expect(
+        vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('/register')),
+      ).toBe(true)
+    })
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(([input]) => String(input).includes('/register'))
+    const signal = request?.[1]?.signal
+    expect(signal).toBeDefined()
+    expect(signal?.aborted).toBe(false)
+    unmount()
+    expect(signal?.aborted).toBe(true)
+  })
+
   it('isolates paging, search, sorting and filters while preserving the default register', async () => {
     const requests: Record<'register' | 'lines' | 'orders', URLSearchParams[]> = {
       register: [],

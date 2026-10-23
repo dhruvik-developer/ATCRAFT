@@ -1361,10 +1361,12 @@ async def _advance_assembly(ctx: DemoContext, order: AssemblyOrder) -> None:
 # =============================================================================
 # Six digital locks, registered as units and opened into finished goods.
 #
-# This is the only movement in this stage that is not the by-product of a
-# document, and it is here because nothing else can put a serialised unit on the
-# shelf: the digital lock is a MAKE item with no structure, so no production
-# order can receive it, and it is not bought, so no goods receipt will either.
+# This opening balance remains the demonstration's way to put six serialised
+# units on the shelf: the digital lock is a MAKE item with no structure and is
+# not purchased, so none of the seeded orders has a production booking or goods
+# receipt that could receive it. A real receipt, production booking or assembly
+# completion can now name the units; the opening movement is honest because the
+# stock predates the demonstration, not because the application has no path in.
 # Without it the serial register, the serial search on a carton and the "which
 # consignment did this unit leave on" trail are all empty screens.
 #
@@ -2937,9 +2939,9 @@ async def _dispatch_being_loaded(
                 lines=[
                     DispatchLineIn(
                         item_id=handle.id,
-                        quantity=Decimal("6"),
+                        quantity=Decimal("5"),
                         sales_order_line_id=line.id if line is not None else None,
-                        notes="Six of the ten reserved sets, for the second-floor east wing.",
+                        notes="The five reserved sets for the second-floor east wing.",
                     )
                 ],
             ),

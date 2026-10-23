@@ -29,8 +29,11 @@ from __future__ import annotations
 import time
 
 from starlette.datastructures import Headers, MutableHeaders
+from starlette.exceptions import HTTPException
+from starlette.middleware.cors import CORSMiddleware as StarletteCORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware as StarletteTrustedHostMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from src.core.config import settings
@@ -39,8 +42,12 @@ from src.core.logging import (
     bind_request_context,
     clear_request_context,
     get_logger,
-    new_request_id,
+    get_request_id,
+    resolve_client_ip,
+    resolve_request_id,
 )
+from src.core.messages import RATE_LIMITED
+from src.core.responses import ErrorResponse
 from src.core.security import decode_token
 
 log = get_logger("http")
@@ -101,6 +108,62 @@ class HttpMiddleware:
         raise NotImplementedError
 
 
+class CORSMiddleware(StarletteCORSMiddleware):
+    """Keep Starlette's CORS policy and headers while shaping failed preflights."""
+
+    def preflight_response(self, request_headers: Headers) -> Response:
+        response = super().preflight_response(request_headers)
+        if response.status_code < 400:
+            return response
+        # Rebuild only content headers: policy headers (including Vary) must
+        # survive exactly as Starlette computed them for this origin.
+        headers = {
+            name: value
+            for name, value in response.headers.items()
+            if name not in {"content-length", "content-type"}
+        }
+        return JSONResponse(
+            status_code=response.status_code,
+            headers=headers,
+            content=ErrorResponse.create(
+                str(ErrorCode.FORBIDDEN),
+                bytes(response.body).decode(),
+                request_id=get_request_id(),
+            ).model_dump(mode="json"),
+        )
+
+
+class TrustedHostMiddleware(StarletteTrustedHostMiddleware):
+    """Reject invalid hosts before request processing using the API error shape.
+
+    The normal Starlette validation and redirects remain in place for accepted
+    hosts. A rejection happens outside request context, so its request id is null
+    and no client-provided correlation header is trusted or reflected.
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self.allow_any or scope["type"] != "http":
+            await super().__call__(scope, receive, send)
+            return
+        host = Headers(scope=scope).get("host", "").split(":")[0]
+        valid_or_redirect = any(
+            host == pattern
+            or (pattern.startswith("*") and host.endswith(pattern[1:]))
+            or (self.www_redirect and "www." + host == pattern)
+            for pattern in self.allowed_hosts
+        )
+        if valid_or_redirect:
+            await super().__call__(scope, receive, send)
+            return
+        response = JSONResponse(
+            status_code=400,
+            content=ErrorResponse.create(
+                str(ErrorCode.VALIDATION_ERROR), "Invalid host header"
+            ).model_dump(mode="json"),
+        )
+        await response(scope, receive, send)
+
+
 def is_final_body_message(message: Message) -> bool:
     """Whether this ASGI message is the last byte of the response.
 
@@ -154,7 +217,8 @@ def _rate_limit_identity(request: Request) -> str:
         if identity is not None:
             return identity
     client_host = request.client.host if request.client else "unknown"
-    return f"ip:{request.headers.get('x-real-ip') or client_host}"
+    client_ip = resolve_client_ip(request.headers.get("x-real-ip"), client_host)
+    return f"ip:{client_ip or 'unknown'}"
 
 
 class RequestContextMiddleware(HttpMiddleware):
@@ -165,10 +229,10 @@ class RequestContextMiddleware(HttpMiddleware):
 
         # Honour the id minted by Nginx so one identifier spans the whole hop
         # chain; generate one when the app is reached directly.
-        request_id = request.headers.get("x-request-id") or new_request_id()
+        request_id = resolve_request_id(request.headers.get("x-request-id"))
 
-        client_ip = request.headers.get("x-real-ip") or (
-            request.client.host if request.client else None
+        client_ip = resolve_client_ip(
+            request.headers.get("x-real-ip"), request.client.host if request.client else None
         )
         bind_request_context(
             request_id=request_id,
@@ -249,10 +313,11 @@ class RequestContextMiddleware(HttpMiddleware):
             accounted = True
             clear_request_context()
             raise
-        # A client that disconnects mid-download leaves no final body message.
-        # That request is exactly the one worth accounting for, so account for
-        # it here; `account` is idempotent, so a normal response is unaffected.
-        account()
+        finally:
+            # Disconnects and cancellation may leave no final body message.
+            # Context must still be cleared, including CancelledError (which
+            # inherits BaseException rather than Exception).
+            account()
 
 
 class SecurityHeadersMiddleware(HttpMiddleware):
@@ -293,24 +358,63 @@ class BodySizeLimitMiddleware(HttpMiddleware):
         self.max_bytes = max_bytes
 
     async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
-        content_length = Headers(scope=scope).get("content-length")
-        if content_length and content_length.isdigit() and int(content_length) > self.max_bytes:
+        message = f"Request body exceeds the {self.max_bytes:,} byte limit."
+
+        async def reject() -> None:
             response = JSONResponse(
                 status_code=413,
-                content={
-                    "success": False,
-                    "error": {
-                        "code": str(ErrorCode.PAYLOAD_TOO_LARGE),
-                        "message": (
-                            f"Request body exceeds the {self.max_bytes // (1024 * 1024)} MB limit."
-                        ),
-                    },
-                    "request_id": _request_id_from(scope),
-                },
+                content=ErrorResponse.create(
+                    str(ErrorCode.PAYLOAD_TOO_LARGE),
+                    message,
+                    request_id=_request_id_from(scope),
+                ).model_dump(mode="json"),
             )
             await response(scope, receive, send)
+
+        content_length = Headers(scope=scope).get("content-length")
+        try:
+            declared_size = int(content_length) if content_length is not None else 0
+        except ValueError:
+            # Servers normally reject malformed Content-Length headers first.
+            # Counting the stream still enforces the bound for direct ASGI calls.
+            declared_size = 0
+        if declared_size > self.max_bytes:
+            await reject()
             return
-        await self.app(scope, receive, send)
+
+        received_size = 0
+        response_started = False
+
+        async def bounded_receive() -> Message:
+            nonlocal received_size
+            incoming = await receive()
+            if incoming["type"] == "http.request":
+                received_size += len(incoming.get("body", b""))
+                if received_size > self.max_bytes:
+                    # FastAPI preserves HTTPException during JSON/form parsing;
+                    # a generic exception there would become a misleading 400.
+                    raise _BodyTooLarge(message)
+            return incoming
+
+        async def track_send(outgoing: Message) -> None:
+            nonlocal response_started
+            if outgoing["type"] == "http.response.start":
+                response_started = True
+            await send(outgoing)
+
+        try:
+            await self.app(scope, bounded_receive, track_send)
+        except _BodyTooLarge:
+            # Plain ASGI applications may not have an HTTP exception handler.
+            # A started response cannot be replaced with another status line.
+            if response_started:
+                raise
+            await reject()
+
+
+class _BodyTooLarge(HTTPException):
+    def __init__(self, message: str) -> None:
+        super().__init__(status_code=413, detail=message)
 
 
 class RateLimitMiddleware(HttpMiddleware):
@@ -344,15 +448,12 @@ class RateLimitMiddleware(HttpMiddleware):
                     "X-RateLimit-Limit": str(result.limit),
                     "X-RateLimit-Remaining": "0",
                 },
-                content={
-                    "success": False,
-                    "error": {
-                        "code": str(ErrorCode.RATE_LIMITED),
-                        "message": "Too many requests. Please slow down.",
-                        "details": {"retry_after_seconds": result.retry_after_seconds},
-                    },
-                    "request_id": _request_id_from(scope),
-                },
+                content=ErrorResponse.create(
+                    str(ErrorCode.RATE_LIMITED),
+                    RATE_LIMITED,
+                    {"retry_after_seconds": result.retry_after_seconds},
+                    _request_id_from(scope),
+                ).model_dump(mode="json"),
             )
             await response(scope, receive, send)
             return
@@ -381,9 +482,11 @@ __all__ = [
     "SECURITY_HEADERS",
     "SLOW_REQUEST_MS",
     "BodySizeLimitMiddleware",
+    "CORSMiddleware",
     "HttpMiddleware",
     "RateLimitMiddleware",
     "RequestContextMiddleware",
     "SecurityHeadersMiddleware",
+    "TrustedHostMiddleware",
     "is_final_body_message",
 ]

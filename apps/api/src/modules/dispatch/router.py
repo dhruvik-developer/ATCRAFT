@@ -19,10 +19,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
+from src.core.messages import success_message
 from src.core.pagination import (
     CursorParams,
     PageParams,
     SortParams,
+    bind_query_filters,
     cursor_params,
     page_params,
     sort_params,
@@ -90,7 +92,8 @@ def dispatch_filters(
     dispatch_from: Annotated[date | None, Query()] = None,
     dispatch_to: Annotated[date | None, Query()] = None,
 ) -> DispatchFilters:
-    return DispatchFilters(
+    return bind_query_filters(
+        DispatchFilters,
         search=search,
         status=dispatch_status,
         dispatch_type=dispatch_type,
@@ -204,7 +207,7 @@ async def create_dispatch(
     session: DbSession, tenant: Tenant, payload: DispatchCreate
 ) -> ApiResponse[DispatchDetail]:
     detail = await service.create_dispatch(session, tenant, payload)
-    return ApiResponse[DispatchDetail].ok(detail, "Dispatch created")
+    return ApiResponse[DispatchDetail].ok(detail, success_message("Dispatch", "created"))
 
 
 @router.get(
@@ -231,7 +234,7 @@ async def update_dispatch(
     session: DbSession, tenant: Tenant, dispatch_id: uuid.UUID, payload: DispatchUpdate
 ) -> ApiResponse[DispatchDetail]:
     detail = await service.update_dispatch(session, tenant, dispatch_id, payload)
-    return ApiResponse[DispatchDetail].ok(detail, "Dispatch updated")
+    return ApiResponse[DispatchDetail].ok(detail, success_message("Dispatch", "updated"))
 
 
 @router.delete(
@@ -248,7 +251,7 @@ async def delete_dispatch(
     session: DbSession, tenant: Tenant, dispatch_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_dispatch(session, tenant, dispatch_id, reason=reason)
-    return ApiResponse[None].ok(None, "Dispatch deleted")
+    return ApiResponse[None].ok(None, success_message("Dispatch", "deleted"))
 
 
 # -----------------------------------------------------------------------------
@@ -279,7 +282,7 @@ async def cancel_dispatch(
     session: DbSession, tenant: Tenant, dispatch_id: uuid.UUID, payload: ReasonRequest
 ) -> ApiResponse[DispatchDetail]:
     detail = await service.cancel_dispatch(session, tenant, dispatch_id, reason=payload.reason)
-    return ApiResponse[DispatchDetail].ok(detail, "Dispatch cancelled")
+    return ApiResponse[DispatchDetail].ok(detail, success_message("Dispatch", "cancelled"))
 
 
 @router.post(
@@ -298,7 +301,7 @@ async def dispatch_consignment(
     session: DbSession, tenant: Tenant, dispatch_id: uuid.UUID, payload: DispatchRequest
 ) -> ApiResponse[DispatchResult]:
     result = await service.dispatch_consignment(session, tenant, dispatch_id, payload)
-    return ApiResponse[DispatchResult].ok(result, "Dispatch sent")
+    return ApiResponse[DispatchResult].ok(result, success_message("Dispatch", "sent"))
 
 
 @router.post(
@@ -329,7 +332,7 @@ async def confirm_delivery(
     session: DbSession, tenant: Tenant, dispatch_id: uuid.UUID, payload: DeliveryConfirmation
 ) -> ApiResponse[DispatchDetail]:
     detail = await service.confirm_delivery(session, tenant, dispatch_id, payload)
-    return ApiResponse[DispatchDetail].ok(detail, "Delivery confirmed")
+    return ApiResponse[DispatchDetail].ok(detail, success_message("Delivery", "confirmed"))
 
 
 # -----------------------------------------------------------------------------
@@ -373,4 +376,4 @@ async def add_tracking_event(
     session: DbSession, tenant: Tenant, dispatch_id: uuid.UUID, payload: TrackingEventIn
 ) -> ApiResponse[TrackingEventRead]:
     event = await service.add_tracking_event(session, tenant, dispatch_id, payload)
-    return ApiResponse[TrackingEventRead].ok(event, "Tracking event recorded")
+    return ApiResponse[TrackingEventRead].ok(event, success_message("Tracking event", "recorded"))

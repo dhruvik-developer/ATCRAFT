@@ -21,7 +21,7 @@ import { Skeleton } from '@/components/ui/primitives'
 import { UPLOAD_ACCEPT, fileKindLabel, type DocumentRow } from '@/features/documents/document-model'
 import { api } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -253,7 +253,9 @@ export function InspectionAttachments({ inspectionId }: { inspectionId: string }
           ))}
         </ul>
       )}
-      {upload.error && <p className="mt-2 text-xs text-destructive">{upload.error.message}</p>}
+      {upload.error && (
+        <p className="mt-2 text-xs text-destructive">{describeError(upload.error)}</p>
+      )}
     </section>
   )
 }

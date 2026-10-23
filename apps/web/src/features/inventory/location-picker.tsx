@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -101,7 +102,7 @@ export function LocationPicker({
             <div className="mt-2 max-h-60 overflow-y-auto" role="listbox" aria-label={label}>
               {options.isLoading && <p className="p-2 text-sm">Loading bins...</p>}
               {options.error && (
-                <p className="p-2 text-sm text-destructive">{options.error.message}</p>
+                <p className="p-2 text-sm text-destructive">{describeError(options.error)}</p>
               )}
               {!options.isLoading && !options.error && options.data?.data.length === 0 && (
                 <p className="p-2 text-sm text-muted-foreground">No active bin matches.</p>

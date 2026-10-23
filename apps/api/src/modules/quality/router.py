@@ -25,7 +25,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.quality import service
@@ -93,7 +94,8 @@ def template_filters(
     sampling_plan: Annotated[SamplingPlan | None, Query()] = None,
     is_active: Annotated[bool | None, Query()] = None,
 ) -> TemplateFilters:
-    return TemplateFilters(
+    return bind_query_filters(
+        TemplateFilters,
         search=search,
         item_id=item_id,
         item_category_id=item_category_id,
@@ -126,7 +128,8 @@ def inspection_filters(
     inspected_from: Annotated[datetime | None, Query()] = None,
     inspected_to: Annotated[datetime | None, Query()] = None,
 ) -> InspectionFilters:
-    return InspectionFilters(
+    return bind_query_filters(
+        InspectionFilters,
         search=search,
         qc_stage=qc_stage,
         status=inspection_status,
@@ -153,7 +156,8 @@ def rework_filters(
     assigned_to: Annotated[uuid.UUID | None, Query()] = None,
     work_center_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ReworkFilters:
-    return ReworkFilters(
+    return bind_query_filters(
+        ReworkFilters,
         inspection_id=inspection_id,
         status=rework_status,
         assigned_to=assigned_to,
@@ -205,7 +209,8 @@ async def create_template(
 ) -> ApiResponse[TemplateDetail]:
     template, parameters = await service.create_template(session, tenant, payload)
     return ApiResponse[TemplateDetail].ok(
-        service.template_detail(template, parameters), f"QC template {template.code} created"
+        service.template_detail(template, parameters),
+        success_message(f"QC template {template.code}", "created"),
     )
 
 
@@ -240,7 +245,8 @@ async def update_template(
 ) -> ApiResponse[TemplateDetail]:
     template, parameters = await service.update_template(session, tenant, template_id, payload)
     return ApiResponse[TemplateDetail].ok(
-        service.template_detail(template, parameters), f"QC template {template.code} updated"
+        service.template_detail(template, parameters),
+        success_message(f"QC template {template.code}", "updated"),
     )
 
 
@@ -266,7 +272,7 @@ async def create_template_version(
     )
     return ApiResponse[TemplateDetail].ok(
         service.template_detail(template, parameters),
-        f"QC template {template.code} v{template.version} created",
+        success_message(f"QC template {template.code} v{template.version}", "created"),
     )
 
 
@@ -285,7 +291,7 @@ async def retire_template(
     template_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.retire_template(session, tenant, template_id, reason=reason)
-    return ApiResponse[None].ok(None, "QC template retired")
+    return ApiResponse[None].ok(None, success_message("QC template", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -406,7 +412,7 @@ async def create_inspection(
     inspection = await service.create_inspection(session, tenant, payload)
     return ApiResponse[InspectionDetail].ok(
         await service.get_inspection_detail(session, tenant, inspection.id),
-        f"Inspection {inspection.code} raised",
+        success_message(f"Inspection {inspection.code}", "raised"),
     )
 
 
@@ -444,7 +450,7 @@ async def record_results(
 ) -> ApiResponse[RecordResultsResponse]:
     outcome = await service.record_results(session, tenant, inspection_id, payload)
     return ApiResponse[RecordResultsResponse].ok(
-        outcome, f"{len(payload.measurements)} measurement(s) recorded"
+        outcome, success_message(f"{len(payload.measurements)} measurement(s)", "recorded")
     )
 
 
@@ -488,7 +494,8 @@ async def close_inspection(
         session, tenant, inspection_id, reason=payload.reason
     )
     return ApiResponse[InspectionSummary].ok(
-        InspectionSummary.model_validate(inspection), f"Inspection {inspection.code} closed"
+        InspectionSummary.model_validate(inspection),
+        success_message(f"Inspection {inspection.code}", "closed"),
     )
 
 
@@ -533,7 +540,7 @@ async def create_rework(
 ) -> ApiResponse[ReworkRecordRead]:
     record = await service.create_rework(session, tenant, payload)
     return ApiResponse[ReworkRecordRead].ok(
-        ReworkRecordRead.model_validate(record), f"Rework {record.code} opened"
+        ReworkRecordRead.model_validate(record), success_message(f"Rework {record.code}", "opened")
     )
 
 
@@ -548,7 +555,7 @@ async def start_rework(
 ) -> ApiResponse[ReworkRecordRead]:
     record = await service.start_rework(session, tenant, record_id, reason=payload.reason)
     return ApiResponse[ReworkRecordRead].ok(
-        ReworkRecordRead.model_validate(record), f"Rework {record.code} started"
+        ReworkRecordRead.model_validate(record), success_message(f"Rework {record.code}", "started")
     )
 
 

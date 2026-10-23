@@ -684,7 +684,7 @@ describe('the register itself', () => {
     })
 
     await stable(() => screen.getByText('Could not load this list'))
-    expect(screen.getByText('The return register is unavailable')).toBeVisible()
+    expect(screen.getByText('The return register is unavailable', { exact: false })).toBeVisible()
   })
 
   it('hides the warehouse filter from an account that cannot read warehouses', async () => {

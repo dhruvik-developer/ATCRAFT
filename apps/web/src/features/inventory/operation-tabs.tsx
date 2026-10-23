@@ -29,7 +29,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -180,7 +180,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       onClose()
     },
-    onError: (failure) => setError(failure.message),
+    onError: (failure) => setError(describeError(failure)),
   })
   const submit = () => {
     if (!warehouse || reason.trim().length < REASON_MIN_LENGTH) {
@@ -612,7 +612,7 @@ export default function OperationTab({ kind }: { kind: Kind }) {
           </DialogHeader>
           <DialogBody>
             {detail.isPending && <p role="status">Loading document...</p>}
-            <FieldError message={detail.error?.message} />
+            <FieldError message={detail.error ? describeError(detail.error) : undefined} />
             {detail.data && <OperationLines document={detail.data} />}
           </DialogBody>
           <DialogFooter>
@@ -662,7 +662,7 @@ export default function OperationTab({ kind }: { kind: Kind }) {
         {reviewRequired && (
           <div className="space-y-2">
             {detail.isPending && <p role="status">Loading issue details...</p>}
-            <FieldError message={detail.error?.message} />
+            <FieldError message={detail.error ? describeError(detail.error) : undefined} />
             {detail.data && <OperationLines document={detail.data} />}
           </div>
         )}
@@ -679,7 +679,7 @@ export default function OperationTab({ kind }: { kind: Kind }) {
             <FieldError message={reasonError} />
           </div>
         )}
-        <FieldError message={action.error?.message} />
+        <FieldError message={action.error ? describeError(action.error) : undefined} />
       </ConfirmDialog>
     </>
   )

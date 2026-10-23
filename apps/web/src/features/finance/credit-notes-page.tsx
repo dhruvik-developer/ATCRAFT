@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
@@ -166,7 +167,7 @@ export default function CreditNotesPage() {
             {formatMoney(selected.total_amount, { currency: selected.currency })}
           </p>
           {detail.isLoading && <p className="mt-4 text-muted-foreground">Loading line details…</p>}
-          {detail.error && <FieldError message={detail.error.message} />}
+          {detail.error && <FieldError message={describeError(detail.error)} />}
           {detail.data && (
             <div className="mt-4 space-y-4">
               <div className="grid gap-3 sm:grid-cols-3">

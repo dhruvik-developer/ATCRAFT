@@ -83,6 +83,7 @@ function Show-Help {
         'migrate-down'     = 'Roll back one Alembic revision'
         'migration'        = 'Autogenerate a migration:  .\make.ps1 migration "add xyz"'
         'seed'             = 'Load baseline reference data'
+        'seed-local'       = 'Migrate and populate a local database with demonstration workflows'
         'demo-data'        = 'Fill a development database with a working business'
         'db-fresh'         = 'DESTROY the dev database and rebuild it with baseline + demo data'
         'db-handover'      = 'DESTROY the dev database and rebuild it with the baseline only'
@@ -91,6 +92,7 @@ function Show-Help {
         'test-integration' = 'Integration + API tests (needs Postgres/Redis)'
         'test-cov'         = 'Backend tests with coverage'
         'test-web'         = 'Frontend unit tests'
+        'build-web'        = 'Production frontend build, bundle budgets and secret scan'
         'test-e2e'         = 'Playwright end-to-end tests'
         'test-load'        = 'Locust load test'
         'lint'             = 'Lint and type-check backend + frontend'
@@ -99,7 +101,7 @@ function Show-Help {
         'contract'         = 'Regenerate the OpenAPI contract, the frontend types and the Postman collection'
         'contract-check'   = 'Fail if the contract, the generated types or the collection are stale'
         'postman'          = 'Regenerate the Postman collection from the committed OpenAPI contract'
-        'check'            = 'contract-check + lint + test + test-web (what CI runs)'
+        'check'            = 'contract-check + lint + test-cov + test-web + build-web'
         'hooks'            = 'Install the git pre-commit and pre-push hooks'
         'hooks-run'        = 'Run every hook against the whole tree, as a push would'
         'lock'             = 'Regenerate reviewed Python dependency locks'
@@ -179,6 +181,7 @@ switch ($Target) {
         Invoke-Step "& '$py' -m alembic revision --autogenerate -m `"$msg`"" $ApiDir
     }
     'seed' { $py = Get-VenvPython; Invoke-Step "& '$py' -m src.core.seed" $ApiDir }
+    'seed-local' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.seed_local" $ApiDir }
     'demo-data' { $py = Get-VenvPython; Invoke-Step "& '$py' -m src.core.demo_data" $ApiDir }
     'db-fresh' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.reset_database --yes --demo" $ApiDir }
     'db-handover' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.reset_database --yes --seed" $ApiDir }
@@ -224,7 +227,8 @@ switch ($Target) {
         Invoke-Step "& '$py' -m scripts.export_postman --check" $ApiDir
     }
     'postman' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.export_postman" $ApiDir }
-    'check' { & $PSCommandPath contract-check; & $PSCommandPath lint; & $PSCommandPath test; & $PSCommandPath test-web }
+    'build-web' { Invoke-Step 'npm run build' $WebDir }
+    'check' { & $PSCommandPath contract-check; & $PSCommandPath lint; & $PSCommandPath test-cov; & $PSCommandPath test-web; & $PSCommandPath build-web }
 
     'shell-api' { Invoke-Docker ($DcDev + @('exec', 'backend', 'bash')) }
     'shell-db'  { Invoke-Docker ($DcDev + @('exec', 'postgres', 'psql', '-U', 'atcraft', '-d', 'atcraft_erp')) }

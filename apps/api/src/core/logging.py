@@ -14,11 +14,13 @@ import logging
 import sys
 import uuid
 from contextvars import ContextVar
+from ipaddress import ip_address as parse_ip_address
 from typing import Any
 
 import structlog
 
 from src.core.config import AppEnv, settings
+from src.core.constants import MAX_REQUEST_ID_LENGTH
 
 # --- Request-scoped context ---------------------------------------------------
 
@@ -31,6 +33,35 @@ user_agent_ctx: ContextVar[str | None] = ContextVar("user_agent", default=None)
 
 def new_request_id() -> str:
     return uuid.uuid4().hex
+
+
+def resolve_request_id(value: str | None) -> str:
+    """Reuse a safe upstream id, otherwise generate one that fits the audit row.
+
+    Correlation headers are untrusted even behind a proxy. Oversized values can
+    otherwise abort an audited transaction; control characters must never be
+    reflected into a response header or attached to every log line.
+    """
+    if (
+        value
+        and len(value) <= MAX_REQUEST_ID_LENGTH
+        and value.isascii()
+        and all(character.isalnum() or character in "-_." for character in value)
+    ):
+        return value
+    return new_request_id()
+
+
+def resolve_client_ip(*addresses: str | None) -> str | None:
+    """Use the first valid address that PostgreSQL's INET can persist."""
+    for address in addresses:
+        if not address or "%" in address:
+            continue
+        try:
+            return str(parse_ip_address(address))
+        except ValueError:
+            continue
+    return None
 
 
 def get_request_id() -> str | None:
@@ -53,7 +84,7 @@ def bind_request_context(
     if company_id is not None:
         company_id_ctx.set(str(company_id))
     if ip_address is not None:
-        ip_address_ctx.set(ip_address)
+        ip_address_ctx.set(resolve_client_ip(ip_address))
     if user_agent is not None:
         user_agent_ctx.set(user_agent[:512])
 
@@ -224,6 +255,8 @@ __all__ = [
     "ip_address_ctx",
     "new_request_id",
     "request_id_ctx",
+    "resolve_client_ip",
+    "resolve_request_id",
     "user_agent_ctx",
     "user_id_ctx",
 ]

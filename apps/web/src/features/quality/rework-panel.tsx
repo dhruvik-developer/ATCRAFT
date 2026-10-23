@@ -41,7 +41,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -207,7 +207,7 @@ function OpenCycleForm({
 
       {open.error && (
         <Alert variant="destructive">
-          <AlertDescription>{open.error.message}</AlertDescription>
+          <AlertDescription>{describeError(open.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -343,7 +343,7 @@ function CompleteCycleForm({ record, onDone }: { record: QcReworkRecord; onDone:
 
       {complete.error && (
         <Alert variant="destructive">
-          <AlertDescription>{complete.error.message}</AlertDescription>
+          <AlertDescription>{describeError(complete.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -442,7 +442,7 @@ function CycleCard({ record }: { record: QcReworkRecord }) {
           </Button>
         )}
       </div>
-      {start.error && <p className="mt-2 text-xs text-destructive">{start.error.message}</p>}
+      {start.error && <p className="mt-2 text-xs text-destructive">{describeError(start.error)}</p>}
       {completing && <CompleteCycleForm record={record} onDone={() => setCompleting(false)} />}
     </li>
   )

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import uuid
 from types import SimpleNamespace
 
@@ -21,6 +23,7 @@ from src.core.webpush import (
     encrypt_aes128gcm,
     outcome_for_status,
     push_payload,
+    push_topic,
     vapid_authorization,
     vapid_keypair,
 )
@@ -136,6 +139,103 @@ def test_payload_unicode_byte_budget() -> None:
     payload = push_payload(notification)
     assert len(payload) <= 3072
     assert json.loads(payload)["url"] == "/notifications"
+
+
+@pytest.mark.parametrize("symbol", ["🙂", "\x00", "\\"], ids=["unicode", "control", "escape"])
+@pytest.mark.parametrize("body", ["", "body 🙂" * 1000], ids=["empty", "long"])
+def test_payload_metadata_cannot_hang_worker(symbol: str, body: str) -> None:
+    # A timeout makes the former metadata-only infinite loop a bounded failure;
+    # a test thread would leave the spinning function alive in the pytest worker.
+    source = """
+import json
+import sys
+import uuid
+from types import SimpleNamespace
+from src.core.webpush import MAX_PUSH_PAYLOAD_BYTES, push_payload, push_topic
+
+symbol, body = json.loads(sys.argv[1])
+notification = SimpleNamespace(
+    id=uuid.uuid4(), title=symbol * 200, body=body,
+    action_url='/' + symbol * 511, group_key=symbol * 120,
+    severity='INFO', occurrence_count=1,
+)
+payload = push_payload(notification)
+decoded = json.loads(payload)
+assert len(payload) <= MAX_PUSH_PAYLOAD_BYTES
+assert decoded['id'] == str(notification.id)
+assert decoded['url'] in (notification.action_url, '/notifications')
+assert decoded['tag'] == push_topic(notification)
+small = SimpleNamespace(**{**vars(notification), 'title': 'Small', 'body': 'Small',
+                         'action_url': '/notifications'})
+assert json.loads(push_payload(small))['tag'] == decoded['tag']
+assert notification.title.startswith(decoded['title'])
+assert body.startswith(decoded['body'])
+long_headline = SimpleNamespace(**{**vars(notification), 'title': symbol * 4000})
+headline_payload = push_payload(long_headline)
+headline = json.loads(headline_payload)
+assert len(headline_payload) <= MAX_PUSH_PAYLOAD_BYTES
+assert 0 < len(headline['title']) < len(long_headline.title)
+assert long_headline.title.startswith(headline['title'])
+assert headline['tag'] == decoded['tag']
+print(len(payload))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", source, json.dumps([symbol, body])],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert int(result.stdout) <= 3072
+
+
+def test_payload_preserves_content_that_already_fits() -> None:
+    notification = SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Order ready",
+        body="Your order is ready for dispatch.",
+        action_url="/sales-orders/123",
+        group_key="order:123",
+        severity="INFO",
+        occurrence_count=2,
+    )
+    assert json.loads(push_payload(notification)) == {
+        "id": str(notification.id),
+        "title": notification.title,
+        "body": notification.body,
+        "url": notification.action_url,
+        "tag": push_topic(notification),
+        "severity": "INFO",
+        "count": 2,
+    }
+
+
+def test_payload_rejects_unbounded_non_text_metadata() -> None:
+    source = """
+import uuid
+from types import SimpleNamespace
+from src.core.webpush import push_payload
+
+notification = SimpleNamespace(
+    id=uuid.uuid4(), title='Test', body='', action_url=None, group_key=None,
+    severity='!' * 4000, occurrence_count=1,
+)
+try:
+    push_payload(notification)
+except ValueError as error:
+    assert 'metadata exceeds the payload limit' in str(error)
+else:
+    raise AssertionError('Unbounded metadata must be refused.')
+"""
+    subprocess.run(
+        [sys.executable, "-c", source],
+        check=True,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
 
 
 def test_staging_waits_for_outer_transaction(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -29,7 +29,7 @@
     --secondary-foreground: 222 25% 20%;
 
     --muted: 214 16% 96%;
-    --muted-foreground: 215 14% 45%;
+    --muted-foreground: 215 14% 41%;
 
     --accent: 214 30% 94%;
     --accent-foreground: 214 72% 28%;
@@ -37,10 +37,11 @@
     --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 58% 32%;
+    /* Small status text must retain 4.5:1 contrast on tinted table rows. */
+    --success: 152 58% 26%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 35 88% 42%;
+    --warning: 35 88% 28%;
     --warning-foreground: 0 0% 100%;
 
     --border: 214 18% 89%;
@@ -67,7 +68,7 @@
     --popover: 222 22% 12%;
     --popover-foreground: 214 18% 92%;
 
-    --primary: 214 70% 56%;
+    --primary: 214 70% 64%;
     --primary-foreground: 222 30% 10%;
 
     --secondary: 218 18% 20%;
@@ -79,10 +80,10 @@
     --accent: 218 20% 22%;
     --accent-foreground: 214 70% 70%;
 
-    --destructive: 0 62% 52%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 72% 70%;
+    --destructive-foreground: 222 30% 10%;
 
-    --success: 152 46% 44%;
+    --success: 152 46% 50%;
     --success-foreground: 222 30% 10%;
 
     --warning: 35 76% 54%;

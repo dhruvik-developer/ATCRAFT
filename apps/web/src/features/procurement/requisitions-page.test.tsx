@@ -753,7 +753,9 @@ describe('the requisition form', () => {
     const dialog = await stable(() => screen.getByRole('dialog'))
 
     await stable(() => within(dialog).getByText('Could not load this requisition'))
-    expect(within(dialog).getByText('The requisition could not be read')).toBeVisible()
+    expect(
+      within(dialog).getByText('The requisition could not be read (reference test)'),
+    ).toBeVisible()
     expect(within(dialog).queryByRole('button', { name: 'Save draft' })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('textbox', { name: 'Quantity' })).not.toBeInTheDocument()
 

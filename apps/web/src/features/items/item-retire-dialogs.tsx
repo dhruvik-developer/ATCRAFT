@@ -44,7 +44,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { mastersKeys } from '@/features/masters/masters-model'
 import { api } from '@/lib/api-client'
 import { formatQuantity, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -169,7 +169,7 @@ export function RetireItemDialog({
             <AlertTitle>The item was not retired</AlertTitle>
             {/* The API's own sentence. It names the state that stood in the way,
                 which is more use than "request failed". */}
-            <AlertDescription>{retire.error.message}</AlertDescription>
+            <AlertDescription>{describeError(retire.error)}</AlertDescription>
           </Alert>
         )}
 
@@ -273,7 +273,7 @@ export function RetireVariantDialog({
         {retire.error && (
           <Alert variant="destructive">
             <AlertTitle>The variant was not retired</AlertTitle>
-            <AlertDescription>{retire.error.message}</AlertDescription>
+            <AlertDescription>{describeError(retire.error)}</AlertDescription>
           </Alert>
         )}
 

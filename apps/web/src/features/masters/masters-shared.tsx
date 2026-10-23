@@ -27,7 +27,7 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { messages } from '@/lib/messages'
+import { describeError, messages } from '@/lib/messages'
 
 /** Active / inactive, the same three-way control on most of the tabs. */
 export function StatusFilter({
@@ -143,7 +143,7 @@ export function RetireWithReasonDialog({
         {error && (
           <Alert variant="destructive">
             <AlertTitle>{errorHeadline}</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
+            <AlertDescription>{describeError(error)}</AlertDescription>
           </Alert>
         )}
 

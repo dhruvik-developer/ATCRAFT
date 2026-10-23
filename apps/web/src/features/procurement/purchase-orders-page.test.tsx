@@ -282,7 +282,7 @@ describe('the order book', () => {
     })
 
     await stable(() => screen.getByText('Could not load this list'))
-    expect(screen.getByText('The order service is down')).toBeVisible()
+    expect(screen.getByText('The order service is down', { exact: false })).toBeVisible()
   })
 
   it('offers the empty state its own way to raise the first order', async () => {

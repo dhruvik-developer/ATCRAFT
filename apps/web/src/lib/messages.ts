@@ -15,7 +15,7 @@
  * and the caller passes the document code or name as the toast description.
  */
 
-import type { ApiError } from '@/lib/api-client'
+import { ApiError } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 
 // ----------------------------------------------------------- successes -----
@@ -47,6 +47,17 @@ export const success = {
   reset: (noun: string) => `${noun} reset`,
   changed: (noun: string) => `${noun} changed`,
   revoked: (noun: string) => `${noun} revoked`,
+  removed: (noun: string) => `${noun} removed`,
+  added: (noun: string) => `${noun} added`,
+  recorded: (noun: string) => `${noun} recorded`,
+  issued: (noun: string) => `${noun} issued`,
+  queued: (noun: string) => `${noun} queued`,
+  attached: (noun: string) => `${noun} attached`,
+  enabled: (noun: string) => `${noun} enabled`,
+  disabled: (noun: string) => `${noun} disabled`,
+  exported: (noun: string) => `${noun} exported`,
+  started: (noun: string) => `${noun} started`,
+  booked: (noun: string) => `${noun} booked`,
   /** A status change that has no better verb than the target state itself. */
   statusChanged: (noun: string, status: string) => `${noun} marked ${status.toLowerCase()}`,
 } as const
@@ -82,6 +93,9 @@ export const errors = {
   /** A non-JSON 5xx: nginx, a gateway timeout - nothing structured to report. */
   serviceUnavailable: 'The service is temporarily unavailable. Please try again.',
   requestFailed: 'Request failed',
+  invalidResponse: 'The service returned an invalid response. Please try again.',
+  connectionFailed: 'Could not connect to the service',
+  networkFailed: 'Could not reach the service. Check your connection and try again.',
   sessionExpired: 'Your session has expired. Please sign in again.',
   networkOffline: 'You appear to be offline. Check the connection and try again.',
   notEnoughStock: 'Not enough stock',
@@ -91,7 +105,7 @@ export const errors = {
   conflict: 'Changed by someone else',
   rateLimited: 'Too many requests',
   /** Shown by a form when a 422 arrived without field detail. */
-  checkTheForm: 'Some fields need attention.',
+  checkTheForm: 'Check the entered information',
   /** A lifecycle reason shorter than `REASON_MIN_LENGTH`, held back before the round trip. */
   reasonTooShort: 'Record at least three characters of reason',
 } as const
@@ -118,7 +132,12 @@ export function errorTitle(error: Pick<ApiError, 'code'>): string {
     case 'RATE_LIMITED':
       return errors.rateLimited
     case 'SERVICE_UNAVAILABLE':
+    case 'INVALID_RESPONSE':
       return errors.unexpected
+    case 'NETWORK_ERROR':
+      return errors.connectionFailed
+    case 'VALIDATION_ERROR':
+      return errors.checkTheForm
     default:
       return errors.couldNotComplete
   }
@@ -131,11 +150,64 @@ export function errorTitle(error: Pick<ApiError, 'code'>): string {
  * it is always shown on server-side failures.
  */
 export function errorDescription(
-  error: Pick<ApiError, 'status' | 'message' | 'requestId'>,
+  error: Pick<ApiError, 'status' | 'message' | 'requestId'> & Partial<Pick<ApiError, 'code'>>,
 ): string {
-  return error.status >= 500 && error.requestId
+  return (error.status >= 500 || error.code === 'INVALID_RESPONSE') && error.requestId
     ? `${error.message} (reference ${error.requestId.slice(0, 8)})`
     : error.message
+}
+
+/** A useful fallback for direct request handlers as well as query/mutation errors. */
+export function describeError(error: unknown, fallback: string = errors.unexpectedDetail): string {
+  // Only the HTTP boundary supplies messages intended for users. Runtime and
+  // library errors may contain stack frames, internal URLs or input values.
+  if (!(error instanceof ApiError) || !error.message.trim()) return fallback
+  return errorDescription(error)
+}
+
+/** Join server validation sentences without adding duplicate full stops. */
+export function joinValidationMessages(messages: readonly string[]): string {
+  return messages
+    .map((message) => message.trim())
+    .filter(Boolean)
+    .reduce(
+      (combined, message) =>
+        combined ? `${combined}${/[.!?…]$/.test(combined) ? ' ' : '. '}${message}` : message,
+      '',
+    )
+}
+
+/** Shared form validation vocabulary; workflow-specific guidance stays with its form. */
+export const validation = {
+  required: (field: string) => `${field} is required.`,
+  choose: (noun: string) => `Choose ${noun}.`,
+  positive: (field: string) => `${field} must be greater than zero.`,
+  nonnegative: (field: string) => `${field} must be zero or greater.`,
+  integer: (field: string) => `${field} must be a whole number.`,
+  email: 'Enter a valid email address.',
+} as const
+
+export const fileMessages = {
+  queued: success.queued('File'),
+  generating: 'The file is being generated in the background.',
+  downloadStarted: success.started('Download'),
+  downloading: 'The file is saving to your device.',
+  noFileTitle: 'No file available',
+  noFile: 'This job finished without producing a file.',
+  generationFailed: 'The file could not be generated. Try again.',
+} as const
+
+/** Describe partial notification updates accurately, including singular counts. */
+export function notificationsRead(
+  marked: number,
+  remaining: number,
+): { title: string; description: string } {
+  const markedDescription = `${marked} notification${marked === 1 ? '' : 's'} marked as read.`
+  return {
+    title: remaining > 0 ? success.updated('Notifications') : 'All notifications read',
+    description:
+      remaining > 0 ? `${markedDescription} ${remaining} still unread.` : markedDescription,
+  }
 }
 
 // ------------------------------------------------------- empty states ------
@@ -205,10 +277,15 @@ export const messages = {
   errorTitle,
   errorDescription,
   raisedDocuments,
+  describeError,
+  joinValidationMessages,
+  validation,
+  fileMessages,
+  notificationsRead,
 } as const
 
 export const salesInvoiceMessages = {
-  issued: 'Sales invoice issued',
+  issued: success.issued('Sales invoice'),
   preview:
     'Review the dispatch quantities, agreed prices and tax before issuing. The number is assigned when you confirm.',
   snapshot: 'Party details, prices and tax are fixed as they were at issue.',

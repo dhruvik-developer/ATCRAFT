@@ -39,7 +39,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { packingKeys, type PackingOrderDetail } from '@/features/packing/packing-types'
 import { staleTimes } from '@/lib/query-client'
@@ -204,7 +204,7 @@ function PackFromAssemblyDialog({
 
             {pack.error && (
               <Alert variant="destructive">
-                <AlertDescription>{pack.error.message}</AlertDescription>
+                <AlertDescription>{describeError(pack.error)}</AlertDescription>
               </Alert>
             )}
           </DialogBody>
@@ -261,7 +261,7 @@ export function ReadyFromAssemblyPanel() {
       {ready.isLoading && (
         <p className="mt-3 text-sm text-muted-foreground">Reading completed assemblies...</p>
       )}
-      {ready.error && <p className="mt-3 text-sm text-destructive">{ready.error.message}</p>}
+      {ready.error && <p className="mt-3 text-sm text-destructive">{describeError(ready.error)}</p>}
 
       {!ready.isLoading && !ready.error && (
         <ul className="mt-3 divide-y rounded-md border">

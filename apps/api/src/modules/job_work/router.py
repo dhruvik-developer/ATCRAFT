@@ -30,7 +30,8 @@ from src.core.deps import (
     require_any_permission,
     require_permission,
 )
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -97,7 +98,8 @@ def order_filters(
     created_from: Annotated[datetime | None, Query()] = None,
     created_to: Annotated[datetime | None, Query()] = None,
 ) -> JobWorkOrderFilters:
-    return JobWorkOrderFilters(
+    return bind_query_filters(
+        JobWorkOrderFilters,
         search=search,
         vendor_id=vendor_id,
         item_id=item_id,
@@ -201,7 +203,8 @@ def challan_filters(
     date_from: Annotated[date | None, Query(description="Despatched on or after this date")] = None,
     date_to: Annotated[date | None, Query(description="Despatched on or before this date")] = None,
 ) -> ChallanFilters:
-    return ChallanFilters(
+    return bind_query_filters(
+        ChallanFilters,
         search=search,
         vendor_id=vendor_id,
         job_work_order_id=job_work_order_id,
@@ -329,7 +332,8 @@ async def create_order(
 ) -> ApiResponse[JobWorkOrderDetail]:
     order, lines = await service.create_order(session, tenant, payload)
     return ApiResponse[JobWorkOrderDetail].ok(
-        service.order_detail(order, lines), f"Job work order {order.code} created"
+        service.order_detail(order, lines),
+        success_message(f"Job work order {order.code}", "created"),
     )
 
 
@@ -363,7 +367,8 @@ async def update_order(
 ) -> ApiResponse[JobWorkOrderDetail]:
     order, lines = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[JobWorkOrderDetail].ok(
-        service.order_detail(order, lines), f"Job work order {order.code} updated"
+        service.order_detail(order, lines),
+        success_message(f"Job work order {order.code}", "updated"),
     )
 
 
@@ -378,7 +383,7 @@ async def delete_order(
     order_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_order(session, tenant, order_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft job work order deleted")
+    return ApiResponse[None].ok(None, success_message("Draft job work order", "deleted"))
 
 
 # -----------------------------------------------------------------------------
@@ -481,7 +486,7 @@ async def approve_order(
     order, lines = await service.approve_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[JobWorkOrderDetail].ok(
         service.order_detail(order, lines),
-        f"Job work order {order.code} approved and material reserved",
+        success_message(f"Job work order {order.code} approved and material", "reserved"),
     )
 
 
@@ -501,7 +506,8 @@ async def cancel_order(
 ) -> ApiResponse[JobWorkOrderSummary]:
     order = await service.cancel_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[JobWorkOrderSummary].ok(
-        JobWorkOrderSummary.model_validate(order), f"Job work order {order.code} cancelled"
+        JobWorkOrderSummary.model_validate(order),
+        success_message(f"Job work order {order.code}", "cancelled"),
     )
 
 
@@ -594,7 +600,8 @@ async def close_order(
 ) -> ApiResponse[JobWorkOrderSummary]:
     order = await service.close_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[JobWorkOrderSummary].ok(
-        JobWorkOrderSummary.model_validate(order), f"Job work order {order.code} closed"
+        JobWorkOrderSummary.model_validate(order),
+        success_message(f"Job work order {order.code}", "closed"),
     )
 
 

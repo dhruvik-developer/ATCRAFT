@@ -72,7 +72,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -269,7 +269,7 @@ function RfqPicker({
               )}
 
               {!results.isLoading && results.error && (
-                <p className="px-2 py-6 text-sm text-destructive">{results.error.message}</p>
+                <p className="px-2 py-6 text-sm text-destructive">{describeError(results.error)}</p>
               )}
 
               {!results.isLoading && !results.error && rows.length === 0 && (
@@ -408,7 +408,7 @@ export function QuotationDetailDialog({
           {!quotation.isLoading && quotation.error && (
             <Alert variant="destructive">
               <AlertTitle>Could not load this quotation</AlertTitle>
-              <AlertDescription>{quotation.error.message}</AlertDescription>
+              <AlertDescription>{describeError(quotation.error)}</AlertDescription>
             </Alert>
           )}
 
@@ -756,7 +756,7 @@ export function QuotationDecisionDialog({
             <Alert variant="warning">
               <AlertTitle>The other quotations could not be loaded</AlertTitle>
               <AlertDescription>
-                {comparison.error.message} You can still record the decision.
+                {describeError(comparison.error)} You can still record the decision.
               </AlertDescription>
             </Alert>
           )}
@@ -901,12 +901,12 @@ const PERCENT = /^\d{1,3}(\.\d{1,4})?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const lineSchema = z.object({
-  item_id: z.string().min(1, 'Choose an item'),
+  item_id: z.string().min(1, validation.choose('an item')),
   quantity: z
     .string()
     .trim()
     .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => toDecimal(value).greaterThan(0), 'Quantity must be greater than zero'),
+    .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
   unit_price: z.string().trim().regex(PRICE, 'Enter a price with up to 6 decimal places'),
   discount_percentage: z
     .string()
@@ -921,14 +921,14 @@ const lineSchema = z.object({
 
 const schema = z
   .object({
-    rfq_id: z.string().min(1, 'Choose the RFQ this quotation answers'),
-    vendor_id: z.string().min(1, 'Choose the vendor who quoted'),
+    rfq_id: z.string().min(1, validation.choose('the RFQ this quotation answers')),
+    vendor_id: z.string().min(1, validation.choose('the vendor who quoted')),
     vendor_reference: z
       .string()
       .trim()
       .min(1, "Record the vendor's own quotation number")
       .max(64, 'At most 64 characters'),
-    quotation_date: z.string().min(1, 'The date the vendor quoted is required'),
+    quotation_date: z.string().min(1, validation.required('Date the vendor quoted')),
     valid_until: z.string(),
     currency: z
       .string()
@@ -1217,7 +1217,7 @@ export function QuotationFormDialog({
             {isRevision && existing.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load this quotation</AlertTitle>
-                <AlertDescription>{existing.error.message}</AlertDescription>
+                <AlertDescription>{describeError(existing.error)}</AlertDescription>
                 <Button
                   type="button"
                   variant="outline"

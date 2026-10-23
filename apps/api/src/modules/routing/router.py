@@ -28,6 +28,7 @@ from src.core.deps import (
     require_any_permission,
     require_permission,
 )
+from src.core.messages import success_message
 from src.core.pagination import (
     PageParams,
     SortParams,
@@ -115,7 +116,8 @@ def work_center_filters(
     is_active: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired centres")] = False,
 ) -> WorkCenterFilters:
-    return WorkCenterFilters(
+    return bind_query_filters(
+        WorkCenterFilters,
         search=search,
         plant_id=plant_id,
         department_id=department_id,
@@ -136,7 +138,8 @@ def machine_filters(
     ] = None,
     include_deleted: Annotated[bool, Query(description="Include retired machines")] = False,
 ) -> MachineFilters:
-    return MachineFilters(
+    return bind_query_filters(
+        MachineFilters,
         search=search,
         work_center_id=work_center_id,
         status=machine_status,
@@ -158,7 +161,8 @@ def routing_filters(
         date | None, Query(description="Only routings effective on this date")
     ] = None,
 ) -> RoutingFilters:
-    return RoutingFilters(
+    return bind_query_filters(
+        RoutingFilters,
         search=search,
         item_id=item_id,
         status=routing_status,
@@ -172,7 +176,7 @@ def shift_filters(
     search: Annotated[str | None, Query(max_length=120, description="Code or name")] = None,
     is_active: Annotated[bool | None, Query()] = None,
 ) -> ShiftFilters:
-    return ShiftFilters(search=search, is_active=is_active)
+    return bind_query_filters(ShiftFilters, search=search, is_active=is_active)
 
 
 def roster_filters(
@@ -248,7 +252,7 @@ async def create_work_center(
     payload: WorkCenterCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[WorkCenterRead]:
     created = await WorkCenterService(session, tenant).create_work_center(payload)
-    return ApiResponse[WorkCenterRead].ok(created, "Work centre created")
+    return ApiResponse[WorkCenterRead].ok(created, success_message("Work centre", "created"))
 
 
 @router.get(
@@ -282,7 +286,7 @@ async def update_work_center(
     tenant: Tenant,
 ) -> ApiResponse[WorkCenterRead]:
     updated = await WorkCenterService(session, tenant).update_work_center(work_center_id, payload)
-    return ApiResponse[WorkCenterRead].ok(updated, "Work centre updated")
+    return ApiResponse[WorkCenterRead].ok(updated, success_message("Work centre", "updated"))
 
 
 @router.post(
@@ -300,7 +304,7 @@ async def activate_work_center(
     updated = await WorkCenterService(session, tenant).set_active(
         work_center_id, active=True, reason=payload.reason
     )
-    return ApiResponse[WorkCenterRead].ok(updated, "Work centre activated")
+    return ApiResponse[WorkCenterRead].ok(updated, success_message("Work centre", "activated"))
 
 
 @router.post(
@@ -318,7 +322,7 @@ async def deactivate_work_center(
     updated = await WorkCenterService(session, tenant).set_active(
         work_center_id, active=False, reason=payload.reason
     )
-    return ApiResponse[WorkCenterRead].ok(updated, "Work centre deactivated")
+    return ApiResponse[WorkCenterRead].ok(updated, success_message("Work centre", "deactivated"))
 
 
 @router.delete(
@@ -335,7 +339,7 @@ async def retire_work_center(
     work_center_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await WorkCenterService(session, tenant).retire_work_center(work_center_id, reason=reason)
-    return ApiResponse[None].ok(None, "Work centre retired")
+    return ApiResponse[None].ok(None, success_message("Work centre", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -371,7 +375,7 @@ async def create_machine(
     payload: MachineCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[MachineRead]:
     created = await MachineService(session, tenant).create_machine(payload)
-    return ApiResponse[MachineRead].ok(created, "Machine created")
+    return ApiResponse[MachineRead].ok(created, success_message("Machine", "created"))
 
 
 @router.get(
@@ -398,7 +402,7 @@ async def update_machine(
     machine_id: uuid.UUID, payload: MachineUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[MachineRead]:
     updated = await MachineService(session, tenant).update_machine(machine_id, payload)
-    return ApiResponse[MachineRead].ok(updated, "Machine updated")
+    return ApiResponse[MachineRead].ok(updated, success_message("Machine", "updated"))
 
 
 @router.post(
@@ -432,7 +436,7 @@ async def retire_machine(
     machine_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await MachineService(session, tenant).retire_machine(machine_id, reason=reason)
-    return ApiResponse[None].ok(None, "Machine retired")
+    return ApiResponse[None].ok(None, success_message("Machine", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -484,7 +488,7 @@ async def create_shift(
     payload: ShiftCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[ShiftRead]:
     created = await ShiftService(session, tenant).create_shift(payload)
-    return ApiResponse[ShiftRead].ok(created, "Shift created")
+    return ApiResponse[ShiftRead].ok(created, success_message("Shift", "created"))
 
 
 @router.get(
@@ -520,7 +524,7 @@ async def update_shift(
     shift_id: uuid.UUID, payload: ShiftUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[ShiftRead]:
     updated = await ShiftService(session, tenant).update_shift(shift_id, payload)
-    return ApiResponse[ShiftRead].ok(updated, "Shift updated")
+    return ApiResponse[ShiftRead].ok(updated, success_message("Shift", "updated"))
 
 
 @router.post(
@@ -535,7 +539,7 @@ async def activate_shift(
     updated = await ShiftService(session, tenant).set_active(
         shift_id, active=True, reason=payload.reason
     )
-    return ApiResponse[ShiftRead].ok(updated, "Shift activated")
+    return ApiResponse[ShiftRead].ok(updated, success_message("Shift", "activated"))
 
 
 @router.post(
@@ -551,7 +555,7 @@ async def deactivate_shift(
     updated = await ShiftService(session, tenant).set_active(
         shift_id, active=False, reason=payload.reason
     )
-    return ApiResponse[ShiftRead].ok(updated, "Shift deactivated")
+    return ApiResponse[ShiftRead].ok(updated, success_message("Shift", "deactivated"))
 
 
 @router.delete(
@@ -568,7 +572,7 @@ async def retire_shift(
     shift_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await ShiftService(session, tenant).retire_shift(shift_id, reason=reason)
-    return ApiResponse[None].ok(None, "Shift retired")
+    return ApiResponse[None].ok(None, success_message("Shift", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -687,7 +691,9 @@ async def cancel_roster_assignment(
     cancelled = await ShiftRosterService(session, tenant).cancel(
         assignment_id, reason=payload.reason
     )
-    return ApiResponse[ShiftAssignmentRead].ok(cancelled, "Assignment cancelled")
+    return ApiResponse[ShiftAssignmentRead].ok(
+        cancelled, success_message("Assignment", "cancelled")
+    )
 
 
 @router.get(
@@ -795,7 +801,7 @@ async def create_routing(
     payload: RoutingCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[RoutingDetail]:
     created = await RoutingService(session, tenant).create_routing(payload)
-    return ApiResponse[RoutingDetail].ok(created, "Routing created")
+    return ApiResponse[RoutingDetail].ok(created, success_message("Routing", "created"))
 
 
 @router.get(
@@ -826,7 +832,7 @@ async def update_routing(
     routing_id: uuid.UUID, payload: RoutingUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[RoutingDetail]:
     updated = await RoutingService(session, tenant).update_routing(routing_id, payload)
-    return ApiResponse[RoutingDetail].ok(updated, "Routing updated")
+    return ApiResponse[RoutingDetail].ok(updated, success_message("Routing", "updated"))
 
 
 @router.delete(
@@ -839,7 +845,7 @@ async def delete_routing(
     routing_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await RoutingService(session, tenant).delete_draft_routing(routing_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft routing deleted")
+    return ApiResponse[None].ok(None, success_message("Draft routing", "deleted"))
 
 
 @router.get(
@@ -902,7 +908,7 @@ async def approve_routing(
     approved = await RoutingService(session, tenant).approve_routing(
         principal, routing_id, reason=payload.reason
     )
-    return ApiResponse[RoutingSummary].ok(approved, "Routing approved")
+    return ApiResponse[RoutingSummary].ok(approved, success_message("Routing", "approved"))
 
 
 @router.post(
@@ -920,7 +926,7 @@ async def obsolete_routing(
     retired = await RoutingService(session, tenant).obsolete_routing(
         routing_id, reason=payload.reason
     )
-    return ApiResponse[RoutingSummary].ok(retired, "Routing retired")
+    return ApiResponse[RoutingSummary].ok(retired, success_message("Routing", "retired"))
 
 
 @router.post(

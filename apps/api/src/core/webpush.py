@@ -231,22 +231,53 @@ async def deliver_push(
 
 
 def push_payload(notification: Any) -> bytes:
+    """Fit the complete JSON payload, including Unicode metadata, in one record.
+
+    Character limits on the database columns do not bound their UTF-8 or JSON
+    byte lengths. Use one stable compact collapse key and fall back to the
+    notification feed before shortening a headline; never truncate a URL.
+    """
     data = {
         "id": str(notification.id),
         "title": notification.title,
         "body": notification.body,
         "url": notification.action_url or "/notifications",
-        "tag": notification.group_key or str(notification.id),
+        "tag": push_topic(notification),
         "severity": str(notification.severity),
         "count": notification.occurrence_count,
     }
-    while True:
-        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
-        if len(payload) <= MAX_PUSH_PAYLOAD_BYTES:
-            return payload
-        data["body"] = data["body"][
-            : max(0, len(data["body"]) - max(1, (len(payload) - MAX_PUSH_PAYLOAD_BYTES) // 2))
-        ]
+
+    def encode() -> bytes:
+        return json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
+
+    payload = encode()
+    if len(payload) <= MAX_PUSH_PAYLOAD_BYTES:
+        return payload
+
+    body = data["body"]
+    data["body"] = ""
+    if len(encode()) > MAX_PUSH_PAYLOAD_BYTES:
+        data["url"] = "/notifications"
+
+    def fit_text(field: str, text: str) -> None:
+        # JSON escapes also consume bytes. Binary search the serialized prefix,
+        # with a strictly shrinking interval so even malformed input terminates.
+        low, high = 0, len(text)
+        while low < high:
+            middle = (low + high + 1) // 2
+            data[field] = text[:middle]
+            if len(encode()) <= MAX_PUSH_PAYLOAD_BYTES:
+                low = middle
+            else:
+                high = middle - 1
+        data[field] = text[:low]
+
+    if len(encode()) > MAX_PUSH_PAYLOAD_BYTES:
+        fit_text("title", data["title"])
+    if len(encode()) > MAX_PUSH_PAYLOAD_BYTES:
+        raise ValueError("Push notification metadata exceeds the payload limit.")
+    fit_text("body", body)
+    return encode()
 
 
 def push_topic(notification: Any) -> str:

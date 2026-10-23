@@ -275,7 +275,9 @@ describe('the list', () => {
       },
     })
 
-    expect(await screen.findByText('The customer service is restarting')).toBeVisible()
+    expect(
+      await screen.findByText('The customer service is restarting', { exact: false }),
+    ).toBeVisible()
     expect(screen.getByRole('button', { name: /try again/i })).toBeVisible()
   })
 })

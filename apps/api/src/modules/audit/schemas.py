@@ -33,6 +33,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.core.constants import MAX_REQUEST_ID_LENGTH
 from src.core.types import IpAddress
 from src.modules.audit.models import AuditAction
 
@@ -40,7 +41,6 @@ from src.modules.audit.models import AuditAction
 #: ``String(64)``; a longer value is a caller bug, not a business error, and is
 #: rejected rather than truncated into a filter that silently matches nothing.
 MAX_ENTITY_TYPE_LENGTH = 64
-MAX_REQUEST_ID_LENGTH = 64
 MAX_DECISION_NOTE_LENGTH = 2000
 
 

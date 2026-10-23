@@ -163,7 +163,7 @@ export type LedgerStatement = SchemaOf<'LedgerStatement'>
  * `average_cost` is a UNIT PRICE at six decimal places (value divided by on-hand
  * quantity), not money at two - see `formatUnitCost` in the valuation tab.
  */
-export type InventoryValuationRow = SchemaOf<'InventoryValuationRow'>
+export type InventoryValuationRow = NonNullable<SchemaOf<'InventoryValuationPage'>['rows']>[number]
 
 /** Totals for the whole filtered set, not for the page on screen. */
 export type InventoryValuationSummary = SchemaOf<'InventoryValuationSummary'>

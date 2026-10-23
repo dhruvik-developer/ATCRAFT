@@ -69,7 +69,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
 import { formatDate, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
-import { errorDescription, success } from '@/lib/messages'
+import { describeError, errorDescription, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -190,7 +190,7 @@ function OpenPurchaseOrderPicker({
           )}
 
           {!results.isLoading && results.error && (
-            <p className="px-2 py-6 text-sm text-destructive">{(results.error as Error).message}</p>
+            <p className="px-2 py-6 text-sm text-destructive">{describeError(results.error)}</p>
           )}
 
           {!results.isLoading && !results.error && rows.length === 0 && (
@@ -263,7 +263,7 @@ const lineSchema = z.object({
 
 const schema = z
   .object({
-    receipt_date: z.string().min(1, 'Receipt date is required'),
+    receipt_date: z.string().min(1, validation.required('Receipt date')),
     vendor_delivery_note: z.string().trim().max(64, 'At most 64 characters'),
     vendor_invoice_number: z.string().trim().max(64, 'At most 64 characters'),
     gate_entry_number: z.string().trim().max(64, 'At most 64 characters'),
@@ -699,7 +699,7 @@ export function GrnReceiveDialog({
             {order && !detail.isLoading && detail.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load the order lines</AlertTitle>
-                <AlertDescription>{(detail.error as Error).message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             )}
 

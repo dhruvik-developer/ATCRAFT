@@ -726,7 +726,9 @@ describe('revising an offer that will not load', () => {
 
     const dialog = await stable(() => screen.getByRole('dialog'))
     await stable(() => within(dialog).getByText('Could not load this quotation'))
-    expect(within(dialog).getByText('The quotation could not be read')).toBeVisible()
+    expect(
+      within(dialog).getByText('The quotation could not be read (reference test)'),
+    ).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Save revised offer' })).toBeDisabled()
     expect(
       within(dialog).queryByRole('textbox', { name: /vendor quotation number/i }),
@@ -760,7 +762,7 @@ describe('the register itself', () => {
     })
 
     await stable(() => screen.getByText('Could not load this list'))
-    expect(screen.getByText('The quotation service is unavailable')).toBeVisible()
+    expect(screen.getByText('The quotation service is unavailable', { exact: false })).toBeVisible()
   })
 
   it('marks an offer that has already been turned into an order', async () => {

@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * One request for quotation: the header, the lines that were put out, and the
  * vendors they went to.
@@ -326,7 +327,7 @@ export default function RfqDetailPage() {
         />
         <Alert variant="destructive">
           <AlertTitle>Could not load this RFQ</AlertTitle>
-          <AlertDescription>{rfqQuery.error.message}</AlertDescription>
+          <AlertDescription>{describeError(rfqQuery.error)}</AlertDescription>
           <Button
             variant="outline"
             size="sm"

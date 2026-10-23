@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Audit trail.
  *
@@ -146,7 +147,7 @@ function AuditDetail({ row }: { row: AuditLogRow }) {
         ) : detail.error ? (
           <Alert variant="warning">
             <AlertTitle>Could not load what changed</AlertTitle>
-            <AlertDescription>{(detail.error as Error).message}</AlertDescription>
+            <AlertDescription>{describeError(detail.error)}</AlertDescription>
           </Alert>
         ) : changes.length === 0 ? (
           <p className="text-sm text-muted-foreground">

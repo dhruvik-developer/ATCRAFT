@@ -19,7 +19,7 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity } from '@/lib/format'
-import { salesInvoiceMessages, success } from '@/lib/messages'
+import { describeError, salesInvoiceMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -144,7 +144,7 @@ function CreditNoteDialog({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: salesInvoiceKeys.all })
       void queryClient.invalidateQueries({ queryKey: ['finance', 'credit-notes'] })
-      toast.success('Credit note issued')
+      toast.success(success.issued('Credit note'))
       onClose()
     },
   })
@@ -183,7 +183,7 @@ function CreditNoteDialog({
               </div>
             )
           })}
-          {issue.error && <FieldError message={issue.error.message} />}
+          {issue.error && <FieldError message={describeError(issue.error)} />}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -275,8 +275,8 @@ export function RaiseSalesInvoiceDialog({
           {!can(P.SALES_INVOICE_VIEW) && (
             <FieldError message="Viewing sales invoices is required to review the invoice before issuing it." />
           )}
-          {preview.error && <FieldError message={preview.error.message} />}
-          {issue.error && <FieldError message={issue.error.message} />}
+          {preview.error && <FieldError message={describeError(preview.error)} />}
+          {issue.error && <FieldError message={describeError(issue.error)} />}
           {preview.data && (
             <>
               <DescriptionList
@@ -380,7 +380,7 @@ export function SalesInvoiceDetailDialog({
             <DialogDescription>{salesInvoiceMessages.snapshot}</DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-4">
-            {detail.error && <FieldError message={detail.error.message} />}
+            {detail.error && <FieldError message={describeError(detail.error)} />}
             {detail.isLoading && <p>Loading invoice...</p>}
             {invoice && (
               <>
@@ -512,7 +512,7 @@ export function SalesInvoiceDetailDialog({
         {reasonTouched && reason.trim().length < REASON_MIN_LENGTH && (
           <FieldError message="A cancellation needs at least three characters." />
         )}
-        {cancel.error && <FieldError message={cancel.error.message} />}
+        {cancel.error && <FieldError message={describeError(cancel.error)} />}
       </ConfirmDialog>
       {invoice && (
         <CreditNoteDialog

@@ -32,7 +32,8 @@ from src.core.deps import (
     require_any_permission,
     require_permission,
 )
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -88,7 +89,8 @@ def customer_filters(
     ] = None,
     include_deleted: Annotated[bool, Query(description="Include retired customers")] = False,
 ) -> CustomerFilters:
-    return CustomerFilters(
+    return bind_query_filters(
+        CustomerFilters,
         search=search,
         customer_type=customer_type,
         price_list_type=price_list_type,
@@ -164,7 +166,7 @@ async def create_customer(
     payload: CustomerCreate,
 ) -> ApiResponse[CustomerDetail]:
     created = await CustomerService(session, tenant).create_customer(principal, payload)
-    return ApiResponse.ok(created, "Customer created")
+    return ApiResponse.ok(created, success_message("Customer", "created"))
 
 
 @router.get(
@@ -195,7 +197,7 @@ async def update_customer(
     updated = await CustomerService(session, tenant).update_customer(
         principal, customer_id, payload
     )
-    return ApiResponse.ok(updated, "Customer updated")
+    return ApiResponse.ok(updated, success_message("Customer", "updated"))
 
 
 @router.post(
@@ -214,7 +216,7 @@ async def activate_customer(
     updated = await CustomerService(session, tenant).set_active(
         principal, customer_id, active=True, reason=payload.reason
     )
-    return ApiResponse.ok(updated, "Customer activated")
+    return ApiResponse.ok(updated, success_message("Customer", "activated"))
 
 
 @router.post(
@@ -233,7 +235,7 @@ async def deactivate_customer(
     updated = await CustomerService(session, tenant).set_active(
         principal, customer_id, active=False, reason=payload.reason
     )
-    return ApiResponse.ok(updated, "Customer deactivated")
+    return ApiResponse.ok(updated, success_message("Customer", "deactivated"))
 
 
 @router.post(
@@ -252,7 +254,7 @@ async def block_customer(
     updated = await CustomerService(session, tenant).block(
         principal, customer_id, reason=payload.reason
     )
-    return ApiResponse.ok(updated, "Customer blocked")
+    return ApiResponse.ok(updated, success_message("Customer", "blocked"))
 
 
 @router.post(
@@ -271,7 +273,7 @@ async def unblock_customer(
     updated = await CustomerService(session, tenant).unblock(
         principal, customer_id, reason=payload.reason
     )
-    return ApiResponse.ok(updated, "Credit hold released")
+    return ApiResponse.ok(updated, success_message("Credit hold", "released"))
 
 
 @router.get(
@@ -307,7 +309,7 @@ async def retire_customer(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await CustomerService(session, tenant).retire_customer(principal, customer_id, reason=reason)
-    return ApiResponse.ok(None, "Customer retired")
+    return ApiResponse.ok(None, success_message("Customer", "retired"))
 
 
 @router.post(
@@ -320,7 +322,9 @@ async def restore_customer(
     session: DbSession, tenant: Tenant, principal: CurrentUser, customer_id: uuid.UUID
 ) -> ApiResponse[CustomerDetail]:
     restored = await CustomerService(session, tenant).restore_customer(principal, customer_id)
-    return ApiResponse.ok(restored, "Customer restored; activate it when its terms are confirmed")
+    return ApiResponse.ok(
+        restored, success_message("Customer restored; activate it when its terms are", "confirmed")
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -363,7 +367,7 @@ async def create_address(
     payload: AddressCreate,
 ) -> ApiResponse[AddressRead]:
     created = await CustomerService(session, tenant).create_address(principal, customer_id, payload)
-    return ApiResponse.ok(created, "Address added")
+    return ApiResponse.ok(created, success_message("Address", "added"))
 
 
 @router.patch(
@@ -383,7 +387,7 @@ async def update_address(
     updated = await CustomerService(session, tenant).update_address(
         principal, customer_id, address_id, payload
     )
-    return ApiResponse.ok(updated, "Address updated")
+    return ApiResponse.ok(updated, success_message("Address", "updated"))
 
 
 @router.post(
@@ -402,7 +406,7 @@ async def set_default_address(
     updated = await CustomerService(session, tenant).set_default_address(
         principal, customer_id, address_id
     )
-    return ApiResponse.ok(updated, "Default address updated")
+    return ApiResponse.ok(updated, success_message("Default address", "updated"))
 
 
 @router.delete(
@@ -422,7 +426,7 @@ async def delete_address(
     await CustomerService(session, tenant).delete_address(
         principal, customer_id, address_id, reason=reason
     )
-    return ApiResponse.ok(None, "Address removed")
+    return ApiResponse.ok(None, success_message("Address", "removed"))
 
 
 # -----------------------------------------------------------------------------
@@ -464,7 +468,7 @@ async def create_contact(
     payload: ContactCreate,
 ) -> ApiResponse[ContactRead]:
     created = await CustomerService(session, tenant).create_contact(principal, customer_id, payload)
-    return ApiResponse.ok(created, "Contact added")
+    return ApiResponse.ok(created, success_message("Contact", "added"))
 
 
 @router.patch(
@@ -484,7 +488,7 @@ async def update_contact(
     updated = await CustomerService(session, tenant).update_contact(
         principal, customer_id, contact_id, payload
     )
-    return ApiResponse.ok(updated, "Contact updated")
+    return ApiResponse.ok(updated, success_message("Contact", "updated"))
 
 
 @router.post(
@@ -503,7 +507,7 @@ async def set_primary_contact(
     updated = await CustomerService(session, tenant).set_primary_contact(
         principal, customer_id, contact_id
     )
-    return ApiResponse.ok(updated, "Primary contact updated")
+    return ApiResponse.ok(updated, success_message("Primary contact", "updated"))
 
 
 @router.delete(
@@ -523,4 +527,4 @@ async def delete_contact(
     await CustomerService(session, tenant).delete_contact(
         principal, customer_id, contact_id, reason=reason
     )
-    return ApiResponse.ok(None, "Contact removed")
+    return ApiResponse.ok(None, success_message("Contact", "removed"))

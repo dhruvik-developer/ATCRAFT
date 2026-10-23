@@ -76,7 +76,7 @@ import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatFileSize, humanise } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { describeError, joinValidationMessages, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -226,7 +226,7 @@ function UploadDialog({
       const fields = error.fieldErrors
       const joined = (...keys: string[]) => {
         const messages = keys.flatMap((key) => fields[key] ?? [])
-        return messages.length > 0 ? messages.join('. ') : undefined
+        return messages.length > 0 ? joinValidationMessages(messages) : undefined
       }
       setErrors({
         file: joined('file'),
@@ -415,7 +415,7 @@ function UploadDialog({
           {upload.error && (
             <Alert variant="destructive">
               <AlertTitle>The file was not stored</AlertTitle>
-              <AlertDescription>{upload.error.message}</AlertDescription>
+              <AlertDescription>{describeError(upload.error)}</AlertDescription>
             </Alert>
           )}
         </DialogBody>
@@ -509,7 +509,7 @@ function DocumentDetailDialog({
           {!expired && detail.error && (
             <Alert variant="destructive">
               <AlertTitle>This document is no longer available</AlertTitle>
-              <AlertDescription>{detail.error.message}</AlertDescription>
+              <AlertDescription>{describeError(detail.error)}</AlertDescription>
             </Alert>
           )}
 

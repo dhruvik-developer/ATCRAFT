@@ -86,7 +86,7 @@ import {
   formatQuantity,
   humanise,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -184,7 +184,7 @@ function PanelError({ error, onRetry }: { error: Error; onRetry: () => void }) {
   return (
     <Alert variant="destructive">
       <AlertTitle>Could not load this panel</AlertTitle>
-      <AlertDescription>{error.message}</AlertDescription>
+      <AlertDescription>{describeError(error)}</AlertDescription>
       <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
         <RefreshCw />
         Try again
@@ -997,7 +997,7 @@ export default function BomDetailPage() {
       if (key === 'delete' || !updated) {
         toast.success(
           success.deleted('Draft'),
-          `${bomCode} is gone, along with its lines and operations.`,
+          `${bomCode} was deleted, along with its lines and operations.`,
         )
         // `GET /bom/{id}` now answers 404. Replacing the history entry keeps
         // Back from returning to a page that can only fail.
@@ -1032,7 +1032,7 @@ export default function BomDetailPage() {
         />
         <Alert variant="destructive">
           <AlertTitle>Could not load this bill</AlertTitle>
-          <AlertDescription>{(bomQuery.error as Error).message}</AlertDescription>
+          <AlertDescription>{describeError(bomQuery.error)}</AlertDescription>
           <Button
             variant="outline"
             size="sm"

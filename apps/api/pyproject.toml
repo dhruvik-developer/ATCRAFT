@@ -171,9 +171,12 @@ filterwarnings = ["error::DeprecationWarning:src.*"]
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["src/main.py", "*/migrations/*", "*/__init__.py"]
+branch = true
+omit = ["*/migrations/*", "*/__init__.py"]
 
 [tool.coverage.report]
+precision = 2
+fail_under = 80
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

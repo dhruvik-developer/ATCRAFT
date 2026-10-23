@@ -51,7 +51,7 @@ import {
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -63,8 +63,16 @@ import {
 } from './masters-model'
 
 const schema = z.object({
-  code: z.string().trim().min(1, 'Code is required').max(32, 'Code is at most 32 characters'),
-  name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+  code: z
+    .string()
+    .trim()
+    .min(1, validation.required('Code'))
+    .max(32, 'Code is at most 32 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(255, 'Name is at most 255 characters'),
   description: z.string(),
   parent_id: z.string(),
   is_active: z.boolean(),

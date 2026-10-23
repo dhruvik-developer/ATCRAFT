@@ -50,11 +50,6 @@ export class ErrorBoundary extends Component<Props, State> {
               ? 'The error has been reported. Reloading usually clears it; if it keeps happening, tell your administrator what you were doing.'
               : 'Reloading usually clears it; if it keeps happening, tell your administrator what you were doing.'}
           </p>
-          {import.meta.env.DEV && (
-            <pre className="mt-4 max-h-48 overflow-auto rounded-md bg-muted p-3 text-left text-xs">
-              {this.state.error.message}
-            </pre>
-          )}
           <div className="mt-6 flex justify-center gap-2">
             <Button onClick={() => window.location.reload()}>Reload</Button>
             <Button variant="outline" onClick={() => this.setState({ error: null })}>

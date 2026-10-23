@@ -18,6 +18,7 @@ and be wrong on the floor.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -408,6 +409,95 @@ class TestSerialMovement:
         inbound = [leg for leg in legs if leg.transaction_type is TransactionType.TRANSFER_IN]
         assert len(outbound) == len(inbound) == 2
 
+    async def test_a_transfer_can_name_units_by_their_printed_labels(
+        self, session, tenant, unique_code
+    ) -> None:
+        """The stock screen types labels; the API resolves them to unit ids.
+
+        This is the exact payload shape `CreateTransferDialog` sends, so a
+        regression in label resolution shows up as an unusable transfer screen
+        rather than passing because the test happened to know the UUIDs.
+        """
+        item, source, units = await self._two_units(session, tenant, unique_code, item_code="LBL")
+        destination = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("DST")
+        )
+        transfer = await StockTransferService(session, tenant).create(
+            StockTransferCreate.model_validate(
+                {
+                    "from_warehouse_id": str(source.id),
+                    "to_warehouse_id": str(destination.id),
+                    "reason": "Move the labelled pumps to the dispatch store",
+                    "lines": [
+                        {
+                            "item_id": str(item.id),
+                            "quantity": "2",
+                            "serial_numbers": [unit.serial_number for unit in units],
+                        }
+                    ],
+                }
+            )
+        )
+        assert set(transfer.lines[0].serial_ids or []) == {unit.id for unit in units}
+
+    async def test_a_transfer_refuses_an_unregistered_label(
+        self, session, tenant, unique_code
+    ) -> None:
+        """Typing a label is a reference to stock, not permission to mint a unit."""
+        item, source, _units = await self._two_units(session, tenant, unique_code, item_code="LBLX")
+        destination = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("DST")
+        )
+        payload = StockTransferCreate.model_validate(
+            {
+                "from_warehouse_id": str(source.id),
+                "to_warehouse_id": str(destination.id),
+                "reason": "Move a unit whose label cannot be read",
+                "lines": [
+                    {
+                        "item_id": str(item.id),
+                        "quantity": "1",
+                        "serial_numbers": ["NOT-A-REGISTERED-UNIT"],
+                    }
+                ],
+            }
+        )
+        with pytest.raises(BusinessRuleError, match="is not registered"):
+            await StockTransferService(session, tenant).create(payload)
+
+    async def test_a_transfer_refuses_a_unit_named_by_id_and_label(
+        self, session, tenant, unique_code
+    ) -> None:
+        """The document validators see two shapes; the resolved ids see one unit."""
+        item, source, units = await self._two_units(session, tenant, unique_code, item_code="LBLD")
+        destination = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("DST")
+        )
+        payload = StockTransferCreate.model_validate(
+            {
+                "from_warehouse_id": str(source.id),
+                "to_warehouse_id": str(destination.id),
+                "reason": "Move the same unit on two transfer lines",
+                "lines": [
+                    {
+                        "item_id": str(item.id),
+                        "quantity": "1",
+                        "serial_ids": [str(units[0].id)],
+                    },
+                    {
+                        "item_id": str(item.id),
+                        "quantity": "1",
+                        # A different batch defeats the document tuple check
+                        # without making the second line a different unit.
+                        "batch_id": str(uuid.uuid4()),
+                        "serial_numbers": [units[0].serial_number],
+                    },
+                ],
+            }
+        )
+        with pytest.raises(BusinessRuleError, match="same unit"):
+            await StockTransferService(session, tenant).create(payload)
+
     async def test_a_write_off_retires_the_named_unit_only(
         self, session, tenant, unique_code
     ) -> None:
@@ -442,6 +532,32 @@ class TestSerialMovement:
         assert (await trace.get_serial(survivor)).serial.status is SerialStatus.IN_STOCK
         balance = await get_balance(session, tenant, item.id, warehouse.id)
         assert balance is not None and balance.on_hand_quantity == 1
+
+    async def test_a_write_off_can_name_the_unit_by_its_printed_label(
+        self, session, tenant, unique_code
+    ) -> None:
+        """The adjustment dialog sends labels, not unit UUIDs."""
+        item, warehouse, units = await self._two_units(
+            session, tenant, unique_code, item_code="ADJL"
+        )
+        retired = units[0]
+        draft = await StockAdjustmentService(session, tenant).create(
+            StockAdjustmentCreate.model_validate(
+                {
+                    "warehouse_id": str(warehouse.id),
+                    "reason_code": "DAMAGE",
+                    "reason": "Cracked housing found in the rack",
+                    "lines": [
+                        {
+                            "item_id": str(item.id),
+                            "quantity": "-1",
+                            "serial_numbers": [retired.serial_number],
+                        }
+                    ],
+                }
+            )
+        )
+        assert draft.lines[0].serial_ids == [retired.id]
 
 
 def test_bulk_registration_is_bounded_and_normalises_labels() -> None:

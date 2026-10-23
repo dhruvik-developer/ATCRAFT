@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Packing orders.
  *
@@ -97,7 +98,7 @@ function CartonScanHistory() {
       {history.isLoading && <p className="mt-2 text-sm text-muted-foreground">Loading scans...</p>}
       {history.error && (
         <div className="mt-2">
-          <FieldError message={history.error.message} />
+          <FieldError message={describeError(history.error)} />
         </div>
       )}
       {!history.isLoading && !history.error && rows.length === 0 && (
@@ -191,7 +192,7 @@ function CartonScanPanel({
       </form>
       {scan.error && (
         <div className="mt-2">
-          <FieldError message={scan.error.message} />
+          <FieldError message={describeError(scan.error)} />
         </div>
       )}
       {scan.data && (

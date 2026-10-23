@@ -4,6 +4,14 @@ The Alembic history was squashed to a single revision, `20261021_0100`, so a
 new checkout and a new database start from one readable baseline instead of 58
 incremental files. The application schema did not change.
 
+> **Update — 22 October 2026.** The chain now extends through
+> `20261027_0100`. That forward migration reconciles the historical missing
+> timestamp defaults/indexes, tenant foreign-key deletion policy and equivalent
+> CHECK names; the baseline remains unchanged. Fresh migrations must agree with
+> the models under an unfiltered `alembic check`. The counts and stamping
+> procedure below record the original squash, not the current forward head.
+> See [the standards verification](development-standards-20261022.md).
+
 | | Before | After |
 |---|---|---|
 | Head | `20261020_0100` | `20261021_0100` |

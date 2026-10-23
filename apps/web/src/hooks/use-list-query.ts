@@ -15,8 +15,8 @@ import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { api } from '@/lib/api-client'
-import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import type { ListParams, PaginatedEnvelope } from '@/types/api'
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@/lib/constants'
+import type { ListParams } from '@/types/api'
 
 export interface UseListQueryOptions {
   /** API path, e.g. `/inventory/balances`. */
@@ -32,6 +32,8 @@ export interface UseListQueryOptions {
   defaultSortDir?: 'asc' | 'desc'
   /** Ask the API to skip the exact COUNT on very large tables. */
   withTotal?: boolean
+  /** Report endpoints may escalate from inline rows to an HTTP 202 background job. */
+  allowAccepted?: boolean
   enabled?: boolean
   staleTime?: number
   refetchInterval?: number | false
@@ -43,6 +45,17 @@ export interface UseListQueryOptions {
   refetchOnWindowFocus?: boolean
 }
 
+/** A shared/bookmarked URL must not turn every list into an invalid API request. */
+function positiveInteger(
+  value: string | null,
+  fallback: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+) {
+  if (value === null || !/^\d+$/.test(value)) return fallback
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= maximum ? parsed : fallback
+}
+
 export function useListQuery<T>({
   path,
   queryKey,
@@ -52,6 +65,7 @@ export function useListQuery<T>({
   defaultSortBy,
   defaultSortDir = 'asc',
   withTotal = true,
+  allowAccepted = false,
   enabled = true,
   staleTime,
   refetchInterval = false,
@@ -60,11 +74,12 @@ export function useListQuery<T>({
   const [searchParams, setSearchParams] = useSearchParams()
   const prefix = namespace ? `${namespace}_` : ''
 
-  const page = Number(searchParams.get(`${prefix}page`) ?? 1)
-  const limit = Number(searchParams.get(`${prefix}limit`) ?? defaultLimit)
+  const page = positiveInteger(searchParams.get(`${prefix}page`), 1)
+  const limit = positiveInteger(searchParams.get(`${prefix}limit`), defaultLimit, MAX_PAGE_SIZE)
   const search = searchParams.get(`${prefix}q`) ?? ''
   const sortBy = searchParams.get(`${prefix}sort`) ?? defaultSortBy
-  const sortDir = (searchParams.get(`${prefix}dir`) as 'asc' | 'desc' | null) ?? defaultSortDir
+  const rawDirection = searchParams.get(`${prefix}dir`)
+  const sortDir = rawDirection === 'asc' || rawDirection === 'desc' ? rawDirection : defaultSortDir
 
   const params: ListParams = useMemo(
     () => ({
@@ -83,7 +98,10 @@ export function useListQuery<T>({
 
   const query = useQuery({
     queryKey: queryKey(params),
-    queryFn: () => api.getPage<T>(path, { params }),
+    queryFn: ({ signal }) =>
+      allowAccepted
+        ? api.getPageOrAccepted<T>(path, { params, signal })
+        : api.getPage<T>(path, { params, signal }),
     // Keeps the previous page visible while the next one loads, so the table
     // does not collapse to a skeleton on every page click.
     placeholderData: keepPreviousData,
@@ -118,9 +136,12 @@ export function useListQuery<T>({
     [prefix, setSearchParams],
   )
 
+  const pageEnvelope = query.data && 'pagination' in query.data ? query.data : undefined
+
   return {
-    data: (query.data as PaginatedEnvelope<T> | undefined)?.data ?? [],
-    pagination: (query.data as PaginatedEnvelope<T> | undefined)?.pagination,
+    data: pageEnvelope?.data ?? [],
+    pagination: pageEnvelope?.pagination,
+    acceptedJob: query.data && !('pagination' in query.data) ? query.data.data : undefined,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error as Error | null,

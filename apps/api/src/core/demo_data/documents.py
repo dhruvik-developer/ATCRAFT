@@ -200,7 +200,9 @@ def _specs(ctx: DemoContext) -> tuple[_FileSpec, ...]:
     )
 
 
-async def _already_uploaded(ctx: DemoContext, file_name: str, entity_id: uuid.UUID) -> bool:
+async def _existing_document_id(
+    ctx: DemoContext, file_name: str, entity_id: uuid.UUID
+) -> uuid.UUID | None:
     """Has this exact file already been filed against this exact record?
 
     Documents carry no code column, so the natural key is the pair the screen
@@ -220,7 +222,7 @@ async def _already_uploaded(ctx: DemoContext, file_name: str, entity_id: uuid.UU
         )
         .limit(1)
     )
-    return (await ctx.session.execute(stmt)).first() is not None
+    return (await ctx.session.execute(stmt)).scalar_one_or_none()
 
 
 async def seed(ctx: DemoContext) -> None:
@@ -239,9 +241,10 @@ async def seed(ctx: DemoContext) -> None:
             )
             continue
 
-        if await _already_uploaded(ctx, spec.file_name, entity_id):
+        existing_id = await _existing_document_id(ctx, spec.file_name, entity_id)
+        if existing_id is not None:
             existing += 1
-            ctx.remember(STAGE, spec.key, entity_id)
+            ctx.remember("document", spec.key, existing_id)
             continue
 
         upload = UploadFile(

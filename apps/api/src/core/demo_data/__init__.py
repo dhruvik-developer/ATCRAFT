@@ -149,21 +149,34 @@ async def find_by_code(
     return (await session.execute(stmt)).scalars().first()
 
 
-async def _resolve_principal(session: AsyncSession, admin_email: str) -> Principal:
+async def _resolve_principal(
+    session: AsyncSession, admin_email: str, *, company_code: str | None = None
+) -> Principal:
     """Act as the seeded administrator, with every permission the code defines.
 
     Demonstration data has to cross every module, so it runs with the full set
     rather than a role's subset. This is a developer tool operating on a
     developer database; it is never wired into the application.
     """
+    from src.modules.organization.models import Company
     from src.modules.users.models import User
 
-    user = (await session.execute(select(User).where(User.email == admin_email))).scalars().first()
-    if user is None:
+    stmt = select(User).where(User.email == admin_email.lower())
+    if company_code is not None:
+        stmt = stmt.join(Company, Company.id == User.company_id).where(
+            Company.code == company_code.upper()
+        )
+    users = list((await session.execute(stmt)).scalars())
+    if not users:
         raise DemoDataError(
             f"no user {admin_email!r} exists. Run `python -m src.core.seed` first — "
             "this tool populates a seeded database, it does not replace the seed."
         )
+    if len(users) != 1:
+        raise DemoDataError(
+            f"more than one company has administrator {admin_email!r}; specify --company-code"
+        )
+    user = users[0]
 
     return Principal(
         user_id=user.id,
@@ -193,7 +206,7 @@ STAGE_ORDER: tuple[str, ...] = (
 def _load_stage(name: str) -> Stage:
     """Import one stage on demand.
 
-    Deliberately not a module-level import of all five: ``--only masters`` has
+    Deliberately not a module-level import of every stage: ``--only masters`` has
     to work while a sibling stage is missing or mid-edit, which is exactly the
     situation when one is being developed or debugged. An eager import turns an
     unrelated stage's syntax error into "nothing runs at all".
@@ -205,7 +218,9 @@ def _load_stage(name: str) -> Stage:
     return cast("Stage", seed_fn)
 
 
-async def run(admin_email: str, *, only: tuple[str, ...] = ()) -> DemoContext:
+async def run(
+    admin_email: str, *, only: tuple[str, ...] = (), company_code: str | None = None
+) -> DemoContext:
     """Run every stage in dependency order and return the filled context."""
     import_all_models()
 
@@ -216,7 +231,7 @@ async def run(admin_email: str, *, only: tuple[str, ...] = ()) -> DemoContext:
         )
 
     async with session_scope() as session:
-        principal = await _resolve_principal(session, admin_email)
+        principal = await _resolve_principal(session, admin_email, company_code=company_code)
         ctx = DemoContext(
             session=session,
             tenant=TenantContext(
@@ -235,8 +250,9 @@ async def run(admin_email: str, *, only: tuple[str, ...] = ()) -> DemoContext:
                 continue
             log.info("demo.stage_start", stage=name)
             await _load_stage(name)(ctx)
-            # Flush rather than commit: the whole run is one transaction, so a
-            # stage that fails halfway leaves no half-built business behind.
+            # Services own their business commits. Flush remaining stage work;
+            # completed documents survive a later failure and deterministic
+            # identifiers let a rerun resume without duplicating them.
             await session.flush()
             log.info("demo.stage_done", stage=name, **ctx.counts.get(name, {}))
 
@@ -271,17 +287,21 @@ def main() -> int:
         help="The seeded administrator to act as (default: %(default)s)",
     )
     parser.add_argument(
+        "--company-code",
+        default=None,
+        help="Company code, required when the administrator email exists in multiple companies",
+    )
+    parser.add_argument(
         "--only",
         default="",
-        help="Comma-separated stages to run (masters, engineering, procurement, "
-        "operations, finance). Default: all, in order.",
+        help=f"Comma-separated stages to run ({', '.join(STAGE_ORDER)}). Default: all, in order.",
     )
     args = parser.parse_args()
 
     configure_logging()
     only = tuple(s.strip() for s in args.only.split(",") if s.strip())
     try:
-        ctx = asyncio.run(run(args.admin_email, only=only))
+        ctx = asyncio.run(run(args.admin_email, only=only, company_code=args.company_code))
     except DemoDataError as exc:
         print(f"\n  Demo data failed: {exc}\n", file=sys.stderr)
         return 1

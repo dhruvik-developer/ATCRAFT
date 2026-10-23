@@ -33,6 +33,9 @@ kind                    codes
                         ``-WEST``)
 ``department``          ``DM-DEPT-PROD``, ``DM-DEPT-QC`` ... each with its
                         default cost centre
+``plant``               ``DM-PLANT-RAJKOT``, linked to the baseline head office
+``financial_year``      the current company-calendar period (``2026-27`` ...)
+``item_variant``        ``DM-VAR-LEVER-BN``, a Black Nickel handle finish
 ======================  =====================================================
 
 Units, warehouses and the baseline categories keep the codes
@@ -68,7 +71,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from src.common.codes import normalise_code
+from src.common.codes import financial_year_key, normalise_code
 from src.core.clock import today
 from src.core.demo_data import DemoContext, find_by_code
 from src.core.deps import TenantContext
@@ -83,9 +86,28 @@ from src.modules.customers.models import (
 )
 from src.modules.customers.schemas import AddressCreate, ContactCreate, CustomerCreate
 from src.modules.customers.service import CustomerService
-from src.modules.organization.models import Branch, CostCentre, CostCentreType, Department
-from src.modules.organization.schemas import CostCentreCreate, DepartmentCreate, DepartmentUpdate
-from src.modules.organization.service import CostCentreService, DepartmentService
+from src.modules.organization.models import (
+    Branch,
+    Company,
+    CostCentre,
+    CostCentreType,
+    Department,
+    FinancialYear,
+    Plant,
+)
+from src.modules.organization.schemas import (
+    CostCentreCreate,
+    DepartmentCreate,
+    DepartmentUpdate,
+    FinancialYearCreate,
+    PlantCreate,
+)
+from src.modules.organization.service import (
+    CostCentreService,
+    DepartmentService,
+    FinancialYearService,
+    PlantService,
+)
 from src.modules.products.models import (
     Brand,
     Item,
@@ -94,6 +116,7 @@ from src.modules.products.models import (
     ItemCategory,
     ItemGroup,
     ItemPrice,
+    ItemVariant,
     ItemVendorLink,
     Manufacturer,
     PriceType,
@@ -108,6 +131,7 @@ from src.modules.products.schemas import (
     ItemUpdate,
     ManufacturerCreate,
     PriceCreate,
+    VariantCreate,
     VendorLinkCreate,
     VendorLinkUpdate,
 )
@@ -117,6 +141,7 @@ from src.modules.products.service import (
     create_item,
     create_manufacturer,
     create_price,
+    create_variant,
     link_vendor,
     update_item,
     update_vendor_link,
@@ -1111,8 +1136,12 @@ LINK_MAKERS: dict[tuple[tuple[str, ...], tuple[str, ...]], tuple[tuple[str, ...]
 }
 
 
-#: The two staff accounts, as ``(code parts, full name, e-mail, role, employee
+#: The staff accounts, as ``(code parts, full name, e-mail, role, employee
 #: code)``. See the module docstring for why the buyer has to exist at all.
+#: One account per role that receives a notification in the demonstration
+#: workflows matters: role-targeted notifications are dropped when no active
+#: user holds the role, so a QC, planning, stores and plant login is what makes
+#: those notification flows visible instead of only logging a warning.
 STAFF: tuple[tuple[tuple[str, ...], str, str, str, str], ...] = (
     (
         ("USER", "BUYER"),
@@ -1127,6 +1156,34 @@ STAFF: tuple[tuple[tuple[str, ...], str, str, str, str], ...] = (
         "rahul.mehta@atcraft.example",
         "SALES_EXECUTIVE",
         "EMP-1088",
+    ),
+    (
+        ("USER", "QC"),
+        "Anjali Kulkarni",
+        "qc.inspector@atcraft.example",
+        "QC_INSPECTOR",
+        "EMP-QC-001",
+    ),
+    (
+        ("USER", "PLANNER"),
+        "Vikram Joshi",
+        "planner@atcraft.example",
+        "PLANNER",
+        "EMP-PLN-001",
+    ),
+    (
+        ("USER", "STORE"),
+        "Deepak Verma",
+        "store.keeper@atcraft.example",
+        "STORE_KEEPER",
+        "EMP-STK-001",
+    ),
+    (
+        ("USER", "PLANT"),
+        "Kavita Iyer",
+        "plant.manager@atcraft.example",
+        "PLANT_MANAGER",
+        "EMP-PLT-001",
     ),
 )
 
@@ -1312,6 +1369,60 @@ async def _branch_id(ctx: DemoContext) -> uuid.UUID | None:
 
 
 # --- stages -------------------------------------------------------------------
+
+
+async def _seed_plant(ctx: DemoContext) -> None:
+    code = ctx.code("PLANT", "RAJKOT")
+    existing = await find_by_code(ctx.session, Plant, ctx.company_id, code)
+    if existing is not None:
+        _seen(ctx, "plant", code, existing.id, created=False)
+        return
+    plant = await PlantService(ctx.session, ctx.tenant).create_plant(
+        PlantCreate(
+            code=code,
+            name="Rajkot Architectural Hardware Works",
+            branch_id=await _branch_id(ctx),
+            address_line1="Demonstration manufacturing works, Shapar Industrial Area",
+            city="Rajkot",
+            state="Gujarat",
+        )
+    )
+    _seen(ctx, "plant", code, plant.id, created=True)
+
+
+async def _seed_financial_year(ctx: DemoContext, anchor: date) -> None:
+    """Use the numbering convention and company calendar, without overlapping a live year."""
+    start_month = await ctx.session.scalar(
+        select(Company.financial_year_start_month).where(Company.id == ctx.company_id)
+    )
+    if start_month is None:
+        raise NotFoundError("Company", ctx.company_id)
+    code = financial_year_key(anchor, start_month)
+    existing = await find_by_code(ctx.session, FinancialYear, ctx.company_id, code)
+    if existing is not None:
+        _seen(ctx, "financial_year", code, existing.id, created=False)
+        return
+
+    start_year = anchor.year if anchor.month >= start_month else anchor.year - 1
+    start = date(start_year, start_month, 1)
+    end = date(start_year + 1, start_month, 1) - timedelta(days=1)
+    service = FinancialYearService(ctx.session, ctx.tenant)
+    overlap = await service.repo.overlapping_active(start, end)
+    if overlap is not None:
+        # A client-owned calendar may have a different label or first-year range.
+        # Reuse it; opening a competing active period would violate the service rule.
+        year_id = _seen(ctx, "financial_year", overlap.code, overlap.id, created=False)
+        ctx.remember("financial_year", code, year_id)
+        return
+    year = await service.create_year(
+        FinancialYearCreate(
+            code=code,
+            start_date=start,
+            end_date=end,
+            notes="Demonstration accounting period using the company's configured calendar.",
+        )
+    )
+    _seen(ctx, "financial_year", code, year.id, created=True)
 
 
 async def _seed_units(ctx: DemoContext) -> None:
@@ -1701,6 +1812,45 @@ async def _seed_items(ctx: DemoContext) -> None:
             ),
         )
         _seen(ctx, "item", code, item.id, created=True)
+
+
+async def _seed_item_variant(ctx: DemoContext) -> None:
+    """A finish option shares its parent item's BOM, using the existing attribute catalogue."""
+    code = ctx.code("VAR", "LEVER-BN")
+    existing = await find_by_code(ctx.session, ItemVariant, ctx.company_id, code)
+    if existing is not None:
+        _seen(ctx, "item_variant", code, existing.id, created=False)
+        return
+    item_id = ctx.id_of("item", ctx.code("FG", "LEVER-AB"))
+    finish_id = _attribute_id(ctx, ItemAttributeType.FINISH, "Black Nickel")
+    size_id = _attribute_id(ctx, ItemAttributeType.SIZE, "52mm rose")
+    stmt = select(ItemVariant).where(
+        ItemVariant.company_id == ctx.company_id,
+        ItemVariant.item_id == item_id,
+        ItemVariant.finish_id == finish_id,
+        ItemVariant.size_id == size_id,
+        ItemVariant.colour_id.is_(None),
+        ItemVariant.deleted_at.is_(None),
+    )
+    matching = (await ctx.session.execute(stmt)).scalar_one_or_none()
+    if matching is not None:
+        _seen(ctx, "item_variant", code, matching.id, created=False)
+        return
+    variant = await create_variant(
+        ctx.session,
+        ctx.tenant,
+        item_id,
+        VariantCreate(
+            code=code,
+            name="Lever Handle on Rose - Black Nickel",
+            finish_id=finish_id,
+            size_id=size_id,
+            price_delta=Decimal("75"),
+            cost_delta=Decimal("20"),
+        ),
+        include_cost=True,
+    )
+    _seen(ctx, "item_variant", code, variant.id, created=True)
 
 
 async def _price_exists(
@@ -2237,6 +2387,8 @@ async def seed(ctx: DemoContext) -> None:
     await _seed_units(ctx)
     # Organisation first: departments name a default cost centre, and later
     # stages tag work centres, orders and bills with these codes.
+    await _seed_plant(ctx)
+    await _seed_financial_year(ctx, anchor)
     await _seed_cost_centres(ctx)
     await _seed_departments(ctx)
     await _seed_item_attributes(ctx)
@@ -2247,6 +2399,7 @@ async def seed(ctx: DemoContext) -> None:
     await _seed_categories(ctx)
     await _seed_items(ctx)
     await _seed_item_branding(ctx)
+    await _seed_item_variant(ctx)
     await _seed_prices(ctx, anchor)
 
     buyer = await _seed_staff(ctx)

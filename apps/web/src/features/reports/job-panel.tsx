@@ -15,6 +15,7 @@ import { CheckCircle2, Download, Loader2, TriangleAlert, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/primitives'
 import { formatNumber } from '@/lib/format'
+import { describeError, fileMessages } from '@/lib/messages'
 
 import type { ReportJobController } from './report-jobs'
 
@@ -38,8 +39,8 @@ export function ReportJobPanel({
           <AlertTitle>{label} could not be generated</AlertTitle>
           <AlertDescription>
             {job?.error_message ??
-              error?.message ??
-              'The job stopped before it produced a file. Nothing was saved.'}
+              (error ? describeError(error) : undefined) ??
+              fileMessages.generationFailed}
           </AlertDescription>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">

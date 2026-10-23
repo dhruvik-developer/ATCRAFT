@@ -6,10 +6,10 @@ import asyncio
 
 import httpx
 import pytest
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import src.main as main_module
 from src.core.config import AppEnv
+from src.core.middleware import TrustedHostMiddleware
 
 pytestmark = pytest.mark.unit
 
@@ -37,6 +37,11 @@ async def test_invalid_host_is_rejected_before_request_processing(
         response = await client.get("/health/live")
 
     assert response.status_code == 400
+    assert response.json() == {
+        "success": False,
+        "error": {"code": "VALIDATION_ERROR", "message": "Invalid host header", "details": None},
+        "request_id": None,
+    }
     assert "x-request-id" not in response.headers
     assert "x-content-type-options" not in response.headers
 
@@ -65,9 +70,14 @@ async def test_readiness_checks_dependencies_concurrently(monkeypatch: pytest.Mo
 async def test_readiness_fails_closed_when_a_dependency_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    cancelled = asyncio.Event()
+
     async def never_finishes() -> bool:
-        await asyncio.Event().wait()
-        return True
+        try:
+            await asyncio.Event().wait()
+            return True
+        finally:
+            cancelled.set()
 
     async def available() -> bool:
         return True
@@ -80,9 +90,13 @@ async def test_readiness_fails_closed_when_a_dependency_times_out(
     transport = httpx.ASGITransport(app=application)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Resolve FastAPI's lazy route tree before timing dependency handling;
+        # coverage and concurrent browser work can make that unrelated setup slow.
+        await client.get("/health/live")
         response = await asyncio.wait_for(client.get("/health/ready"), timeout=0.5)
 
     assert response.status_code == 503
+    assert cancelled.is_set()
     assert response.json() == {
         "status": "not_ready",
         "checks": {"database": False, "redis": True},

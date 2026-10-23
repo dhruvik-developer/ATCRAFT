@@ -73,7 +73,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -742,7 +742,7 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
     return (
       <Alert variant="destructive">
         <AlertTitle>Could not load the costing</AlertTitle>
-        <AlertDescription>{cost.error.message}</AlertDescription>
+        <AlertDescription>{describeError(cost.error)}</AlertDescription>
         <Button variant="outline" size="sm" className="mt-4" onClick={() => void cost.refetch()}>
           <RefreshCw />
           Try again
@@ -1090,7 +1090,7 @@ export default function ProductionDetailPage() {
         />
         <Alert variant="destructive">
           <AlertTitle>Could not load this order</AlertTitle>
-          <AlertDescription>{orderQuery.error.message}</AlertDescription>
+          <AlertDescription>{describeError(orderQuery.error)}</AlertDescription>
           <Button
             variant="outline"
             size="sm"

@@ -35,7 +35,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -47,7 +47,7 @@ import type { StockBatchRow, StockSerialDetail, StockSerialRow } from './types'
 const SERIAL_BULK_MAX = 500
 
 function errorMessage(error: unknown): string | undefined {
-  return error instanceof Error ? error.message : undefined
+  return error ? describeError(error) : undefined
 }
 
 function splitSerials(value: string): string[] {
@@ -390,8 +390,8 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Register serial numbers</DialogTitle>
           <DialogDescription>
-            Print labels ahead of the goods, or adopt a pasted run from a supplier. A later receipt
-            ties each unit to its line and lot; registering here does not move stock.
+            Register labels ahead of the goods, or adopt a pasted run from a supplier. A later
+            receipt ties each unit to its line and lot; registering here does not move stock.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">

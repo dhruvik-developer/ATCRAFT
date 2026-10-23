@@ -2,10 +2,43 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SEARCH_DEBOUNCE_MS } from '@/lib/constants'
+import { ApiError } from '@/lib/api-client'
+import { errors } from '@/lib/messages'
 
 import { DataTable } from './data-table'
 
 afterEach(() => vi.useRealTimers())
+
+describe('shared table errors', () => {
+  const columns = [{ accessorKey: 'code', header: 'Code' }]
+
+  it('offers a retry with safe text for an unexpected error', () => {
+    const onRefresh = vi.fn()
+    render(
+      <DataTable
+        columns={columns}
+        data={[]}
+        error={new TypeError('Internal credentials.token cannot be read')}
+        onRefresh={onRefresh}
+      />,
+    )
+    expect(screen.getByText(errors.unexpectedDetail)).toBeVisible()
+    expect(screen.queryByText(/credentials\.token/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the API message and support reference visible', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={[]}
+        error={new ApiError(503, 'SERVICE_UNAVAILABLE', 'Please retry.', undefined, 'abcdef123456')}
+      />,
+    )
+    expect(screen.getByText('Please retry. (reference abcdef12)')).toBeVisible()
+  })
+})
 
 describe('server-controlled table search', () => {
   it('follows navigation without submitting the previous search draft again', () => {

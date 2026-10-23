@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
+import { errors } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 
 import { fail, ok, page, renderScreen } from './harness'
@@ -92,7 +93,11 @@ describe('the fetch boundary', () => {
       routes: { 'GET /products/items': page([]) },
     })
     await waitFor(() => expect(screen.getByRole('button', { name: 'go' })).toBeVisible())
-    await expect(api.get('/somewhere/nobody/routed')).rejects.toThrow(/unrouted request/)
+    await expect(api.get('/somewhere/nobody/routed')).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      message: errors.networkFailed,
+      cause: expect.objectContaining({ message: expect.stringMatching(/unrouted request/) }),
+    })
   })
 })
 

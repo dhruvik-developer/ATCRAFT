@@ -155,8 +155,8 @@ describe('what the form sends', () => {
     const { user, fetch } = renderLogin()
     await user.click(await signInButton())
 
-    expect(await screen.findByText('Email is required')).toBeVisible()
-    expect(screen.getByText('Password is required')).toBeVisible()
+    expect(await screen.findByText('Email is required.')).toBeVisible()
+    expect(screen.getByText('Password is required.')).toBeVisible()
     // The point of validating here rather than at the server: an empty submit
     // must not spend one of the account's rate-limited login attempts.
     expect(fetch.calls.some((call) => call.path === '/auth/login')).toBe(false)
@@ -166,7 +166,7 @@ describe('what the form sends', () => {
     const { user, fetch } = renderLogin()
     await signIn(user, 'not-an-email', 'whatever')
 
-    expect(await screen.findByText('Enter a valid email address')).toBeVisible()
+    expect(await screen.findByText('Enter a valid email address.')).toBeVisible()
     expect(fetch.calls.some((call) => call.path === '/auth/login')).toBe(false)
   })
 
@@ -305,7 +305,7 @@ describe('what the server says reaches the user', () => {
 
     // A dropped connection shown as "incorrect password" sends the user off to
     // reset a password that was never wrong.
-    expect(await screen.findByText(/could not reach the server/i)).toBeVisible()
+    expect(await screen.findByText(/could not reach the service/i)).toBeVisible()
   })
 })
 

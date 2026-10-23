@@ -286,8 +286,10 @@ describe('the job-work order detail page', () => {
           : ok(RECONCILIATION),
     })
 
-    expect(await screen.findByText('Receipts could not be read')).toBeVisible()
-    expect(await screen.findByText('Reconciliation could not be read')).toBeVisible()
+    expect(await screen.findByText('Receipts could not be read (reference test)')).toBeVisible()
+    expect(
+      await screen.findByText('Reconciliation could not be read (reference test)'),
+    ).toBeVisible()
     expect(screen.queryByText('Nothing received yet')).toBeNull()
     expect(screen.queryByText('Nothing issued yet')).toBeNull()
 
@@ -296,7 +298,9 @@ describe('the job-work order detail page', () => {
     for (const retry of screen.getAllByRole('button', { name: 'Try again' }))
       await user.click(retry)
     expect(await screen.findByText('Job-work pool (live ledger)')).toBeVisible()
-    await waitFor(() => expect(screen.queryByText('Receipts could not be read')).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText('Receipts could not be read (reference test)')).toBeNull(),
+    )
   })
 
   it('denies the page without the job-work read right', async () => {

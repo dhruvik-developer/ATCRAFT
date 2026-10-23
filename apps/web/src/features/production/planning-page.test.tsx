@@ -96,6 +96,19 @@ function board(routes: RouteTable = {}) {
 }
 
 describe('the planning board', () => {
+  it('connects both timeline tabs to the active panel and labels each view', async () => {
+    const { user } = board()
+    const centre = await screen.findByRole('tab', { name: 'By work centre' })
+    const machine = screen.getByRole('tab', { name: 'By machine' })
+    const panel = screen.getByRole('tabpanel')
+    expect(centre).toHaveAttribute('aria-controls', panel.id)
+    expect(machine).toHaveAttribute('aria-controls', panel.id)
+    expect(panel).toHaveAccessibleName('By work centre')
+    await user.click(machine)
+    expect(machine).toHaveAttribute('aria-selected', 'true')
+    expect(panel).toHaveAccessibleName('By machine')
+  })
+
   it('draws the week load and the operations on it, flagging overloads', async () => {
     const seen: URL[] = []
     board({

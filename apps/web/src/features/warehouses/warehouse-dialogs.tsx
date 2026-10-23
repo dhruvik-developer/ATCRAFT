@@ -36,7 +36,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -61,10 +61,14 @@ const warehouseSchema = z.object({
   code: z
     .string()
     .trim()
-    .min(1, 'Code is required')
+    .min(1, validation.required('Code'))
     .max(32, 'Code is at most 32 characters')
     .regex(CODE_PATTERN, CODE_MESSAGE),
-  name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(255, 'Name is at most 255 characters'),
   warehouse_type: z.enum(WAREHOUSE_TYPES),
   branch_id: z.string(),
   parent_warehouse_id: z.string(),
@@ -82,7 +86,7 @@ const warehouseSchema = z.object({
     .trim()
     .refine(
       (value) => value === '' || z.string().email().safeParse(value).success,
-      'Enter a valid email address',
+      validation.email,
     ),
   notes: z.string().trim(),
 })
@@ -480,10 +484,14 @@ const locationSchema = z.object({
   code: z
     .string()
     .trim()
-    .min(1, 'Code is required')
+    .min(1, validation.required('Code'))
     .max(32, 'Code is at most 32 characters')
     .regex(CODE_PATTERN, CODE_MESSAGE),
-  name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(255, 'Name is at most 255 characters'),
   location_type: z.enum(LOCATION_TYPES),
   capacity_quantity: z.string().trim().regex(DECIMAL, 'Enter a number with up to 4 decimal places'),
   capacity_uom: z.string().trim().max(16, 'At most 16 characters'),

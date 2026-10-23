@@ -40,7 +40,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -59,7 +59,7 @@ const DECIMAL = /^\d{1,14}(\.\d{1,4})?$/
  * creating an empty header and earning a 422 the user cannot read.
  */
 const lineSchema = z.object({
-  component_item_id: z.string().min(1, 'Choose a component'),
+  component_item_id: z.string().min(1, validation.choose('a component')),
   quantity_per: z
     .string()
     .trim()
@@ -71,7 +71,7 @@ const lineSchema = z.object({
 
 const createSchema = z
   .object({
-    item_id: z.string().min(1, 'Choose the item this BOM produces'),
+    item_id: z.string().min(1, validation.choose('the item this BOM produces')),
     bom_type: z.enum(BOM_TYPES),
     // Only an ALTERNATE names the bill it stands in for. The API refuses an
     // ALTERNATE without one (`BomCreate._check`), and the form used to offer
@@ -86,8 +86,8 @@ const createSchema = z
       .trim()
       .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
       .refine((value) => value !== '0', 'Output quantity must be more than zero'),
-    base_uom_id: z.string().min(1, 'Base unit is required'),
-    effective_from: z.string().min(1, 'An effective-from date is required'),
+    base_uom_id: z.string().min(1, validation.required('Base unit')),
+    effective_from: z.string().min(1, validation.required('Effective-from date')),
     effective_to: z.string(),
     is_default: z.boolean(),
     notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
@@ -332,7 +332,9 @@ export function BomFormDialog({
                 <FieldError message={errors.parent_bom_id?.message} />
                 {alternatives.error && (
                   <FieldError
-                    message={"The item's bills could not be read: " + alternatives.error.message}
+                    message={
+                      "The item's bills could not be read: " + describeError(alternatives.error)
+                    }
                   />
                 )}
                 {itemId && alternatives.data && alternatives.data.data.length === 0 && (
@@ -612,7 +614,7 @@ export function BomFormDialog({
  * together, so the numbering cannot drift between them.
  */
 const editLineSchema = z.object({
-  component_item_id: z.string().min(1, 'Choose a component'),
+  component_item_id: z.string().min(1, validation.choose('a component')),
   quantity_per: z
     .string()
     .trim()
@@ -637,7 +639,7 @@ const editLineSchema = z.object({
  */
 const editOperationSchema = z.object({
   sequence: z.number().int().positive().nullable(),
-  name: z.string().trim().min(1, 'An operation name is required').max(255),
+  name: z.string().trim().min(1, validation.required('Operation name')).max(255),
   work_center_id: z.string().nullable(),
   setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
   run_time_minutes_per_unit: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
@@ -818,7 +820,7 @@ export function BomEditDialog({
       // on the form's root slot (and the mutation toast) rather than vanishing
       // into the field-error machinery, which only speaks 422.
       if (error instanceof ApiError && error.status === 409) {
-        setError('root', { type: 'server', message: error.message })
+        setError('root', { type: 'server', message: describeError(error) })
         return
       }
       applyFieldErrors(error, setError)
@@ -1204,7 +1206,7 @@ const copySchema = z.object({
   // No version field: the API mints the next one under the per-item advisory
   // lock, which is the only place two people copying at once can be serialised.
   revision: z.string().trim().max(16, 'Revision is at most 16 characters'),
-  effective_from: z.string().min(1, 'An effective-from date is required'),
+  effective_from: z.string().min(1, validation.required('Effective-from date')),
   effective_to: z.string(),
   copy_operations: z.boolean(),
   reason: z

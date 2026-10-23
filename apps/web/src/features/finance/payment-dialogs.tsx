@@ -64,7 +64,7 @@ import type { VendorRow } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatMoney, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -176,7 +176,7 @@ const paymentFormSchema = z
   .object({
     payment_type: enumOf(PAYMENT_TYPES),
     party_type: enumOf(PAYMENT_PARTY_SIDES),
-    party_id: z.string().min(1, 'Choose who this money is with'),
+    party_id: z.string().min(1, validation.choose('who this money is with')),
     payment_date: z.string().min(1, 'A payment needs a date'),
     amount: z
       .string()
@@ -376,7 +376,7 @@ export function PaymentFormDialog({
             {isEdit && detail.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load this payment</AlertTitle>
-                <AlertDescription>{detail.error.message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             )}
 
@@ -741,7 +741,7 @@ export function PaymentDetailDialog({
           {detail.error && !detail.isLoading && (
             <Alert variant="destructive">
               <AlertTitle>Could not load this payment</AlertTitle>
-              <AlertDescription>{detail.error.message}</AlertDescription>
+              <AlertDescription>{describeError(detail.error)}</AlertDescription>
             </Alert>
           )}
 
@@ -1232,7 +1232,7 @@ export function PaymentAllocationDialog({
           {detail.error && !detail.isLoading && (
             <Alert variant="destructive">
               <AlertTitle>Could not load this payment</AlertTitle>
-              <AlertDescription>{detail.error.message}</AlertDescription>
+              <AlertDescription>{describeError(detail.error)}</AlertDescription>
             </Alert>
           )}
 

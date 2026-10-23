@@ -64,7 +64,7 @@ describe('creating a manufacturer', () => {
     await user.type(screen.getByRole('textbox', { name: 'Code' }), 'M1')
     await user.click(screen.getByRole('button', { name: /create manufacturer/i }))
 
-    expect(await screen.findByText('A name is required.')).toBeVisible()
+    expect(await screen.findByText('Name is required.')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 })

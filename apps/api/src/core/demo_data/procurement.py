@@ -35,27 +35,17 @@ row in one state teaches nobody what the state means:
 * **Purchase returns** - one posted (which reverses stock against the same lot it
   came in on) and one DRAFT.
 
-The batch-tracked lot, and the serial-tracked gap
--------------------------------------------------
+Batch and serial tracking
+-------------------------
 The clear lacquer is received twice under two different vendor lot numbers, one
 of them flagged for incoming inspection. That gives the batch screen two rows for
 one item, the QC inbox a real inspection, and the traceability rules a lot to
 follow - and it lands the same item in two stock states at once, which is the
 distinction ``docs/assumptions.md`` section 23 turns on.
 
-There is deliberately **no serialised receipt**, and this is not an oversight:
-
-* ``procurement.service`` refuses a serial-tracked item on a goods receipt line
-  outright (``SERIAL_RECEIPT_MESSAGE``) - a receipt line has nowhere to record
-  the many serials that arrive against one line, and the inventory engine
-  requires a serial id on every movement of such an item;
-* the only serial-tracked demonstration item is a manufactured finished good, so
-  ``can_purchase`` is false on it and it could not go on a purchase order even if
-  the receipt path allowed it.
-
-Both facts are recorded in ``ctx.skipped`` at run time rather than worked around
-here. Serialised stock is registered through inventory, which is where the units
-are actually born, and that belongs to a later stage.
+The demonstration's serial-tracked item is a manufactured finished good; its
+opening units are registered in the operations stage. Purchased serial-tracked
+items are supported by the goods-receipt contract through ``serial_numbers``.
 
 Where the stock lands
 ---------------------
@@ -151,7 +141,6 @@ from src.modules.procurement.schemas import (
     RfqCreate,
     RfqLineIn,
 )
-from src.modules.products.models import Item
 
 STAGE = "procurement"
 
@@ -1874,42 +1863,6 @@ async def _create_return(
 # =============================================================================
 
 
-async def _note_serial_gap(ctx: DemoContext) -> None:
-    """Record, in the run report, why no serialised stock arrives through buying.
-
-    Not a silent omission and not a workaround. Two independent rules make a
-    serialised goods receipt impossible, and both of them are correct:
-
-    * ``procurement.service`` refuses a serial-tracked item on a receipt line -
-      the line has nowhere to carry the many serials that arrive against it, and
-      the inventory engine will not move such an item without one;
-    * the demonstration's only serial-tracked item is a manufactured finished
-      good, so ``can_purchase`` is false and it could not be ordered anyway.
-
-    Serialised units are born in inventory, which is where they should be
-    registered. The list is read from the item master rather than named as a
-    constant here, so the note stops appearing the day the receipt contract grows
-    somewhere to put a serial number - and names the right items if the item
-    master changes shape first.
-    """
-    stmt = select(Item.code).where(
-        Item.company_id == ctx.company_id,
-        Item.is_serial_tracked.is_(True),
-        Item.deleted_at.is_(None),
-    )
-    codes = sorted((await ctx.session.execute(stmt)).scalars())
-    if not codes:
-        return
-    ctx.skipped.append(
-        (
-            STAGE,
-            f"no serialised receipt for {', '.join(codes)}: a goods receipt line has "
-            "nowhere to record the serials that arrive against it, so procurement refuses "
-            "a serial-tracked item outright - register their units through inventory",
-        )
-    )
-
-
 # =============================================================================
 # Entry point
 # =============================================================================
@@ -1939,7 +1892,6 @@ async def seed(ctx: DemoContext) -> None:
     await _short_close_cylinder_order(ctx)
     await _seed_returns(ctx)
 
-    await _note_serial_gap(ctx)
     from src.core.demo_data.dealer_portal import seed as seed_dealer_portal
     from src.core.demo_data.vendor_portal import seed as seed_vendor_portal
 

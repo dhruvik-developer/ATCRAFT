@@ -36,7 +36,7 @@ const JOB_ID = 'jb000000-0000-7000-8000-000000000001'
 const JOB_PATH = `/reports/jobs/${JOB_ID}`
 const DOCUMENT_ID = 'dc000000-0000-7000-8000-000000000001'
 
-/** The `data` block of the 202, exactly as `api.getPage` hands it back. */
+/** The `data` block of the 202 returned by `api.getPageOrAccepted`. */
 const ACCEPTED = { job_id: JOB_ID, status: 'queued', status_url: `/api/v1${JOB_PATH}` }
 
 function job(status: string): ReportJob {
@@ -91,7 +91,7 @@ describe('running the same report twice', () => {
       route: '/reports?report=STOCK_AVAILABILITY&run=1',
       routes: {
         ...routes,
-        [`GET ${REPORT_PATH}`]: ok(ACCEPTED),
+        [`GET ${REPORT_PATH}`]: { ...ok(ACCEPTED), __status: 202 },
         [`GET ${JOB_PATH}`]: ok(job('COMPLETED')),
       },
     })

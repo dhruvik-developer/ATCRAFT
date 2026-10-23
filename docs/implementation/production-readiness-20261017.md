@@ -1,5 +1,14 @@
 # Production readiness review — 17 October 2026
 
+> **Update — 23 October 2026.** The
+> [application standards verification](development-standards-20261022.md)
+> records subsequent contract, error-handling, UI and quality-gate work. Forward
+> migration `20261027_0100` now produces a schema that passes an unfiltered
+> `alembic check`, including upgrade/downgrade regressions. The historical
+> migration/model-drift finding below is resolved in that migration chain;
+> this update does not close unrelated business findings or certify the
+> historical CI/image/production-stack gates.
+
 **Decision: the complete proposed ERP is not ready for production sign-off.**
 The current implementation has useful, tested workflows, but confirmed financial
 defects, failed release gates, missing proposal capabilities and incomplete UI
@@ -50,6 +59,22 @@ PostgreSQL probes and the actual GitHub Actions results.
 > verification after the change: backend **5,537 passed, 0 skipped**; frontend
 > **1,093 passed in 85 files**; Ruff, mypy, ESLint, typecheck and contract
 > checks clean.
+>
+> **E8b delivered - 22 October 2026 (batch and serial tracking).** Tracked
+> stock now has one register and one capture contract: `/inventory/tracking`
+> covers lots, units, lifecycle and trace; serials are captured on goods
+> receipts, production and assembly output, transfers and adjustments; dispatch
+> names picked units; job work carries one batch per same-item line. FEFO,
+> expiry blocking and the daily `STOCK_EXPIRY` digest are enforced in the
+> inventory engine. This closes P03.F3, P03.F4, P03.F6, P08.M11 and P09.M6.
+> Deliberate boundaries remain: serial job work, serial bin moves/internal
+> issues, tracked SKU transformations and barcode-label/PDF printing or
+> pattern-generated label runs. Verification after this closeout: backend
+> **5,591 passed, 0 skipped**; frontend **1,124 passed in 89 files**; Ruff,
+> mypy, ESLint, typecheck, the production build and contract checks clean.
+> Live UAT remains outstanding. See
+> [the E8b specification](specs/E8b-batch-serial-tracking.md) and
+> [assumptions](../assumptions.md) sections E8b-1 to E8b-3.
 
 ## Release gates currently failing
 
@@ -130,7 +155,7 @@ dispatch, invoicing and payments should be retained.
 | Area                                  | Development still required                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Sales planning and MRP outputs        | Automatic, idempotent shortfall planning and replanning; complete order-to-fulfilment links; executable job-work, transfer/reallocation and assembly conversions. [Sales detail](../../apps/web/src/features/sales/sales-order-detail-page.tsx:290) still directs users to run MRP manually; [job-work conversion](../../apps/api/src/modules/job_work/service.py:3297) deliberately refuses.                                                    |
-| Tracked stock                         | Serial GRN, tracked production output, remaining batch/serial assembly flows and serial transfers/capture screens. Explicit safety refusals remain in [procurement](../../apps/api/src/modules/procurement/service.py:4378), [production](../../apps/api/src/modules/production/service.py:3629), [assembly](../../apps/api/src/modules/assembly/service.py:945) and [inventory](../../apps/api/src/modules/inventory/service.py:4591).          |
+| Tracked stock                         | Batch/serial tracking E8b is implemented: serial GRN, tracked production/assembly output, transfer and adjustment unit capture, serial dispatch, batch job work and the `/inventory/tracking` register/lifecycle. Remaining boundaries: serial job work, serial bin moves/internal issues, tracked SKU transformations and printed or pattern-generated barcode/PDF labels. Live UAT remains outstanding. |
 | Vendor app and buyer inbound tracking | Backend support exists, but `/vendor/*` and `/procurement/inbound-tracking` screens are absent from the [route catalogue](../../apps/web/src/app/route-loaders.ts:26). Installable app/service worker and push opt-in/device controls are absent.                                                                                                                                                                                                |
 | Dealer storefront and promotions      | Dealer catalogue/cart/order APIs exist; `/dealer/*` storefront and promotion/banner management APIs/screens remain missing. [DealerBanner](../../apps/api/src/modules/dealer_portal/models.py:182) is groundwork, not a complete feature. Dealer lifecycle event names exist without the corresponding emitters.                                                                                                                                 |
 | Collections and product details       | Payment follow-up worklist, promises/notes/reminders and dealer-performance reporting remain. Item detail still explicitly returns empty [specifications/accessories](../../apps/api/src/modules/dealer_portal/service.py:501).                                                                                                                                                                                                                  |

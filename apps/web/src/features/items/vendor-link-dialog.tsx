@@ -44,7 +44,7 @@ import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatMoney } from '@/lib/format'
 import { api } from '@/lib/api-client'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -56,7 +56,7 @@ const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z.object({
-  vendor_id: z.string().min(1, 'Choose a vendor'),
+  vendor_id: z.string().min(1, validation.choose('a vendor')),
   vendor_item_code: z.string().trim().max(64, 'Vendor item code is at most 64 characters'),
   vendor_item_name: z.string().trim().max(255, 'Vendor item name is at most 255 characters'),
   manufacturer_id: z.string(),

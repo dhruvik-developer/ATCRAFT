@@ -13,10 +13,13 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from src.core.messages import FIELDS_NEED_ATTENTION, RATE_LIMITED, UNEXPECTED_ERROR
+
 
 class ErrorCode(StrEnum):
     # --- generic ------------------------------------------------------------
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    HTTP_ERROR = "HTTP_ERROR"
     VALIDATION_ERROR = "VALIDATION_ERROR"
     NOT_FOUND = "NOT_FOUND"
     CONFLICT = "CONFLICT"
@@ -86,7 +89,7 @@ class AppError(Exception):
 
     status_code: int = 500
     code: ErrorCode = ErrorCode.INTERNAL_ERROR
-    message: str = "An unexpected error occurred."
+    message: str = UNEXPECTED_ERROR
 
     def __init__(
         self,
@@ -103,15 +106,11 @@ class AppError(Exception):
         super().__init__(self.message)
 
     def to_payload(self, request_id: str | None = None) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "success": False,
-            "error": {"code": str(self.code), "message": self.message},
-        }
-        if self.details:
-            payload["error"]["details"] = self.details
-        if request_id:
-            payload["request_id"] = request_id
-        return payload
+        from src.core.responses import ErrorResponse
+
+        return ErrorResponse.create(
+            str(self.code), self.message, self.details or None, request_id
+        ).model_dump(mode="json")
 
 
 # --- 4xx ---------------------------------------------------------------------
@@ -120,7 +119,7 @@ class AppError(Exception):
 class ValidationError(AppError):
     status_code = 422
     code = ErrorCode.VALIDATION_ERROR
-    message = "The submitted data is not valid."
+    message = FIELDS_NEED_ATTENTION
 
 
 class NotFoundError(AppError):
@@ -207,7 +206,7 @@ class TenantMismatchError(AuthorizationError):
 class RateLimitedError(AppError):
     status_code = 429
     code = ErrorCode.RATE_LIMITED
-    message = "Too many requests. Please slow down."
+    message = RATE_LIMITED
 
     def __init__(self, retry_after_seconds: int = 60, **kw: Any) -> None:
         super().__init__(details={"retry_after_seconds": retry_after_seconds}, **kw)

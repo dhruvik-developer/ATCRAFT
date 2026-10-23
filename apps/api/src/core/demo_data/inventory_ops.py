@@ -12,6 +12,8 @@ The documents work package E8a adds, each in a state that shows what it is for:
   and the balances screen still shows what is left;
 * **internal issues** to the shop floor and to maintenance - one posted, one
   over the approval value and waiting for a second person, one still a draft.
+* **transfers**, adjustments and physical counts with both actionable drafts
+  and completed history, all using the stocked buffing-compound position.
 
 Idempotence
 -----------
@@ -38,25 +40,40 @@ from sqlalchemy import select
 
 from src.core.demo_data import DemoContext, find_by_code
 from src.core.errors import AppError
+from src.core.pagination import PageParams
 from src.modules.inventory import service as inventory_service
 from src.modules.inventory.models import (
+    AdjustmentReason,
+    AdjustmentStatus,
     BinMove,
     InternalIssue,
     InternalIssueStatus,
     InventoryBalance,
     InventoryTransaction,
+    PhysicalCount,
+    PhysicalCountStatus,
     ScrapDisposal,
     ScrapDisposalKind,
+    StockAdjustment,
     StockState,
+    StockTransfer,
     TransactionType,
+    TransferStatus,
 )
 from src.modules.inventory.schemas import (
     BinMoveCreate,
     BinMoveLineCreate,
     InternalIssueCreate,
     InternalIssueLineCreate,
+    PhysicalCountCreate,
+    PhysicalCountEntry,
+    PhysicalCountEntryRequest,
     ScrapDisposalCreate,
     ScrapDisposalLineCreate,
+    StockAdjustmentCreate,
+    StockAdjustmentLineCreate,
+    StockTransferCreate,
+    StockTransferLineCreate,
 )
 from src.modules.products.models import Item, ItemGroup
 from src.modules.products.schemas import ItemCreate
@@ -146,6 +163,164 @@ async def seed(ctx: DemoContext) -> None:
     await _putaway(ctx)
     await _scrap_and_dispose(ctx)
     await _internal_issues(ctx, store_id, bin_id)
+    await _movement_registers(ctx, store_id, bin_id)
+
+
+async def _movement_registers(ctx: DemoContext, store_id: uuid.UUID, bin_id: uuid.UUID) -> None:
+    """Populate the empty document registers without inventing a second stock pool."""
+    item_id = ctx.maybe_id("item", ctx.code("CN", "BUFF-COMPOUND"))
+    if item_id is None:
+        _skip(ctx, "no buffing compound for the transfer, adjustment and count registers")
+        return
+    await _transfers(ctx, item_id, store_id, bin_id)
+    await _adjustments(ctx, item_id, store_id, bin_id)
+    await _physical_counts(ctx, item_id, store_id, bin_id)
+
+
+async def _transfers(
+    ctx: DemoContext, item_id: uuid.UUID, store_id: uuid.UUID, bin_id: uuid.UUID
+) -> None:
+    destination_id = ctx.maybe_id("warehouse", "WH-WIP")
+    if destination_id is None:
+        _skip(ctx, "no work-in-progress warehouse for the transfer register")
+        return
+    service = inventory_service.StockTransferService(ctx.session, ctx.tenant)
+    for suffix, target, quantity in (
+        ("RECEIVED", TransferStatus.RECEIVED, Decimal("6")),
+        ("TRANSIT", TransferStatus.IN_TRANSIT, Decimal("4")),
+        ("DRAFT", TransferStatus.DRAFT, Decimal("3")),
+    ):
+        tag = ctx.code("E8", "TRANSFER", suffix)
+        existing = await _find_tagged(ctx, StockTransfer, tag)
+        try:
+            if existing is None:
+                created = await service.create(
+                    StockTransferCreate(
+                        from_warehouse_id=store_id,
+                        to_warehouse_id=destination_id,
+                        reason="Replenish the polishing cell's buffing compound",
+                        notes=_tagged(tag, f"Polishing-cell replenishment - {suffix.lower()}"),
+                        lines=[
+                            StockTransferLineCreate(
+                                item_id=item_id, quantity=quantity, from_location_id=bin_id
+                            )
+                        ],
+                    )
+                )
+                transfer_id, status = created.id, created.status
+                ctx.note(STAGE, created=1)
+            else:
+                transfer_id, status = existing.id, TransferStatus(existing.status)
+                ctx.note(STAGE, existing=1)
+            ctx.remember("stock_transfer", tag, transfer_id)
+            if target is TransferStatus.DRAFT:
+                continue
+            if status is TransferStatus.DRAFT:
+                status = (await service.approve(transfer_id)).status
+            if status is TransferStatus.APPROVED:
+                status = (await service.dispatch(transfer_id)).status
+            if target is TransferStatus.RECEIVED and status is TransferStatus.IN_TRANSIT:
+                await service.receive(transfer_id)
+        except AppError as exc:
+            _skip(ctx, f"transfer {tag} could not reach {target}: {exc.message}")
+
+
+async def _adjustments(
+    ctx: DemoContext, item_id: uuid.UUID, store_id: uuid.UUID, bin_id: uuid.UUID
+) -> None:
+    service = inventory_service.StockAdjustmentService(ctx.session, ctx.tenant)
+    for suffix, target, quantity in (
+        ("POSTED", AdjustmentStatus.POSTED, Decimal("2")),
+        ("DRAFT", AdjustmentStatus.DRAFT, Decimal("-1")),
+    ):
+        tag = ctx.code("E8", "ADJUSTMENT", suffix)
+        existing = await _find_tagged(ctx, StockAdjustment, tag)
+        try:
+            if existing is None:
+                created = await service.create(
+                    StockAdjustmentCreate(
+                        warehouse_id=store_id,
+                        reason_code=AdjustmentReason.CORRECTION,
+                        reason="Correct the buffing-compound shelf quantity",
+                        notes=_tagged(tag, f"Shelf reconciliation - {suffix.lower()}"),
+                        lines=[
+                            StockAdjustmentLineCreate(
+                                item_id=item_id, location_id=bin_id, quantity=quantity
+                            )
+                        ],
+                    )
+                )
+                adjustment_id, status = created.id, created.status
+                ctx.note(STAGE, created=1)
+            else:
+                adjustment_id, status = existing.id, AdjustmentStatus(existing.status)
+                ctx.note(STAGE, existing=1)
+            ctx.remember("stock_adjustment", tag, adjustment_id)
+            if target is AdjustmentStatus.POSTED and status in (
+                AdjustmentStatus.DRAFT,
+                AdjustmentStatus.APPROVED,
+            ):
+                await service.post(adjustment_id)
+        except AppError as exc:
+            _skip(ctx, f"adjustment {tag} could not reach {target}: {exc.message}")
+
+
+async def _physical_counts(
+    ctx: DemoContext, item_id: uuid.UUID, store_id: uuid.UUID, bin_id: uuid.UUID
+) -> None:
+    service = inventory_service.PhysicalCountService(ctx.session, ctx.tenant)
+    # Only one count may be open in a warehouse: complete the history example
+    # before creating the draft an operator can continue from the screen.
+    for suffix, target in (
+        ("CONFIRMED", PhysicalCountStatus.CONFIRMED),
+        ("DRAFT", PhysicalCountStatus.DRAFT),
+    ):
+        tag = ctx.code("E8", "COUNT", suffix)
+        existing = await _find_tagged(ctx, PhysicalCount, tag)
+        try:
+            if existing is None:
+                created = await service.create(
+                    PhysicalCountCreate(
+                        warehouse_id=store_id,
+                        location_id=bin_id,
+                        item_ids=[item_id],
+                        reason="Cycle count of the polishing consumables rack",
+                        notes=_tagged(tag, f"Buffing-compound cycle count - {suffix.lower()}"),
+                    )
+                )
+                count_id, status = created.id, created.status
+                ctx.note(STAGE, created=1)
+            else:
+                count_id, status = existing.id, PhysicalCountStatus(existing.status)
+                ctx.note(STAGE, existing=1)
+            ctx.remember("physical_count", tag, count_id)
+            if target is PhysicalCountStatus.DRAFT:
+                continue
+            if status is PhysicalCountStatus.DRAFT:
+                status = (await service.start(count_id)).status
+            if status is PhysicalCountStatus.IN_PROGRESS:
+                lines, _ = await service.list_lines(count_id, PageParams(limit=1))
+                if lines and lines[0].counted_quantity is None:
+                    line = lines[0]
+                    counted = max(Decimal("0"), line.system_quantity - Decimal("1"))
+                    status = (
+                        await service.enter_counts(
+                            count_id,
+                            PhysicalCountEntryRequest(
+                                entries=[
+                                    PhysicalCountEntry(
+                                        line_id=line.id,
+                                        counted_quantity=counted,
+                                        notes="One bar missing from the counted shelf position",
+                                    )
+                                ]
+                            ),
+                        )
+                    ).status
+            if status is PhysicalCountStatus.COUNTED:
+                await service.confirm(count_id)
+        except AppError as exc:
+            _skip(ctx, f"physical count {tag} could not reach {target}: {exc.message}")
 
 
 # -----------------------------------------------------------------------------

@@ -7,6 +7,8 @@ auditable ledger.
 
 Repository-wide engineering rules live in [`CLAUDE.md`](./CLAUDE.md); the
 architecture and operational decisions are recorded under [`docs/`](./docs).
+The shared implementation points and completion checks are mapped in
+[`docs/development-standards.md`](./docs/development-standards.md).
 
 ---
 
@@ -79,7 +81,21 @@ directly: the lock files are resolved on Linux and pin `uvloop`, which has no
 Windows build, so the installer drops the pins the platform cannot use and
 installs everything else hash-verified.
 
-Apply the schema and load baseline data:
+For a complete local testing dataset, use the single seed entry point:
+
+```powershell
+.\make.ps1 seed-local  # macOS/Linux: make seed-local
+```
+
+It applies migrations, loads baseline reference data and all demonstration
+stages, and generates the demo invoice/credit-note PDFs. It adds missing demo
+records without resetting the database and can be run again. The initial
+administrator password is generated and displayed once; sign in as
+`admin@atcraft.example` and choose your own password. Existing passwords are
+preserved. See [local seed data](docs/local-seed-data.md) for configuration,
+fixture coverage and custom administrator options.
+
+To load only the baseline instead:
 
 ```bash
 .\make.ps1 migrate     # or: make migrate
@@ -186,14 +202,16 @@ not duplicate them.
 | `up` / `down` / `restart` / `logs` / `ps` | Compose stack control |
 | `migrate` / `migration m="msg"` (Windows: `.\make.ps1 migration "msg"`) / `migrate-down` | Alembic |
 | `seed` | Baseline roles, permissions, UoM, warehouse types |
+| `seed-local` | Migrate a local database, load the complete demo dataset and generate its invoice/credit PDFs |
 | `demo-data` | Fill a development database with a working business |
 | `db-fresh` / `db-handover` | Destroy and rebuild the dev database with demo data / baseline only |
 | `test` / `test-unit` / `test-integration` / `test-cov` | Backend tests |
 | `test-web` / `test-e2e` / `test-load` | Frontend, Playwright, Locust |
+| `build-web` | Production frontend build, bundle budgets and bundled secret scan |
 | `lint` / `format` / `typecheck` | Quality gates |
 | `contract` / `contract-check` | Regenerate the OpenAPI contract, the frontend types and the Postman collection / fail if any is stale |
 | `postman` | Regenerate only the Postman collection from the committed contract |
-| `check` | `contract-check` + `lint` + `test` + `test-web` — what CI runs |
+| `check` | `contract-check` + `lint` + `test-cov` + `test-web` + `build-web`; application checks shared with CI |
 | `hooks` / `hooks-run` | Install the git hooks / run every hook on the whole tree |
 | `lock` | Regenerate the hash-locked Python requirements |
 | `backup` | `pg_dump` to `./backups` |

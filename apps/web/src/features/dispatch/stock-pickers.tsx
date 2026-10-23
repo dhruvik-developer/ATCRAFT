@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Choosing the *identified* stock a document is about: a batch, or the exact
  * units by serial.
@@ -139,7 +140,7 @@ export function BatchSelect({
               {batches.isLoading && <Skeleton className="h-16 w-full" />}
               {batches.error && (
                 <p role="alert" className="p-2 text-sm text-destructive">
-                  {batches.error.message}
+                  {describeError(batches.error)}
                 </p>
               )}
               {!batches.isLoading && !batches.error && rows.length === 0 && (
@@ -212,7 +213,7 @@ export function BatchSelect({
       </div>
       {detail.error && (
         <p role="alert" className="text-xs text-destructive">
-          {detail.error.message}
+          {describeError(detail.error)}
         </p>
       )}
     </div>

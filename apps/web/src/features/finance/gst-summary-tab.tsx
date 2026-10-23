@@ -16,7 +16,7 @@
  * several slabs, so adding them would over-count documents.
  */
 
-import { salesInvoiceMessages } from '@/lib/messages'
+import { describeError, salesInvoiceMessages } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { RefreshCw } from 'lucide-react'
@@ -147,7 +147,7 @@ export function GstSummaryTab({
       {summary.error && !summary.isLoading && (
         <Alert variant="destructive">
           <AlertTitle>Could not load the GST summary</AlertTitle>
-          <AlertDescription>{summary.error.message}</AlertDescription>
+          <AlertDescription>{describeError(summary.error)}</AlertDescription>
         </Alert>
       )}
 

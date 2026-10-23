@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * One job-work order, whole: its lines, its timeline, its reconciliation, its
  * documents and its money.
@@ -569,7 +570,7 @@ export default function JobWorkDetailPage() {
       <Alert variant="destructive">
         <AlertTitle>Could not load this order</AlertTitle>
         <AlertDescription>
-          {detailQuery.error?.message ?? 'The order does not exist.'}
+          {detailQuery.error ? describeError(detailQuery.error) : 'The order does not exist.'}
         </AlertDescription>
       </Alert>
     )

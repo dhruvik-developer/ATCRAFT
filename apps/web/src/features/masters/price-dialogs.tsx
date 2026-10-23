@@ -59,7 +59,7 @@ import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatMoney, humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -86,13 +86,13 @@ const priceSchema = z
     price: z
       .string()
       .trim()
-      .min(1, 'A price is required')
+      .min(1, validation.required('Price'))
       .regex(PRICE_PATTERN, 'Up to 12 digits and 6 decimal places, no sign'),
     min_quantity: z
       .string()
       .trim()
       .regex(QUANTITY_PATTERN, 'Up to 14 digits and 4 decimal places, no sign'),
-    valid_from: z.string().min(1, 'A start date is required'),
+    valid_from: z.string().min(1, validation.required('Start date')),
     valid_to: z.string(),
     is_active: z.boolean(),
     notes: z.string(),

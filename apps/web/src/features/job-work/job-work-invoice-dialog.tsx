@@ -55,7 +55,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { formatDate, formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -339,7 +339,7 @@ export function JobWorkInvoiceDialog({
                 </SelectContent>
               </Select>
               {ordersQuery.error && !ordersQuery.isLoading && (
-                <FieldError message={ordersQuery.error.message} />
+                <FieldError message={describeError(ordersQuery.error)} />
               )}
             </div>
           </div>
@@ -350,7 +350,7 @@ export function JobWorkInvoiceDialog({
               {linesQuery.error && !linesQuery.isLoading && (
                 <Alert variant="destructive">
                   <AlertTitle>The billable lines could not be read</AlertTitle>
-                  <AlertDescription>{linesQuery.error.message}</AlertDescription>
+                  <AlertDescription>{describeError(linesQuery.error)}</AlertDescription>
                 </Alert>
               )}
               {!linesQuery.isLoading && !linesQuery.error && billable.length === 0 && (

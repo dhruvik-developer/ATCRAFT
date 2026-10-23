@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Report catalogue.
  *
@@ -76,7 +77,7 @@ import {
 } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { P } from '@/lib/permissions'
-import type { PaginatedEnvelope, SchemaOf } from '@/types/api'
+import type { SchemaOf } from '@/types/api'
 
 import { ReportJobPanel } from './job-panel'
 import { useReportJob, type AcceptedJobData } from './report-jobs'
@@ -99,8 +100,8 @@ const REPORT_SNAPSHOT_TTL_HOURS = 24
 /**
  * The same route answers 200 with a page of rows or 202 with a job. The
  * envelope is the only tell: a paginated answer carries an array, an accepted
- * one carries the job description. Reading it this way keeps the escalation
- * working without asking the client to guess in advance which it will get.
+ * one carries the job description. The client validates each response according
+ * to its HTTP status, and the list hook exposes the accepted job separately.
  */
 function isAcceptedJob(payload: unknown): payload is AcceptedJobData {
   return (
@@ -239,7 +240,7 @@ export default function ReportsPage() {
       {catalogue.error && !catalogue.isLoading && (
         <Alert variant="destructive">
           <AlertTitle>The report catalogue could not be loaded</AlertTitle>
-          <AlertDescription>{catalogue.error.message}</AlertDescription>
+          <AlertDescription>{describeError(catalogue.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -408,6 +409,7 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     path: reportPath(definition.key),
     queryKey: (params) => queryKeys.reports.report(definition.key, params),
     filters: applied,
+    allowAccepted: true,
     // A report is only fetched once it has been asked for, and a period report
     // never without both ends of its range - half a range is a 422.
     enabled:
@@ -417,15 +419,14 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     staleTime: staleTimes.transactional,
   })
 
-  const payload = list.data as unknown
-  const rows = Array.isArray(payload) ? (payload as ReportRow[]) : []
-  const accepted = isAcceptedJob(payload) ? payload : null
+  const rows = list.data
+  const accepted = list.acceptedJob ?? null
 
   /**
    * Whether the operator closed the job strip for the answer in hand.
    *
-   * `controller.reset` sets the job back to idle, but `list.data` still holds
-   * the accepted envelope - so without this the screen would render neither a
+   * `controller.reset` sets the job back to idle, but `list.acceptedJob` still
+   * holds the job - so without this the screen would render neither a
    * strip nor a table nor a word about why.
    */
   const [dismissed, setDismissed] = useState(false)
@@ -467,7 +468,7 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     // effect above never re-fires, and the job has to be started from here. A
     // *different* answer is a new object, which that effect does start.
     void list.refetch().then((result) => {
-      const data = (result.data as PaginatedEnvelope<ReportRow> | undefined)?.data as unknown
+      const data = result.data?.data
       if (isAcceptedJob(data) && data === accepted) start(data)
     })
   })
@@ -773,7 +774,7 @@ function WorkCenterFilter({
           ))}
         </SelectContent>
       </Select>
-      <FieldError message={error ?? options.error?.message} />
+      <FieldError message={error ?? (options.error ? describeError(options.error) : undefined)} />
     </div>
   )
 }

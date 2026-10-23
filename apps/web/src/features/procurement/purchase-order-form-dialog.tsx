@@ -49,7 +49,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -70,15 +70,15 @@ const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z
   .object({
-    vendor_id: z.string().min(1, 'Choose a vendor'),
-    po_date: z.string().min(1, 'Order date is required'),
-    expected_delivery_date: z.string().min(1, 'An expected delivery date is required'),
+    vendor_id: z.string().min(1, validation.choose('a vendor')),
+    po_date: z.string().min(1, validation.required('Order date')),
+    expected_delivery_date: z.string().min(1, validation.required('Expected delivery date')),
     // Required by the API: an order has to say where the material is going,
     // because that is half of what the duplicate check matches on.
-    warehouse_id: z.string().min(1, 'Choose where the material is delivered'),
+    warehouse_id: z.string().min(1, validation.choose('where the material is delivered')),
     priority: z.coerce
       .number()
-      .int('Whole numbers only')
+      .int(validation.integer('Priority'))
       .min(MIN_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`)
       .max(MAX_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`),
     payment_terms_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
@@ -89,12 +89,12 @@ const schema = z
     lines: z
       .array(
         z.object({
-          item_id: z.string().min(1, 'Choose an item'),
+          item_id: z.string().min(1, validation.choose('an item')),
           quantity: z
             .string()
             .trim()
             .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-            .refine((v) => toDecimal(v).greaterThan(0), 'Quantity must be greater than zero'),
+            .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
           unit_price: z.string().trim().regex(PRICE, 'Enter a price with up to 6 decimal places'),
         }),
       )

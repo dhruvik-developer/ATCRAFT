@@ -18,7 +18,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -63,7 +64,8 @@ def warehouse_filters(
     allow_negative_stock: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired warehouses")] = False,
 ) -> WarehouseFilters:
-    return WarehouseFilters(
+    return bind_query_filters(
+        WarehouseFilters,
         search=search,
         warehouse_type=warehouse_type,
         branch_id=branch_id,
@@ -85,7 +87,8 @@ def location_filters(
     is_active: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired locations")] = False,
 ) -> StorageLocationFilters:
-    return StorageLocationFilters(
+    return bind_query_filters(
+        StorageLocationFilters,
         search=search,
         warehouse_id=warehouse_id,
         location_type=location_type,
@@ -176,7 +179,9 @@ async def update_location(
     tenant: Tenant,
 ) -> ApiResponse[StorageLocationRead]:
     location = await StorageLocationService(session, tenant).update_location(location_id, payload)
-    return ApiResponse[StorageLocationRead].ok(location, "Storage location updated")
+    return ApiResponse[StorageLocationRead].ok(
+        location, success_message("Storage location", "updated")
+    )
 
 
 @router.post(
@@ -194,7 +199,9 @@ async def activate_location(
     location = await StorageLocationService(session, tenant).set_active(
         location_id, active=True, reason=payload.reason
     )
-    return ApiResponse[StorageLocationRead].ok(location, "Storage location activated")
+    return ApiResponse[StorageLocationRead].ok(
+        location, success_message("Storage location", "activated")
+    )
 
 
 @router.post(
@@ -212,7 +219,9 @@ async def deactivate_location(
     location = await StorageLocationService(session, tenant).set_active(
         location_id, active=False, reason=payload.reason
     )
-    return ApiResponse[StorageLocationRead].ok(location, "Storage location deactivated")
+    return ApiResponse[StorageLocationRead].ok(
+        location, success_message("Storage location", "deactivated")
+    )
 
 
 @router.delete(
@@ -228,7 +237,7 @@ async def delete_location(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await StorageLocationService(session, tenant).delete_location(location_id, reason=reason)
-    return ApiResponse[None].ok(None, "Storage location retired")
+    return ApiResponse[None].ok(None, success_message("Storage location", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -281,7 +290,7 @@ async def create_warehouse(
     payload: WarehouseCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[WarehouseRead]:
     warehouse = await WarehouseService(session, tenant).create_warehouse(payload)
-    return ApiResponse[WarehouseRead].ok(warehouse, "Warehouse created")
+    return ApiResponse[WarehouseRead].ok(warehouse, success_message("Warehouse", "created"))
 
 
 @router.get(
@@ -310,7 +319,7 @@ async def update_warehouse(
     tenant: Tenant,
 ) -> ApiResponse[WarehouseRead]:
     warehouse = await WarehouseService(session, tenant).update_warehouse(warehouse_id, payload)
-    return ApiResponse[WarehouseRead].ok(warehouse, "Warehouse updated")
+    return ApiResponse[WarehouseRead].ok(warehouse, success_message("Warehouse", "updated"))
 
 
 @router.post(
@@ -323,7 +332,7 @@ async def set_default_warehouse(
     warehouse_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[WarehouseRead]:
     warehouse = await WarehouseService(session, tenant).set_default(warehouse_id)
-    return ApiResponse[WarehouseRead].ok(warehouse, "Default warehouse updated")
+    return ApiResponse[WarehouseRead].ok(warehouse, success_message("Default warehouse", "updated"))
 
 
 @router.post(
@@ -341,7 +350,7 @@ async def activate_warehouse(
     warehouse = await WarehouseService(session, tenant).set_active(
         warehouse_id, active=True, reason=payload.reason
     )
-    return ApiResponse[WarehouseRead].ok(warehouse, "Warehouse activated")
+    return ApiResponse[WarehouseRead].ok(warehouse, success_message("Warehouse", "activated"))
 
 
 @router.post(
@@ -359,7 +368,7 @@ async def deactivate_warehouse(
     warehouse = await WarehouseService(session, tenant).set_active(
         warehouse_id, active=False, reason=payload.reason
     )
-    return ApiResponse[WarehouseRead].ok(warehouse, "Warehouse deactivated")
+    return ApiResponse[WarehouseRead].ok(warehouse, success_message("Warehouse", "deactivated"))
 
 
 @router.post(
@@ -388,7 +397,7 @@ async def delete_warehouse(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await WarehouseService(session, tenant).delete_warehouse(warehouse_id, reason=reason)
-    return ApiResponse[None].ok(None, "Warehouse retired")
+    return ApiResponse[None].ok(None, success_message("Warehouse", "retired"))
 
 
 # --- locations nested under a warehouse --------------------------------------
@@ -431,7 +440,9 @@ async def create_location(
     tenant: Tenant,
 ) -> ApiResponse[StorageLocationRead]:
     location = await StorageLocationService(session, tenant).create_location(warehouse_id, payload)
-    return ApiResponse[StorageLocationRead].ok(location, "Storage location created")
+    return ApiResponse[StorageLocationRead].ok(
+        location, success_message("Storage location", "created")
+    )
 
 
 __all__ = ["router"]

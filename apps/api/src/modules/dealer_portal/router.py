@@ -25,6 +25,7 @@ from src.core.deps import (
     require_dealer_user,
     require_permission,
 )
+from src.core.messages import success_message
 from src.core.pagination import PageParams, bind_query_filters, page_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -79,7 +80,9 @@ def order_filters(
         bool, Query(description="Only orders that still represent unmet demand")
     ] = False,
 ) -> DealerOrderFilters:
-    return DealerOrderFilters(search=search, status=order_status, open_only=open_only)
+    return bind_query_filters(
+        DealerOrderFilters, search=search, status=order_status, open_only=open_only
+    )
 
 
 OrderFilterDep = Annotated[DealerOrderFilters, Depends(order_filters)]
@@ -223,7 +226,7 @@ async def update_cart_line(
     line_id: uuid.UUID, payload: DealerCartLineUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[DealerCartRead]:
     cart = await DealerPortalService(session, tenant).update_cart_line(line_id, payload.quantity)
-    return ApiResponse[DealerCartRead].ok(cart, "Cart updated")
+    return ApiResponse[DealerCartRead].ok(cart, success_message("Cart", "updated"))
 
 
 @router.delete(
@@ -247,7 +250,7 @@ async def remove_cart_line(
 )
 async def clear_cart(session: DbSession, tenant: Tenant) -> ApiResponse[DealerCartRead]:
     cart = await DealerPortalService(session, tenant).clear_cart()
-    return ApiResponse[DealerCartRead].ok(cart, "Cart cleared")
+    return ApiResponse[DealerCartRead].ok(cart, success_message("Cart", "cleared"))
 
 
 @router.get(
@@ -365,7 +368,9 @@ async def cancel_order(
     order_id: uuid.UUID, payload: DealerCancelRequest, session: DbSession, tenant: Tenant
 ) -> ApiResponse[DealerOrderDetail]:
     order = await DealerPortalService(session, tenant).cancel_order(order_id, payload.reason)
-    return ApiResponse[DealerOrderDetail].ok(order, f"Order {order.code} cancelled")
+    return ApiResponse[DealerOrderDetail].ok(
+        order, success_message(f"Order {order.code}", "cancelled")
+    )
 
 
 @router.get(

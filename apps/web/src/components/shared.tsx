@@ -8,6 +8,8 @@
  * assembled by committee.
  */
 
+import { joinValidationMessages } from '@/lib/messages'
+
 import { AlertTriangle, ChevronRight, Loader2, type LucideIcon } from 'lucide-react'
 import { type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -508,7 +510,7 @@ export function DateRangeFilter({
 
 export function FieldError({ message }: { message?: string | string[] }) {
   if (!message) return null
-  const text = Array.isArray(message) ? message.join('. ') : message
+  const text = Array.isArray(message) ? joinValidationMessages(message) : message
   return (
     <p role="alert" className="mt-1 text-xs text-destructive">
       {text}

@@ -450,7 +450,7 @@ describe('what the RFQ form sends', () => {
     // line by line rather than as "no lines at all" - and either way nothing
     // reaches the API, because an enquiry that asks for nothing wastes every
     // invited vendor's time.
-    await stable(() => screen.getByText('Choose an item'))
+    await stable(() => screen.getByText('Choose an item.'))
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 
@@ -528,7 +528,7 @@ describe('the board itself', () => {
     })
 
     await stable(() => screen.getByText('Could not load this list'))
-    expect(screen.getByText('The enquiry service is unavailable')).toBeVisible()
+    expect(screen.getByText('The enquiry service is unavailable', { exact: false })).toBeVisible()
   })
 
   it('says plainly when nobody has been given a date to reply by', async () => {

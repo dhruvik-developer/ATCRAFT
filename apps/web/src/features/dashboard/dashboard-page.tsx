@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Management dashboard.
  *
@@ -180,7 +181,7 @@ export default function DashboardPage() {
   const activityParams = { limit: 8 }
   const activity = useQuery({
     queryKey: queryKeys.audit.logs(activityParams),
-    queryFn: () => api.getPage<AuditLogRow>('/audit/logs', { params: activityParams }),
+    queryFn: () => api.getCursorPage<AuditLogRow>('/audit/logs', { params: activityParams }),
     staleTime: staleTimes.dashboard,
     enabled: canSeeActivity,
   })
@@ -321,7 +322,7 @@ export default function DashboardPage() {
         <Alert variant="destructive">
           <AlertTitle>Could not load the dashboard</AlertTitle>
           <AlertDescription>
-            <p>{dashboard.error.message}</p>
+            <p>{describeError(dashboard.error)}</p>
             <Button variant="outline" size="sm" className="mt-3" onClick={refreshAll}>
               <RefreshCw />
               Try again
@@ -379,7 +380,7 @@ export default function DashboardPage() {
             ) : approvals.error ? (
               <Alert variant="warning">
                 <AlertTitle>Approval queue unavailable</AlertTitle>
-                <AlertDescription>{approvals.error.message}</AlertDescription>
+                <AlertDescription>{describeError(approvals.error)}</AlertDescription>
               </Alert>
             ) : (approvals.data?.data.length ?? 0) === 0 ? (
               <EmptyState
@@ -461,7 +462,7 @@ export default function DashboardPage() {
             ) : activity.error ? (
               <Alert variant="warning">
                 <AlertTitle>Activity unavailable</AlertTitle>
-                <AlertDescription>{activity.error.message}</AlertDescription>
+                <AlertDescription>{describeError(activity.error)}</AlertDescription>
               </Alert>
             ) : (activity.data?.data.length ?? 0) === 0 ? (
               <EmptyState

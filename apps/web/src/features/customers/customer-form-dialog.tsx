@@ -55,7 +55,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { messages, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, PAN_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -68,8 +68,8 @@ const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z
   .object({
-    code: z.string().trim().min(1, 'Code is required').max(32, 'At most 32 characters'),
-    name: z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters'),
+    name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
     legal_name: z.string().trim().max(255, 'At most 255 characters'),
     customer_type: z.enum(CUSTOMER_TYPES),
     price_list_type: z.enum(PRICE_TYPES),

@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Read-only inspection detail, for any status.
  *
@@ -229,7 +230,9 @@ export function InspectionDetailDialog({
               </Suspense>
             </>
           )}
-          {detail.error && <p className="text-xs text-destructive">{detail.error.message}</p>}
+          {detail.error && (
+            <p className="text-xs text-destructive">{describeError(detail.error)}</p>
+          )}
         </DialogBody>
       </DialogContent>
     </Dialog>

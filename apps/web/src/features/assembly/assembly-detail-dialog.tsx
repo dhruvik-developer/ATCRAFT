@@ -50,7 +50,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -716,7 +716,7 @@ function CompleteAssemblyDialog({
                 field this form renders, so it is surfaced here or nowhere. */}
             {complete.error && (
               <Alert variant="destructive">
-                <AlertDescription>{complete.error.message}</AlertDescription>
+                <AlertDescription>{describeError(complete.error)}</AlertDescription>
               </Alert>
             )}
 
@@ -929,7 +929,7 @@ function ReleaseReadiness({
     return (
       <div className="space-y-2 pb-3">
         <Alert variant="destructive">
-          <AlertDescription>{error.message}</AlertDescription>
+          <AlertDescription>{describeError(error)}</AlertDescription>
         </Alert>
         <Button variant="outline" size="sm" onClick={onRefresh}>
           Retry
@@ -1209,7 +1209,7 @@ export function AssemblyDetailDialog({
         await api.get<QcInspectionDetail>(`/quality/inspections/${order.qc_inspection_id}`),
       )
     } catch (error) {
-      toast.error('Could not open the inspection', (error as Error).message)
+      toast.failure(error, 'Could not open the inspection')
     } finally {
       setOpeningInspection(false)
     }
@@ -1265,7 +1265,7 @@ export function AssemblyDetailDialog({
 
             {orderQuery.error && (
               <Alert variant="destructive">
-                <AlertDescription>{orderQuery.error.message}</AlertDescription>
+                <AlertDescription>{describeError(orderQuery.error)}</AlertDescription>
               </Alert>
             )}
 

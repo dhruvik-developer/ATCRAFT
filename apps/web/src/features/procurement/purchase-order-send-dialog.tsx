@@ -48,7 +48,7 @@ import {
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, SELECT_NONE } from '@/lib/constants'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -176,7 +176,7 @@ export function PurchaseOrderSendDialog({
             ) : assignees.error ? (
               <Alert variant="destructive" className="mt-1.5">
                 <AlertTitle>Could not load the vendor&apos;s users</AlertTitle>
-                <AlertDescription>{assignees.error.message}</AlertDescription>
+                <AlertDescription>{describeError(assignees.error)}</AlertDescription>
               </Alert>
             ) : eligible.length === 0 ? (
               <p className="mt-1.5 rounded-md border border-dashed p-3 text-sm text-muted-foreground">

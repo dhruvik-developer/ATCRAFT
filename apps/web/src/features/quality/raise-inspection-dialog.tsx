@@ -48,7 +48,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -73,8 +73,8 @@ const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const schema = z
   .object({
     qc_stage: z.enum(['INCOMING', 'IN_PROCESS', 'FINAL', 'RETURN', 'JOB_WORK', 'ASSEMBLY']),
-    item_id: z.string().min(1, 'Choose the item'),
-    warehouse_id: z.string().min(1, 'Choose the warehouse'),
+    item_id: z.string().min(1, validation.choose('the item')),
+    warehouse_id: z.string().min(1, validation.choose('the warehouse')),
     batch_id: z.string().trim(),
     inspected_quantity: z
       .string()
@@ -440,7 +440,7 @@ export function RaiseInspectionDialog({
 
             {raise.error && (
               <Alert variant="destructive">
-                <AlertDescription>{raise.error.message}</AlertDescription>
+                <AlertDescription>{describeError(raise.error)}</AlertDescription>
               </Alert>
             )}
           </DialogBody>

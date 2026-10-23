@@ -88,7 +88,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -225,7 +225,7 @@ function PostedReceiptPicker({
           )}
 
           {!results.isLoading && results.error && (
-            <p className="px-2 py-6 text-sm text-destructive">{(results.error as Error).message}</p>
+            <p className="px-2 py-6 text-sm text-destructive">{describeError(results.error)}</p>
           )}
 
           {!results.isLoading && !results.error && rows.length === 0 && (
@@ -285,7 +285,7 @@ const lineSchema = z.object({
 
 const schema = z
   .object({
-    return_date: z.string().min(1, 'Return date is required'),
+    return_date: z.string().min(1, validation.required('Return date')),
     reason: z
       .string()
       .trim()
@@ -632,7 +632,7 @@ export function PurchaseReturnFormDialog({
             {receipt && !detail.isLoading && detail.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load the receipt lines</AlertTitle>
-                <AlertDescription>{(detail.error as Error).message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             )}
 
@@ -855,7 +855,7 @@ export function PurchaseReturnDetailDialog({
           {!query.isLoading && query.error && (
             <Alert variant="destructive">
               <AlertTitle>Could not load this purchase return</AlertTitle>
-              <AlertDescription>{query.error.message}</AlertDescription>
+              <AlertDescription>{describeError(query.error)}</AlertDescription>
             </Alert>
           )}
 
@@ -1045,7 +1045,7 @@ export function PurchaseReturnDetailDialog({
                   )}
                   {job.error && (
                     <p role="alert" className="text-sm text-destructive">
-                      Could not check PDF status: {job.error.message}
+                      Could not check PDF status: {describeError(job.error)}
                     </p>
                   )}
                   {job.phase === 'failed' && job.job?.error_message && (
@@ -1235,8 +1235,8 @@ export function PurchaseReturnPostDialog({
             <Alert variant="destructive">
               <AlertTitle>Could not load the lines</AlertTitle>
               <AlertDescription>
-                {detail.error.message} Post without reading them only if you raised this return
-                yourself.
+                {describeError(detail.error)} Post without reading them only if you raised this
+                return yourself.
               </AlertDescription>
             </Alert>
           )}

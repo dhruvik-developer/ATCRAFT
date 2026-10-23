@@ -19,7 +19,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.sales import fulfilment as fulfilment_service
@@ -72,7 +73,8 @@ def order_filters(
     required_from: Annotated[date | None, Query()] = None,
     required_to: Annotated[date | None, Query()] = None,
 ) -> SalesOrderFilters:
-    return SalesOrderFilters(
+    return bind_query_filters(
+        SalesOrderFilters,
         search=search,
         customer_id=customer_id,
         source=source,
@@ -94,7 +96,8 @@ def demand_filters(
     ] = None,
     shortfall_only: Annotated[bool, Query(description="Only items with unreserved demand")] = False,
 ) -> DemandSummaryFilters:
-    return DemandSummaryFilters(
+    return bind_query_filters(
+        DemandSummaryFilters,
         warehouse_id=warehouse_id,
         item_id=item_id,
         required_before=required_before,
@@ -163,7 +166,7 @@ async def update_sales_settings(
     payload: SalesSettingsUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[SalesSettingsRead]:
     settings = await service.update_sales_settings(session, tenant, payload)
-    return ApiResponse[SalesSettingsRead].ok(settings, "Sales settings updated")
+    return ApiResponse[SalesSettingsRead].ok(settings, success_message("Sales settings", "updated"))
 
 
 # -----------------------------------------------------------------------------
@@ -205,7 +208,7 @@ async def create_order(
 ) -> ApiResponse[SalesOrderDetail]:
     order, lines = await service.create_order(session, tenant, principal, payload)
     return ApiResponse[SalesOrderDetail].ok(
-        service.order_detail(order, lines), f"Sales order {order.code} created"
+        service.order_detail(order, lines), success_message(f"Sales order {order.code}", "created")
     )
 
 
@@ -243,7 +246,7 @@ async def update_order(
 ) -> ApiResponse[SalesOrderDetail]:
     order, lines = await service.update_order(session, tenant, principal, order_id, payload)
     return ApiResponse[SalesOrderDetail].ok(
-        service.order_detail(order, lines), f"Sales order {order.code} updated"
+        service.order_detail(order, lines), success_message(f"Sales order {order.code}", "updated")
     )
 
 
@@ -258,7 +261,7 @@ async def delete_order(
     order_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_order(session, tenant, order_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft sales order deleted")
+    return ApiResponse[None].ok(None, success_message("Draft sales order", "deleted"))
 
 
 # -----------------------------------------------------------------------------
@@ -307,7 +310,8 @@ async def cancel_order(
 ) -> ApiResponse[SalesOrderSummary]:
     order = await service.cancel_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[SalesOrderSummary].ok(
-        SalesOrderSummary.model_validate(order), f"Sales order {order.code} cancelled"
+        SalesOrderSummary.model_validate(order),
+        success_message(f"Sales order {order.code}", "cancelled"),
     )
 
 
@@ -330,7 +334,8 @@ async def approve_order(
 ) -> ApiResponse[SalesOrderSummary]:
     order = await service.approve_order(session, tenant, principal, order_id, reason=payload.reason)
     return ApiResponse[SalesOrderSummary].ok(
-        SalesOrderSummary.model_validate(order), f"Sales order {order.code} approved"
+        SalesOrderSummary.model_validate(order),
+        success_message(f"Sales order {order.code}", "approved"),
     )
 
 
@@ -442,5 +447,5 @@ async def close_order(
 ) -> ApiResponse[SalesOrderSummary]:
     order = await service.close_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[SalesOrderSummary].ok(
-        SalesOrderSummary.model_validate(order), "Sales order closed"
+        SalesOrderSummary.model_validate(order), success_message("Sales order", "closed")
     )

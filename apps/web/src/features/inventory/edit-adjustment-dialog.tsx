@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 
 import { FieldError } from '@/components/shared'
@@ -20,7 +21,7 @@ export default function EditAdjustmentDialog({ id, onClose }: { id: string; onCl
         {detail.isLoading ? (
           'Loading adjustment...'
         ) : (
-          <FieldError message={detail.error?.message} />
+          <FieldError message={detail.error ? describeError(detail.error) : undefined} />
         )}
         <Button variant="outline" onClick={onClose}>
           Cancel edit

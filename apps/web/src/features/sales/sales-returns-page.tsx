@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
@@ -165,7 +166,7 @@ function NewSalesReturnDialog({
                 ))}
               </SelectContent>
             </Select>
-            {dispatches.error && <FieldError message={dispatches.error.message} />}
+            {dispatches.error && <FieldError message={describeError(dispatches.error)} />}
           </div>
           <div className="space-y-2">
             <Label htmlFor="return-warehouse">Return warehouse (optional)</Label>
@@ -241,7 +242,7 @@ function NewSalesReturnDialog({
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
-          {create.error && <FieldError message={create.error.message} />}
+          {create.error && <FieldError message={describeError(create.error)} />}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -302,9 +303,7 @@ export default function SalesReturnsPage() {
       ])
     },
     onError: (error) => {
-      setUnitDispositionError(
-        error instanceof Error ? error.message : 'Serial dispositions could not be saved.',
-      )
+      setUnitDispositionError(describeError(error, 'Serial dispositions could not be saved.'))
     },
   })
 
@@ -364,7 +363,7 @@ export default function SalesReturnsPage() {
         setSelected(null)
         await list.refetch()
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'The return action failed.'
+        const message = describeError(error, 'The return action failed.')
         setTransitionError(message)
       } finally {
         setTransitioning(null)
@@ -379,7 +378,7 @@ export default function SalesReturnsPage() {
       setSelected(null)
       await list.refetch()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The return action failed.'
+      const message = describeError(error, 'The return action failed.')
       setTransitionError(message)
     } finally {
       setTransitioning(null)
@@ -446,7 +445,7 @@ export default function SalesReturnsPage() {
                 Dispose serial units
               </Button>
             )}
-          {selectedDetail.error && <FieldError message={selectedDetail.error.message} />}
+          {selectedDetail.error && <FieldError message={describeError(selectedDetail.error)} />}
         </div>
       )}
       <DataTable

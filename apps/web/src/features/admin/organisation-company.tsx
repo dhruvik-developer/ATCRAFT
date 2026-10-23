@@ -49,7 +49,7 @@ import {
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { IFSC_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
 import { asText } from '@/lib/utils'
@@ -72,7 +72,7 @@ const MONTHS = [
 ]
 
 const companySchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
   legal_name: z.string().trim().max(255, 'At most 255 characters'),
   gstin: z.string().trim().max(15, 'A GSTIN is 15 characters'),
   pan: z.string().trim().max(10, 'A PAN is 10 characters'),
@@ -82,7 +82,7 @@ const companySchema = z.object({
     .trim()
     .refine(
       (value) => value === '' || z.string().email().safeParse(value).success,
-      'Enter a valid email address',
+      validation.email,
     ),
   phone: z.string().trim().max(32, 'At most 32 characters'),
   website: z.string().trim().max(255, 'At most 255 characters'),
@@ -92,10 +92,18 @@ const companySchema = z.object({
   state: z.string().trim().max(120, 'At most 120 characters'),
   state_code: z.string().trim().max(4, 'At most 4 characters'),
   postal_code: z.string().trim().max(16, 'At most 16 characters'),
-  country: z.string().trim().min(1, 'Country is required').max(80, 'At most 80 characters'),
+  country: z
+    .string()
+    .trim()
+    .min(1, validation.required('Country'))
+    .max(80, 'At most 80 characters'),
   currency: z.string().trim().length(3, 'Use the three-letter ISO code, for example INR'),
   financial_year_start_month: z.string(),
-  timezone: z.string().trim().min(1, 'Time zone is required').max(64, 'At most 64 characters'),
+  timezone: z
+    .string()
+    .trim()
+    .min(1, validation.required('Time zone'))
+    .max(64, 'At most 64 characters'),
 })
 
 type CompanyValues = z.infer<typeof companySchema>
@@ -212,7 +220,9 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
       <Alert variant="destructive">
         <AlertTitle>Could not load the company record</AlertTitle>
         <AlertDescription>
-          {(company.error as Error | null)?.message ?? 'No company was returned for this account.'}
+          {company.error
+            ? describeError(company.error)
+            : 'No company was returned for this account.'}
         </AlertDescription>
       </Alert>
     )

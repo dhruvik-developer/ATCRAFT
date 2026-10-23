@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * Customer picker, searched on the server.
  *
@@ -131,7 +132,7 @@ export function CustomerPicker({
               )}
 
               {!results.isLoading && results.error && (
-                <p className="px-2 py-6 text-sm text-destructive">{results.error.message}</p>
+                <p className="px-2 py-6 text-sm text-destructive">{describeError(results.error)}</p>
               )}
 
               {!results.isLoading && !results.error && rows.length === 0 && (

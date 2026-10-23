@@ -1,3 +1,4 @@
+import { describeError } from '@/lib/messages'
 /**
  * The order-to-fulfilment trail: everything raised, moved or issued for one
  * sales order, in the order it happens.
@@ -129,7 +130,7 @@ export function FulfilmentLinks({ orderId }: { orderId: string }) {
         {data && total > 0 && <Badge variant="muted">{total} document(s)</Badge>}
       </CardHeader>
       <CardContent className="space-y-4">
-        {trail.error && <p className="text-sm text-destructive">{trail.error.message}</p>}
+        {trail.error && <p className="text-sm text-destructive">{describeError(trail.error)}</p>}
         {trail.isLoading && <p className="text-sm text-muted-foreground">Loading the trail...</p>}
         {data && total === 0 && (
           <p className="text-sm text-muted-foreground">

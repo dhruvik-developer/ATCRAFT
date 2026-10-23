@@ -59,7 +59,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -445,7 +445,10 @@ export function InspectionDialog({
     onSuccess: ({ index, document }) => {
       setValue(`parameters.${index}.document_id`, document.id, { shouldDirty: true })
       setValue(`parameters.${index}.document_name`, document.file_name, { shouldDirty: true })
-      toast.success('Photo attached', `${document.file_name} is attached to this parameter.`)
+      toast.success(
+        success.attached('Photo'),
+        `${document.file_name} is attached to this parameter.`,
+      )
     },
     onSettled: () => setUploadingIndex(null),
   })
@@ -699,7 +702,7 @@ export function InspectionDialog({
             {!detail.isLoading && detail.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load the inspection template</AlertTitle>
-                <AlertDescription>{detail.error.message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             )}
 

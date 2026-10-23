@@ -63,7 +63,7 @@ import { useVendorCategoryOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -83,8 +83,12 @@ import {
 
 function userSchema(isEdit: boolean) {
   return z.object({
-    email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
-    full_name: z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters'),
+    email: z.string().trim().min(1, validation.required('Email')).email(validation.email),
+    full_name: z
+      .string()
+      .trim()
+      .min(1, validation.required('Name'))
+      .max(255, 'At most 255 characters'),
     // On an edit the field means "set a new password"; blank leaves it alone.
     password: z
       .string()
@@ -324,7 +328,7 @@ export function UserFormDialog({
             {isEdit && detail.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load this user</AlertTitle>
-                <AlertDescription>{detail.error.message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             )}
 
@@ -680,7 +684,7 @@ function VendorCategoryScope({
           Loading the vendor&apos;s categories...
         </p>
       ) : categories.error ? (
-        <p className="mt-3 text-sm text-destructive">{categories.error.message}</p>
+        <p className="mt-3 text-sm text-destructive">{describeError(categories.error)}</p>
       ) : rows.length === 0 && stale.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">
           This vendor is not qualified for any item category yet. Qualify it on the Vendors screen
@@ -832,14 +836,14 @@ export function RoleAssignmentDialog({
             {detail.error && !detail.isLoading && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load this account&apos;s roles</AlertTitle>
-                <AlertDescription>{detail.error.message}</AlertDescription>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
               </Alert>
             )}
 
             {roles.error && (
               <Alert variant="destructive">
                 <AlertTitle>Could not load the role list</AlertTitle>
-                <AlertDescription>{roles.error.message}</AlertDescription>
+                <AlertDescription>{describeError(roles.error)}</AlertDescription>
               </Alert>
             )}
 
