@@ -217,7 +217,14 @@ not duplicate them.
 | `backup` | `pg_dump` to `./backups` |
 | `shell-api` / `shell-db` | Shells inside the containers |
 | `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` / `deploy-verify` | `scripts/deploy.sh` wrappers, `D=main` or `D=dev` (Makefile only) |
-| `clean` | Remove build artefacts and caches |
+| `clean` | Remove generated builds, test outputs and caches; preserve data, configuration and dependencies |
+
+Preview cleanup with `python scripts/clean.py --dry-run` (Windows:
+`.\make.ps1 clean --dry-run`). Both cleanup entry points use the same bounded
+helper. It preserves tracked files, environment files, database backups, runtime
+storage, installed dependencies and generated handbook deliverables. Save any
+test reports you want to retain before cleaning; run `build-web` to regenerate
+the production frontend bundle.
 
 ---
 

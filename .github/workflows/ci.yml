@@ -33,8 +33,8 @@ jobs:
           pip-compile --quiet --no-header --allow-unsafe --extra=dev --generate-hashes --strip-extras --resolver=backtracking --output-file=requirements-dev.lock pyproject.toml
           git diff --exit-code -- requirements.lock requirements-dev.lock
       - run: pip-audit -r requirements.lock
-      - run: ruff check src tests migrations scripts ../../scripts/hooks
-      - run: ruff format --check src tests migrations scripts ../../scripts/hooks
+      - run: ruff check src tests migrations scripts ../../scripts
+      - run: ruff format --check src tests migrations scripts ../../scripts
       - run: mypy src
       - run: python -m scripts.export_openapi --check
       - run: python -m scripts.export_postman --check

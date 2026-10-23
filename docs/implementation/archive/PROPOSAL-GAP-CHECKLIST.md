@@ -1,4 +1,9 @@
 # Atcraft ERP — Proposal vs Implementation Gap Checklist
+
+> Historical snapshot: 13 October 2026. The statuses below describe that baseline.
+> See the [current standards verification](../development-standards-20261022.md)
+> and [local seed workflow](../../local-seed-data.md) for the latest verified work.
+
 Local-only audit. Source: `Atcraft Manufacturing ERP Development_compressed.pdf` (24 pages, Aug 2026 v1.0) vs `main` on this machine.
 Trace baseline: `docs/implementation/trace/status.tsv` (the per-requirement status sheet), `docs/implementation/trace/gaps.md`, backend `apps/api/src/modules/*`, frontend `apps/web/src/features/*`.
 

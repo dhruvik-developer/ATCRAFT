@@ -90,3 +90,18 @@ Record the commands, results and any blocked verification when handing work over
 Existing production-readiness findings remain open until their own acceptance
 criteria are met; a standards refactor does not close unrelated business or
 deployment gaps.
+
+## Repository hygiene
+
+Keep caches, coverage results, browser sessions and generated test reports out of
+source control and Docker build contexts. Preview disposable outputs with
+`python scripts/clean.py --dry-run`; remove them with `make clean` or
+`.\make.ps1 clean`. Both commands share the same helper, which checks workspace
+boundaries, refuses links and preserves tracked files, dependencies, credentials,
+runtime storage, backups and handbook deliverables. Archive verification reports
+outside the checkout before cleaning when they are needed for a handover.
+
+Keep migrations, tests, dependency locks, generated API contracts and referenced
+documentation. Move superseded planning checkpoints into the
+[implementation archive](implementation/archive/BUILD-ORDER.md) with a historical
+label instead of presenting them as current implementation status.

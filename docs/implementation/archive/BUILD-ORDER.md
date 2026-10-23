@@ -1,5 +1,12 @@
 # Build Order — closing the proposal gaps (local-only)
-Derived from `PROPOSAL-GAP-CHECKLIST.md` + `docs/implementation/specs/SPEC-INDEX.md` + `docs/implementation/specs/PLAN.md` R2–R7 schedule.
+
+> Historical snapshot: 13 October 2026. The statuses below describe that baseline.
+> See the [current standards verification](../development-standards-20261022.md)
+> and [local seed workflow](../../local-seed-data.md) for the latest verified work.
+
+Derived from the [proposal gap checklist](PROPOSAL-GAP-CHECKLIST.md),
+[specification index](../specs/SPEC-INDEX.md) and
+[master plan](../specs/PLAN.md) R2–R7 schedule.
 Rule: foundation before engine before execution before portal before alerts/reports. No remote, no worktree changes by this doc.
 
 ## Current lane state (13 Oct, from PLAN.md log)

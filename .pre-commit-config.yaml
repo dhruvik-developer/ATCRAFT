@@ -91,20 +91,20 @@ repos:
 
       # --- backend: format + lint on the staged files ------------------------
       # `--config pyproject.toml` pins the backend's ruff configuration for the
-      # hook scripts under scripts/hooks too, which live outside apps/api.
+      # repository tooling under scripts too, which lives outside apps/api.
       - id: ruff-format
-        name: ruff format (apps/api, scripts/hooks)
+        name: ruff format (apps/api, scripts)
         entry: python scripts/hooks/run_in_venv.py ruff format --config pyproject.toml
         language: system
         types: [python]
-        files: ^(apps/api/(src|tests|scripts|migrations)|scripts/hooks)/
+        files: ^(apps/api/(src|tests|scripts|migrations)|scripts)/
 
       - id: ruff-check
-        name: ruff check --fix (apps/api, scripts/hooks)
+        name: ruff check --fix (apps/api, scripts)
         entry: python scripts/hooks/run_in_venv.py ruff check --fix --exit-non-zero-on-fix --config pyproject.toml
         language: system
         types: [python]
-        files: ^(apps/api/(src|tests|scripts|migrations)|scripts/hooks)/
+        files: ^(apps/api/(src|tests|scripts|migrations)|scripts)/
 
       # --- frontend: format + lint on the staged files -----------------------
       - id: prettier

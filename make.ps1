@@ -37,8 +37,8 @@ if (-not $env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME = 'atcraft-erp' 
 $LocalProject = $env:COMPOSE_PROJECT_NAME
 $DcDev   = @('compose', '-p', $LocalProject, '-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml')
 # The same paths the pre-commit hook and CI lint: application code, tests,
-# migrations, the backend scripts and the repository's hook wrappers.
-$PyLintPaths = 'src tests migrations scripts ../../scripts/hooks'
+# migrations and the repository's Python tooling.
+$PyLintPaths = 'src tests migrations scripts ../../scripts'
 
 # The two deployments are driven by scripts/deploy.sh alone, which reads
 # deploy/<name>.env and passes the project name explicitly on every command.
@@ -109,7 +109,7 @@ function Show-Help {
         'shell-db'         = 'psql inside the Postgres container'
         'backup'           = 'Dump the database to .\backups'
         'deploy'           = 'Deployments are run with ./scripts/deploy.sh (see ONE-BOX-RUNBOOK.md)'
-        'clean'            = 'Remove build artefacts and caches'
+        'clean'            = 'Remove generated builds, test outputs and caches (keeps data and dependencies)'
     }
     foreach ($k in $targets.Keys) {
         Write-Host ('  {0,-18} {1}' -f $k, $targets[$k])
@@ -260,17 +260,9 @@ switch ($Target) {
     }
 
     'clean' {
-        Get-ChildItem -Path $Root -Recurse -Directory -Filter '__pycache__' -ErrorAction SilentlyContinue |
-            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-        foreach ($p in '.pytest_cache', '.ruff_cache', '.mypy_cache', 'htmlcov') {
-            $full = Join-Path $ApiDir $p
-            if (Test-Path $full) { Remove-Item $full -Recurse -Force }
-        }
-        foreach ($p in 'dist', '.vite') {
-            $full = Join-Path $WebDir $p
-            if (Test-Path $full) { Remove-Item $full -Recurse -Force }
-        }
-        Write-Host 'Cleaned.' -ForegroundColor Green
+        $py = Get-VenvPython
+        & $py (Join-Path $Root 'scripts\clean.py') @Rest
+        if ($LASTEXITCODE -ne 0) { throw "Cleanup failed (exit $LASTEXITCODE)." }
     }
 
     default {

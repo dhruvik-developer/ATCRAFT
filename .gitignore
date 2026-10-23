@@ -11,6 +11,7 @@ env/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 dist/
@@ -87,6 +88,5 @@ docs/handbook/Atcraft-ERP-Handbook.pdf
 docs/handbook/screens/
 .opencode/
 tmp/
-docs/implementation/reports/
 *.pdf
 AGENTS.md.txt

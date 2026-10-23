@@ -132,8 +132,8 @@ test-load: ## Locust load test (headless smoke profile)
 	cd tests/load && locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost
 
 # The same paths the pre-commit hook and CI lint: application code, tests,
-# migrations, the backend scripts and the repository's hook wrappers.
-PY_LINT_PATHS := src tests migrations scripts ../../scripts/hooks
+# migrations and the repository's Python tooling.
+PY_LINT_PATHS := src tests migrations scripts ../../scripts
 
 lint: ## Lint and type-check backend + frontend
 	cd $(API_DIR) && ruff check $(PY_LINT_PATHS) && ruff format --check $(PY_LINT_PATHS) && mypy src
@@ -208,7 +208,5 @@ deploy-backup: deployment-guard ## Dump deployment D's database
 deploy-verify: ## Prove the two deployments cannot reach each other
 	./scripts/verify-isolation.sh
 
-clean: ## Remove build artefacts and caches (keeps volumes)
-	find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
-	rm -rf $(API_DIR)/.pytest_cache $(API_DIR)/.ruff_cache $(API_DIR)/.mypy_cache $(API_DIR)/htmlcov
-	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/.vite
+clean: ## Remove generated builds, test outputs and caches (keeps data and dependencies)
+	python scripts/clean.py

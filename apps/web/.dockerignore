@@ -1,5 +1,11 @@
-node_modules
-dist
-.git
+# The image builds from source; local outputs and credentials stay on the host.
+node_modules/
+dist/
+.vite/
+coverage/
+.eslintcache
+*.tsbuildinfo
+*.log
+.git/
 .env*
 Dockerfile

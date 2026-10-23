@@ -10,14 +10,23 @@ requirement in the supplied manufacturing ERP proposal. See
 [the master plan](specs/PLAN.md), [the proposal checklist](specs/PDF-CHECKLIST.md)
 and [the traceability audit](trace/trace.json).
 
+The historical 13 October 2026 [build order](archive/BUILD-ORDER.md) and
+[proposal gap checklist](archive/PROPOSAL-GAP-CHECKLIST.md) are archived here to
+preserve their original planning and audit evidence.
+
 ## Current checkpoint
 
-Updated 19 October 2026. The 58-revision migration chain has been squashed to
-one verified baseline, `20261021_0100`; see
-[migration-squash-20261021.md](migration-squash-20261021.md). The D4/PAdES
-compliance and procurement plan is in
+Updated 23 October 2026. The migration chain has seven revisions: the verified
+`20261021_0100` baseline and six forward revisions through `20261027_0100`.
+The original 58-revision squash is recorded in
+[migration-squash-20261021.md](migration-squash-20261021.md). Application-wide
+standards checks and their results are recorded in the
+[22–23 October verification](development-standards-20261022.md); local setup and
+the repeatable demonstration seed are documented in the
+[local seed workflow](../local-seed-data.md). The D4/PAdES compliance and
+procurement plan is in
 [d4-dsc-pades-compliance-20261019.md](d4-dsc-pades-compliance-20261019.md). Work
-continues on `develop`; the round-2 integration table below is historical.
+continues on `develop`; the lane checkpoints and procedures below are historical.
 
 ### Round-2 integration checkpoint (14 October 2026)
 
