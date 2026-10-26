@@ -572,6 +572,14 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
 
 ## Things not to do
 
+- Do not create a second copy of this repository. There is one working copy,
+  `C:\Project\Other\ATCRAFT`; work on a branch in it. No `git worktree add`,
+  clone or copied folder - beside it, under a tool's data directory or through
+  a tool's worktree mode - and no clone databases or extra Compose projects left
+  behind. `AGENTS.md` carries the same rule for tools that read it instead of
+  this file. The copies made before this rule linked `.venv` and `node_modules`
+  back here as junctions, which Windows PowerShell 5.1's `Remove-Item -Recurse`
+  follows into the target: unlink the junctions before deleting any copy.
 - Do not introduce Kafka, Kubernetes, Elasticsearch, ClickHouse, a second
   database, or microservices. Not without measured evidence and an update to
   this repository's architecture decision records first.

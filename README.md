@@ -319,7 +319,9 @@ succeed.
 ## Contributing
 
 Current development integrates on `develop`; base new `feature/*`, `bugfix/*`
-and `hotfix/*` branches there. Deployment names remain `main` and `dev`:
+and `hotfix/*` branches there, in this one checkout. Do not create git
+worktrees, clones or copied folders of the repository; [`AGENTS.md`](AGENTS.md)
+states the rule for coding agents. Deployment names remain `main` and `dev`:
 `scripts/deploy.sh` deliberately requires the corresponding `main` or `dev`
 branch and its matching remote HEAD. Promoting `develop` into a deployment
 branch is a separate release step; passing `dev` selects that deployment.

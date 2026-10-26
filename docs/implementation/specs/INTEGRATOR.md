@@ -3,6 +3,8 @@
 > Historical lane integration procedure. Current development integrates on
 > `develop`; follow the [current contributing workflow](../../../README.md#contributing)
 > and [release runbook](../../../ONE-BOX-RUNBOOK.md) before merging or deploying.
+> Do not recreate the lane worktrees or lane databases: the repository has one
+> working copy (see [AGENTS.md](../../../AGENTS.md)).
 
 You work in the **main tree** `C:/Project/Other/ATCRAFT` (branch `main`). The lanes are:
 

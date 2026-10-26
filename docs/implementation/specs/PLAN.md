@@ -3,6 +3,8 @@
 > Historical lane schedule. Work-package requirements remain acceptance references;
 > the lane paths, branch targets and timing below describe the original build.
 > Use the [current contributing workflow](../../../README.md#contributing) for new work.
+> Do not recreate the lane worktrees or lane databases: the repository has one
+> working copy (see [AGENTS.md](../../../AGENTS.md)).
 
 The goal (from the user): fix the Cursor audit points **and** make sure *each and everything* in "Atcraft Manufacturing ERP Development.pdf" is present. The PDF is transcribed in `PDF-CHECKLIST.md`.
 

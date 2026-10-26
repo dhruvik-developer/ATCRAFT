@@ -4,6 +4,8 @@
 > references; branch, worktree and integration instructions below describe the
 > original build. Use the current [contributing workflow](../../../README.md#contributing)
 > and [development standards](../../development-standards.md) for new work.
+> Do not recreate the lane worktrees or lane databases: the repository has one
+> working copy (see [AGENTS.md](../../../AGENTS.md)).
 
 You are one of several agents closing the gaps between the ATCRAFT manufacturing ERP and the
 client proposal. Work proceeds in **rounds**. In each round, several **lanes** (git worktrees)
