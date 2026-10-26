@@ -116,6 +116,21 @@ test('the ageing chart screen reader table does not widen a phone page', async (
   await page.screenshot({ path: 'readiness-artifacts/mobile-ageing.png' })
 })
 
+test('a wide finance table can be reached and scrolled with the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await signInThroughForm(page)
+  await page.goto(`${BASE_URL}/finance`)
+  const region = page.getByRole('group', { name: 'Table results', exact: true }).first()
+  await expect(region.getByRole('row').nth(1)).toBeVisible()
+  expect(await region.evaluate((element) => element.scrollWidth > element.clientWidth)).toBeTruthy()
+
+  await page.getByRole('button', { name: 'Columns', exact: true }).first().focus()
+  await page.keyboard.press('Tab')
+  await expect(region).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+})
+
 test('readiness sweeps flag an invalid HTTP 200 response shown as an error toast', async ({
   page,
 }) => {

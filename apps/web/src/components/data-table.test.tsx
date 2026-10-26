@@ -19,7 +19,7 @@ describe('keyboard table navigation', () => {
         data={[{ code: 'SALES-REVENUE' }]}
       />,
     )
-    const region = screen.getByRole('region', { name: 'Table results' })
+    const region = screen.getByRole('group', { name: 'Table results' })
     expect(region).toContainElement(screen.getByRole('table'))
     await user.tab()
     expect(screen.getByRole('button', { name: 'Columns' })).toHaveFocus()

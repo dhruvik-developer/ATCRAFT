@@ -34,6 +34,19 @@ settlement checks passed 21. The Git pre-push hooks and CI rerun the current
 whole-tree checks; these earlier counts are not a claim that every function has
 complete coverage.
 
+The [first pushed checkpoint's CI run](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40256351834)
+passed frontend tests/builds, backend quality checks, all three image scans and
+24 browser journeys. Its full backend run recorded 6,169 passes, two failures
+and 81.36% branch coverage. The failures were a dealer credit assertion that
+omitted the allocated one-paisa invoice round-off and an audit assertion that
+did not order tied timestamps. Both regressions now pass within their complete
+19-case PostgreSQL modules. Fresh-seed accessibility also exposed an unfocusable
+finance table scroll area. The shared table now provides a named, focusable
+group with a visible keyboard focus indicator; Chromium verified Tab access and
+ArrowRight scrolling at 375 px. Using a group avoids duplicate page landmarks
+when two tables are present. These corrections still require a fresh CI result
+for the commit that contains them.
+
 The responsive run found a real tablet catalogue overflow. Long offer labels
 and quantity/action rows now wrap inside their cards, and the 768 px browser
 regression passes. Portal reload checks explicitly verify the expected initial

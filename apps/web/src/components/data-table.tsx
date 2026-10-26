@@ -270,7 +270,7 @@ export function DataTable<T>({
       <div className="rounded-lg border">
         <div
           ref={scrollRef}
-          role="region"
+          role="group"
           aria-label="Table results"
           tabIndex={0}
           className="relative overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
