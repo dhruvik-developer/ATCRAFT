@@ -69,7 +69,7 @@ new background jobs raised while testing:
 | Area | Examples |
 |---|---|
 | Organisation and access | Company, branch, plant, current financial year, role/permission catalogue, staff, departments and cost centres |
-| Product and warehouse masters | Units/conversions, categories, attributes, brands, manufacturers, items/variants, prices, warehouses and locations |
+| Product and warehouse masters | Units/conversions, categories, attributes, brands, manufacturers, items/variants, prices, warehouses and locations; typed specification masters, inherited category templates and product accessories |
 | Trading partners | Customers, dealers, addresses/contacts, vendors, vendor qualifications, transporters and portal users |
 | Engineering | Work centres, machines, shifts, routings, approved BOMs and QC templates |
 | Procurement | Requisitions, RFQs, competing quotations, purchase orders, shipments, posted receipts and purchase returns |
@@ -97,6 +97,24 @@ conversion opens the joined movement history. Packing notes
 `DM-PACK-SERIAL-FINAL` identify the completed carton containing two converted
 units after FINAL inspection. These scenarios use the ordinary services and
 resume on rerun; they never replenish units that have already been issued.
+
+For technical descriptions, open Masters → Specifications and search `DM-SPEC`.
+The seven demo attributes cover Material, Lock Type, Backset, Keys Included,
+Warranty, Fire Rated and Mounting, exercising OPTION, NUMBER, BOOLEAN and TEXT.
+The handle and mortise-lock categories have required templates; finished goods
+`DM-FG-LEVER-AB`, `DM-FG-LEVER-SS`, `DM-FG-MORTISE` and `DM-FG-DIGILOCK` carry
+representative values. Handles deliberately store zero keys and false fire
+rating so blank-value handling can be tested. Each demo handle links
+`DM-ACC-SCREW-KIT` as INCLUDED and `DM-ACC-ROSE-SS` as OPTIONAL; the latter has a
+dealer price and can be ordered separately. Associations do not move stock.
+
+The specifications stage runs after masters. Its first successful transaction
+writes an audited initialization marker; subsequent runs preserve even deliberate
+clears, removals, ordering changes and retirements instead of reinstalling the
+defaults. Pre-existing attributes with changed types/options remain untouched;
+incompatible defaults are skipped and missing required values remain visible as
+warnings. A failed initial stage rolls back its descriptions and marker together,
+so the corrected stage can be retried.
 
 ## Verification
 
@@ -131,3 +149,11 @@ The complete local CLI regression also passed against the current source in
 230.23 seconds: a fresh database, custom company and administrator, generated
 PDFs, and a second full invocation preserved all table counts, stored-file
 hashes and the administrator's existing password.
+
+The D5-specific PostgreSQL regression adds four cases: a complete first seed
+with all four types and both accessory relations; identical rerun snapshots;
+preserved operator edits/clears/retirement/removal and pre-existing changed
+masters; and atomic rollback/retry after a simulated late failure. All four
+pass. Snapshot checks include product, audit, BOM and inventory tables, proving
+the descriptive stage creates no stock movements or BOM rows. A full CLI rerun
+on the combined release remains part of final integration verification.

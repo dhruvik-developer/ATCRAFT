@@ -2830,23 +2830,24 @@ a separate right rather than widening this projection.
 
 ---
 
-## §C3-8. Item detail carries the shape D5 will fill
+## §C3-8. Item detail reads D5 descriptions through shared helpers
 
 **Assumed.** The detail returns variants with their own channel price, the
 current channel slabs, the applicable schemes, HSN, GST rate, description,
-`can_return` and up to `CATALOGUE_MAX_IMAGES` = 8 image ids. Specifications
-and accessories return in their shapes but empty: their masters belong to WP
-D5, which does not exist yet, and this package invents no tables another
-package owns.
+`can_return` and up to `CATALOGUE_MAX_IMAGES` = 8 image ids. D5 now supplies
+formatted specifications and channel-priced OPTIONAL accessories through the
+products module's batch helpers. INCLUDED associations remain informational,
+without prices or automatic cart lines. Earlier C3 deliveries returned empty
+lists until these governed masters existed.
 
-**Why.** The screen contract is stable while the masters land; inventing
-specification tables here would collide with D5's the day it arrives
-(CLAUDE.md: never hand-write another module's table).
+**Why.** The products module owns technical descriptions and association rules.
+The portal projects only the public description and that customer's channel
+price; it does not duplicate the master, costing or stock implementation.
 
 **Where.** `src/modules/dealer_portal/service.py` - `catalog_item`.
 
-**Impact if wrong.** When D5 lands, the two empty lists are filled from its
-batch helper with no contract break.
+**Impact if wrong.** Additional public attributes must be deliberately added to
+the dealer DTO, rather than returning an internal master or item row.
 
 ---
 
@@ -3638,6 +3639,112 @@ reservation authority.
 **Where:** `sales.repository.available_elsewhere`;
 `sales.service.OrderAllocationService`; `inventory.StockTransferService`;
 `apps/web/src/features/inventory/movement-dialogs.tsx` (`TransferSeed`).
+
+## §D5-1. Required specifications warn; inherited requirements cannot be weakened
+
+**Assumed.** An item inherits its direct category's specification template and
+every ancestor's. Required is the logical OR across those templates; the nearest
+category supplies display order. A missing required value is a completeness
+warning, never a refusal to save, sell, reserve or move an existing item.
+Descriptive values and templates remain editable on inactive but live items
+and categories, matching existing product-edit rules. Assigned attributes must
+be active and tenant-owned.
+
+**Why.** Adding a template must not make existing products unusable, and a child
+category must not silently weaken a requirement explicitly set by its parent.
+Zero and false satisfy a requirement; only an absent value is missing.
+
+**Where.** `products.specification_service.specifications_for_items` and the
+complete-set replacement services; item specification panel.
+
+**Impact if wrong.** Blocking rules require an explicit lifecycle gate and a
+migration/remediation policy for existing items; a UI-only required flag is not
+sufficient.
+
+## §D5-2. Accessories describe a product and never define its stock consumption
+
+**Assumed.** Different products may refer to each other as accessories. INCLUDED
+means “in the box” and is informational, even when the internal accessory SKU
+is not sellable or is later retired. OPTIONAL means a separately orderable
+active, live and sellable SKU, using the customer's channel price or
+price-on-request. Creation/editing requires both items active; removal remains
+possible after a target is retired. Staff `has_accessories` counts persisted
+relations, while the dealer filter counts exactly the associations the dealer
+detail can display.
+
+**Why.** These associations are not BOM components, kits or commitments. They
+must not reserve, consume or manufacture anything implicitly. Retained INCLUDED
+descriptions still explain the product packaging without granting access to an
+internal SKU's detail or prices.
+
+**Where.** `products.specification_service`, shared specification predicates,
+`dealer_portal.service._catalogue_accessories` and the staff/dealer panels.
+
+**Impact if wrong.** Actual packaging/kit consumption belongs in the BOM or
+packing workflow with explicit inventory movements and accounting tests.
+
+## §D5-3. Technical-description administration reuses the item-attribute rights
+
+**Assumed.** Specification masters and category templates use
+`item_attribute.view`/`item_attribute.manage`. Item values and accessories use
+`item.view`/`item.update`; no grant migration or new right is needed. Narrow
+item-authorized attribute and template-authorized category pickers avoid
+requiring unrelated master/category view rights. Dealer descriptions and
+filter metadata require `dealer_portal.browse` and a valid bound customer.
+
+**Why.** Technical specifications belong to the existing describe-the-item
+permission family, while editing a product remains an item operation.
+
+**Where.** `products.specification_router` and dealer catalogue routes.
+
+**Impact if wrong.** Split permissions require a deliberate role/grant migration
+and matching frontend gates; changing only a button is insufficient.
+
+## §D5-4. Governed types, options and references survive master changes
+
+**Assumed.** A specification type cannot change while any item value references
+it, and an OPTION already used by an item cannot be removed. Deactivation and
+retirement are refused while either item values or category templates reference
+the master. Remove those references first. Unused option additions/removals and
+renames remain available. Codes are reserved even after retirement.
+
+**Why.** Changing a type must not reinterpret a measurement or false value.
+Retiring a referenced template attribute would hide a requirement and leave
+existing forms unable to preserve their descriptions. Shared assignment locks
+and exclusive master-change locks make concurrent checks meaningful.
+
+**Where.** `SpecificationAttributeRepository.for_assignment`,
+`SpecificationService.update_attribute`/`retire_attribute`, and the typed
+database foreign key/CHECK in revision `20261101_0100`.
+
+**Impact if wrong.** A conversion/migration workflow must explicitly transform
+the existing values and preserve their audit history; bypassing the lifecycle
+guard is not a safe type conversion.
+
+Category archival is refused until its direct template is cleared; retirement
+and template replacement take conflicting locks on the category, so neither
+operation can leave a template attached to an inaccessible archived category.
+Existing item archival semantics remain unchanged: archived items retain their
+values, and those historical references still prevent changing the attribute's
+type, removing a used option or retiring it. This is deliberate retention, not
+an invitation to remove or rewrite an archived item's description.
+
+## §D5-5. Demonstration descriptions are initialized once and then preserved
+
+**Assumed.** The specifications seed creates deterministic defaults in one
+transaction and records an audited company-scoped completion marker. Reruns do
+not restore operator-cleared values/templates, removed accessory links or
+retired masters. Pre-existing changed types/options are preserved and
+incompatible defaults are omitted; required omissions remain warnings.
+
+**Why.** Full-set replacement APIs deliberately allow clearing. Reinstalling a
+demonstration default would undo that decision and create audit noise on every
+local seed run. The marker rolls back with a failed first initialization.
+
+**Where.** `core.demo_data.specifications`; PostgreSQL seed regressions.
+
+**Impact if wrong.** A deliberate demo reset must be a separately authorized
+operation, never an implicit effect of the normal repeatable seed command.
 
 ## Open questions for Atcraft
 

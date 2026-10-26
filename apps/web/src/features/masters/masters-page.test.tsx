@@ -998,6 +998,7 @@ describe('the brand and manufacturer tabs', () => {
     const tabs = await screen.findAllByRole('tab')
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       'Attributes',
+      'Specifications',
       'Brands',
       'Manufacturers',
       'Prices',

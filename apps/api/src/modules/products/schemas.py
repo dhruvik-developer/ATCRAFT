@@ -36,6 +36,7 @@ from src.modules.products.models import (
     ProductionType,
     UomCategory,
 )
+from src.modules.products.specification_schemas import SpecificationFilterFields
 
 # Numeric guards mirroring the column definitions, so a value that would violate
 # a check constraint is rejected at the edge with a field-level message rather
@@ -571,7 +572,7 @@ class ItemStatusChange(_Base):
 # -----------------------------------------------------------------------------
 
 
-class ItemFilters(BaseModel):
+class ItemFilters(SpecificationFilterFields):
     """Server-side filter set for the item search.
 
     Every one of these narrows the SQL. Nothing is filtered in Python, because
@@ -652,6 +653,11 @@ def item_filters(
     is_batch_tracked: Annotated[bool | None, Query()] = None,
     is_serial_tracked: Annotated[bool | None, Query()] = None,
     default_warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
+    spec: Annotated[
+        list[str] | None,
+        Query(max_length=20, description="Repeated CODE=value specification filters"),
+    ] = None,
+    has_accessories: Annotated[bool | None, Query()] = None,
 ) -> ItemFilters:
     """FastAPI dependency assembling the item search filters."""
     return bind_query_filters(
@@ -664,6 +670,8 @@ def item_filters(
         is_active=is_active,
         brand_id=brand_id,
         manufacturer_id=manufacturer_id,
+        spec=spec or [],
+        has_accessories=has_accessories,
         can_purchase=can_purchase,
         can_manufacture=can_manufacture,
         can_sell=can_sell,

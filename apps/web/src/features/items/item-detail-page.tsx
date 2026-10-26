@@ -1,7 +1,7 @@
 /**
  * Item detail.
  *
- * Six tabs, six independently-loaded panels: opening the master record must not
+ * Independently loaded tabs: opening the master record must not
  * pull a stock query, a where-used explosion and two price lists before the
  * page can paint.
  *
@@ -24,7 +24,7 @@ import {
   Trash2,
   Truck,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -33,6 +33,7 @@ import {
   DescriptionList,
   EmptyState,
   PageHeader,
+  PanelLoader,
   StatTile,
   StatusBadge,
 } from '@/components/shared'
@@ -92,6 +93,15 @@ import {
   type WhereUsedRow,
 } from './item-model'
 import { RetireItemDialog, RetireVariantDialog } from './item-retire-dialogs'
+
+const ItemSpecificationsPanel = lazy(() =>
+  import('./item-specifications-panel').then((module) => ({
+    default: module.ItemSpecificationsPanel,
+  })),
+)
+const ItemAccessoriesPanel = lazy(() =>
+  import('./item-accessories-panel').then((module) => ({ default: module.ItemAccessoriesPanel })),
+)
 
 /**
  * Server-paged read for one panel inside a tab.
@@ -1298,6 +1308,8 @@ export default function ItemDetailPage() {
             Vendors
           </TabsTrigger>
           <TabsTrigger value="images">Images</TabsTrigger>
+          <TabsTrigger value="specifications">Specifications</TabsTrigger>
+          <TabsTrigger value="accessories">Accessories</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -1355,6 +1367,16 @@ export default function ItemDetailPage() {
         </TabsContent>
         <TabsContent value="images">
           <ItemImagesPanel itemId={item.id} primaryImageId={item.image_document_id} />
+        </TabsContent>
+        <TabsContent value="specifications">
+          <Suspense fallback={<PanelLoader />}>
+            <ItemSpecificationsPanel itemId={item.id} />
+          </Suspense>
+        </TabsContent>
+        <TabsContent value="accessories">
+          <Suspense fallback={<PanelLoader />}>
+            <ItemAccessoriesPanel itemId={item.id} />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

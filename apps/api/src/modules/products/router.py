@@ -93,6 +93,7 @@ from src.modules.products.schemas import (
     VendorLinkUpdate,
     item_filters,
 )
+from src.modules.products.specification_router import router as specification_router
 
 router = APIRouter(prefix="/products", tags=["Products"], responses=COMMON_ERROR_RESPONSES)
 
@@ -934,5 +935,7 @@ async def set_item_image(
         ItemImageUpdate(document_id=document_id), success_message("Item image", "updated")
     )
 
+
+router.include_router(specification_router)
 
 __all__ = ["router"]

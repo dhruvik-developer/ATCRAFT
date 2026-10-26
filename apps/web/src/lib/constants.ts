@@ -76,6 +76,15 @@ export const SELECT_NONE = '__none'
 export const REASON_MIN_LENGTH = 3
 export const REASON_MAX_LENGTH = 255
 
+// --------------------------------------------------- product descriptions ---
+
+/** Bounds mirrored from the D5 descriptive-product request contracts. */
+export const SPECIFICATION_VALUE_MAX = 200
+export const SPECIFICATION_OPTION_MAX = 100
+export const SPECIFICATION_FILTER_MAX = 20
+export const PRODUCT_DESCRIPTION_POSITION_MAX = 9999
+export const PRODUCT_DESCRIPTION_TEXT_MAX = 2000
+
 // ------------------------------------------------------------ assembly -----
 
 /**
