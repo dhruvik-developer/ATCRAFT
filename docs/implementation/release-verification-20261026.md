@@ -22,6 +22,7 @@ pending while other work continues.
 | Schema creation and rollback | Six dependency-order, identifier and fresh-baseline/round-trip checks passed after the metadata-order correction |
 | Serial operation boundaries | Six PostgreSQL cases passed: three atomic document refusals, matching count confirmation, and both serial variance directions refused without partial posting |
 | Database/storage recovery | [Restore drill](restore-drill-20261025.md) matched all 137 public table counts, five immutability triggers, 10 documents/files, hashes and permissions; nine immutable mutations refused and proof rolled back |
+| Handbook | All 93 views recaptured with bound portal principals; rebuilt 195-page PDF has no missing images or out-of-page text, with contact-sheet and selected-page visual review |
 
 The broad backend run recorded 6,110 passes and 81.34% branch coverage, with
 one failure caused by an obsolete hardcoded migration-head expectation. The

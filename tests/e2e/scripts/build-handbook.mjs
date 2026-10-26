@@ -158,8 +158,7 @@ function screenPage(screen) {
       </div>
 
       <div class="guide">
-        <h4>What you can do here</h4>
-        <ul class="actions">${actions}</ul>
+        ${actions ? `<h4>What you can do here</h4><ul class="actions">${actions}</ul>` : ''}
         ${flow ? `<h4>Step by step</h4><ol class="flow">${flow}</ol>` : ''}
         ${rules ? `<h4>Rules this screen enforces</h4><ul class="rules">${rules}</ul>` : ''}
       </div>

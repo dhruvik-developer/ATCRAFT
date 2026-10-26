@@ -36,6 +36,19 @@ populated readiness, restricted-permission and data sweeps remain explicit
 checks to run against suitable test fixtures. A passing CI journey or static
 accessibility scan does not replace those checks.
 
+## Handbook refresh verified on 26 October 2026
+
+The capture recorded at `2026-10-26T01:15:24.066Z` contains all 93 documented
+views across eleven chapters and all 79 application routes. Each portal used
+its own bound principal and passed populated order/invoice preflight. No views
+were skipped or failed; business writes remained blocked.
+
+The rebuilt PDF has 195 pages and an image for every view. All pages passed
+text-bound checks; the complete contact sheet and twelve selected full-size
+pages were visually reviewed. Final review confirmed the corrected empty-action
+heading and legacy-carton recovery wording. These generated files remain local,
+ignored artifacts as described in the [handbook guide](handbook/README.md).
+
 ## Handbook refresh verified on 24 October 2026
 
 The complete handbook capture recorded on 23 October at
