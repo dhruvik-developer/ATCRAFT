@@ -229,6 +229,13 @@ export function SerialPicker({
   quantity,
   selected,
   onChange,
+  label = 'Serial numbers',
+  batchId,
+  status,
+  allowedStatuses = ['IN_STOCK'],
+  excludedIds = [],
+  scope,
+  requireWarehouse = true,
 }: {
   /** Keeps the search box addressable when several pickers share a screen. */
   idPrefix: string
@@ -237,23 +244,51 @@ export function SerialPicker({
   quantity: string
   selected: string[]
   onChange: (serialIds: string[]) => void
+  label?: string
+  batchId?: string | null
+  status?: StockSerial['status']
+  allowedStatuses?: readonly string[]
+  excludedIds?: readonly string[]
+  scope?: {
+    job_work_order_line_id?: string
+    qc_inspection_id?: string
+    job_work_outstanding_only?: boolean
+  }
+  requireWarehouse?: boolean
 }) {
   const [term, setTerm] = useState('')
+  const [page, setPage] = useState(1)
 
   const debounced = useDebouncedValue(term)
+
+  useEffect(() => {
+    setPage(1)
+  }, [
+    itemId,
+    warehouseId,
+    batchId,
+    status,
+    scope?.job_work_order_line_id,
+    scope?.qc_inspection_id,
+    scope?.job_work_outstanding_only,
+  ])
 
   const params = {
     item_id: itemId,
     ...(warehouseId ? { warehouse_id: warehouseId } : {}),
     ...(debounced ? { search: debounced } : {}),
+    ...(batchId ? { batch_id: batchId } : {}),
+    ...(status ? { status } : {}),
+    ...scope,
+    page,
     limit: STOCK_PAGE,
     with_total: false,
   }
 
   const serials = useQuery({
-    queryKey: ['inventory', 'serials', params],
-    queryFn: () => api.getPage<StockSerial>('/inventory/serials', { params }),
-    enabled: Boolean(itemId) && Boolean(warehouseId),
+    queryKey: queryKeys.inventory.serials(params),
+    queryFn: ({ signal }) => api.getPage<StockSerial>('/inventory/serials', { params, signal }),
+    enabled: Boolean(itemId) && (Boolean(warehouseId) || !requireWarehouse),
     // Whose hands hold a unit changes all day; a stale register would offer a
     // serial that left this morning.
     staleTime: staleTimes.live,
@@ -275,7 +310,7 @@ export function SerialPicker({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label htmlFor={`${idPrefix}-serial-search`} className="flex items-center gap-1.5">
           <ScanBarcode className="h-3.5 w-3.5" aria-hidden />
-          Serial numbers
+          {label}
         </Label>
         <span
           className={cn(
@@ -287,7 +322,7 @@ export function SerialPicker({
         </span>
       </div>
 
-      {!warehouseId ? (
+      {!warehouseId && requireWarehouse ? (
         <p className="text-xs text-warning">
           A serial is held at a warehouse, so the warehouse has to be settled before its units can
           be named.
@@ -297,7 +332,10 @@ export function SerialPicker({
           <Input
             id={`${idPrefix}-serial-search`}
             value={term}
-            onChange={(event) => setTerm(event.target.value)}
+            onChange={(event) => {
+              setTerm(event.target.value)
+              setPage(1)
+            }}
             placeholder="Search the serial register"
             autoComplete="off"
           />
@@ -307,13 +345,14 @@ export function SerialPicker({
 
             {!serials.isLoading && rows.length === 0 && (
               <p className="py-3 text-center text-xs text-warning">
-                No unit of this item is registered at this warehouse. A serial-tracked item cannot
-                move until its units are registered in stock - this will be refused without them.
+                No eligible serial units match these filters. Search by the label or check the stock
+                position before proceeding.
               </p>
             )}
 
             {rows.map((serial) => {
-              const inStock = serial.status === 'IN_STOCK'
+              const inStock =
+                allowedStatuses.includes(serial.status) && !excludedIds.includes(serial.id)
               const isChosen = selected.includes(serial.id)
               return (
                 <button
@@ -332,11 +371,41 @@ export function SerialPicker({
                   {inStock ? (
                     isChosen && <Badge variant="success">Chosen</Badge>
                   ) : (
-                    <Badge variant="muted">{humanise(serial.status)}</Badge>
+                    <Badge variant="muted">
+                      {excludedIds.includes(serial.id)
+                        ? 'Already assigned'
+                        : humanise(serial.status)}
+                    </Badge>
                   )}
                 </button>
               )
             })}
+          </div>
+          {serials.error && (
+            <p className="text-xs text-destructive" role="alert">
+              {describeError(serials.error)}
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              Previous units
+            </Button>
+            <span className="text-xs text-muted-foreground">Page {page}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!serials.data?.pagination.has_next}
+              onClick={() => setPage(page + 1)}
+            >
+              Next units
+            </Button>
           </div>
 
           <p className="text-xs text-muted-foreground">

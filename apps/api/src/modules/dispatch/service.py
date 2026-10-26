@@ -2269,7 +2269,7 @@ async def _raise_delay_alert(
             severity=NotificationSeverity.WARNING,
             entity_type=AUDIT_DISPATCH,
             entity_id=worst.dispatch_id,
-            action_url="/dispatch/delayed",
+            action_url="/dispatch?delayed_only=true",
             # One bell row per company that the hourly sweep updates in place.
             group_key=f"dispatch-delay:{company_id}",
         )

@@ -140,26 +140,44 @@ class User(TenantMasterEntity):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
 
-    # Organisational placement - drives default warehouse/plant and approval routing.
+    # Assignment targets refer back to their creator/owner in users. Emit these
+    # named foreign keys after table creation to break the metadata dependency
+    # cycles without omitting them from Alembic's schema comparison.
+    # Organisational placement drives default warehouse/plant and approval routing.
     branch_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID, ForeignKey("branches.id", ondelete="SET NULL"), nullable=True, index=True
+        GUID,
+        ForeignKey("branches.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
     )
     plant_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID, ForeignKey("plants.id", ondelete="SET NULL"), nullable=True, index=True
+        GUID,
+        ForeignKey("plants.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
     )
     department_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True
+        GUID,
+        ForeignKey("departments.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
     )
 
     # Vendor-portal binding (section 16). NULL for internal staff.
     vendor_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=True, index=True
+        GUID,
+        ForeignKey("vendors.id", ondelete="CASCADE", use_alter=True),
+        nullable=True,
+        index=True,
     )
     # Dealer-portal binding (docs/assumptions.md §C3-1). NULL for internal staff
     # and for vendor-portal accounts; the CHECK below keeps the two bindings
     # exclusive, because one account must never see two principals' data.
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True, index=True
+        GUID,
+        ForeignKey("customers.id", ondelete="CASCADE", use_alter=True),
+        nullable=True,
+        index=True,
     )
     #: Item categories this vendor user may see. Empty means "all of this
     #: vendor's categories"; enforced in the repository layer, never trusted

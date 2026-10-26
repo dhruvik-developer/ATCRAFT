@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from io import BytesIO
 
 from fastapi import UploadFile
+from PIL import Image, ImageDraw
 from sqlalchemy import select
 
 from src.core.demo_data import DemoContext
@@ -85,6 +86,22 @@ def _pdf(title: str, body: str) -> bytes:
     return bytes(out)
 
 
+def _catalogue_image() -> bytes:
+    """Deterministic product illustration; no external image service is needed."""
+    image = Image.new("RGB", (600, 360), "#f5f5f4")
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle(
+        (180, 55, 250, 305), radius=20, fill="#a88746", outline="#64502a", width=4
+    )
+    draw.rounded_rectangle(
+        (215, 120, 485, 170), radius=22, fill="#b99b60", outline="#64502a", width=4
+    )
+    draw.ellipse((200, 228, 230, 258), fill="#64502a")
+    output = BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
 @dataclass(frozen=True, slots=True)
 class _FileSpec:
     """One file, and the record it belongs to."""
@@ -104,6 +121,16 @@ class _FileSpec:
 
 def _specs(ctx: DemoContext) -> tuple[_FileSpec, ...]:
     return (
+        _FileSpec(
+            key="CATALOGUE-LEVER",
+            file_name="demo-antique-brass-lever.png",
+            mime_type="image/png",
+            category=DocumentCategory.ATTACHMENT,
+            entity_kind="item",
+            entity_code=ctx.code("FG", "LEVER-AB"),
+            entity_type="item",
+            payload=_catalogue_image(),
+        ),
         _FileSpec(
             key="PO-COPY",
             file_name="purchase-order-brass-rod.pdf",
@@ -265,3 +292,46 @@ async def seed(ctx: DemoContext) -> None:
         created += 1
 
     ctx.note(STAGE, created=created, existing=existing)
+    await _seed_catalogue_publishing(ctx)
+
+
+async def _seed_catalogue_publishing(ctx: DemoContext) -> None:
+    """Publish one actual item image and banner without replacing operator edits."""
+    from src.core.demo_data import find_by_code
+    from src.modules.dealer_portal.models import (
+        DealerBanner,
+        DealerBannerLinkKind,
+        DealerBannerStatus,
+    )
+    from src.modules.dealer_portal.promotion_schemas import DealerBannerCreate
+    from src.modules.dealer_portal.promotion_service import PromotionService
+    from src.modules.products.models import Item
+    from src.modules.products.service import set_item_image
+
+    image_id = ctx.maybe_id("document", "CATALOGUE-LEVER")
+    item_id = ctx.maybe_id("item", ctx.code("FG", "LEVER-AB"))
+    if image_id is None or item_id is None:
+        return
+    item = await ctx.session.scalar(
+        select(Item).where(Item.company_id == ctx.company_id, Item.id == item_id)
+    )
+    if item is not None and item.image_document_id is None:
+        await set_item_image(ctx.session, ctx.tenant, item_id, image_id)
+        ctx.note(STAGE, created=1)
+    code = ctx.code("BANNER", "LEVER")
+    if await find_by_code(ctx.session, DealerBanner, ctx.company_id, code) is not None:
+        ctx.note(STAGE, existing=1)
+        return
+    await PromotionService(ctx.session, ctx.tenant).create(
+        "banners",
+        DealerBannerCreate(
+            code=code,
+            title="Antique brass lever collection",
+            subtitle="Demonstration catalogue. Open the item to review current dealer prices.",
+            image_document_id=image_id,
+            link_kind=DealerBannerLinkKind.ITEM,
+            link_id=item_id,
+            status=DealerBannerStatus.ACTIVE,
+        ),
+    )
+    ctx.note(STAGE, created=1)

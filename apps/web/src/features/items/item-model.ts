@@ -169,6 +169,8 @@ export interface ItemDetail extends Record<CapabilityKey, boolean> {
   code: string
   name: string
   description: string | null
+  /** The catalog primary image; absent until an image has been selected. */
+  image_document_id?: string | null
   item_group: ItemGroup
   category_id: string | null
 

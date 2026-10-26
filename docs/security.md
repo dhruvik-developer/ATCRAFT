@@ -579,9 +579,32 @@ The server accepts HTTPS on port 443 only, without userinfo, fragments or IP
 literals. Hosts must match a configured suffix on a dot boundary. Delivery
 revalidates the decrypted endpoint, verifies TLS through HTTPSConnection and
 never follows redirects. No CSP change is needed: provider calls originate from
-the worker, and browser registration uses the browser's Push API. The future
-service worker must have **no fetch handler**; it must not cache authenticated
-API responses or act as an offline ERP proxy.
+the notification worker, and browser registration uses the browser's Push API.
+The shipped `/sw.js` has **no fetch handler or cache**. It never reads tokens,
+credentials or authenticated API responses. Notification links accept only
+same-origin relative URLs; other targets fall back to `/notifications`.
+
+Staff, vendor and dealer shells refresh an existing granted subscription without
+requesting permission. Opt-in starts directly from the device card's Enable
+button. Key changes replace the provider subscription, and API registration
+refreshes the device's last-seen time. Device controls also appear on the shared
+profile and notification preferences screens. Event preferences include a
+separate Push channel; only changed preference rows are submitted.
+
+Logout cancels pending setup before revoking the session. Browser-provider
+cleanup has a two-second foreground budget, and a late native subscription is
+disposed before a subsequent account can register this device. Stalled browser
+promises cannot keep the logout screen waiting indefinitely. Server-side
+revocation remains the enforcement point if browser or network cleanup fails.
+
+Password and MFA sign-in share a cancellable authentication attempt. Replacing
+an attempt, returning from MFA to password sign-in, or logging out aborts the
+older request before a replacement can set session cookies. Sign-in also aborts
+an earlier logout before sending credentials; ignoring its eventual JSON would
+not prevent a late cookie-expiration header. If a replacement follows a pending
+logout, old user data and query caches are cleared even when the new credentials
+fail. MFA submissions have pending and duplicate guards. Regression tests assert
+fetch-abort ordering as well as the visible account state.
 
 Encryption and VAPID follow [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291.html)
 and [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292.html). The deterministic VAPID
@@ -608,3 +631,13 @@ movement engine checks every movement, additional transit grain and prelocked
 grain before it locks or creates a balance. Trusted background/system contexts
 retain their existing empty assignment while still requiring tenant-scoped
 master records. A user's request context is never widened for posting.
+
+## PDF text and external resources
+
+Every untrusted value passed to a ReportLab `Paragraph` is XML-escaped,
+including party names, addresses, item descriptions, packing notes and report
+headings. This prevents stored text from becoming markup or an external image
+request during background PDF generation. The PDF regression suite injects
+file and HTTP image tags across all six document renderers and refuses any
+image-loader call. Generated document access still uses its tenant and report
+permissions; escaping does not replace those checks.

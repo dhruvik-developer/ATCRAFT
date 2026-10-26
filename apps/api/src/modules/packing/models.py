@@ -295,6 +295,14 @@ class PackingOrderLine(TenantEntity):
     #: item requires final QC. A bare UUID: quality owns the row, and this
     #: module reaches it through the owner callback, never a join.
     qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: Exact physical units covered by the current FINAL inspection. Cartons
+    #: cannot substitute another unit after a quantity-only approval.
+    qc_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
+    qc_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -308,6 +316,14 @@ class PackingOrderLine(TenantEntity):
         # Over-packing is refused rather than clamped: the difference is either a
         # mis-keyed quantity or goods nobody ordered, and both need a person.
         CheckConstraint("packed_quantity <= quantity_to_pack", name="packed_within_requested"),
+        CheckConstraint(
+            "cardinality(qc_serial_ids) = 0 OR cardinality(qc_serial_ids) = quantity_to_pack",
+            name="qc_serials_cover_quantity",
+        ),
+        CheckConstraint(
+            "qc_batch_id IS NULL OR cardinality(qc_serial_ids) > 0",
+            name="qc_batch_has_serials",
+        ),
     )
 
 

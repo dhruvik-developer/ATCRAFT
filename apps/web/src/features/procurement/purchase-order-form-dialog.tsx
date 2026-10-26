@@ -76,7 +76,7 @@ const schema = z
     // Required by the API: an order has to say where the material is going,
     // because that is half of what the duplicate check matches on.
     warehouse_id: z.string().min(1, validation.choose('where the material is delivered')),
-    priority: z.coerce
+    priority: z
       .number()
       .int(validation.integer('Priority'))
       .min(MIN_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`)
@@ -388,7 +388,7 @@ export function PurchaseOrderFormDialog({
                     min={MIN_PRIORITY}
                     max={MAX_PRIORITY}
                     step={1}
-                    {...register('priority')}
+                    {...register('priority', { valueAsNumber: true })}
                     className="mt-1.5"
                     aria-invalid={Boolean(errors.priority)}
                   />

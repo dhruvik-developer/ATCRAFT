@@ -368,6 +368,72 @@ describe('request construction', () => {
 })
 
 describe('transport errors', () => {
+  it.each(['get', 'getPage', 'post'] as const)(
+    'discards a %s body that finishes deserializing after the account changes',
+    async (method) => {
+      setTokens('old-user-access')
+      let finishBody!: (value: unknown) => void
+      let started!: () => void
+      const reading = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      const body = new Promise<unknown>((resolve) => {
+        finishBody = resolve
+      })
+      fetchMock.mockResolvedValueOnce({
+        ...envelope(null),
+        json: () => {
+          started()
+          return body
+        },
+      })
+      const pending = (
+        method === 'getPage'
+          ? api.getPage('/private')
+          : method === 'post'
+            ? api.post('/private', { action: 'old-user-mutation' })
+            : api.get('/private')
+      ).catch((error: unknown) => error)
+      await reading
+      clearTokens()
+      setTokens('new-user-access')
+      finishBody({
+        success: true,
+        data: method === 'getPage' ? [{ private: 'old-user-data' }] : { private: 'old-user-data' },
+        message: 'Complete',
+        pagination: { page: 1, limit: 50, has_next: false, has_previous: false },
+      })
+      expect(await pending).toMatchObject({ name: 'AbortError' })
+    },
+  )
+
+  it('does not expose an authenticated image whose bytes arrive after sign-out', async () => {
+    setTokens('old-user-access')
+    let finishBlob!: (value: Blob) => void
+    let started!: () => void
+    const reading = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const body = new Promise<Blob>((resolve) => {
+      finishBlob = resolve
+    })
+    const createObjectURL = vi.fn(() => 'blob:private')
+    vi.stubGlobal('URL', { createObjectURL })
+    fetchMock.mockResolvedValueOnce({
+      ...envelope(null),
+      blob: () => {
+        started()
+        return body
+      },
+    })
+    const pending = api.blobUrl('/private-image').catch((error: unknown) => error)
+    await reading
+    clearTokens()
+    finishBlob(new Blob(['private-image']))
+    expect(await pending).toMatchObject({ name: 'AbortError' })
+    expect(createObjectURL).not.toHaveBeenCalled()
+  })
+
   it('uses a consistent, retryable API error for connection failures', async () => {
     const cause = new TypeError('Failed to fetch')
     fetchMock.mockRejectedValueOnce(cause)
@@ -409,6 +475,101 @@ describe('transport errors', () => {
 })
 
 describe('cookie-backed refresh', () => {
+  function deferredResponse() {
+    let resolve!: (value: Response) => void
+    const promise = new Promise<Response>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+
+  it('never installs a refresh response that arrives after local sign-out', async () => {
+    document.cookie = 'atcraft_csrf=session-hint; Path=/'
+    setTokens('old-access')
+    const refresh = deferredResponse()
+    let started!: () => void
+    const refreshing = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith('/auth/refresh')) {
+        started()
+        return refresh.promise
+      }
+      return Promise.resolve(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }))
+    })
+    const pending = api.get('/protected').catch((error: unknown) => error)
+    await refreshing
+    const signal = callAt(1)[1].signal
+    clearTokens()
+    expect(signal?.aborted).toBe(true)
+    refresh.resolve(envelope({ access_token: 'late-access' }))
+    expect(await pending).toMatchObject({ name: 'AbortError' })
+    expect(hasRefreshToken()).toBe(false)
+    expect(localStorage.getItem('atcraft.session_suppressed')).toBe('1')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([200, 401])(
+    'does not replace or revoke a new login when an old refresh finishes with HTTP %i',
+    async (status) => {
+      document.cookie = 'atcraft_csrf=session-hint; Path=/'
+      setTokens('old-access')
+      const refresh = deferredResponse()
+      let started!: () => void
+      const refreshing = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      fetchMock.mockImplementation((url: string) => {
+        if (url.endsWith('/auth/refresh')) {
+          started()
+          return refresh.promise
+        }
+        if (url.endsWith('/after-login')) return Promise.resolve(envelope({ ok: true }))
+        return Promise.resolve(
+          failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }),
+        )
+      })
+      const pending = api.get('/protected').catch((error: unknown) => error)
+      await refreshing
+      clearTokens()
+      setTokens('new-user-access')
+      refresh.resolve(
+        status === 200
+          ? envelope({ access_token: 'old-user-late-access' })
+          : failure(401, { error: { code: 'INVALID_TOKEN', message: 'Revoked' } }),
+      )
+      expect(await pending).toMatchObject({ name: 'AbortError' })
+      expect(hasRefreshToken()).toBe(true)
+      await api.get('/after-login')
+      expect(new Headers(callAt(2)[1].headers).get('authorization')).toBe('Bearer new-user-access')
+    },
+  )
+
+  it('does not start a refresh when an old request returns 401 after another user signs in', async () => {
+    document.cookie = 'atcraft_csrf=session-hint; Path=/'
+    setTokens('old-access')
+    const oldResponse = deferredResponse()
+    fetchMock.mockReturnValueOnce(oldResponse.promise)
+    const pending = api.get('/protected').catch((error: unknown) => error)
+    clearTokens()
+    setTokens('new-user-access')
+    oldResponse.resolve(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }))
+    expect(await pending).toMatchObject({ name: 'AbortError' })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(hasRefreshToken()).toBe(true)
+  })
+
+  it('never refreshes a rejected logout request', async () => {
+    document.cookie = 'atcraft_csrf=session-hint; Path=/'
+    setTokens('access')
+    fetchMock.mockResolvedValueOnce(
+      failure(401, { error: { code: 'UNAUTHENTICATED', message: 'Already signed out' } }),
+    )
+    expect((await rejection(api.post('/auth/logout'))).status).toBe(401)
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
   it('rotates through the HttpOnly cookie without sending a refresh token in JSON', async () => {
     document.cookie = 'atcraft_csrf=csrf-value; Path=/'
     localStorage.removeItem('atcraft.session_suppressed')

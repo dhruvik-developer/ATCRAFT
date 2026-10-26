@@ -52,6 +52,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { CustomerPicker } from '@/features/customers/customer-picker'
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_RULES,
@@ -108,6 +109,7 @@ function userSchema(isEdit: boolean) {
     plant_id: z.string(),
     department_id: z.string(),
     vendor_id: z.string().nullable(),
+    customer_id: z.string().nullable(),
     // Item categories a vendor account is limited to; empty is every one the
     // vendor supplies. Meaningless, and never sent, without a vendor.
     allowed_category_ids: z.array(z.string()),
@@ -129,6 +131,7 @@ function emptyUser(): UserFormValues {
     plant_id: SELECT_NONE,
     department_id: SELECT_NONE,
     vendor_id: null,
+    customer_id: null,
     allowed_category_ids: [],
     must_change_password: true,
     role_ids: [],
@@ -146,6 +149,7 @@ function userValues(user: UserDetail): UserFormValues {
     plant_id: user.plant_id ?? SELECT_NONE,
     department_id: user.department_id ?? SELECT_NONE,
     vendor_id: user.vendor_id,
+    customer_id: user.customer_id ?? null,
     allowed_category_ids: user.allowed_category_ids ?? [],
     must_change_password: user.must_change_password,
     role_ids: (user.roles ?? []).map((role) => role.id),
@@ -191,7 +195,7 @@ export function UserFormDialog({
   const branches = useBranchOptions(open)
   const plants = usePlantOptions(open)
   const departments = useDepartmentOptions(open)
-  const roles = useRoleOptions(open && !isEdit)
+  const roles = useRoleOptions(open && !isEdit && can(P.ROLE_VIEW))
 
   const {
     register,
@@ -221,6 +225,11 @@ export function UserFormDialog({
 
   const password = watch('password')
   const vendorId = watch('vendor_id')
+  const customerId = watch('customer_id')
+  const [accountKind, setAccountKind] = useState<'staff' | 'vendor' | 'dealer'>('staff')
+  useEffect(() => {
+    if (open) setAccountKind(user?.vendor_id ? 'vendor' : user?.customer_id ? 'dealer' : 'staff')
+  }, [open, loadedId, user?.customer_id, user?.vendor_id])
 
   const mutation = useMutation({
     mutationFn: (values: UserFormValues) => {
@@ -262,6 +271,7 @@ export function UserFormDialog({
             ? { department_id: asId(values.department_id) }
             : { clear_department: true }),
           ...(values.vendor_id ? { vendor_id: values.vendor_id } : { clear_vendor: true }),
+          ...(values.customer_id ? { customer_id: values.customer_id } : { clear_customer: true }),
           ...scope,
           ...(values.password ? { password: values.password } : {}),
           must_change_password: values.must_change_password,
@@ -275,6 +285,7 @@ export function UserFormDialog({
         plant_id: asId(values.plant_id),
         department_id: asId(values.department_id),
         vendor_id: values.vendor_id,
+        customer_id: values.customer_id,
         allowed_category_ids: values.vendor_id ? values.allowed_category_ids : [],
         role_ids: values.role_ids,
         is_active: true,
@@ -293,9 +304,12 @@ export function UserFormDialog({
   })
 
   const roleList = roles.data ?? []
-  const selectableRoles = vendorId
-    ? roleList.filter((role) => role.is_vendor_role)
-    : roleList.filter((role) => !role.is_vendor_role)
+  const selectableRoles =
+    accountKind === 'vendor'
+      ? roleList.filter((role) => role.is_vendor_role)
+      : accountKind === 'dealer'
+        ? roleList.filter((role) => role.is_dealer_role)
+        : roleList.filter((role) => !role.is_vendor_role && !role.is_dealer_role)
 
   const loadingDetail = isEdit && detail.isLoading
 
@@ -320,7 +334,17 @@ export function UserFormDialog({
         )}
 
         <form
-          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          onSubmit={handleSubmit((values) => {
+            if (accountKind === 'vendor' && !values.vendor_id) {
+              setError('vendor_id', { message: 'Choose a vendor.' })
+              return
+            }
+            if (accountKind === 'dealer' && !values.customer_id) {
+              setError('customer_id', { message: 'Choose a dealer or distributor.' })
+              return
+            }
+            mutation.mutate(values)
+          })}
           className={loadingDetail ? 'hidden' : 'flex min-h-0 flex-col gap-4'}
           noValidate
         >
@@ -495,33 +519,87 @@ export function UserFormDialog({
                   </div>
 
                   <div>
-                    <Controller
-                      control={control}
-                      name="vendor_id"
-                      render={({ field }) => (
-                        <VendorPicker
-                          id="user-vendor"
-                          label="Vendor portal account"
-                          value={field.value}
-                          onChange={(next) => {
-                            field.onChange(next)
-                            // Vendor and internal roles are mutually exclusive, so
-                            // a selection made before the binding changed is no
-                            // longer legal and the API would refuse the whole save.
-                            setValue('role_ids', [])
-                            // Categories are the old vendor's qualifications, and
-                            // the API refuses any the new vendor does not hold.
-                            setValue('allowed_category_ids', [])
-                          }}
-                          placeholder="Internal staff account"
-                        />
-                      )}
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Binding an account to a vendor limits it to the vendor portal, and to vendor
-                      roles only.
-                    </p>
+                    <Label htmlFor="user-account-kind">Account kind</Label>
+                    <select
+                      id="user-account-kind"
+                      className="mt-1.5 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+                      value={accountKind}
+                      onChange={(event) => {
+                        const next = event.target.value as typeof accountKind
+                        setAccountKind(next)
+                        setValue('vendor_id', null)
+                        setValue('customer_id', null)
+                        setValue('role_ids', [])
+                        setValue('allowed_category_ids', [])
+                      }}
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="vendor">Vendor</option>
+                      <option value="dealer">Dealer</option>
+                    </select>
                   </div>
+
+                  {accountKind === 'vendor' && (
+                    <div>
+                      <Controller
+                        control={control}
+                        name="vendor_id"
+                        render={({ field }) => (
+                          <VendorPicker
+                            id="user-vendor"
+                            label="Vendor portal account"
+                            value={field.value}
+                            onChange={(next) => {
+                              field.onChange(next)
+                              setValue('customer_id', null)
+                              // Vendor and internal roles are mutually exclusive, so
+                              // a selection made before the binding changed is no
+                              // longer legal and the API would refuse the whole save.
+                              setValue('role_ids', [])
+                              // Categories are the old vendor's qualifications, and
+                              // the API refuses any the new vendor does not hold.
+                              setValue('allowed_category_ids', [])
+                            }}
+                            placeholder="Internal staff account"
+                            disabled={!can(P.VENDOR_VIEW)}
+                          />
+                        )}
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Binding an account to a vendor limits it to the vendor portal, and to vendor
+                        roles only.
+                      </p>
+                      <FieldError message={errors.vendor_id?.message} />
+                    </div>
+                  )}
+                  {accountKind === 'dealer' && (
+                    <div>
+                      <Controller
+                        control={control}
+                        name="customer_id"
+                        render={({ field }) => (
+                          <CustomerPicker
+                            id="user-customer"
+                            label="Dealer portal account"
+                            value={field.value}
+                            channels={['DEALER', 'DISTRIBUTOR']}
+                            onChange={(next) => {
+                              field.onChange(next)
+                              setValue('vendor_id', null)
+                              setValue('role_ids', [])
+                              setValue('allowed_category_ids', [])
+                            }}
+                            placeholder="Choose dealer or distributor"
+                            disabled={!can(P.CUSTOMER_VIEW)}
+                          />
+                        )}
+                      />
+                      <FieldError message={errors.customer_id?.message} />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Dealer accounts can access only their own orders and account information.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {vendorId && (
@@ -549,7 +627,7 @@ export function UserFormDialog({
                           ? 'Loading roles...'
                           : roles.error
                             ? 'The role list could not be loaded. Roles can be assigned once the account exists.'
-                            : vendorId
+                            : vendorId || customerId
                               ? 'No vendor roles exist yet. Create one on the Roles tab first.'
                               : 'No roles available.'}
                       </p>
@@ -796,6 +874,7 @@ export function RoleAssignmentDialog({
   })
 
   const isVendorUser = Boolean(user?.vendor_id)
+  const isDealerUser = Boolean(user?.customer_id)
   const roleList = roles.data ?? []
   const loadingDetail = detail.isLoading
   // The endpoint replaces the role set wholesale. With the detail unloaded the
@@ -872,7 +951,9 @@ export function RoleAssignmentDialog({
                         </p>
                       )}
                       {roleList.map((role) => {
-                        const blocked = isVendorUser !== role.is_vendor_role
+                        const blocked =
+                          isVendorUser !== Boolean(role.is_vendor_role) ||
+                          isDealerUser !== Boolean(role.is_dealer_role)
                         const checked = field.value.includes(role.id)
                         return (
                           <label

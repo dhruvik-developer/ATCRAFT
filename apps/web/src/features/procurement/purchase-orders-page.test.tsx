@@ -192,6 +192,8 @@ function detailRoutes(status: PurchaseOrderRow['status'], extra: RouteTable = {}
     // The longer path wins the prefix match, so tracking is not served the
     // order payload by accident.
     [`GET ${ORDERS_PATH}/${PO_ID}/tracking`]: TRACKING,
+    [`GET ${ORDERS_PATH}/${PO_ID}/shipments`]: page([]),
+    [`GET ${ORDERS_PATH}/${PO_ID}/documents`]: page([]),
     [`GET ${ORDERS_PATH}`]: detail(status),
     'GET /warehouses/options': ok([
       { id: WAREHOUSE_ID, code: 'WH-MAIN', name: 'Main store', is_active: true },
@@ -391,8 +393,10 @@ describe('what the order form sends', () => {
   async function fillLine(user: User, index: number, item: RegExp, qty: string, price: string) {
     await user.click(screen.getByRole('combobox', { name: `Line ${index + 1} item` }))
     await user.click(await stable(() => screen.getByRole('option', { name: item })))
-    await user.type(screen.getAllByRole('textbox', { name: 'Quantity' })[index]!, qty)
-    await user.type(screen.getAllByRole('textbox', { name: 'Unit price' })[index]!, price)
+    await user.click(screen.getAllByRole('textbox', { name: 'Quantity' })[index]!)
+    await user.paste(qty)
+    await user.click(screen.getAllByRole('textbox', { name: 'Unit price' })[index]!)
+    await user.paste(price)
   }
 
   it('sends two lines with the quantities and prices still decimal strings', async () => {

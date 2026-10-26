@@ -39,10 +39,13 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { InspectionAttachments, PhotoThumb } from './inspection-attachments'
 import {
   isInspectable,
+  inspectionBadgeStatus,
   referenceLink,
   type QcInspectionDetail,
   type QcInspectionRow,
 } from './quality-types'
+import { SerialDispositionEditor } from './serial-disposition-editor'
+import type { SerialDisposition } from './serial-dispositions'
 
 const ReworkPanel = lazy(() => import('./rework-panel').then((m) => ({ default: m.ReworkPanel })))
 
@@ -99,7 +102,7 @@ export function InspectionDetailDialog({
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={row.qc_stage} />
-                <StatusBadge status={row.result === 'PENDING' ? row.status : row.result} />
+                <StatusBadge status={inspectionBadgeStatus(row)} />
                 {row.return_required && <StatusBadge status="RETURN" />}
                 {isInspectable(row.status) && canAny(P.QC_INSPECT, P.QC_DECIDE) && (
                   <Button
@@ -155,6 +158,18 @@ export function InspectionDetailDialog({
                 </div>
               )}
               {row.remarks && <p className="text-sm text-muted-foreground">{row.remarks}</p>}
+
+              {Boolean(row.serial_ids?.length) && (
+                <SerialDispositionEditor
+                  ids={row.serial_ids ?? []}
+                  labels={row.serial_labels ?? {}}
+                  values={(row.serial_dispositions ?? {}) as Record<string, SerialDisposition>}
+                  previous={row.serial_dispositions ?? {}}
+                  allowScrap
+                  readOnly
+                  onChange={() => {}}
+                />
+              )}
 
               {parameters.length > 0 && (
                 <section aria-label="Readings">

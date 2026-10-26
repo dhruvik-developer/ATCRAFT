@@ -5,6 +5,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createElement } from 'react'
 
 import { navigation } from './navigation'
 import { __resetPrefetch, prefetchRoute, routeLoaders } from './route-loaders'
@@ -35,19 +36,25 @@ describe('prefetchRoute', () => {
   })
 
   it('starts the import once and dedupes repeat calls', async () => {
-    const spy = vi.spyOn(routeLoaders, '/audit')
+    const spy = vi
+      .spyOn(routeLoaders, '/audit')
+      .mockResolvedValue({ default: () => createElement('div') })
     prefetchRoute('/audit')
     prefetchRoute('/audit')
     prefetchRoute('/audit')
     expect(spy).toHaveBeenCalledTimes(1)
-    // Resolves to the page module, which is what `lazy` will pick up.
+    // Exercise the loader contract without cold-compiling an unrelated page.
+    // The production build and browser suite validate the real page modules.
     const loaded = await spy.mock.results[0]?.value
     expect(typeof loaded.default).toBe('function')
     spy.mockRestore()
   })
 
   it('forgets a failed warm-up so the click can retry it', async () => {
-    const spy = vi.spyOn(routeLoaders, '/reports').mockRejectedValueOnce(new Error('offline'))
+    const spy = vi
+      .spyOn(routeLoaders, '/reports')
+      .mockResolvedValue({ default: () => createElement('div') })
+      .mockRejectedValueOnce(new Error('offline'))
     prefetchRoute('/reports')
     await Promise.resolve()
     await Promise.resolve()

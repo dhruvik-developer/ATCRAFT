@@ -20,6 +20,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# The pinned Python base predates Debian DSA-6572-1. Update the system trust
+# store as well as certifi: stdlib TLS clients do not use certifi's CA bundle.
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates=20250419+deb13u1 \
+ && rm -rf /var/lib/apt/lists/*
+
 # Non-root runtime user. /storage is a mounted volume, owned by this user.
 RUN groupadd --gid 10001 atcraft \
  && useradd --uid 10001 --gid atcraft --create-home --shell /usr/sbin/nologin atcraft \

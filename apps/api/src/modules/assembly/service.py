@@ -2127,6 +2127,10 @@ async def complete_assembly(
                 reference_type=MOVEMENT_REFERENCE_ASSEMBLY,
                 reference_id=order.id,
                 reference_code=order.code,
+                **({"serial_ids": order.output_serial_ids} if order.output_serial_ids else {}),
+                **(
+                    {"batch_id": order.output_batch_id} if order.output_batch_id is not None else {}
+                ),
             )
             order.qc_inspection_id = getattr(inspection, "id", None)
             inspection_created = order.qc_inspection_id is not None

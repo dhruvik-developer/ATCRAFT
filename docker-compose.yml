@@ -403,7 +403,8 @@ services:
   #   curl http://127.0.0.1:<HTTP_PORT>/healthz
   # answers without the host nginx being configured at all.
   nginx:
-    image: nginx:1.30.4-alpine3.24@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c
+    # Core proxying needs no optional image/njs modules or their extra libraries.
+    image: nginx:1.30.6-alpine3.24-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7
     volumes:
       - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro

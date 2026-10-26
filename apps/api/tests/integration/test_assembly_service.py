@@ -64,6 +64,8 @@ from src.modules.inventory.models import (
 from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import TraceabilityService
 from src.modules.products.models import ItemGroup, ProductionType
+from src.modules.quality import service as quality_service
+from src.modules.quality.schemas import DecideRequest
 from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 
@@ -1287,7 +1289,10 @@ async def test_a_batch_tracked_component_is_accepted_and_requires_a_lot(ctx) -> 
     assert [line.is_batch_tracked_component for line in components] == [True]
 
 
-async def test_a_tracked_component_and_tracked_output_are_recorded_end_to_end(ctx) -> None:
+@pytest.mark.parametrize("requires_qc", [False, True])
+async def test_a_tracked_component_and_tracked_output_are_recorded_end_to_end(
+    ctx, requires_qc
+) -> None:
     session, tenant = ctx
     uom_id = await seed_uom(session, tenant.company_id)
     warehouse_id = await seed_warehouse(session, tenant.company_id)
@@ -1352,6 +1357,7 @@ async def test_a_tracked_component_and_tracked_output_are_recorded_end_to_end(ct
             planned_quantity=Decimal("2"),
             warehouse_id=warehouse_id,
             output_warehouse_id=output_warehouse_id,
+            requires_qc=requires_qc,
         ),
     )
     await service.approve_order(session, tenant, order.id, reason="Scheduled")
@@ -1412,6 +1418,20 @@ async def test_a_tracked_component_and_tracked_output_are_recorded_end_to_end(ct
     assert {serial.serial_number for serial in serials} == {"ASM-SN-001", "ASM-SN-002"}
     assert all(serial.status is SerialStatus.IN_STOCK for serial in serials)
     assert all(serial.warehouse_id == output_warehouse_id for serial in serials)
+    if requires_qc:
+        assert completion.order.qc_inspection_id is not None
+        decided = await quality_service.decide_inspection(
+            session,
+            tenant,
+            completion.order.qc_inspection_id,
+            DecideRequest(
+                accepted_quantity=Decimal("2"),
+                reason="Assembled units accepted",
+                serial_dispositions=dict.fromkeys(completion.order.output_serial_ids, "ACCEPTED"),
+            ),
+        )
+        assert decided.released_quantity == 2
+        assert decided.inspection.batch_id == output_batch.id
 
 
 async def test_the_output_stock_state_is_recorded_on_the_receipt_row(ctx) -> None:

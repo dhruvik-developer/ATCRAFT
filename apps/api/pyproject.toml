@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=84.2.1", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -43,6 +43,7 @@ dependencies = [
     "pyotp>=2.9,<3.0",                    # RFC 6238 TOTP generation/verification for MFA
     "cryptography>=50.0,<51.0",           # authenticated encryption for MFA secrets at rest
     "urllib3>=2.8.0,<3.0",                # security floor for Sentry's HTTP transport
+    "certifi>=2026.10.23",                # trust bundle after compromised emSign CA removal
 
     # --- Observability (section 56) ----------------------------------------
     "structlog>=24.4",                    # structured JSON logs with request-id binding
@@ -52,6 +53,7 @@ dependencies = [
     # --- Background job output (section 77) --------------------------------
     "openpyxl>=3.1",                      # Excel exports generated inside Celery workers
     "reportlab>=4.2",                     # PDF generation (packing lists, POs) in workers
+    "pillow>=13.0,<14.0",                  # security floor for ReportLab's image decoder
 ]
 
 [project.optional-dependencies]
@@ -65,6 +67,8 @@ dev = [
     "mypy>=1.13",
     "pip-audit==2.10.1",                  # Python advisory scanning in CI
     "pip-tools==7.6.2",                  # deterministic hash-lock regeneration
+    "filelock>=4.2.4,<5.0",               # patched cache locking used by the advisory scanner
+    "setuptools>=84.2.1",                 # patched build tools, including Windows wheel paths
     "types-python-dateutil",
     "watchfiles>=1.0",                    # Celery worker auto-reload in dev containers
 ]

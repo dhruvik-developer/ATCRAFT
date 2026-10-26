@@ -1152,6 +1152,38 @@ class StockSerial(TenantEntity):
 # -----------------------------------------------------------------------------
 
 
+class StockSerialConversion(ImmutableLedgerEntity):
+    """A physical label's immutable hand-off from one SKU identity to another."""
+
+    __tablename__ = "stock_serial_conversions"
+
+    source_serial_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("stock_serials.id", ondelete="RESTRICT"), nullable=False
+    )
+    output_serial_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("stock_serials.id", ondelete="RESTRICT"), nullable=False
+    )
+    job_work_receipt_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "job_work_receipt_lines.id",
+            ondelete="RESTRICT",
+            name="fk_serial_conversion_receipt_line",
+        ),
+        nullable=False,
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "source_serial_id", name="uq_stock_serial_conversions_source"
+        ),
+        UniqueConstraint(
+            "company_id", "output_serial_id", name="uq_stock_serial_conversions_output"
+        ),
+        CheckConstraint("source_serial_id <> output_serial_id", name="conversion_changes_identity"),
+        Index("ix_stock_serial_conversions_receipt", "company_id", "job_work_receipt_line_id"),
+    )
+
+
 class StockTransfer(TenantEntity):
     """Movement of stock between two warehouses of the same company.
 
@@ -2040,6 +2072,7 @@ __all__ = [
     "StockAdjustmentLine",
     "StockBatch",
     "StockSerial",
+    "StockSerialConversion",
     "StockState",
     "StockTransfer",
     "StockTransferLine",

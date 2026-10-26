@@ -11,7 +11,7 @@ and which of their fields (the allow-list read models in ``schemas``).
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,11 @@ from src.modules.notifications.repository import NotificationRepository
 from src.modules.procurement import inbound_service
 from src.modules.procurement import service as procurement
 from src.modules.procurement.inbound_repository import InboundDocumentRepository
-from src.modules.procurement.inbound_schemas import DocumentKind, InboundDocumentRead
+from src.modules.procurement.inbound_schemas import (
+    DocumentKind,
+    InboundDocumentRead,
+    InboundShipmentRead,
+)
 from src.modules.procurement.inbound_service import SHIPPING_PO_STATUSES, notify_buyer
 from src.modules.procurement.models import PurchaseOrder, PurchaseOrderStatus
 from src.modules.procurement.repository import PurchaseOrderRepository
@@ -100,6 +104,12 @@ class VendorPortalService:
         self.orders = PurchaseOrderRepository(session, tenant)
 
     # --- profile and dashboard ------------------------------------------------
+
+    async def shipments(
+        self, params: PageParams, status: Literal["all", "in_transit", "delivered"]
+    ) -> tuple[list[InboundShipmentRead], OffsetPagination]:
+        rows, page = await self.repo.shipments(params, status)
+        return [InboundShipmentRead.model_validate(row) for row in rows], page
 
     async def me(self, principal: Principal) -> VendorPortalMe:
         vendor = await self.repo.vendor()
@@ -381,12 +391,18 @@ class VendorPortalService:
     # --- receipts ------------------------------------------------------------------
 
     async def receipts(
-        self, params: PageParams, order_id: uuid.UUID | None = None
+        self,
+        params: PageParams,
+        order_id: uuid.UUID | None = None,
+        *,
+        rejected_only: bool = False,
     ) -> tuple[list[VendorPortalReceiptRead], OffsetPagination]:
         """Own posted receipts with their lines and quality's verdicts - four reads a page."""
         if order_id is not None:
             await self.orders.get_or_404(order_id)
-        rows, page = await self.repo.receipts(params, order_id)
+        rows, page = await self.repo.receipts(
+            params, order_id, rejected_only=rejected_only, as_of=today()
+        )
         ids = [row.id for row in rows]
         lines = await self.repo.receipt_lines(ids)
         inspections = await self.repo.receipt_inspections(ids)
@@ -484,12 +500,15 @@ class VendorPortalService:
                 raise NotFoundError("Item", line.item_id)
 
     async def invoices(
-        self, params: PageParams
+        self,
+        params: PageParams,
+        *,
+        unpaid_only: bool = False,
     ) -> tuple[list[VendorPortalInvoiceSummary], OffsetPagination]:
         rows, page = await finance.list_invoices(
             self.session,
             self.tenant,
-            filters=VendorInvoiceFilters(vendor_id=self.vendor_id),
+            filters=VendorInvoiceFilters(vendor_id=self.vendor_id, open_only=unpaid_only),
             params=params,
             sort=SortParams(),
         )

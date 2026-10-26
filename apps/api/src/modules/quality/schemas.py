@@ -24,7 +24,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -339,6 +339,7 @@ class InspectionCreate(BaseModel):
     inspected_quantity: PositiveQuantity
 
     batch_id: uuid.UUID | None = None
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
     vendor_id: uuid.UUID | None = None
     #: Omit to resolve the active template for this item and stage. Naming one
     #: explicitly is how a lot is inspected against a customer's own specification.
@@ -355,6 +356,14 @@ class InspectionCreate(BaseModel):
     hold_stock: bool = False
     reason: Reason
     remarks: Remark | None = None
+
+    @model_validator(mode="after")
+    def _serials_match_quantity(self) -> Self:
+        if len(self.serial_ids) != len(set(self.serial_ids)):
+            raise ValueError("Each inspected serial unit can appear only once.")
+        if self.serial_ids and Decimal(len(self.serial_ids)) != self.inspected_quantity:
+            raise ValueError("Select one serial unit per inspected unit.")
+        return self
 
 
 class InspectionFilters(BaseModel):
@@ -463,6 +472,9 @@ class DecideRequest(BaseModel):
     rework_quantity: NonNegativeQuantity = Decimal("0")
     hold_quantity: NonNegativeQuantity = Decimal("0")
     scrap_quantity: NonNegativeQuantity = Decimal("0")
+    serial_dispositions: dict[
+        uuid.UUID, Literal["ACCEPTED", "REJECTED", "REWORK", "HOLD", "SCRAP"]
+    ] = Field(default_factory=dict, max_length=10_000)
 
     reason: Reason
     #: Required whenever anything is rejected or scrapped. Checked here so the
@@ -556,6 +568,7 @@ class DecisionHistoryRead(BaseModel):
     rework_quantity: Decimal
     hold_quantity: Decimal
     scrap_quantity: Decimal
+    serial_dispositions: dict[str, str] = Field(default_factory=dict)
     reason: str
     rejection_reason: str | None
     inspected_at: datetime
@@ -571,6 +584,8 @@ class InspectionSummary(BaseModel):
     item_id: uuid.UUID
     warehouse_id: uuid.UUID
     batch_id: uuid.UUID | None
+    serial_ids: list[uuid.UUID] = Field(default_factory=list)
+    serial_dispositions: dict[str, str] = Field(default_factory=dict)
     vendor_id: uuid.UUID | None
     template_id: uuid.UUID | None
     template_version: int | None
@@ -593,6 +608,7 @@ class InspectionSummary(BaseModel):
 
 
 class InspectionDetail(InspectionSummary):
+    serial_labels: dict[uuid.UUID, str] = Field(default_factory=dict)
     rejection_reason: str | None = None
     remarks: str | None = None
     closed_at: datetime | None = None

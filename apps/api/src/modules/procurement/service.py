@@ -4966,6 +4966,7 @@ async def _raise_inspections(
             reference_code=context.receipt.code,
             vendor_id=context.receipt.vendor_id,
             batch_id=line.batch_id,
+            **({"serial_ids": line.serial_ids} if line.serial_ids else {}),
         )
         line.qc_inspection_id = getattr(inspection, "id", None)
         line.qc_status = ReceiptLineQcStatus.PENDING

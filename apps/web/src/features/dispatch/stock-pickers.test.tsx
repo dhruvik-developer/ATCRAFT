@@ -6,7 +6,58 @@ import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { fail, page, renderScreen, type RouteRequest } from '@/test/harness'
 
-import { BatchSelect } from './stock-pickers'
+import { BatchSelect, SerialPicker } from './stock-pickers'
+
+function ControlledSerials() {
+  const [selected, setSelected] = useState<string[]>([])
+  return (
+    <SerialPicker
+      idPrefix="units"
+      itemId="item"
+      warehouseId="wh"
+      quantity="2"
+      selected={selected}
+      onChange={setSelected}
+    />
+  )
+}
+
+describe('server-paged serial selection', () => {
+  it('retains selected identities across pages and searches the whole eligible register', async () => {
+    const urls: URL[] = []
+    const { user } = renderScreen(<ControlledSerials />, {
+      permissions: [P.INVENTORY_VIEW],
+      routes: {
+        'GET /inventory/serials': ({ url }) => {
+          urls.push(url)
+          const second = url.searchParams.get('page') === '2'
+          const searched = url.searchParams.get('search') === 'SPECIAL'
+          const index = searched ? 900 : second ? 51 : 1
+          return page(
+            [{ id: `unit-${index}`, serial_number: `SERIAL-${index}`, status: 'IN_STOCK' }],
+            { has_next: !second && !searched },
+          )
+        },
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'SERIAL-1' }))
+    await user.click(screen.getByRole('button', { name: 'Next units' }))
+    await user.click(await screen.findByRole('button', { name: 'SERIAL-51' }))
+    expect(screen.getByText('2 of 2 identified')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Previous units' }))
+    expect(await screen.findByRole('button', { name: /SERIAL-1/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await user.type(screen.getByLabelText('Serial numbers'), 'SPECIAL')
+    expect(await screen.findByRole('button', { name: 'SERIAL-900' })).toBeVisible()
+    expect(
+      urls.find((url) => url.searchParams.get('search') === 'SPECIAL')?.searchParams.get('page'),
+    ).toBe('1')
+    expect(urls.every((url) => url.searchParams.get('warehouse_id') === 'wh')).toBe(true)
+    expect(screen.getByText('2 of 2 identified')).toBeVisible()
+  })
+})
 
 function batch(number: number, itemId = 'item') {
   return {

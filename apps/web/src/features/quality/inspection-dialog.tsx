@@ -71,6 +71,7 @@ import {
   QUANTITY_INPUT,
   REJECTION_REASON_MAX_LENGTH,
   hasFailed,
+  isInspectable,
   isOutOfSpec,
   referenceLink,
   specLabel,
@@ -81,6 +82,12 @@ import {
   type QcResultsResponse,
   type UploadedDocument,
 } from './quality-types'
+import { SerialDispositionEditor } from './serial-disposition-editor'
+import {
+  SERIAL_DISPOSITIONS,
+  serialDispositionQuantities,
+  type SerialDisposition,
+} from './serial-dispositions'
 
 // ------------------------------------------------------------------ form ----
 
@@ -108,6 +115,8 @@ const schema = z
   .object({
     /** Carried in the form so the sum rule is expressible in the schema. */
     inspected_quantity: z.string(),
+    serial_ids: z.array(z.string()).max(10_000),
+    serial_dispositions: z.record(z.string(), z.enum(SERIAL_DISPOSITIONS)),
     /** False for an inspector who may record readings but not decide. */
     decide: z.boolean(),
     /**
@@ -204,6 +213,17 @@ const schema = z
     }
 
     const inspected = toDecimal(values.inspected_quantity)
+    if (
+      values.serial_ids.length &&
+      (Object.keys(values.serial_dispositions).length !== values.serial_ids.length ||
+        values.serial_ids.some((id) => !values.serial_dispositions[id]))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['serial_dispositions'],
+        message: 'Choose a disposition for every serial unit.',
+      })
+    }
     const total = toDecimal(values.accepted_quantity)
       .plus(toDecimal(values.rejected_quantity))
       .plus(toDecimal(values.rework_quantity))
@@ -262,6 +282,8 @@ const DISPOSITION_FIELDS = [
 function emptyValues(): InspectionFormValues {
   return {
     inspected_quantity: '0',
+    serial_ids: [],
+    serial_dispositions: {},
     decide: false,
     record: false,
     reason: '',
@@ -311,6 +333,8 @@ function valuesFrom(
 
   return {
     inspected_quantity: detail.inspected_quantity,
+    serial_ids: detail.serial_ids ?? [],
+    serial_dispositions: (detail.serial_dispositions ?? {}) as Record<string, SerialDisposition>,
     decide: canDecide,
     record: canInspect,
     reason: '',
@@ -345,6 +369,11 @@ function valuesFrom(
         document_name: null,
       }
     }),
+    ...((detail.serial_ids?.length ?? 0) > 0
+      ? serialDispositionQuantities(
+          (detail.serial_dispositions ?? {}) as Record<string, SerialDisposition>,
+        )
+      : {}),
   }
 }
 
@@ -370,10 +399,8 @@ export function InspectionDialog({
 
   // Gating is UX only - the API authorises the results post and the decision
   // independently of anything this component believes.
-  const canDecide = can(P.QC_DECIDE)
   // `POST .../results` is `qc.inspect` and `POST .../decide` is `qc.decide`;
   // the dialog opens on either, so each half is gated on its own right.
-  const canInspect = can(P.QC_INSPECT)
   const canUpload = can(P.DOCUMENT_UPLOAD)
 
   const inspectionId = inspection?.id ?? ''
@@ -384,6 +411,9 @@ export function InspectionDialog({
     enabled: open && Boolean(inspectionId),
     staleTime: staleTimes.transactional,
   })
+  const editable = isInspectable(detail.data?.status ?? inspection?.status ?? '')
+  const canDecide = can(P.QC_DECIDE) && editable
+  const canInspect = can(P.QC_INSPECT) && editable
 
   const itemId = detail.data?.item_id ?? inspection?.item_id ?? ''
   const item = useQuery({
@@ -531,6 +561,7 @@ export function InspectionDialog({
           rework_quantity: values.rework_quantity.trim() || '0',
           hold_quantity: values.hold_quantity.trim() || '0',
           scrap_quantity: values.scrap_quantity.trim() || '0',
+          ...(values.serial_ids.length ? { serial_dispositions: values.serial_dispositions } : {}),
           rejection_reason: orNull(values.rejection_reason),
           remarks: orNull(values.remarks),
         },
@@ -582,7 +613,10 @@ export function InspectionDialog({
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError),
+    onError: (error) =>
+      applyFieldErrors(error, setError, (path) =>
+        path.startsWith('serial_dispositions.') ? 'serial_dispositions' : path,
+      ),
   })
 
   const parameters = watch('parameters')
@@ -1011,6 +1045,39 @@ export function InspectionDialog({
             {/* ----------------------------------------------- disposition -- */}
             {canDecide && (
               <div className="space-y-3 rounded-lg border p-4">
+                {Boolean(detail.data?.serial_ids?.length) && (
+                  <>
+                    <Controller
+                      control={control}
+                      name="serial_dispositions"
+                      render={({ field }) => (
+                        <SerialDispositionEditor
+                          ids={detail.data?.serial_ids ?? []}
+                          labels={detail.data?.serial_labels ?? {}}
+                          values={field.value}
+                          previous={detail.data?.serial_dispositions ?? {}}
+                          allowScrap={!scrapForbidden}
+                          onChange={(values) => {
+                            field.onChange(values)
+                            const quantities = serialDispositionQuantities(values)
+                            DISPOSITION_FIELDS.forEach((entry) =>
+                              setValue(entry.name, quantities[entry.name], {
+                                shouldValidate: true,
+                              }),
+                            )
+                          }}
+                        />
+                      )}
+                    />
+                    <FieldError
+                      message={
+                        typeof errors.serial_dispositions?.message === 'string'
+                          ? errors.serial_dispositions.message
+                          : undefined
+                      }
+                    />
+                  </>
+                )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-medium">Disposition</h3>
                   <p
@@ -1042,6 +1109,7 @@ export function InspectionDialog({
                         id={`qc-${entry.name}`}
                         {...register(entry.name)}
                         inputMode="decimal"
+                        readOnly={Boolean(detail.data?.serial_ids?.length)}
                         className="mt-1.5"
                         aria-invalid={Boolean(errors[entry.name])}
                         aria-describedby={`qc-${entry.name}-hint`}
@@ -1128,7 +1196,17 @@ export function InspectionDialog({
               </Alert>
             )}
 
-            {!canDecide && (
+            {!editable && (
+              <Alert variant="info">
+                <AlertTitle>Inspection no longer open</AlertTitle>
+                <AlertDescription>
+                  This inspection is{' '}
+                  {humanise(detail.data?.status ?? inspection?.status ?? '').toLowerCase()}. Its
+                  recorded readings and outcomes are read-only.
+                </AlertDescription>
+              </Alert>
+            )}
+            {editable && !canDecide && (
               <Alert variant="info">
                 <AlertTitle>Readings only</AlertTitle>
                 <AlertDescription>
@@ -1138,6 +1216,8 @@ export function InspectionDialog({
               </Alert>
             )}
           </DialogBody>
+
+          <FieldError message={errors.root?.message} />
 
           <DialogFooter>
             <Button
@@ -1151,7 +1231,12 @@ export function InspectionDialog({
             <Button
               type="submit"
               loading={submit.isPending}
-              disabled={detail.isLoading || Boolean(detail.error)}
+              disabled={
+                detail.isLoading ||
+                Boolean(detail.error) ||
+                !editable ||
+                (!canInspect && !canDecide)
+              }
             >
               {canDecide ? 'Submit inspection' : 'Save readings'}
             </Button>

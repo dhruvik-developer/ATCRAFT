@@ -68,6 +68,7 @@ from src.modules.products.schemas import (
     ItemDetail,
     ItemDetailWithCost,
     ItemFilters,
+    ItemImageUpdate,
     ItemStatusChange,
     ItemSummary,
     ItemSummaryWithCost,
@@ -918,6 +919,20 @@ async def unlink_vendor(
 ) -> ApiResponse[None]:
     await service.unlink_vendor(session, tenant, link_id)
     return ApiResponse.ok(None, success_message("Vendor link", "removed"))
+
+
+@router.put(
+    "/items/{item_id}/image",
+    response_model=ApiResponse[ItemImageUpdate],
+    dependencies=[require_permission(Permission.ITEM_UPDATE)],
+)
+async def set_item_image(
+    item_id: uuid.UUID, payload: ItemImageUpdate, session: DbSession, tenant: Tenant
+) -> ApiResponse[ItemImageUpdate]:
+    document_id = await service.set_item_image(session, tenant, item_id, payload.document_id)
+    return ApiResponse[ItemImageUpdate].ok(
+        ItemImageUpdate(document_id=document_id), success_message("Item image", "updated")
+    )
 
 
 __all__ = ["router"]

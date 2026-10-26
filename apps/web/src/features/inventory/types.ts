@@ -52,6 +52,7 @@ export interface ItemOption {
   code: string
   name: string
   is_batch_tracked: boolean
+  is_serial_tracked?: boolean
 }
 
 // ------------------------------------------------------------ balances -----

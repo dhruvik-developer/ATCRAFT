@@ -42,9 +42,8 @@ import { toast } from '@/lib/toast'
 
 import MovementBatchPicker from './movement-batch-picker'
 import { ItemPicker, WarehouseSelect } from './pickers'
+import { SERIAL_BULK_MAX } from './serial-numbers'
 import type { StockBatchRow, StockSerialDetail, StockSerialRow } from './types'
-
-const SERIAL_BULK_MAX = 500
 
 function errorMessage(error: unknown): string | undefined {
   return error ? describeError(error) : undefined
@@ -558,10 +557,12 @@ export function SerialDetailDialog({
   onClose: () => void
 }) {
   const { can } = useAuth()
+  const [activeId, setActiveId] = useState(serialId)
   const canSeeValue = can(P.INVENTORY_VALUATION_VIEW)
   const detail = useQuery({
-    queryKey: queryKeys.inventory.serial(serialId),
-    queryFn: () => api.get<StockSerialDetail>('/inventory/serials/' + serialId),
+    queryKey: queryKeys.inventory.serial(activeId),
+    queryFn: ({ signal }) =>
+      api.get<StockSerialDetail>('/inventory/serials/' + activeId, { signal }),
     staleTime: staleTimes.live,
   })
 
@@ -620,60 +621,101 @@ export function SerialDetailDialog({
           )}
 
           {detail.data && (
-            <div className="overflow-x-auto rounded border">
-              <table className="w-full text-sm">
-                <thead className="bg-muted text-left">
-                  <tr>
-                    <th className="p-2 font-medium">Occurred</th>
-                    <th className="p-2 font-medium">Movement</th>
-                    <th className="p-2 font-medium">Warehouse</th>
-                    <th className="p-2 text-right font-medium">Quantity</th>
-                    <th className="p-2 font-medium">Reference</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(detail.data.movements ?? []).map((movement) => {
-                    const quantity = toDecimal(movement.quantity)
-                    return (
-                      <tr key={movement.id} className="border-t align-top">
-                        <td className="whitespace-nowrap p-2 tabular">
-                          {formatDateTime(movement.occurred_at)}
-                        </td>
-                        <td className="p-2">
-                          {humanise(movement.transaction_type)}
-                          <span className="block text-xs text-muted-foreground">
-                            {humanise(movement.stock_state)}
-                          </span>
-                        </td>
-                        <td className="p-2">{movement.warehouse_code ?? '-'}</td>
-                        <td
-                          className={
-                            quantity.greaterThan(0)
-                              ? 'p-2 text-right font-medium text-success tabular'
-                              : 'p-2 text-right font-medium text-destructive tabular'
-                          }
+            <>
+              {Boolean(detail.data.conversions?.length) && (
+                <section className="space-y-3">
+                  <h3 className="font-semibold">Product conversion history</h3>
+                  <p className="text-xs text-muted-foreground">
+                    The physical serial label stays the same when processing changes the product.
+                    Original and output records retain their own movement history.
+                  </p>
+                  <div className="space-y-2">
+                    {detail.data.conversions?.map((conversion) => (
+                      <div
+                        key={conversion.id}
+                        className="flex flex-wrap items-center gap-2 rounded border p-3"
+                      >
+                        <span className="mr-auto text-xs text-muted-foreground">
+                          {formatDateTime(conversion.created_at)}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={activeId === conversion.source_serial_id}
+                          onClick={() => setActiveId(conversion.source_serial_id)}
                         >
-                          {formatQuantity(movement.quantity)}
-                        </td>
-                        <td className="p-2">
-                          {movement.reference_code ?? '-'}
-                          <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
-                            {movement.reason}
-                          </span>
+                          Trace original product
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={activeId === conversion.output_serial_id}
+                          onClick={() => setActiveId(conversion.output_serial_id)}
+                        >
+                          Trace processed product
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              <div className="overflow-x-auto rounded border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted text-left">
+                    <tr>
+                      <th className="p-2 font-medium">Occurred</th>
+                      <th className="p-2 font-medium">Movement</th>
+                      <th className="p-2 font-medium">Warehouse</th>
+                      <th className="p-2 text-right font-medium">Quantity</th>
+                      <th className="p-2 font-medium">Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detail.data.movements ?? []).map((movement) => {
+                      const quantity = toDecimal(movement.quantity)
+                      return (
+                        <tr key={movement.id} className="border-t align-top">
+                          <td className="whitespace-nowrap p-2 tabular">
+                            {formatDateTime(movement.occurred_at)}
+                          </td>
+                          <td className="p-2">
+                            {humanise(movement.transaction_type)}
+                            <span className="block text-xs text-muted-foreground">
+                              {humanise(movement.stock_state)}
+                            </span>
+                          </td>
+                          <td className="p-2">{movement.warehouse_code ?? '-'}</td>
+                          <td
+                            className={
+                              quantity.greaterThan(0)
+                                ? 'p-2 text-right font-medium text-success tabular'
+                                : 'p-2 text-right font-medium text-destructive tabular'
+                            }
+                          >
+                            {formatQuantity(movement.quantity)}
+                          </td>
+                          <td className="p-2">
+                            {movement.reference_code ?? '-'}
+                            <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+                              {movement.reason}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {(detail.data.movements ?? []).length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="p-4 text-center text-sm text-muted-foreground">
+                          This unit has been registered but no movement has touched it yet.
                         </td>
                       </tr>
-                    )
-                  })}
-                  {(detail.data.movements ?? []).length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="p-4 text-center text-sm text-muted-foreground">
-                        This unit has been registered but no movement has touched it yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </DialogBody>
         <DialogFooter>

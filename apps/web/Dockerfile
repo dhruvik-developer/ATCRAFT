@@ -61,7 +61,9 @@ ENV VITE_ERROR_REPORT_URL=$VITE_ERROR_REPORT_URL
 RUN npm run build
 
 # ------------------------------------------------------------- production ---
-FROM nginx:1.30.6-alpine3.24@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5 AS production
+# Static serving needs core nginx only. The official slim runtime omits optional
+# image/njs modules and their Brotli, X11 and expat dependency chain.
+FROM nginx:1.30.6-alpine3.24-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7 AS production
 
 # Serve as an unprivileged user. nginx:alpine already defines the `nginx` user;
 # it needs write access to its runtime directories to start without root.
@@ -77,8 +79,7 @@ FROM nginx:1.30.6-alpine3.24@sha256:970364228b1e4f932abc22d321932816782cca8a20b8
 # which reads like a configuration error rather than a permission one. Creating
 # the file first and giving nginx that one file is narrower than opening up /run
 # and does not depend on which of the two paths the main config names.
-RUN apk add --no-cache libexpat=2.9.0-r0 libx11=1.8.14-r0 \
- && mkdir -p /var/cache/nginx \
+RUN mkdir -p /var/cache/nginx \
  && touch /var/run/nginx.pid \
  && chown nginx:nginx /var/run/nginx.pid \
  && chown -R nginx:nginx /var/cache/nginx /usr/share/nginx/html

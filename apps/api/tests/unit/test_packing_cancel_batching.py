@@ -99,9 +99,14 @@ class TestCancelOrder:
         ) -> None:
             calls["transitions"].append((target, kwargs.get("action")))
 
+        async def _withdraw(session: Any, tenant: Any, order_id: uuid.UUID, **kwargs: Any) -> None:
+            assert order_id == order.id
+            assert kwargs["reason"] == "Customer withdrew the order"
+
         monkeypatch.setattr(packing_service, "_lock_order", _lock_order)
         monkeypatch.setattr(packing_service, "_apply_packed_quantities", _apply)
         monkeypatch.setattr(packing_service, "_transition", _transition)
+        monkeypatch.setattr(packing_service, "_withdraw_order_inspections", _withdraw)
         monkeypatch.setattr(packing_service, "transaction", _no_transaction)
         monkeypatch.setattr(CartonRepository, "totals_for_order", _totals)
         monkeypatch.setattr(CartonRepository, "list_for_order", _list_for_order)

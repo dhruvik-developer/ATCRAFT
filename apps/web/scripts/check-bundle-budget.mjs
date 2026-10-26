@@ -52,6 +52,11 @@ const BUDGETS = {
   // visitor downloads before anything renders (68.1 -> 59.1 KB gz) and into
   // this one, which is fetched only by the screens that open an overlay.
   shared: { pattern: /^shared-.*\.js$/, kb: 36, label: 'shared components' },
+  // Decimal arithmetic and date-fns formatting are shared by staff and portal
+  // screens. Budget this utility explicitly (20.4 KB measured), rather than
+  // treating it as a feature page. First-load and screen-closure limits still
+  // count every byte and retain their existing caps.
+  format: { pattern: /^format-.*\.js$/, kb: 22, label: 'money/date formatting' },
 }
 
 /** No single lazily-loaded route chunk may exceed this, gzipped. */

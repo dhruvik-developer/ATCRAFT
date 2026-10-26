@@ -53,6 +53,7 @@ def _transition(
     *,
     already_received: bool = False,
     landing_state: StockState | object | None = _DEFAULT_POOL,
+    source_state: StockState | None = None,
 ) -> SerialStatus | None:
     """Drive :func:`serial_transition` for one movement.
 
@@ -69,6 +70,7 @@ def _transition(
         transaction_type=transaction_type,
         landing_state=pool,  # type: ignore[arg-type]
         already_received=already_received,
+        source_state=source_state,
     )
 
 
@@ -158,6 +160,8 @@ class TestTheHappyPath:
                 if target is not None
                 for status in SerialStatus
                 if SERIAL_FLOW.can_transition(status, target)
+                and (status, transaction_type)
+                != (SerialStatus.ISSUED, TransactionType.ADJUSTMENT_DECREASE)
             ),
             key=lambda row: (str(row[0]), str(row[1])),
         ),
@@ -172,7 +176,12 @@ class TestTheHappyPath:
         mapping that points at an edge the graph does not have - fails here
         instead of at a posting.
         """
-        assert _transition(status, transaction_type) is expected
+        source = (
+            StockState.JOB_WORK
+            if status is SerialStatus.ISSUED and transaction_type is TransactionType.SCRAP
+            else None
+        )
+        assert _transition(status, transaction_type, source_state=source) is expected
 
 
 class TestMovementsThatDoNotChangeHands:
@@ -365,7 +374,7 @@ class TestIllegalTransitions:
             _transition(SerialStatus.ISSUED, TransactionType.MATERIAL_ISSUE)
         assert excinfo.value.details["current_status"] == "ISSUED"
         assert excinfo.value.details["requested_status"] == "ISSUED"
-        assert excinfo.value.details["allowed"] == ["IN_STOCK"]
+        assert excinfo.value.details["allowed"] == ["IN_STOCK", "SCRAPPED"]
 
     def test_a_dispatched_unit_cannot_be_dispatched_again(self) -> None:
         with pytest.raises(InvalidStateTransitionError):

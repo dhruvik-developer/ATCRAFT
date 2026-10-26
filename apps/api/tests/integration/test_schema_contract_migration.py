@@ -34,7 +34,8 @@ from tests.schema_support import report_database_setup_failure
 pytestmark = pytest.mark.integration
 
 PREVIOUS_REVISION = "20261026_0100"
-REVISION = "20261027_0100"
+REPAIR_REVISION = "20261027_0100"
+REVISION = "20261031_0100"
 API_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_TABLES = (
     "credit_note_lines",
@@ -279,9 +280,8 @@ def test_fresh_schema_alignment_preserves_data_constraints_and_rollback(
         assert missing_default.value.orig.diag.column_name == "created_at"
 
         _leave_interrupted_index_build(engine)
-        database.alembic("upgrade", f"{PREVIOUS_REVISION}:{REVISION}", "--sql")
-        database.alembic("upgrade", REVISION)
-        database.alembic("check")
+        database.alembic("upgrade", f"{PREVIOUS_REVISION}:{REPAIR_REVISION}", "--sql")
+        database.alembic("upgrade", REPAIR_REVISION)
         with engine.connect() as connection:
             current_checks = _checks(connection)
             current_indexes = _indexes(connection)
@@ -303,15 +303,6 @@ def test_fresh_schema_alignment_preserves_data_constraints_and_rollback(
             sum(current_checks[oid][1] != before[1] for oid, before in previous_checks.items())
             == 24
         )
-        expected_checks = {
-            (table.name, str(constraint.name))
-            for table in get_metadata().tables.values()
-            for constraint in table.constraints
-            if isinstance(constraint, sa.CheckConstraint)
-        }
-        assert {(table, name) for table, name, _, _ in current_checks.values()} == expected_checks
-        assert all(len(name.encode()) <= 63 for _, name in expected_checks)
-
         assert len(current_indexes.keys() - previous_indexes.keys()) == 9
         assert previous_indexes.keys() <= current_indexes.keys()
         assert all(valid for _, valid in current_indexes.values())
@@ -340,5 +331,17 @@ def test_fresh_schema_alignment_preserves_data_constraints_and_rollback(
 
         database.alembic("upgrade", REVISION)
         database.alembic("check")
+        # Historical revision 27 is checked independently above: newer revisions
+        # legitimately add/replace constraints, so only HEAD matches current models.
+        expected_checks = {
+            (table.name, str(constraint.name))
+            for table in get_metadata().tables.values()
+            for constraint in table.constraints
+            if isinstance(constraint, sa.CheckConstraint)
+        }
+        with engine.connect() as connection:
+            head_checks = _checks(connection)
+        assert {(table, name) for table, name, _, _ in head_checks.values()} == expected_checks
+        assert all(len(name.encode()) <= 63 for _, name in expected_checks)
     finally:
         engine.dispose()

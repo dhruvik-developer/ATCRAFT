@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 666 requests in 30
+Import `postman_collection.json` (Postman v2.1 format, 701 requests in 31
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -531,6 +531,8 @@ download; long work runs in a worker rather than holding the HTTP request open.
 /notifications        list · unread count · read · preferences · push devices
 /vendor-portal        orders · consignments · shared documents · bills · payments · QC
 /dealer-portal        catalogue · pricing · cart · wishlist · checkout · orders · statement
+                      own invoices/credits · return requests · banners/offers · item images
+/promotions           staff banner/offer management · lifecycle actions · eligibility preview
 /audit                logs · entity history · approvals
 ```
 

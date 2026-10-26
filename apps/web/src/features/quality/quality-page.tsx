@@ -65,6 +65,7 @@ import {
   QC_STAGES,
   ageInDays,
   isInspectable,
+  inspectionBadgeStatus,
   referenceLink,
   type QcInspectionRow,
 } from './quality-types'
@@ -395,11 +396,7 @@ function InspectionsTab({
         enableSorting: false,
         // `result` is never null - an undecided inspection carries PENDING - so
         // the status is shown only while the result says nothing yet.
-        cell: ({ row }) => (
-          <StatusBadge
-            status={row.original.result === 'PENDING' ? row.original.status : row.original.result}
-          />
-        ),
+        cell: ({ row }) => <StatusBadge status={inspectionBadgeStatus(row.original)} />,
       },
       {
         id: 'item',

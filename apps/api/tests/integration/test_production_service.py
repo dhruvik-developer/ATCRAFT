@@ -99,6 +99,8 @@ from src.modules.production.schemas import (
     WorkOrderUpdate,
 )
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
+from src.modules.quality import service as quality_service
+from src.modules.quality.schemas import DecideRequest
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.repository import ReportQueryRepository
@@ -1563,8 +1565,9 @@ async def test_release_issue_complete_moves_stock_end_to_end(
     assert ledger[0].quantity == Decimal("100.0000")
 
 
+@pytest.mark.parametrize("requires_qc", [False, True])
 async def test_a_tracked_finished_good_is_booked_unit_by_unit_into_its_lot(
-    db, tenant, stocked, planner, approver
+    db, tenant, stocked, planner, approver, requires_qc
 ):
     """The output of a booking is a lot and a set of units, not a quantity."""
     kit = stocked["kit"]
@@ -1580,7 +1583,7 @@ async def test_a_tracked_finished_good_is_booked_unit_by_unit_into_its_lot(
     db.add(lot)
     await db.flush()
 
-    order = await make_order(db, tenant, stocked, quantity="2")
+    order = await make_order(db, tenant, stocked, quantity="2", requires_qc=requires_qc)
     await approve(db, tenant, approver, order)
     await release(db, tenant, order)
     await issue_everything(db, tenant, planner, order)
@@ -1615,6 +1618,21 @@ async def test_a_tracked_finished_good_is_booked_unit_by_unit_into_its_lot(
     assert {row.serial_id for row in output} == set(booking.entry.output_serial_ids)
     assert all(row.batch_id == lot.id for row in output)
     assert all(row.quantity == Decimal("1.0000") for row in output)
+    if requires_qc:
+        assert booking.entry.qc_inspection_id is not None
+        decided = await quality_service.decide_inspection(
+            db,
+            tenant,
+            booking.entry.qc_inspection_id,
+            DecideRequest(
+                accepted_quantity=Decimal("2"),
+                reason="Produced units accepted",
+                serial_dispositions=dict.fromkeys(booking.entry.output_serial_ids, "ACCEPTED"),
+            ),
+        )
+        assert decided.released_quantity == 2
+        assert set(decided.inspection.serial_ids) == set(booking.entry.output_serial_ids)
+        assert decided.inspection.batch_id == lot.id
 
 
 async def test_closing_costs_the_job_from_real_movements_and_real_time(

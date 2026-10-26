@@ -24,57 +24,13 @@ import type { SchemaOf } from '@/types/api'
 // ------------------------------------------------------------- identity -----
 
 /** One row of `GET /users`. */
-export interface UserRow {
-  id: string
-  email: string
-  full_name: string
-  employee_code: string | null
-  is_active: boolean
-  is_superuser: boolean
-  must_change_password: boolean
-  vendor_id: string | null
-  branch_id: string | null
-  plant_id: string | null
-  department_id: string | null
-  last_login_at: string | null
-  locked_until: string | null
-  created_at: string
-  /** Omitted, not emptied, when the user holds no role. */
-  role_codes?: string[]
-}
+export type UserRow = SchemaOf<'UserSummary'>
 
-/**
- * `GET /users/{id}` - the grid deliberately does not carry these columns.
- *
- * Every collection here is omitted rather than emptied when it has nothing in
- * it, so none of them may be dereferenced without a default.
- */
-export interface UserDetail extends UserRow {
-  phone: string | null
-  mfa_enabled: boolean
-  failed_login_attempts: number
-  password_changed_at: string | null
-  allowed_category_ids?: string[]
-  allowed_warehouse_ids?: string[]
-  extra_permissions?: string[]
-  denied_permissions?: string[]
-  is_vendor_user?: boolean
-  updated_at: string
-  roles?: RoleRow[]
-}
+/** The detail adds portal bindings, scope and the assigned role objects. */
+export type UserDetail = SchemaOf<'UserDetail'>
 
-/** One row of `GET /roles`. */
-export interface RoleRow {
-  id: string
-  code: string
-  name: string
-  description: string | null
-  is_system: boolean
-  is_vendor_role: boolean
-  is_active: boolean
-  permission_count: number
-  created_at: string
-}
+/** One row of `GET /roles`, including its portal account kind. */
+export type RoleRow = SchemaOf<'RoleSummary'>
 
 /** `GET /roles/{id}` - carries the permission set the matrix edits. */
 export interface RoleDetail extends RoleRow {

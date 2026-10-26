@@ -250,27 +250,34 @@ describe('the inspection history', () => {
     expect(screen.getByRole('button', { name: 'Inspect' })).toBeVisible()
   })
 
-  it.each([['ACCEPTED' as const], ['REJECTED' as const], ['SCRAP' as const], ['CLOSED' as const]])(
-    'withholds Inspect on a %s inspection, which the API would refuse',
-    async (status) => {
-      // Offering an action the state machine will reject puts the inspector
-      // through a full disposition form for a 409.
-      await openHistory(
-        [
-          inspection({
-            code: 'QC-SETTLED',
-            status,
-            result: 'ACCEPTED',
-            inspected_at: '2026-08-30T09:00:00Z',
-          }),
-        ],
-        [P.QC_VIEW, P.QC_DECIDE],
-      )
+  it.each([
+    ['ACCEPTED' as const],
+    ['REJECTED' as const],
+    ['SCRAP' as const],
+    ['CLOSED' as const],
+    ['WITHDRAWN' as const],
+  ])('withholds Inspect on a %s inspection, which the API would refuse', async (status) => {
+    // Offering an action the state machine will reject puts the inspector
+    // through a full disposition form for a 409.
+    await openHistory(
+      [
+        inspection({
+          code: 'QC-SETTLED',
+          status,
+          result: 'ACCEPTED',
+          inspected_at: '2026-08-30T09:00:00Z',
+        }),
+      ],
+      [P.QC_VIEW, P.QC_DECIDE],
+    )
 
-      expect(await screen.findByText('QC-SETTLED')).toBeVisible()
-      expect(screen.queryByRole('button', { name: 'Inspect' })).toBeNull()
-    },
-  )
+    expect(await screen.findByText('QC-SETTLED')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Inspect' })).toBeNull()
+    if (status === 'WITHDRAWN')
+      expect(
+        within(screen.getByText('QC-SETTLED').closest('tr')!).getByText('Withdrawn'),
+      ).toBeVisible()
+  })
 
   it('shows the decided result rather than the status once a verdict exists', async () => {
     // `result` is never null - an undecided inspection carries PENDING - so a
@@ -372,6 +379,132 @@ async function openInspection(
 }
 
 describe('the inspection sheet', () => {
+  it('makes an inspection read-only when its source was withdrawn after the queue loaded', async () => {
+    const { fetch } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({ status: 'WITHDRAWN', parameters: [] }),
+        ),
+      },
+      [P.QC_VIEW, P.QC_INSPECT, P.QC_DECIDE],
+    )
+    expect(await screen.findByText('Inspection no longer open')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Submit inspection' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save readings' })).toBeDisabled()
+    expect(screen.queryByLabelText('Accepted')).toBeNull()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+  it('requires a verdict for every named unit and derives the quantity split without inventory access', async () => {
+    const { user, fetch } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({
+            parameters: [],
+            inspected_quantity: '2',
+            sample_size: '2',
+            serial_ids: ['unit-1', 'unit-2'],
+            serial_labels: { 'unit-1': 'LABEL-001', 'unit-2': 'LABEL-002' },
+            serial_dispositions: {},
+          }),
+        ),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
+      },
+      [P.QC_VIEW, P.QC_DECIDE],
+    )
+    const first = await screen.findByRole('combobox', { name: 'Disposition for LABEL-001' })
+    expect(first).toHaveValue('')
+    expect(screen.getByLabelText('Accepted')).toHaveAttribute('readonly')
+    await user.selectOptions(first, 'ACCEPTED')
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'Unit outcomes verified')
+    await user.click(screen.getByRole('button', { name: 'Submit inspection' }))
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Disposition for LABEL-002' }),
+      'HOLD',
+    )
+    await user.click(screen.getByRole('button', { name: 'Submit inspection' }))
+    await waitFor(() =>
+      expect(
+        fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`),
+      ).toMatchObject({
+        accepted_quantity: '1',
+        hold_quantity: '1',
+        rejected_quantity: '0',
+        rework_quantity: '0',
+        scrap_quantity: '0',
+        serial_dispositions: { 'unit-1': 'ACCEPTED', 'unit-2': 'HOLD' },
+      }),
+    )
+    expect(fetch.calls.some((call) => call.path.startsWith('/inventory/'))).toBe(false)
+  })
+
+  it('keeps final unit outcomes fixed while re-deciding the complete held set', async () => {
+    const { user, fetch } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({
+            parameters: [],
+            status: 'HOLD',
+            inspected_quantity: '2',
+            sample_size: '2',
+            serial_ids: ['unit-1', 'unit-2'],
+            serial_labels: { 'unit-1': 'FINAL-001' },
+            serial_dispositions: { 'unit-1': 'ACCEPTED', 'unit-2': 'HOLD' },
+            accepted_quantity: '1',
+            hold_quantity: '1',
+          }),
+        ),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
+      },
+      [P.QC_VIEW, P.QC_DECIDE],
+    )
+    expect(
+      await screen.findByRole('combobox', { name: 'Disposition for FINAL-001' }),
+    ).toBeDisabled()
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Disposition for unit-2' }),
+      'ACCEPTED',
+    )
+    await user.type(
+      screen.getByLabelText(/reason for this decision/i),
+      'Held unit retested and passed',
+    )
+    await user.click(screen.getByRole('button', { name: 'Submit inspection' }))
+    await waitFor(() =>
+      expect(
+        fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`),
+      ).toMatchObject({
+        accepted_quantity: '2',
+        hold_quantity: '0',
+        serial_dispositions: { 'unit-1': 'ACCEPTED', 'unit-2': 'ACCEPTED' },
+      }),
+    )
+  })
+
+  it('shows a server refusal of one named unit under its disposition editor', async () => {
+    const { user } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({ parameters: [], inspected_quantity: '1', serial_ids: ['unit-1'] }),
+        ),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: fail(
+          422,
+          'VALIDATION_ERROR',
+          'Invalid unit',
+          { fields: { 'serial_dispositions.unit-1': ['This unit already has a final outcome'] } },
+        ),
+      },
+      [P.QC_VIEW, P.QC_DECIDE],
+    )
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Disposition for unit-1' }),
+      'ACCEPTED',
+    )
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'Unit checked on the bench')
+    await user.click(screen.getByRole('button', { name: 'Submit inspection' }))
+    expect(await screen.findByText('This unit already has a final outcome')).toBeVisible()
+  })
+
   it('offers damaged stock when this item cannot be scrapped and submits no scrap', async () => {
     const { user, fetch } = await openInspection(
       {

@@ -75,6 +75,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
@@ -439,6 +440,12 @@ class JobWorkOrderLine(TenantEntity):
     batch_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
     )
+    is_serial_tracked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
     uom_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=False
     )
@@ -516,6 +523,11 @@ class JobWorkOrderLine(TenantEntity):
         CheckConstraint("quantity_to_issue > 0", name="quantity_to_issue_positive"),
         CheckConstraint("expected_output_quantity > 0", name="expected_output_positive"),
         CheckConstraint("issued_quantity >= 0", name="issued_non_negative"),
+        CheckConstraint(
+            "(is_serial_tracked AND cardinality(serial_ids) = issued_quantity) OR "
+            "(NOT is_serial_tracked AND cardinality(serial_ids) = 0)",
+            name="issued_serials_match_quantity",
+        ),
         CheckConstraint("received_quantity >= 0", name="received_non_negative"),
         CheckConstraint("received_output_quantity >= 0", name="received_output_non_negative"),
         CheckConstraint("rejected_quantity >= 0", name="rejected_non_negative"),
@@ -623,6 +635,9 @@ class JobWorkChallanLine(TenantEntity):
         GUID, ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
     #: The position's moving-average cost at the moment of issue, captured from
     #: the ledger row the issue wrote. Frozen: the declared value of goods that
     #: have already left cannot be restated by a later re-average.
@@ -640,6 +655,10 @@ class JobWorkChallanLine(TenantEntity):
         Index("ix_job_work_challan_lines_challan", "company_id", "challan_id", "line_number"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint(
+            "cardinality(serial_ids) = 0 OR cardinality(serial_ids) = quantity",
+            name="challan_serials_match_quantity",
+        ),
         CheckConstraint("unit_value >= 0", name="unit_value_non_negative"),
         CheckConstraint("total_value >= 0", name="total_value_non_negative"),
     )
@@ -836,6 +855,21 @@ class JobWorkReceiptLine(TenantEntity):
     )
     batch_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
+    )
+    output_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
+    rejected_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
+    returned_unprocessed_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
+    scrapped_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
+    converted_serial_ids: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
 
     #: Good processed output, received into ``AVAILABLE`` - or into ``QC_HOLD``

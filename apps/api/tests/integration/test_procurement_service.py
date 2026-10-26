@@ -771,10 +771,19 @@ async def test_a_serial_tracked_receipt_without_labels_is_refused(db, tenant, bu
     assert "serial tracked" in exc.value.message
 
 
-async def test_serial_numbers_mint_one_movement_per_received_unit(db, tenant, buyer, masters):
+@pytest.mark.parametrize("requires_qc", [False, True])
+async def test_serial_numbers_mint_one_movement_per_received_unit(
+    db, tenant, buyer, masters, requires_qc
+):
     """The labels scanned at the gate become the units the ledger moves."""
     order, lines, _ = await make_order(
-        db, tenant, buyer, masters, quantity="3", item=masters["serialised_item"]
+        db,
+        tenant,
+        buyer,
+        masters,
+        quantity="3",
+        item=masters["serialised_item"],
+        requires_qc=requires_qc,
     )
     await send_order(db, tenant, buyer, order)
 
@@ -818,6 +827,26 @@ async def test_serial_numbers_mint_one_movement_per_received_unit(db, tenant, bu
         .all()
     )
     assert {unit.serial_number for unit in serials} == {"SN001", "SN-002", "SN-003"}
+    if requires_qc:
+        assert receipt_line.qc_inspection_id is not None
+        await quality_service.decide_inspection(
+            db,
+            tenant,
+            receipt_line.qc_inspection_id,
+            DecideRequest(
+                accepted_quantity=Decimal("2"),
+                rejected_quantity=Decimal("1"),
+                reason="Inspected each received unit",
+                rejection_reason="Finish damaged on one unit",
+                serial_dispositions=dict(
+                    zip(receipt_line.serial_ids, ["ACCEPTED", "ACCEPTED", "REJECTED"], strict=True)
+                ),
+            ),
+        )
+        await db.refresh(balance)
+        assert balance.qc_hold_quantity == 0
+        assert balance.available_quantity == 2
+        assert balance.damaged_quantity == 1
 
 
 # --- posting is guarded ---------------------------------------------------------

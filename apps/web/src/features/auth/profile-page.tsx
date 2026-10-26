@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { KeyRound, LogOut, Monitor, ShieldCheck, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -39,6 +39,7 @@ import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, formatRelative } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
+import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -46,6 +47,7 @@ import { useAuth } from './auth-context'
 import { PASSWORD_MAX_LENGTH, PASSWORD_RULES, passwordField } from './password-policy'
 
 const SESSION_PAGE_SIZE = 25
+const PushDeviceCard = lazy(() => import('@/features/notifications/push-device-card'))
 
 /**
  * One row of `GET /auth/sessions` (`SessionRead`).
@@ -679,7 +681,7 @@ function SessionsCard() {
 // ------------------------------------------------------------------ page ----
 
 export default function ProfilePage() {
-  const { user } = useAuth()
+  const { user, can } = useAuth()
   const [searchParams] = useSearchParams()
   const mustChangePassword = Boolean(user?.must_change_password)
   const focusPassword = searchParams.get('change-password') === '1' || mustChangePassword
@@ -701,6 +703,11 @@ export default function ProfilePage() {
       )}
 
       <div className="space-y-5">
+        {can(P.NOTIFICATION_VIEW) && !mustChangePassword && (
+          <Suspense fallback={null}>
+            <PushDeviceCard />
+          </Suspense>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>{user?.full_name ?? 'Signed-in user'}</CardTitle>

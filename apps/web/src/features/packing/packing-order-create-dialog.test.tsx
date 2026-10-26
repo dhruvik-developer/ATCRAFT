@@ -59,6 +59,9 @@ function createdOrder(salesOrderId: string | null = null): PackingOrderDetail {
         quantity_to_pack: '2.0000',
         packed_quantity: '0.0000',
         uom_id: UOM_ID,
+        is_batch_tracked: false,
+        is_serial_tracked: false,
+        requires_final_qc: false,
       },
     ],
   }

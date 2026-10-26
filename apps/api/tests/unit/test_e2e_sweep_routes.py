@@ -62,15 +62,22 @@ def _route_permissions() -> dict[str, set[str]]:
 def test_signed_in_sweeps_open_every_static_screen() -> None:
     screens = _static_screens()
     assert len(screens) >= 40
-    for script, const in (
-        ("browser-sweep.mjs", "STATIC_ROUTES"),
-        ("a11y-sweep.mjs", "ROUTES"),
-        ("responsive-sweep.mjs", "STATIC_ROUTES"),
-    ):
-        body = _array_body((SWEEPS / script).read_text(encoding="utf-8"), const)
-        listed = {route.split("?", 1)[0] for route in re.findall(r"'(/[^']*)'", body)}
-        missing = sorted(screens - listed)
-        assert missing == [], f"{script} never opens {missing}"
+    # Browser and responsive entry points share the same populated-route audit.
+    # Reintroducing private route arrays lets new screens silently escape it.
+    for script in ("browser-sweep.mjs", "responsive-sweep.mjs"):
+        source = (SWEEPS / script).read_text(encoding="utf-8")
+        assert "await import('./ui-readiness-sweep.mjs')" in source
+        assert "STATIC_ROUTES" not in source
+    readiness = (SWEEPS / "ui-readiness-sweep.mjs").read_text(encoding="utf-8")
+    assert "const registered = registeredScreens" in readiness
+    assert "for (const route of registered)" in readiness
+    accessibility = (SWEEPS / "a11y-sweep.mjs").read_text(encoding="utf-8")
+    assert "const ROUTES = staticScreenRoutes(registeredScreens)" in accessibility
+    shared = (SWEEPS.parent / "lib" / "screen-registry.mjs").read_text(encoding="utf-8")
+    assert "apps/web/src/app/route-loaders.ts" in shared
+    assert "!route.includes(':') && route !== '/change-password'" in shared
+    # Actual parsing, portal inclusion and duplicate/empty catalogue failures
+    # are exercised by lib/screen-registry.test.mjs in handbook:check.
 
 
 def test_theme_sweep_uses_application_routes() -> None:

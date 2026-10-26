@@ -2,6 +2,8 @@ import { expect, test as setup } from '@playwright/test'
 
 import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../lib/env.mjs'
 import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
+import { assertPortalData, ensurePortalAccounts } from '../lib/portal-fixtures.mjs'
+import { accountForAudience } from '../lib/audiences.mjs'
 
 const AUTH_FILE = './.auth/admin.json'
 
@@ -22,13 +24,23 @@ const AUTH_FILE = './.auth/admin.json'
  * after that. See `.env.example` for the seed command it expects.
  */
 setup('authenticate as administrator', async ({ page }) => {
-  await readyAdminToken()
+  const token = await readyAdminToken()
+  await ensurePortalAccounts(token)
+  for (const audience of ['vendor', 'dealer'] as const) {
+    const portalToken = await readyAdminToken(accountForAudience(audience))
+    await assertPortalData(audience, portalToken)
+  }
 
-  await signInThroughForm(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+  await signInThroughForm(page, {
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  })
 
   // Wait for the shell, not just a URL change: the router redirects before the
   // session restore finishes, and asserting on the URL alone is flaky.
-  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({
+    timeout: 30_000,
+  })
 
   await page.context().storageState({ path: AUTH_FILE })
 })

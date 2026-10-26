@@ -324,12 +324,12 @@ interface RunFormValues {
   values: Record<string, string>
 }
 
-function buildSchema(requiresPeriod: boolean): z.ZodType<RunFormValues> {
+function buildSchema(requiresPeriod: boolean) {
   return z
     .object({
       date_from: z.string(),
       date_to: z.string(),
-      values: z.record(z.string()),
+      values: z.record(z.string(), z.string()),
     })
     .superRefine((data, ctx) => {
       if (!requiresPeriod) return

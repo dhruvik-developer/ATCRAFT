@@ -2314,6 +2314,25 @@ leaves the late set while keeping its badge.
 
 ---
 
+## §A3-2. Partial credits allocate remaining value and fiscal rounding
+
+**Assumed:** Amount-only credits reduce the remaining price of uncredited units.
+Subsequent quantity credits allocate that remaining value over remaining units;
+the final credit takes the exact paisa remainder. GST and the original invoice
+round-off are allocated cumulatively from prior issued notes, excluding cancelled
+notes. This keeps a complete reversal equal to the original fiscal snapshot,
+including invoices whose gross amount was rounded to a rupee.
+
+**Why:** Independently rounding each quantity credit can exhaust all returned
+units while leaving money unpaid, or overstate a GST component. Allocating the
+remaining balance also handles a price adjustment made between partial returns.
+
+**Where:** `finance.credit_note_rounding`, `finance.issue_credit_note`.
+
+**Impact if wrong:** If a price adjustment should compensate already-credited
+goods, that requires a separate authorized adjustment; the service never edits
+or reallocates an issued note's immutable amounts.
+
 ## §A3-1. Legacy no-QC serial returns were accepted
 
 **Assumed.** Existing RECEIVED or CLOSED serial-return lines with
@@ -3127,6 +3146,22 @@ line of an order fails and the rest pass.
 
 **Where:** `packing._raise_line_inspections`, `packing_order_lines.qc_inspection_id`.
 
+**Named-unit refinement:** Serial-tracked FINAL lines select exact units and one
+batch at start; those selections are persisted and passed to QC. Carton writes,
+sealing, completion and handover enforce that membership and require ACCEPTED
+per-unit dispositions. Rejected units are replaced while cartons remain open.
+Cancelling a pristine unheld inspection records terminal WITHDRAWN with result
+PENDING and an audit reason, preserving its identities without asserting a
+verdict. Started or held inspections still complete their QC flow.
+
+**Legacy recovery:** Quantity-only serial history is never relabelled as named
+QC. Before dispatch claims an affected legacy order, a reasoned recovery can
+return physically recovered packing material at its original matching issue cost
+through MATERIAL_RETURN, reopen its cartons, then allow cancellation and fresh
+named-unit repacking. Normal named-unit sealed cartons and shipped history stay
+immutable. See `docs/database.md` "Named FINAL QC at packing" for the migration
+and recovery contract.
+
 **Impact if wrong:** If final QC should gate dispatch rather than packing,
 move the raise to the hand-over; lines packed before the change carry no
 inspection and pass the gate vacuously.
@@ -3482,25 +3517,43 @@ cannot seed this draft action.
 vendor debit through B3a's recovery mechanism behind a setting that defaults
 to off, as the spec anticipates.
 
-## §E7b-5. Job-work batches retain one same-item lot per order line
+## §E7b-5. Job-work identity follows the physical lot or unit
 
 **Assumed.** A batch-tracked item may go for job work only when the processed
 output is the same item. The lot is selected on the draft order, so approval
 reserves that exact stock grain; every challan, receipt and movement for the
 line uses the selected batch. A second batch uses a separate order line.
-Tracked transformations remain blocked until the input-to-output lineage is
-specified. Serial-tracked job work remains blocked because receipt, scrap and
-rework do not yet account for each unit's identity.
+Serial issues select each unit explicitly. Receipts select disjoint issued
+identities for processed output, rejected output, unprocessed return and scrap;
+rejected units retained for rework stay at the vendor and can be settled later.
+The scalar quantities must agree with these named sets, including final loss.
+Serial processing uses whole units and a one-to-one input/output ratio.
+Each receipt accounts for at most 500 named units across all lines and
+dispositions, matching the shared serial registration transaction bound. Larger
+issued orders return through multiple partial receipts; this does not cap the
+total order quantity or non-serial bulk quantities.
+
+**Confirmed.** When serial-only processing changes the SKU, keep the same
+physical label. A new SKU-scoped serial row holds the output identity and an
+immutable, one-to-one conversion links it to the input. Both ledger histories
+remain unchanged and either identity's trace includes the conversion family.
+Reusing a converted identity, converting back into an already-received identity,
+and non-one-to-one or mixed tracking conversions are refused. Batch-tracked SKU
+transformations still require a batch lineage policy.
 
 **Why.** A batch is the identity of a lot, not of a particular warehouse
 position, so the lot can return to a different warehouse without losing its
-identity. A different SKU cannot inherit that identity without traceable
-lineage. Likewise, allowing serials without specifying which units were
-returned, scrapped or retained for rework would produce an incomplete ledger.
+identity. A SKU change must retain the old ledger's item facts while exposing
+the physical unit's continuity. Explicit receipt and QC dispositions prevent a
+unit from being received twice or releasing a different held unit.
 
 **Where:** `job_work_order_lines.is_batch_tracked` snapshots the item setting;
 `batch_id` is selected on order entry and passed to the allocation reservation,
-challan/receipt lines and inventory movements. See migration `20261025_0100`.
+challan/receipt lines and inventory movements. Serial tracking snapshots,
+per-disposition receipt arrays, `stock_serial_conversions`, and QC serial sets
+and decision history are added by migration `20261028_0100`. QC decisions name
+every inspected unit; accepted, rejected and scrapped units are final, while
+held and rework units can be decided in a later cycle.
 
 ## §E1b-1. Shortfall planning creates drafts, never commitments
 

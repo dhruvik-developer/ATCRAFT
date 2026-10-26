@@ -15,6 +15,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -22,7 +23,9 @@ import {
 import {
   ApiError,
   api,
+  beginAuthentication,
   clearTokens,
+  getAuthGeneration,
   hasRefreshToken,
   onAuthChange,
   setTokens,
@@ -141,6 +144,8 @@ interface BrowserLoginResponse {
     is_superuser: boolean
     must_change_password: boolean
     roles?: string[]
+    vendor_id?: string | null
+    customer_id?: string | null
   }
 }
 
@@ -159,6 +164,7 @@ interface AuthContextValue {
   isRestoring: boolean
   login: (email: string, password: string) => Promise<LoginOutcome>
   verifyMfa: (challengeToken: string, code: string) => Promise<CurrentUser>
+  cancelAuthentication: () => void
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   can: (permission: string) => boolean
@@ -170,10 +176,72 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+const LOGOUT_DEVICE_BUDGET_MS = 2_000
+const LOGOUT_API_BUDGET_MS = 5_000
+
+/** Bound even imports and providers that do not settle when their signal aborts. */
+async function withinLogoutBudget(
+  work: (signal: AbortSignal) => Promise<unknown>,
+  milliseconds: number,
+  parent: AbortSignal,
+): Promise<void> {
+  const controller = new AbortController()
+  let expire!: () => void
+  const expiry = new Promise<void>((resolve) => {
+    expire = () => {
+      controller.abort()
+      resolve()
+    }
+  })
+  parent.addEventListener('abort', expire, { once: true })
+  const timer = setTimeout(expire, milliseconds)
+  try {
+    if (parent.aborted) return
+    await Promise.race([work(controller.signal).catch(() => undefined), expiry])
+  } finally {
+    clearTimeout(timer)
+    parent.removeEventListener('abort', expire)
+    controller.abort()
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [isRestoring, setIsRestoring] = useState(hasRefreshToken())
   const queryClient = useQueryClient()
+  const pendingLogout = useRef<{
+    generation: number
+    controller: AbortController
+    promise: Promise<void>
+  } | null>(null)
+  const pendingAuthentication = useRef<AbortController | null>(null)
+
+  const beginLogin = useCallback(() => {
+    pendingAuthentication.current?.abort()
+    // Cookie changes happen before JavaScript receives a response. Stop the old
+    // logout request before a new login can install its refresh credential.
+    const leaving = pendingLogout.current
+    if (leaving?.generation === getAuthGeneration()) {
+      leaving.controller.abort()
+      // Cancelling revocation must not preserve the account the user left if
+      // replacement credentials are rejected. Cancel push before changing its generation.
+      clearTokens()
+      setUser(null)
+      queryClient.clear()
+    }
+    const controller = new AbortController()
+    pendingAuthentication.current = controller
+    return { generation: beginAuthentication(), controller }
+  }, [queryClient])
+
+  const cancelAuthentication = useCallback(() => {
+    if (!pendingAuthentication.current) return
+    pendingAuthentication.current.abort()
+    pendingAuthentication.current = null
+    // Backing out of MFA must also discard a credential whose profile request
+    // was still pending. Suppress restoration of any abandoned browser cookie.
+    clearTokens()
+  }, [])
 
   // Keep the crash reporter's user id in step with the session, whichever path
   // installed or cleared it (restore, login, the fallback below, refresh,
@@ -190,6 +258,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // transparent refresh inside the API client.
   useEffect(() => {
     let cancelled = false
+    const generation = getAuthGeneration()
 
     if (!hasRefreshToken()) {
       setIsRestoring(false)
@@ -199,7 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const me = await api.get<MeResponse>('/auth/me')
-        if (!cancelled) setUser(toCurrentUser(me))
+        if (!cancelled && generation === getAuthGeneration()) setUser(toCurrentUser(me))
       } catch (error) {
         // Only an authentication failure ends the session. A 5xx or a dropped
         // connection on the restore call says nothing about whether the refresh
@@ -208,7 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // and a refresh token that was perfectly valid. The client clears the
         // tokens itself when a refresh genuinely fails, and `onAuthChange`
         // below mirrors that into this state.
-        if (error instanceof ApiError && error.isAuthError) {
+        if (generation === getAuthGeneration() && error instanceof ApiError && error.isAuthError) {
           clearTokens()
           if (!cancelled) setUser(null)
         }
@@ -235,101 +304,167 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   )
 
-  const completeLogin = useCallback(async (result: BrowserLoginResponse): Promise<CurrentUser> => {
-    setTokens(result.access_token)
-    // The login payload has no permission set, so the signed-in user is read
-    // back from /auth/me. Without this every permission-gated control - the
-    // whole sidebar included - stays hidden until the next hard reload.
-    try {
-      const me = await api.get<MeResponse>('/auth/me')
-      const current = toCurrentUser(me)
-      setUser(current)
-      return current
-    } catch (error) {
-      // A 401 here is not a profile lookup that went wrong - it is a session
-      // that is already dead. `/auth/me` got a 401, the API client ran its one
-      // transparent refresh, that refresh failed, and it called `clearTokens`.
-      // Falling back to the login payload on top of that installs a user the
-      // context reports as authenticated while the client holds no token at
-      // all: the router lets them into the shell, every query 401s, and the
-      // only way out is to find the logout button. The failure has to be
-      // re-raised so the login form shows it and the user can try again.
-      //
-      if (error instanceof ApiError && error.isAuthError) {
-        clearTokens()
-        setUser(null)
-        throw error
-      }
+  const completeLogin = useCallback(
+    async (result: BrowserLoginResponse, signal: AbortSignal): Promise<CurrentUser> => {
+      signal.throwIfAborted()
+      setTokens(result.access_token)
+      const generation = getAuthGeneration()
+      queryClient.clear()
+      // The login payload has no permission set, so the signed-in user is read
+      // back from /auth/me. Without this every permission-gated control - the
+      // whole sidebar included - stays hidden until the next hard reload.
+      try {
+        const me = await api.get<MeResponse>('/auth/me', { signal })
+        signal.throwIfAborted()
+        if (generation !== getAuthGeneration())
+          throw new DOMException('The signed-in session changed.', 'AbortError')
+        const current = toCurrentUser(me)
+        setUser(current)
+        return current
+      } catch (error) {
+        if (signal.aborted || generation !== getAuthGeneration()) throw error
+        // A 401 here is not a profile lookup that went wrong - it is a session
+        // that is already dead. `/auth/me` got a 401, the API client ran its one
+        // transparent refresh, that refresh failed, and it called `clearTokens`.
+        // Falling back to the login payload on top of that installs a user the
+        // context reports as authenticated while the client holds no token at
+        // all: the router lets them into the shell, every query 401s, and the
+        // only way out is to find the logout button. The failure has to be
+        // re-raised so the login form shows it and the user can try again.
+        //
+        if (error instanceof ApiError && error.isAuthError) {
+          clearTokens()
+          setUser(null)
+          throw error
+        }
 
-      // Authenticated, tokens intact, but the profile could not be resolved -
-      // a 5xx or a dropped connection. Fall back to what the token response
-      // carried so the redirect below still knows whether the password must be
-      // changed. Affordances stay hidden until the next load, which is the safe
-      // direction to fail in.
-      const fallback: CurrentUser = {
-        id: result.user.id,
-        email: result.user.email,
-        full_name: result.user.full_name,
-        company_id: result.user.company_id,
-        is_superuser: result.user.is_superuser,
-        mfa_enabled: false,
-        permissions: [],
-        roles: result.user.roles ?? [],
-        vendor_id: null,
-        customer_id: null,
-        must_change_password: result.user.must_change_password,
-        branch_id: null,
-        plant_id: null,
-        department_id: null,
-        session_id: result.session_id,
-        last_login_at: null,
-        allowed_warehouse_ids: [],
-        allowed_category_ids: [],
+        // Authenticated, tokens intact, but the profile could not be resolved -
+        // a 5xx or a dropped connection. Fall back to what the token response
+        // carried so the redirect below still knows whether the password must be
+        // changed. Affordances stay hidden until the next load, which is the safe
+        // direction to fail in.
+        const fallback: CurrentUser = {
+          id: result.user.id,
+          email: result.user.email,
+          full_name: result.user.full_name,
+          company_id: result.user.company_id,
+          is_superuser: result.user.is_superuser,
+          mfa_enabled: false,
+          permissions: [],
+          roles: result.user.roles ?? [],
+          vendor_id: result.user.vendor_id ?? null,
+          customer_id: result.user.customer_id ?? null,
+          must_change_password: result.user.must_change_password,
+          branch_id: null,
+          plant_id: null,
+          department_id: null,
+          session_id: result.session_id,
+          last_login_at: null,
+          allowed_warehouse_ids: [],
+          allowed_category_ids: [],
+        }
+        setUser(fallback)
+        return fallback
       }
-      setUser(fallback)
-      return fallback
-    }
-  }, [])
+    },
+    [queryClient],
+  )
 
   const login = useCallback(
     async (email: string, password: string): Promise<LoginOutcome> => {
-      const result = await api.post<BrowserLoginResponse | MfaChallenge>(
-        '/auth/login',
-        { email, password },
-        { anonymous: true },
-      )
-      return result.mfa_required ? result : completeLogin(result)
+      const operation = beginLogin()
+      try {
+        const result = await api.post<BrowserLoginResponse | MfaChallenge>(
+          '/auth/login',
+          { email, password },
+          { anonymous: true, signal: operation.controller.signal },
+        )
+        operation.controller.signal.throwIfAborted()
+        if (operation.generation !== getAuthGeneration())
+          throw new DOMException('The signed-in session changed.', 'AbortError')
+        return result.mfa_required
+          ? result
+          : await completeLogin(result, operation.controller.signal)
+      } finally {
+        if (pendingAuthentication.current === operation.controller)
+          pendingAuthentication.current = null
+      }
     },
-    [completeLogin],
+    [beginLogin, completeLogin],
   )
 
   const verifyMfa = useCallback(
     async (challengeToken: string, code: string): Promise<CurrentUser> => {
-      const result = await api.post<BrowserLoginResponse>(
-        '/auth/mfa/verify',
-        { challenge_token: challengeToken, code },
-        { anonymous: true },
-      )
-      return completeLogin(result)
+      const operation = beginLogin()
+      try {
+        const result = await api.post<BrowserLoginResponse>(
+          '/auth/mfa/verify',
+          { challenge_token: challengeToken, code },
+          { anonymous: true, signal: operation.controller.signal },
+        )
+        operation.controller.signal.throwIfAborted()
+        if (operation.generation !== getAuthGeneration())
+          throw new DOMException('The signed-in session changed.', 'AbortError')
+        return await completeLogin(result, operation.controller.signal)
+      } finally {
+        if (pendingAuthentication.current === operation.controller)
+          pendingAuthentication.current = null
+      }
     },
-    [completeLogin],
+    [beginLogin, completeLogin],
   )
 
-  const logout = useCallback(async () => {
-    try {
-      await api.post('/auth/logout')
-    } catch {
-      // A failed logout call must still sign the user out locally - the session
-      // may already be revoked, which is exactly when logging out matters.
-    } finally {
-      clearTokens()
-      setUser(null)
-      queryClient.clear()
-    }
+  const logout = useCallback((): Promise<void> => {
+    pendingAuthentication.current?.abort()
+    pendingAuthentication.current = null
+    const generation = getAuthGeneration()
+    if (pendingLogout.current?.generation === generation) return pendingLogout.current.promise
+    const operation = { generation, controller: new AbortController(), promise: Promise.resolve() }
+    operation.promise = (async () => {
+      try {
+        await withinLogoutBudget(
+          async (signal) => {
+            const push = await import('@/features/notifications/push')
+            // A chunk may finish loading after its caller timed out or another user signed in.
+            if (signal.aborted || generation !== getAuthGeneration()) return
+            const cancel = () => {
+              if (generation === getAuthGeneration()) push.cancelPushSetup()
+            }
+            signal.addEventListener('abort', cancel, { once: true })
+            try {
+              await push.unregisterOnLogout()
+            } finally {
+              signal.removeEventListener('abort', cancel)
+            }
+          },
+          LOGOUT_DEVICE_BUDGET_MS,
+          operation.controller.signal,
+        )
+        if (!operation.controller.signal.aborted && generation === getAuthGeneration()) {
+          await withinLogoutBudget(
+            (signal) => api.post('/auth/logout', undefined, { signal }),
+            LOGOUT_API_BUDGET_MS,
+            operation.controller.signal,
+          )
+        }
+      } finally {
+        // An old logout cannot clear a newer account that signed in while it was waiting.
+        if (generation === getAuthGeneration()) {
+          clearTokens()
+          setUser(null)
+          queryClient.clear()
+        }
+        if (pendingLogout.current === operation) pendingLogout.current = null
+      }
+    })()
+    pendingLogout.current = operation
+    return operation.promise
   }, [queryClient])
 
   const refreshUser = useCallback(async () => {
+    const generation = getAuthGeneration()
     const me = await api.get<MeResponse>('/auth/me')
+    if (generation !== getAuthGeneration()) return
     setUser(toCurrentUser(me))
     await queryClient.invalidateQueries({ queryKey: queryKeys.auth.me })
   }, [queryClient])
@@ -348,6 +483,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isRestoring,
       login,
       verifyMfa,
+      cancelAuthentication,
       logout,
       refreshUser,
       can,
@@ -356,7 +492,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isVendorUser: Boolean(user?.vendor_id),
       isDealerUser: Boolean(user?.customer_id),
     }),
-    [user, isRestoring, login, verifyMfa, logout, refreshUser, can],
+    [user, isRestoring, login, verifyMfa, cancelAuthentication, logout, refreshUser, can],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -210,6 +210,22 @@ async def mark_ready(
 
 
 @router.get(
+    "/shipments",
+    response_model=PaginatedResponse[InboundShipmentRead],
+    summary="Consignments across the vendor's visible purchase orders",
+    dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
+)
+async def all_shipments(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    status: Literal["all", "in_transit", "delivered"] = "all",
+) -> PaginatedResponse[InboundShipmentRead]:
+    rows, page = await VendorPortalService(session, tenant).shipments(params, status)
+    return PaginatedResponse(data=rows, pagination=page)
+
+
+@router.get(
     "/purchase-orders/{order_id}/shipments",
     response_model=PaginatedResponse[InboundShipmentRead],
     summary="The order's consignments, newest first",
@@ -354,9 +370,14 @@ async def download_document(
     dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
 )
 async def list_receipts(
-    session: DbSession, tenant: Tenant, params: PageDep
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    rejected_only: bool = False,
 ) -> PaginatedResponse[VendorPortalReceiptRead]:
-    rows, page = await VendorPortalService(session, tenant).receipts(params)
+    rows, page = await VendorPortalService(session, tenant).receipts(
+        params, rejected_only=rejected_only
+    )
     return PaginatedResponse(data=rows, pagination=page)
 
 
@@ -380,9 +401,14 @@ async def list_order_receipts(
     dependencies=[require_permission(Permission.VENDOR_PORTAL_INVOICE)],
 )
 async def list_invoices(
-    session: DbSession, tenant: Tenant, params: PageDep
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    unpaid_only: bool = False,
 ) -> PaginatedResponse[VendorPortalInvoiceSummary]:
-    rows, page = await VendorPortalService(session, tenant).invoices(params)
+    rows, page = await VendorPortalService(session, tenant).invoices(
+        params, unpaid_only=unpaid_only
+    )
     return PaginatedResponse(data=rows, pagination=page)
 
 

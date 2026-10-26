@@ -145,6 +145,47 @@ describe('batch tracking', () => {
 })
 
 describe('serial tracking', () => {
+  it('traces the original and processed product identities while preserving the physical label', async () => {
+    const original = serial()
+    const convertedId = 'se000000-0000-7000-8000-000000000002'
+    const conversion = {
+      id: 'conversion-1',
+      source_serial_id: original.id,
+      output_serial_id: convertedId,
+      job_work_receipt_line_id: 'receipt-line-1',
+      created_at: '2026-10-20T09:00:00Z',
+    }
+    const { user, fetch } = renderScreen(<TrackingPage />, {
+      route: '/inventory/tracking?tab=serials',
+      permissions: [P.INVENTORY_VIEW],
+      routes: {
+        [SERIALS]: page([original]),
+        [`GET /inventory/serials/${original.id}`]: ok({
+          serial: original,
+          movements: [],
+          conversions: [conversion],
+        }),
+        [`GET /inventory/serials/${convertedId}`]: ok({
+          serial: { ...original, id: convertedId, item_name: 'Coated finished product' },
+          movements: [],
+          conversions: [conversion],
+        }),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: /trace serial SN-0001/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('Product conversion history')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Trace original product' })).toBeDisabled()
+    expect(fetch.calls.some((call) => call.path.endsWith(convertedId))).toBe(false)
+    await user.click(within(dialog).getByRole('button', { name: 'Trace processed product' }))
+    expect(await within(dialog).findByText(/Coated finished product/)).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Trace processed product' })).toBeDisabled()
+    expect(within(dialog).getByText('SN-0001')).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Trace original product' }))
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { name: 'Trace original product' })).toBeDisabled(),
+    )
+  })
   it('loads the unit history only when a serial is traced', async () => {
     const { user, fetch } = renderScreen(<TrackingPage />, {
       route: '/inventory/tracking?tab=serials',

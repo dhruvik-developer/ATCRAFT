@@ -124,3 +124,6 @@ export const ERROR_REPORT_MAX_PER_SESSION = 20
 
 /** The same error, seen again within this window, is not reported twice. */
 export const ERROR_REPORT_DEDUPE_WINDOW_MS = 60_000
+
+/** The worker handles push only; authenticated API responses are never cached. */
+export const SERVICE_WORKER_URL = '/sw.js'

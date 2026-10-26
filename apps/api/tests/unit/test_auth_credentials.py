@@ -18,16 +18,46 @@ from src.core.security import (
     hash_secret_token,
     verify_password,
 )
+from src.modules.auth.schemas import BrowserLoginResponse
 from src.modules.auth.service import (
     _TIMING_EQUALISER_HASH,
     FAILURE_AMBIGUOUS_EMAIL,
     FAILURE_UNKNOWN_EMAIL,
+    _authenticated_user,
     _email_domain,
     _resolve_account,
     _session_id_from_refresh,
 )
+from src.modules.users.models import User
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize("audience", ["staff", "vendor", "dealer"])
+def test_thin_browser_login_keeps_portal_binding_without_permissions(audience):
+    vendor_id = uuid.uuid4() if audience == "vendor" else None
+    customer_id = uuid.uuid4() if audience == "dealer" else None
+    account = User(
+        id=uuid.uuid4(),
+        company_id=uuid.uuid4(),
+        email="portal@example.com",
+        full_name="Portal user",
+        is_superuser=False,
+        must_change_password=False,
+        vendor_id=vendor_id,
+        customer_id=customer_id,
+        roles=[],
+    )
+    response = BrowserLoginResponse(
+        access_token="test-access",
+        expires_in=300,
+        refresh_expires_in=3600,
+        session_id="test-session",
+        user=_authenticated_user(account),
+    )
+    assert response.user.vendor_id == vendor_id
+    assert response.user.customer_id == customer_id
+    assert "permissions" not in response.user.model_dump()
 
 
 @dataclass

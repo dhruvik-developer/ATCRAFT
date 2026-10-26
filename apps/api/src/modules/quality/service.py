@@ -84,7 +84,7 @@ taken, named, and is changeable in one place.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
@@ -103,6 +103,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
+from src.core.ids import new_id
 from src.core.logging import get_logger
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -144,6 +145,7 @@ from src.modules.quality.repository import (
     QcTemplateParameterRepository,
     QcTemplateRepository,
     QualityTotals,
+    SerialLabelRepository,
     WarehouseLookupRepository,
     decided_inspection_companies,
 )
@@ -177,6 +179,11 @@ from src.modules.quality.schemas import (
     TemplateVersionRequest,
     VendorQualityItemRow,
     VendorQualitySummary,
+)
+from src.modules.quality.serial_tracking import (
+    post_serial_decision,
+    prepare_serial_inspection,
+    validate_serial_decision,
 )
 
 log = get_logger(__name__)
@@ -285,6 +292,8 @@ _TEMPLATE_AUDITED_FIELDS = [
 ]
 
 _INSPECTION_AUDITED_FIELDS = [
+    "serial_ids",
+    "serial_dispositions",
     "status",
     "result",
     "accepted_quantity",
@@ -364,6 +373,12 @@ QC_INSPECTION_LIFECYCLE: StateMachine[InspectionStatus] = StateMachine(
             permission=Permission.QC_INSPECT,
             label="Start inspection",
         ),
+        Transition(
+            InspectionStatus.PENDING,
+            InspectionStatus.WITHDRAWN,
+            permission=Permission.PACKING_MANAGE,
+            label="Withdraw with cancelled packing order",
+        ),
         # A finished rework cycle hands the lot back to QC: the bench has done
         # what it was asked to do, and the held quantity is owed a fresh
         # verdict. Completing the cycle moves REWORK -> IN_PROGRESS with the
@@ -379,7 +394,7 @@ QC_INSPECTION_LIFECYCLE: StateMachine[InspectionStatus] = StateMachine(
         ),
         *_decision_transitions(),
     ),
-    terminal=frozenset({InspectionStatus.CLOSED}),
+    terminal=frozenset({InspectionStatus.CLOSED, InspectionStatus.WITHDRAWN}),
 )
 
 
@@ -854,6 +869,7 @@ async def _transition(
     repo: QcInspectionRepository,
     action: AuditAction = AuditAction.STATUS_CHANGE,
     result: InspectionResult | None = None,
+    flush: bool = True,
 ) -> QcInspection:
     """Move an inspection's status and record it.
 
@@ -874,7 +890,8 @@ async def _transition(
     if result is not None:
         inspection.result = result
     repo.touch(inspection)
-    await session.flush()
+    if flush:
+        await session.flush()
 
     await record_status_change(
         session,
@@ -887,6 +904,7 @@ async def _transition(
         user_id=tenant.user_id,
         action=action,
         reason=reason,
+        flush=flush,
     )
     return inspection
 
@@ -906,12 +924,14 @@ def inspection_detail(
     *,
     decisions: Sequence[QcInspectionDecision] = (),
     rework_records: Sequence[QcReworkRecord] = (),
+    serial_labels: Mapping[uuid.UUID, str] | None = None,
 ) -> InspectionDetail:
     detail = InspectionDetail.model_validate(inspection)
     detail.parameters = [TemplateParameterRead.model_validate(row) for row in parameters]
     detail.results = [InspectionResultRead.model_validate(row) for row in results]
     detail.decisions = [DecisionHistoryRead.model_validate(row) for row in decisions]
     detail.rework_records = [ReworkRecordRead.model_validate(row) for row in rework_records]
+    detail.serial_labels = dict(serial_labels or {})
     return detail
 
 
@@ -1426,6 +1446,7 @@ async def _raise_inspection(
     remarks: str | None,
     hold_stock: bool,
     reason: str,
+    serial_ids: Sequence[uuid.UUID] | None = None,
 ) -> QcInspection:
     """The one code path that creates an inspection.
 
@@ -1453,12 +1474,32 @@ async def _raise_inspection(
         )
 
         code = await next_document_number(session, tenant.company_id, DocTypes.QC_INSPECTION)
+        inspection_id = new_id()
+        inspected_serials = list(serial_ids or [])
+        if item.is_serial_tracked:
+            await prepare_serial_inspection(
+                session,
+                tenant,
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                batch_id=batch_id,
+                quantity=quantity,
+                serial_ids=inspected_serials,
+                hold_stock=hold_stock,
+                reason=reason,
+                inspection_id=inspection_id,
+                inspection_code=code,
+            )
+        elif inspected_serials:
+            raise BusinessRuleError("Remove serial selections from a non-serial inspection.")
         inspection = QcInspection(
+            id=inspection_id,
             code=code,
             qc_stage=stage,
             item_id=item_id,
             warehouse_id=warehouse_id,
             batch_id=batch_id,
+            serial_ids=inspected_serials,
             template_id=None if template is None else template.id,
             template_version=None if template is None else template.version,
             vendor_id=vendor_id,
@@ -1474,7 +1515,7 @@ async def _raise_inspection(
         repo.add(inspection)
         await session.flush()
 
-        if hold_stock:
+        if hold_stock and not inspected_serials:
             # Only the manual path asks for this. An inspection raised by a
             # receipt is inspecting stock that receipt already moved to QC_HOLD,
             # and holding it again would take the quantity out of availability a
@@ -1546,6 +1587,7 @@ async def create_incoming_inspection(
     reference_code: str,
     vendor_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    serial_ids: Sequence[uuid.UUID] | None = None,
 ) -> QcInspection:
     """Raise an incoming inspection for goods a receipt has put on QC hold.
 
@@ -1570,6 +1612,7 @@ async def create_incoming_inspection(
         remarks=None,
         hold_stock=False,
         reason=f"Incoming inspection raised by {reference_code}",
+        serial_ids=serial_ids,
     )
 
 
@@ -1585,6 +1628,7 @@ async def create_in_process_inspection(
     reference_code: str,
     vendor_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    serial_ids: Sequence[uuid.UUID] | None = None,
 ) -> QcInspection:
     """Raise an inspection for output a production step has put on QC hold.
 
@@ -1611,6 +1655,7 @@ async def create_in_process_inspection(
         remarks=None,
         hold_stock=False,
         reason=f"In-process inspection raised by {reference_code}",
+        serial_ids=serial_ids,
     )
 
 
@@ -1626,6 +1671,7 @@ async def create_final_inspection(
     reference_code: str,
     vendor_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    serial_ids: Sequence[uuid.UUID] | None = None,
 ) -> QcInspection:
     """Raise a FINAL inspection for finished goods about to be packed.
 
@@ -1651,6 +1697,7 @@ async def create_final_inspection(
         remarks=None,
         hold_stock=False,
         reason=f"Final inspection raised by {reference_code}",
+        serial_ids=serial_ids,
     )
 
 
@@ -1674,6 +1721,7 @@ async def create_inspection(
         remarks=payload.remarks,
         hold_stock=payload.hold_stock,
         reason=payload.reason,
+        serial_ids=payload.serial_ids,
     )
 
 
@@ -1806,7 +1854,12 @@ async def record_results(
 
     return RecordResultsResponse(
         inspection=inspection_detail(
-            inspection, parameters, results, decisions=decisions, rework_records=rework_records
+            inspection,
+            parameters,
+            results,
+            decisions=decisions,
+            rework_records=rework_records,
+            serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
         ),
         evaluation=evaluation_read(evaluation),
     )
@@ -1903,6 +1956,7 @@ async def decide_inspection(
             )
 
         requested = Disposition.from_request(payload)
+        serial_dispositions = validate_serial_decision(inspection, payload)
         validate_disposition(Decimal(inspection.inspected_quantity), requested)
         assert_critical_override(evaluation, requested)
 
@@ -1926,8 +1980,19 @@ async def decide_inspection(
         # floor last night is not the time it was keyed in this morning, and the
         # stock event has to carry the same instant as the verdict that caused it.
         decided_at = payload.inspected_at or utcnow()
-        moved = await _post_decision_movements(
-            session, tenant, inspection, delta, reason=payload.reason, occurred_at=decided_at
+        moved = (
+            await post_serial_decision(
+                session,
+                tenant,
+                inspection,
+                serial_dispositions,
+                reason=payload.reason,
+                occurred_at=decided_at,
+            )
+            if inspection.serial_ids
+            else await _post_decision_movements(
+                session, tenant, inspection, delta, reason=payload.reason, occurred_at=decided_at
+            )
         )
 
         inspection.accepted_quantity = requested.accepted
@@ -1935,6 +2000,7 @@ async def decide_inspection(
         inspection.rework_quantity = requested.rework
         inspection.hold_quantity = requested.hold
         inspection.scrap_quantity = requested.scrap
+        inspection.serial_dispositions = serial_dispositions
         inspection.rejection_reason = payload.rejection_reason or inspection.rejection_reason
         if payload.remarks is not None:
             inspection.remarks = payload.remarks
@@ -2006,6 +2072,7 @@ async def decide_inspection(
                 rework_quantity=requested.rework,
                 hold_quantity=requested.hold,
                 scrap_quantity=requested.scrap,
+                serial_dispositions=serial_dispositions,
                 reason=payload.reason,
                 rejection_reason=payload.rejection_reason or inspection.rejection_reason,
                 inspected_at=decided_at,
@@ -2033,7 +2100,12 @@ async def decide_inspection(
 
     return DecisionResponse(
         inspection=inspection_detail(
-            inspection, parameters, results, decisions=decisions, rework_records=rework_records
+            inspection,
+            parameters,
+            results,
+            decisions=decisions,
+            rework_records=rework_records,
+            serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
         ),
         evaluation=evaluation_read(evaluation),
         released_quantity=moved[StockState.AVAILABLE],
@@ -2549,7 +2621,12 @@ async def get_inspection_detail(
     )
     rework_records = await QcReworkRepository(session, tenant).list_for_inspection(inspection.id)
     return inspection_detail(
-        inspection, parameters, results, decisions=decisions, rework_records=rework_records
+        inspection,
+        parameters,
+        results,
+        decisions=decisions,
+        rework_records=rework_records,
+        serial_labels=await SerialLabelRepository(session, tenant).for_inspection(inspection),
     )
 
 

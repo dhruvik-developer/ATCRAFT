@@ -36,6 +36,7 @@ from src.modules.products.models import Item
 from src.modules.quality.models import InspectionResult, QcInspection, QcStage
 from src.modules.quality.schemas import InspectionCreate
 from src.modules.quality.service import create_inspection
+from src.modules.sales_returns.crediting import accepted_return_quantity
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
 from src.modules.sales_returns.repository import SalesReturnRepository
 from src.modules.sales_returns.schemas import (
@@ -527,7 +528,6 @@ async def transition_return(
                         ),
                     )
                     line.qc_inspection_id = inspection.id
-            await _issue_return_credit_note(session, tenant, row.id, lines)
         previous_status = row.status
         row.status = target
         row.updated_by_id = tenant.user_id
@@ -548,6 +548,9 @@ async def transition_return(
             reason=reason,
         )
         await session.flush()
+        if target == SalesReturnStatus.RECEIVED:
+            await _issue_return_credit_note(session, tenant, row.id, lines)
+            await session.flush()
     return await get_return(session, tenant, row.id)
 
 
@@ -829,16 +832,17 @@ async def _issue_return_credit_note(
         SalesInvoiceLine,
     )
 
+    # QC and serial disposition update their rows before this owner callback.
+    # Flush that accepted evidence before finance re-locks and validates it.
+    await session.flush()
     dispatch_line_ids = [line.dispatch_line_id for line in lines]
     invoice_lines = list(
         (
             await session.execute(
-                select(SalesInvoiceLine)
-                .where(
+                select(SalesInvoiceLine).where(
                     SalesInvoiceLine.company_id == tenant.company_id,
                     SalesInvoiceLine.dispatch_line_id.in_(dispatch_line_ids),
                 )
-                .with_for_update()
             )
         )
         .scalars()
@@ -879,22 +883,16 @@ async def _issue_return_credit_note(
         ).scalars()
         inspections_by_id = {inspection.id: inspection for inspection in inspections}
     credit_lines = []
-    eligible_by_return_line: dict[uuid.UUID, Decimal] = {}
     for return_line in lines:
         invoice_line = by_dispatch_line.get(return_line.dispatch_line_id)
         if invoice_line is None:
             continue
-        if return_line.serial_ids:
-            eligible_quantity = Decimal(len(return_line.accepted_serial_ids))
-        elif return_line.qc_inspection_id is not None:
-            inspection = inspections_by_id.get(return_line.qc_inspection_id)
-            if inspection is None:
-                raise NotFoundError("QC inspection", return_line.qc_inspection_id)
-            eligible_quantity = Decimal(inspection.accepted_quantity)
-        elif return_line.requires_qc:
-            eligible_quantity = ZERO
-        else:
-            eligible_quantity = Decimal(return_line.quantity)
+        eligible_quantity = accepted_return_quantity(
+            return_line,
+            inspections_by_id.get(return_line.qc_inspection_id)
+            if return_line.qc_inspection_id is not None
+            else None,
+        )
         if eligible_quantity <= ZERO:
             continue
         eligible_quantity -= credited_by_invoice_line.get(invoice_line.id, ZERO)
@@ -905,9 +903,6 @@ async def _issue_return_credit_note(
                 sales_invoice_line_id=invoice_line.id,
                 quantity=to_quantity(eligible_quantity),
             )
-        )
-        eligible_by_return_line[return_line.id] = (
-            Decimal(return_line.credited_quantity) + eligible_quantity
         )
     if not credit_lines:
         return
@@ -927,9 +922,6 @@ async def _issue_return_credit_note(
             lines=credit_lines,
         ),
     )
-    for return_line in lines:
-        if return_line.id in eligible_by_return_line:
-            return_line.credited_quantity = eligible_by_return_line[return_line.id]
 
 
 async def awaiting_quality_verdicts(

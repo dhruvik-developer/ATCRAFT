@@ -41,7 +41,13 @@ from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import Customer
-from src.modules.inventory.models import InventoryBalance, SerialStatus, StockBatch, StockSerial
+from src.modules.inventory.models import (
+    InventoryBalance,
+    InventoryTransaction,
+    SerialStatus,
+    StockBatch,
+    StockSerial,
+)
 from src.modules.packing.models import (
     OPEN_STATUSES,
     Carton,
@@ -117,6 +123,7 @@ class SerialFacts:
     serial_number: str
     warehouse_id: uuid.UUID | None
     status: SerialStatus
+    batch_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +133,20 @@ class BatchFacts:
     id: uuid.UUID
     item_id: uuid.UUID
     batch_number: str
+
+
+@dataclass(frozen=True, slots=True)
+class MaterialIssueFacts:
+    item_id: uuid.UUID
+    warehouse_id: uuid.UUID
+    location_id: uuid.UUID | None
+    batch_id: uuid.UUID | None
+    serial_id: uuid.UUID | None
+    quantity: Decimal
+    unit_cost: Decimal
+    transaction_type: str
+    reference_type: str | None
+    reference_id: uuid.UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,15 +392,21 @@ class SerialLookupRepository(BaseRepository[StockSerial]):
     async def load(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, SerialFacts]:
         if not serial_ids:
             return {}
-        stmt = select(
-            StockSerial.id,
-            StockSerial.item_id,
-            StockSerial.serial_number,
-            StockSerial.warehouse_id,
-            StockSerial.status,
-        ).where(
-            StockSerial.company_id == self.tenant.company_id,
-            StockSerial.id.in_(list(dict.fromkeys(serial_ids))),
+        stmt = (
+            select(
+                StockSerial.id,
+                StockSerial.item_id,
+                StockSerial.serial_number,
+                StockSerial.warehouse_id,
+                StockSerial.status,
+                StockSerial.batch_id,
+            )
+            .where(
+                StockSerial.company_id == self.tenant.company_id,
+                StockSerial.id.in_(list(dict.fromkeys(serial_ids))),
+            )
+            .order_by(StockSerial.id)
+            .with_for_update(of=StockSerial)
         )
         return {
             row.id: SerialFacts(
@@ -388,6 +415,7 @@ class SerialLookupRepository(BaseRepository[StockSerial]):
                 serial_number=row.serial_number,
                 warehouse_id=row.warehouse_id,
                 status=SerialStatus(row.status),
+                batch_id=row.batch_id,
             )
             for row in (await self.session.execute(stmt)).all()
         }
@@ -485,6 +513,26 @@ class PackingOrderLineRepository(BaseRepository[PackingOrderLine]):
 
 class CartonContentRepository(BaseRepository[CartonContent]):
     model = CartonContent
+
+    async def list_for_order(
+        self, order_id: uuid.UUID, *, sealed_only: bool = False
+    ) -> list[CartonContent]:
+        """Read all contents for a packing gate without one query per carton."""
+        stmt = (
+            self._scoped()
+            .join(
+                Carton,
+                and_(
+                    Carton.id == CartonContent.carton_id,
+                    Carton.company_id == CartonContent.company_id,
+                ),
+            )
+            .where(Carton.packing_order_id == order_id)
+            .order_by(CartonContent.carton_id, CartonContent.id)
+        )
+        if sealed_only:
+            stmt = stmt.where(Carton.is_sealed.is_(True))
+        return list((await self.session.execute(stmt)).scalars().all())
 
     async def list_for_carton(self, carton_id: uuid.UUID) -> list[CartonContent]:
         stmt = (
@@ -586,6 +634,28 @@ class CartonContentRepository(BaseRepository[CartonContent]):
 
 class CartonRepository(BaseRepository[Carton]):
     model = Carton
+
+    async def material_issue(self, transaction_id: uuid.UUID) -> MaterialIssueFacts | None:
+        """Immutable posting facts used to return the original material at its cost."""
+        ledger = InventoryTransaction
+        row = (
+            await self.session.execute(
+                select(
+                    ledger.item_id,
+                    ledger.warehouse_id,
+                    ledger.location_id,
+                    ledger.batch_id,
+                    ledger.serial_id,
+                    ledger.quantity,
+                    ledger.unit_cost,
+                    ledger.transaction_type,
+                    ledger.reference_type,
+                    ledger.reference_id,
+                ).where(ledger.company_id == self.tenant.company_id, ledger.id == transaction_id)
+            )
+        ).one_or_none()
+        return MaterialIssueFacts(*row) if row is not None else None
+
     searchable_fields = ("barcode",)
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "carton_number": Carton.carton_number,

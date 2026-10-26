@@ -102,16 +102,7 @@ export interface PackingOrderRow {
 }
 
 /** One line of `GET /packing/{id}` (`PackingOrderLineRead`). */
-export interface PackingOrderLine {
-  id: string
-  packing_order_id: string
-  line_number: number
-  sales_order_line_id: string | null
-  item_id: string
-  quantity_to_pack: DecimalString
-  packed_quantity: DecimalString
-  uom_id: string
-}
+export type PackingOrderLine = SchemaOf<'PackingOrderLineRead'>
 
 /** `GET /packing/{id}` (`PackingOrderDetail`). Cartons are read separately. */
 export interface PackingOrderDetail extends PackingOrderRow {

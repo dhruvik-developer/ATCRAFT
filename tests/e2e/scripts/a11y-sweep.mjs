@@ -26,63 +26,16 @@ import AxeBuilder from '@axe-core/playwright'
 import { chromium } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-import { BASE_URL as BASE } from '../lib/env.mjs'
-import { createNavigator, errorToastFailures } from '../lib/navigation.mjs'
+import { API_URL, BASE_URL as BASE } from '../lib/env.mjs'
+import { accountForAudience, routeAudience } from '../lib/audiences.mjs'
+import { createNavigator, errorToastFailures, protectReadOnlyContext } from '../lib/navigation.mjs'
+import { assertPortalData, ensurePortalAccounts } from '../lib/portal-fixtures.mjs'
 import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
+import { registeredScreens, staticScreenRoutes } from '../lib/screen-registry.mjs'
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 
-const ROUTES = [
-  '/',
-  '/items',
-  '/warehouses',
-  '/warehouses/locations',
-  '/masters',
-  '/inventory',
-  '/inventory/ledger',
-  '/inventory/reservations',
-  '/inventory/movements',
-  '/inventory/tracking',
-  '/bom',
-  '/routing',
-  '/sales-orders',
-  '/customers',
-  '/dealers',
-  '/mrp',
-  '/procurement/requisitions',
-  '/procurement/purchase-orders',
-  '/procurement/goods-receipts',
-  '/procurement/rfqs',
-  '/procurement/quotations',
-  '/procurement/purchase-returns',
-  '/vendors',
-  '/transporters',
-  '/production',
-  '/production/work-orders',
-  '/production/planning',
-  '/production/shift-roster',
-  '/assembly',
-  '/job-work',
-  '/quality',
-  '/quality/templates',
-  '/packing',
-  '/dispatch',
-  '/finance',
-  '/finance/sales-invoices',
-  '/finance/vendor-invoices',
-  '/finance/payments',
-  '/finance/accounts',
-  '/finance/credit-notes',
-  '/sales-returns',
-  '/documents',
-  '/reports',
-  '/audit',
-  '/admin/users',
-  '/admin/organisation',
-  '/admin/settings',
-  '/notifications',
-  '/profile',
-]
+const ROUTES = staticScreenRoutes(registeredScreens)
 const routeFilters = process.env.A11Y_ROUTES?.split(',').filter(Boolean) ?? []
 const routes = routeFilters.length ? ROUTES.filter((route) => routeFilters.includes(route)) : ROUTES
 if (!routes.length) throw new Error('No screens match A11Y_ROUTES.')
@@ -93,9 +46,12 @@ const browser = await chromium.launch()
 const context = await browser.newContext({
   viewport: { width: 1440, height: 900 },
   colorScheme,
+  serviceWorkers: 'block',
 })
-const page = await context.newPage()
-const { navigate, settle } = createNavigator(page)
+let blockedWrites = await protectReadOnlyContext(context, API_URL, BASE)
+const allBlockedWrites = [blockedWrites]
+let page = await context.newPage()
+let { navigate, settle } = createNavigator(page)
 const results = []
 
 try {
@@ -112,11 +68,36 @@ try {
   // The seeded administrator is forced through a password change before it can
   // reach any screen; `readyAdminToken` completes that through the API on a
   // fresh database, and is one successful login otherwise.
-  await readyAdminToken()
+  const token = await readyAdminToken()
+  const portalAudiences = [...new Set(routes.map(routeAudience))].filter(
+    (audience) => audience !== 'staff',
+  )
+  if (portalAudiences.length) await ensurePortalAccounts(token, process.env, portalAudiences)
   await signInThroughForm(page)
   await settle()
+  const sessions = new Map([['staff', { page, navigate, settle, blockedWrites }]])
 
   for (const route of routes) {
+    const audience = routeAudience(route)
+    if (!sessions.has(audience)) {
+      const roleContext = await browser.newContext({
+        viewport: { width: 1440, height: 900 },
+        colorScheme,
+        serviceWorkers: 'block',
+      })
+      const roleBlockedWrites = await protectReadOnlyContext(roleContext, API_URL, BASE)
+      allBlockedWrites.push(roleBlockedWrites)
+      const rolePage = await roleContext.newPage()
+      const navigation = createNavigator(rolePage)
+      const account = accountForAudience(audience)
+      const portalToken = await readyAdminToken(account)
+      await assertPortalData(audience, portalToken)
+      await signInThroughForm(rolePage, account)
+      await navigation.settle()
+      sessions.set(audience, { page: rolePage, ...navigation, blockedWrites: roleBlockedWrites })
+    }
+    ;({ page, navigate, settle, blockedWrites } = sessions.get(audience))
+    const writeStart = blockedWrites.length
     const failures = []
     const onPageError = (error) => failures.push(`render: ${error.message}`)
     const onResponse = (response) => {
@@ -139,6 +120,7 @@ try {
       // Keep the in-memory session and wait for the actual route, not a clean
       // sign-in/error screen reached while a refresh or a request is failing.
       await navigate(route)
+      if (new URL(page.url()).pathname !== route.split('?')[0]) failures.push('unexpected-route')
       if (
         await page
           .getByRole('heading', {
@@ -153,6 +135,7 @@ try {
     } catch (error) {
       failures.push(String(error))
     } finally {
+      failures.push(...blockedWrites.slice(writeStart))
       page.off('pageerror', onPageError)
       page.off('response', onResponse)
       page.off('requestfailed', onRequestFailure)
@@ -205,7 +188,11 @@ const rules = [...byRule.values()]
 
 writeFileSync(
   process.env.SWEEP_OUT ?? 'a11y-sweep.json',
-  JSON.stringify({ colorScheme, screens: results, rules }, null, 2),
+  JSON.stringify(
+    { colorScheme, screens: results, rules, blockedWrites: allBlockedWrites.flat() },
+    null,
+    2,
+  ),
   'utf-8',
 )
 
@@ -224,4 +211,4 @@ console.log(
   `\n${results.length} screens | ${rules.length} distinct rules | ` +
     `${blocking.length} serious or critical | ${failedScreens.length} screens failed to render`,
 )
-if (blocking.length || failedScreens.length) process.exitCode = 1
+if (blocking.length || failedScreens.length || allBlockedWrites.flat().length) process.exitCode = 1

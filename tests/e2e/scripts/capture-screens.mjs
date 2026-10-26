@@ -14,9 +14,18 @@ import { fileURLToPath } from 'node:url'
 import { chromium } from '@playwright/test'
 
 import { API_URL, BASE_URL } from '../lib/env.mjs'
+import { accountForAudience, routeAudience } from '../lib/audiences.mjs'
 import { handbookRouteShape, resolveHandbookDetailRoute } from '../lib/handbook.mjs'
-import { createNavigator, errorToastFailures } from '../lib/navigation.mjs'
+import {
+  allowsReadOnlyRequest,
+  createNavigator,
+  errorToastFailures,
+  protectReadOnlyContext,
+  SESSION_ACTIONS,
+} from '../lib/navigation.mjs'
 import { signInThroughForm } from '../lib/session.mjs'
+import { assertPortalData } from '../lib/portal-fixtures.mjs'
+import { registeredScreens } from '../lib/screen-registry.mjs'
 
 const HANDBOOK = fileURLToPath(new URL('../../../docs/handbook/', import.meta.url))
 const OUT = path.join(HANDBOOK, 'screens')
@@ -34,14 +43,17 @@ const DETAIL_LISTS = {
   '/procurement/rfqs/:id': ['/procurement/rfqs', '/procurement/rfqs/'],
   '/production/:id': ['/production', '/production/'],
   '/job-work/:id': ['/job-work', '/job-work/'],
+  '/vendor/orders/:id': ['/vendor/orders', '/vendor/orders/'],
+  '/vendor/invoices/:id': ['/vendor/invoices', '/vendor/invoices/'],
+  '/dealer/catalog/:id': ['/dealer/catalog', '/dealer/catalog/'],
+  '/dealer/orders/:id': ['/dealer/orders', '/dealer/orders/'],
+  '/dealer/invoices/:id': ['/dealer/invoices', '/dealer/invoices/'],
 }
 const API_PATH = new URL(API_URL).pathname.replace(/\/$/, '')
-const SESSION_ACTIONS = ['login', 'refresh', 'logout']
 const authPath = (action) => `${API_PATH}/auth/${action}`
 const canonical = (route) => handbookRouteShape(route.split('?')[0])
 const allowsRequest = (method, pathname, apiPath = API_PATH) =>
-  ['GET', 'HEAD', 'OPTIONS'].includes(method) ||
-  (method === 'POST' && SESSION_ACTIONS.some((action) => pathname === `${apiPath}/auth/${action}`))
+  allowsReadOnlyRequest(method, new URL(pathname, API_URL).href, new URL(apiPath, API_URL).href)
 
 const content = JSON.parse(await readFile(path.join(HANDBOOK, 'content.json'), 'utf8'))
 const screens = content.chapters
@@ -54,12 +66,7 @@ const screens = content.chapters
         ? '00-login.png'
         : `screen-${String(index + 1).padStart(3, '0')}-${screen.route.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'dashboard'}.png`,
   }))
-const registry = await readFile(
-  new URL('../../../apps/web/src/app/route-loaders.ts', import.meta.url),
-  'utf8',
-)
-const registered = [...registry.matchAll(/^\s*'([^']+)':\s*\(\)\s*=>/gm)].map((match) => match[1])
-if (!registered.length) throw new Error('No routes found in the application registry.')
+const registered = registeredScreens
 const described = new Set(screens.map((screen) => canonical(screen.route)))
 for (const route of [...registered, ...PUBLIC]) {
   if (!described.has(canonical(route))) throw new Error(`Handbook is missing ${route}`)
@@ -116,6 +123,7 @@ if (process.argv.includes('--check')) {
   const browser = await chromium.launch()
   const captured = []
   const skipped = []
+  const allBlockedWrites = []
   const resolved = new Map()
   const hashes = new Map()
   let context
@@ -124,16 +132,12 @@ if (process.argv.includes('--check')) {
     const next = await browser.newContext({
       viewport: VIEWPORT,
       deviceScaleFactor: 2,
+      serviceWorkers: 'block',
     })
     // Authentication sessions may be created/refreshed. Everything else is read-only,
     // including password changes, marking notifications read and document submission.
-    await next.route('**/*', async (route) => {
-      const request = route.request()
-      if (!allowsRequest(request.method(), new URL(request.url()).pathname)) {
-        skipped.push(`Blocked write: ${request.method()} ${new URL(request.url()).pathname}`)
-        await route.abort('blockedbyclient')
-      } else await route.continue()
-    })
+    const blockedWrites = await protectReadOnlyContext(next, API_URL, BASE_URL)
+    allBlockedWrites.push(blockedWrites)
     return next
   }
 
@@ -181,8 +185,8 @@ if (process.argv.includes('--check')) {
     }
 
     context = await protectedContext()
-    const page = await context.newPage()
-    const { navigate, settle } = createNavigator(page)
+    let page = await context.newPage()
+    let { navigate, settle } = createNavigator(page)
     const failures = []
     page.on('pageerror', (error) => failures.push(`render: ${error.message}`))
     page.on('response', (response) => {
@@ -202,8 +206,34 @@ if (process.argv.includes('--check')) {
     if (!identityResponse.ok()) throw new Error('Cannot read the capture account identity.')
     const identity = await identityResponse.json()
     await settle()
+    const sessions = new Map([['staff', { page, navigate, settle }]])
 
     for (const screen of screens.filter((screen) => !PUBLIC.includes(screen.route))) {
+      const audience = routeAudience(screen.route)
+      if (!sessions.has(audience)) {
+        const roleContext = await protectedContext()
+        const rolePage = await roleContext.newPage()
+        const navigation = createNavigator(rolePage)
+        rolePage.on('pageerror', (error) => failures.push(`render: ${error.message}`))
+        rolePage.on('response', (response) => {
+          if (
+            response.status() >= 400 &&
+            new URL(response.url()).pathname.startsWith(`${API_PATH}/`)
+          )
+            failures.push(`HTTP ${response.status()} ${new URL(response.url()).pathname}`)
+        })
+        const roleLoginResponse = rolePage.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === authPath('login') &&
+            response.request().method() === 'POST',
+        )
+        await signInThroughForm(rolePage, accountForAudience(audience))
+        const roleLogin = await (await roleLoginResponse).json()
+        await assertPortalData(audience, roleLogin.data.access_token)
+        await navigation.settle()
+        sessions.set(audience, { page: rolePage, ...navigation })
+      }
+      ;({ page, navigate, settle } = sessions.get(audience))
       failures.length = 0
       try {
         if (screen.route === '/change-password') {
@@ -277,6 +307,8 @@ if (process.argv.includes('--check')) {
           route = resolveHandbookDetailRoute(screen.route, detailRoute)
         }
         await navigate(route)
+        if (new URL(page.url()).pathname !== route.split('?')[0])
+          throw new Error(`Unexpected redirect while capturing ${route}`)
         if (failures.length) throw new Error(failures.join('; '))
         await photograph(page, screen, route)
       } catch (error) {
@@ -284,6 +316,7 @@ if (process.argv.includes('--check')) {
         console.error(`  FAILED ${screen.route}`)
       }
     }
+    skipped.push(...allBlockedWrites.flat())
     const duplicates = [...hashes.values()].filter((routes) => routes.length > 2)
     for (const routes of duplicates) skipped.push(`Identical screenshots: ${routes.join(', ')}`)
     await writeFile(

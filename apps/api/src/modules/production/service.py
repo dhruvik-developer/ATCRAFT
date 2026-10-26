@@ -3761,6 +3761,8 @@ async def _raise_output_inspection(
         reference_type=reference_type,
         reference_id=reference_id,
         reference_code=order.code,
+        **({"serial_ids": entry.output_serial_ids} if entry.output_serial_ids else {}),
+        **({"batch_id": entry.output_batch_id} if entry.output_batch_id is not None else {}),
     )
     entry.qc_inspection_id = getattr(inspection, "id", None)
     entry.qc_inspection_code = getattr(inspection, "code", None)

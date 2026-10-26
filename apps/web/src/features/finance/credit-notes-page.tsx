@@ -1,18 +1,26 @@
-import { describeError } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
+import { Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatMoney } from '@/lib/format'
+import { formatDate, formatMoney, toDecimal } from '@/lib/format'
+import { REASON_MIN_LENGTH } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { P } from '@/lib/permissions'
-import { api } from '@/lib/api-client'
+import { ApiError, api } from '@/lib/api-client'
+import { queryKeys } from '@/lib/query-client'
+import { toast } from '@/lib/toast'
+
+/** CreditNoteCancel permits a longer audit explanation than standard transitions. */
+const CANCEL_REASON_MAX_LENGTH = 500
 
 type CreditNoteRow = {
   id: string
@@ -31,6 +39,7 @@ type CreditNoteDetail = CreditNoteRow & {
   sales_return_id: string | null
   taxable_amount: string
   tax_amount: string
+  round_off_amount: string
   issued_at: string
   pdf_document_id: string | null
   cancelled_at: string | null
@@ -53,7 +62,11 @@ type CreditNoteDetail = CreditNoteRow & {
 
 export default function CreditNotesPage() {
   const { can } = useAuth()
+  const queryClient = useQueryClient()
   const [selected, setSelected] = useState<CreditNoteRow | null>(null)
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [reasonTouched, setReasonTouched] = useState(false)
   const detail = useQuery({
     queryKey: ['finance', 'credit-notes', 'detail', selected?.id ?? ''],
     queryFn: () => api.get<CreditNoteDetail>(`/finance/credit-notes/${selected?.id}`),
@@ -110,14 +123,28 @@ export default function CreditNotesPage() {
     [],
   )
 
-  async function cancel() {
-    if (!selected) return
-    await api.post(`/finance/credit-notes/${selected.id}/cancel`, {
-      reason: 'Cancelled by finance user',
-    })
-    setSelected(null)
-    await list.refetch()
-  }
+  const cancel = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.post<CreditNoteDetail>(`/finance/credit-notes/${id}/cancel`, { reason }),
+    onSuccess: () => {
+      setCancelOpen(false)
+      setSelected(null)
+      setCancelReason('')
+      setReasonTouched(false)
+      void queryClient.invalidateQueries({ queryKey: ['finance'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
+      toast.success(success.cancelled('Credit note'))
+    },
+  })
+  const canCancel =
+    can(P.CREDIT_NOTE_CANCEL) && (detail.data?.status ?? selected?.status) === 'ISSUED'
+  const reasonInvalid =
+    cancelReason.trim().length < REASON_MIN_LENGTH ||
+    cancelReason.trim().length > CANCEL_REASON_MAX_LENGTH
+  const serverReasonError =
+    cancel.error instanceof ApiError && Boolean(cancel.error.fieldErrors.reason?.length)
 
   async function generatePdf() {
     if (!selected) return
@@ -158,6 +185,7 @@ export default function CreditNotesPage() {
                 job.reset()
                 setSelected(null)
               }}
+              disabled={cancel.isPending}
             >
               Close
             </Button>
@@ -170,7 +198,7 @@ export default function CreditNotesPage() {
           {detail.error && <FieldError message={describeError(detail.error)} />}
           {detail.data && (
             <div className="mt-4 space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <span className="text-muted-foreground">Taxable</span>
                   <p>
@@ -181,6 +209,16 @@ export default function CreditNotesPage() {
                   <span className="text-muted-foreground">Tax</span>
                   <p>{formatMoney(detail.data.tax_amount, { currency: detail.data.currency })}</p>
                 </div>
+                {!toDecimal(detail.data.round_off_amount).isZero() && (
+                  <div>
+                    <span className="text-muted-foreground">Round off</span>
+                    <p>
+                      {formatMoney(detail.data.round_off_amount, {
+                        currency: detail.data.currency,
+                      })}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <span className="text-muted-foreground">Invoice</span>
                   <p className="font-mono text-xs">{detail.data.sales_invoice_id}</p>
@@ -225,8 +263,18 @@ export default function CreditNotesPage() {
               </div>
             </div>
           )}
-          {can(P.CREDIT_NOTE_CANCEL) && selected.status === 'ISSUED' && (
-            <Button variant="destructive" className="mt-4" onClick={() => void cancel()}>
+          {canCancel && (
+            <Button
+              variant="destructive"
+              className="mt-4"
+              disabled={detail.isLoading || Boolean(detail.error)}
+              onClick={() => {
+                cancel.reset()
+                setCancelReason('')
+                setReasonTouched(false)
+                setCancelOpen(true)
+              }}
+            >
               Cancel credit note
             </Button>
           )}
@@ -245,6 +293,52 @@ export default function CreditNotesPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={cancelOpen && Boolean(selected)}
+        onOpenChange={(open) => {
+          if (!cancel.isPending) setCancelOpen(open)
+        }}
+        title={`Cancel credit note ${selected?.code ?? ''}?`}
+        description="This reverses the credit note and restores the invoice balance. Record the cancellation reason for the audit history."
+        confirmLabel="Confirm cancellation"
+        destructive
+        loading={cancel.isPending}
+        onConfirm={() => {
+          setReasonTouched(true)
+          if (!reasonInvalid && selected && canCancel && !cancel.isPending)
+            cancel.mutate({ id: selected.id, reason: cancelReason.trim() })
+        }}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="credit-note-cancel-reason" required>
+            Cancellation reason
+          </Label>
+          <Textarea
+            id="credit-note-cancel-reason"
+            value={cancelReason}
+            maxLength={CANCEL_REASON_MAX_LENGTH}
+            disabled={cancel.isPending}
+            aria-invalid={(reasonTouched && reasonInvalid) || serverReasonError}
+            onChange={(event) => {
+              setCancelReason(event.target.value)
+              if (cancel.error) cancel.reset()
+            }}
+          />
+          <FieldError
+            message={
+              reasonTouched && reasonInvalid
+                ? `Enter between ${REASON_MIN_LENGTH} and ${CANCEL_REASON_MAX_LENGTH} characters.`
+                : undefined
+            }
+          />
+          {cancel.error && (
+            <FieldError message={fieldErrorSummary(cancel.error) || describeError(cancel.error)} />
+          )}
+          {!canCancel && selected && (
+            <FieldError message="Only an issued credit note can be cancelled with the cancellation permission." />
+          )}
+        </div>
+      </ConfirmDialog>
     </div>
   )
 }

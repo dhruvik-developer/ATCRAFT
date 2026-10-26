@@ -82,3 +82,46 @@ async def test_ui_payload_consumes_reservation_and_moves_order(api_client, bench
     line = view.json()["data"]["lines"][0]
     assert line["dispatched_quantity"] == "200.0000"
     assert line["shortfall_quantity"] == "300.0000"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/finance/credit-notes"),
+        ("GET", "/finance/credit-notes/{id}"),
+        ("POST", "/finance/credit-notes"),
+        ("POST", "/finance/credit-notes/{id}/cancel"),
+        ("POST", "/finance/credit-notes/{id}/pdf"),
+    ],
+)
+async def test_credit_note_routes_enforce_their_permissions(api_client, principal, method, path):
+    from src.main import app
+
+    app.dependency_overrides[get_current_principal] = lambda: Principal(
+        user_id=principal.user_id,
+        company_id=principal.company_id,
+        email=principal.email,
+        full_name=principal.full_name,
+        is_superuser=False,
+        permissions=frozenset(),
+    )
+    identifier = str(uuid.uuid4())
+    response = await api_client.request(
+        method, path.replace("{id}", identifier), json={"reason": "Wrong issue"}
+    )
+    assert response.status_code == 403, response.text
+
+
+async def test_duplicate_credit_lines_return_field_validation_errors(api_client):
+    line = {"sales_invoice_line_id": str(uuid.uuid4()), "quantity": "1"}
+    response = await api_client.post(
+        "/finance/credit-notes",
+        json={
+            "sales_invoice_id": str(uuid.uuid4()),
+            "note_date": "2026-10-24",
+            "reason_type": "PRICE_ADJUSTMENT",
+            "lines": [line, line],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "only once" in response.text

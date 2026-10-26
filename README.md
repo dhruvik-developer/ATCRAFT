@@ -10,6 +10,12 @@ architecture and operational decisions are recorded under [`docs/`](./docs).
 The shared implementation points and completion checks are mapped in
 [`docs/development-standards.md`](./docs/development-standards.md).
 
+The [current scope checkpoint](docs/implementation/production-scope-20261025.md)
+records the implemented portals and serial workflows, verification, and remaining
+full-scope packages. Deployment still requires a server/domain and the
+[go-live checks](docs/deployment.md#go-live-gate); this checkout is not a
+production sign-off.
+
 ---
 
 ## Stack
@@ -157,6 +163,15 @@ Never run production with a bare `docker compose up`. Work through
 the two isolated deployments, and the go-live checklist.
 
 ---
+
+## Install as an app
+
+Staff, vendors and dealers can install the application from a supported browser
+on HTTPS (or localhost for development). Use the browser's **Install app** action;
+on iPhone or iPad, use Safari's **Share → Add to Home Screen**, then open the
+installed app. Enable notifications from **Profile → This device** or
+**Notifications → Preferences** when the deployment has Web Push configured.
+Installation does not provide offline access to ERP data.
 
 ## Repository layout
 

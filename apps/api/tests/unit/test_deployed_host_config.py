@@ -76,7 +76,13 @@ def test_allowed_hosts_rejects_ambiguous_or_invalid_syntax(host: str) -> None:
         Settings(_env_file=None, app_env=AppEnv.test, jwt_secret="test", allowed_hosts=host)
 
 
-def test_deployed_encryption_key_is_strong_and_independent() -> None:
+def test_deployed_encryption_key_is_strong_and_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Disabling dotenv does not disable process environment variables. CI sets
+    # a valid key globally, so remove it to exercise an actually missing key.
+    monkeypatch.delenv("CREDENTIAL_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("credential_encryption_key", raising=False)
     common = {
         "app_env": AppEnv.production,
         "jwt_secret": "s" * 64,
@@ -91,3 +97,25 @@ def test_deployed_encryption_key_is_strong_and_independent() -> None:
         Settings(_env_file=None, **common)
     with pytest.raises(ValidationError, match="independent from JWT_SECRET"):
         Settings(_env_file=None, credential_encryption_key="s" * 64, **common)
+
+
+@pytest.mark.parametrize("invalid_key", ["", "short", "change-me-generate-a-new-secret-key"])
+def test_invalid_explicit_encryption_key_cannot_inherit_a_valid_environment_key(
+    monkeypatch: pytest.MonkeyPatch, invalid_key: str
+) -> None:
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", "e" * 64)
+    common = {
+        "app_env": AppEnv.production,
+        "jwt_secret": "s" * 64,
+        "cors_origins": "https://erp.acme.test",
+        "allowed_hosts": "erp.acme.test",
+        "email_provider": "smtp",
+        "public_web_url": "https://erp.acme.test",
+        "email_from_address": "no-reply@acme.com",
+        "smtp_host": "smtp.acme.test",
+    }
+    config = Settings(_env_file=None, **common)
+    assert config.credential_encryption_key.get_secret_value() == "e" * 64
+
+    with pytest.raises(ValidationError, match="CREDENTIAL_ENCRYPTION_KEY"):
+        Settings(_env_file=None, credential_encryption_key=invalid_key, **common)

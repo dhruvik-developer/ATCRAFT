@@ -1673,6 +1673,46 @@ async def get_item(
     return item_response(item, include_cost=may_view_cost(principal))
 
 
+async def set_item_image(
+    session: AsyncSession,
+    tenant: TenantContext,
+    item_id: uuid.UUID,
+    document_id: uuid.UUID | None,
+) -> uuid.UUID | None:
+    """Only a live image already filed on this item may become its primary image."""
+    from src.modules.documents.service import DocumentService
+
+    async with transaction(session):
+        item = await ItemRepository(session, tenant).lock_for_update(item_id)
+        if item is None:
+            raise NotFoundError("Item", item_id)
+        if document_id is not None:
+            document = await DocumentService(session, tenant).get_document(document_id)
+            if (
+                document.mime_type not in {"image/jpeg", "image/png", "image/webp"}
+                or document.entity_type != "item"
+                or document.entity_id != item.id
+            ):
+                raise ValidationError("Choose a JPEG, PNG or WebP image uploaded for this item.")
+        previous = item.image_document_id
+        item.image_document_id = document_id
+        item.updated_by_id = tenant.user_id
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            action=AuditAction.UPDATE,
+            entity_type="item",
+            entity_id=item.id,
+            entity_code=item.code,
+            summary=f"Primary image updated for {item.code}",
+            old_values={"image_document_id": previous},
+            new_values={"image_document_id": document_id},
+        )
+    return document_id
+
+
 async def search_items(
     session: AsyncSession,
     tenant: TenantContext,

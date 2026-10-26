@@ -22,10 +22,10 @@ import {
   Mail,
   MonitorSmartphone,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { EmptyState, PageHeader } from '@/components/shared'
+import { EmptyState, PageHeader, PanelLoader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -69,6 +69,7 @@ import {
 } from './notification-types'
 
 const PAGE_SIZE = 30
+const PushDeviceCard = lazy(() => import('./push-device-card'))
 
 const SEVERITY_ICONS = {
   INFO: Info,
@@ -405,13 +406,25 @@ function PreferencesTab() {
 
   const setChannel = (
     preference: NotificationPreference,
-    channel: 'in_app_enabled' | 'email_enabled',
+    channel: 'in_app_enabled' | 'email_enabled' | 'push_enabled',
     value: boolean,
   ) => {
-    setDraft((existing) => ({
-      ...(existing ?? {}),
-      [preference.notification_type]: { ...preference, [channel]: value },
-    }))
+    setDraft((existing) => {
+      const next = {
+        ...(existing ?? {}),
+        [preference.notification_type]: { ...preference, [channel]: value },
+      }
+      const original = stored.find((row) => row.notification_type === preference.notification_type)
+      const changed = next[preference.notification_type]!
+      if (
+        original &&
+        original.in_app_enabled === changed.in_app_enabled &&
+        original.email_enabled === changed.email_enabled &&
+        (original.push_enabled ?? false) === (changed.push_enabled ?? false)
+      )
+        delete next[preference.notification_type]
+      return Object.keys(next).length ? next : null
+    })
   }
 
   const save = useMutation({
@@ -425,6 +438,7 @@ function PreferencesTab() {
           notification_type: row.notification_type,
           in_app_enabled: row.in_app_enabled,
           email_enabled: row.email_enabled,
+          push_enabled: row.push_enabled ?? false,
         })),
       }),
     onMutate: () => setSaveError(null),
@@ -478,7 +492,8 @@ function PreferencesTab() {
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          In-app controls the bell in the header. Email is sent to the address on your profile.
+          In-app controls the bell in the header. Email goes to your profile address. Push goes to
+          devices where you have enabled notifications.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {dirty && (
@@ -533,6 +548,12 @@ function PreferencesTab() {
                   Email
                 </span>
               </th>
+              <th
+                scope="col"
+                className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                Push
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -551,26 +572,29 @@ function PreferencesTab() {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-center">
-                    <Checkbox
-                      id={`in-app-${row.notification_type}`}
-                      checked={value.in_app_enabled}
-                      onCheckedChange={(next) => setChannel(value, 'in_app_enabled', next === true)}
-                    />
-                    <Label htmlFor={`in-app-${row.notification_type}`} className="sr-only">
-                      {label} in app
-                    </Label>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <Checkbox
-                      id={`email-${row.notification_type}`}
-                      checked={value.email_enabled}
-                      onCheckedChange={(next) => setChannel(value, 'email_enabled', next === true)}
-                    />
-                    <Label htmlFor={`email-${row.notification_type}`} className="sr-only">
-                      {label} by email
-                    </Label>
-                  </td>
+                  {(
+                    [
+                      ['in_app_enabled', 'in-app', 'in app'],
+                      ['email_enabled', 'email', 'by email'],
+                      ['push_enabled', 'push', 'by push'],
+                    ] as const
+                  ).map(([channel, prefix, description]) => (
+                    <td key={channel} className="px-3 py-2 text-center">
+                      <Label
+                        htmlFor={`${prefix}-${row.notification_type}`}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center"
+                      >
+                        <Checkbox
+                          id={`${prefix}-${row.notification_type}`}
+                          checked={value[channel] ?? false}
+                          onCheckedChange={(next) => setChannel(value, channel, next === true)}
+                        />
+                        <span className="sr-only">
+                          {label} {description}
+                        </span>
+                      </Label>
+                    </td>
+                  ))}
                 </tr>
               )
             })}
@@ -614,7 +638,10 @@ export default function NotificationsPage() {
           <InboxTab />
         </TabsContent>
 
-        <TabsContent value="preferences">
+        <TabsContent value="preferences" className="space-y-4">
+          <Suspense fallback={<PanelLoader />}>
+            <PushDeviceCard />
+          </Suspense>
           <PreferencesTab />
         </TabsContent>
       </Tabs>

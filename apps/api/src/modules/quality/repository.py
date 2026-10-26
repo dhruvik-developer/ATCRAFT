@@ -49,6 +49,7 @@ from src.common.repository import BaseRepository
 from src.core.database import affected_rows
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
+from src.modules.inventory.models import InventoryTransaction, StockSerial
 from src.modules.products.models import Item
 from src.modules.quality.models import (
     OPEN_STATUSES,
@@ -84,6 +85,7 @@ class InspectableItem:
     category_id: uuid.UUID | None
     is_batch_tracked: bool
     is_active: bool
+    is_serial_tracked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +126,12 @@ class ItemLookupRepository(BaseRepository[Item]):
         if not item_ids:
             return {}
         stmt = select(
-            Item.id, Item.code, Item.category_id, Item.is_batch_tracked, Item.is_active
+            Item.id,
+            Item.code,
+            Item.category_id,
+            Item.is_batch_tracked,
+            Item.is_active,
+            Item.is_serial_tracked,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.deleted_at.is_(None),
@@ -137,6 +144,7 @@ class ItemLookupRepository(BaseRepository[Item]):
                 category_id=row.category_id,
                 is_batch_tracked=row.is_batch_tracked,
                 is_active=row.is_active,
+                is_serial_tracked=row.is_serial_tracked,
             )
             for row in (await self.session.execute(stmt)).all()
         }
@@ -159,6 +167,22 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
         return {
             row.id: (row.code, row.is_active) for row in (await self.session.execute(stmt)).all()
         }
+
+
+class SerialLabelRepository(BaseRepository[StockSerial]):
+    """QC-owned label projection; inspecting units does not require inventory access."""
+
+    model = StockSerial
+
+    async def for_inspection(self, inspection: QcInspection) -> dict[uuid.UUID, str]:
+        if not inspection.serial_ids:
+            return {}
+        stmt = select(StockSerial.id, StockSerial.serial_number).where(
+            StockSerial.company_id == self.tenant.company_id,
+            StockSerial.item_id == inspection.item_id,
+            StockSerial.id.in_(inspection.serial_ids),
+        )
+        return dict((await self.session.execute(stmt)).tuples().all())
 
 
 class QcTemplateRepository(BaseRepository[QcTemplate]):
@@ -395,8 +419,59 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
         is the serialisation point for the whole document (database.md section
         4.4).
         """
-        stmt = self._scoped().where(QcInspection.id == inspection_id).with_for_update()
+        stmt = (
+            self._scoped()
+            .where(QcInspection.id == inspection_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_pending_packing(self, line_ids: Sequence[uuid.UUID]) -> list[QcInspection]:
+        """Stable document locks serialize cancellation with a competing verdict."""
+        if not line_ids:
+            return []
+        stmt = (
+            self._scoped()
+            .where(
+                QcInspection.reference_type == "packing_order",
+                QcInspection.reference_id.in_(line_ids),
+                QcInspection.qc_stage == QcStage.FINAL,
+                QcInspection.status.in_(OPEN_STATUSES),
+            )
+            .order_by(QcInspection.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.scalars(stmt)).all())
+
+    async def inspection_ids_with_evidence(self, ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """One batched read excludes measurements, decisions and explicit stock holds."""
+        if not ids:
+            return set()
+        stmt = (
+            select(QcInspectionResult.inspection_id)
+            .where(
+                QcInspectionResult.company_id == self.tenant.company_id,
+                QcInspectionResult.inspection_id.in_(ids),
+            )
+            .union(
+                select(QcInspectionDecision.inspection_id).where(
+                    QcInspectionDecision.company_id == self.tenant.company_id,
+                    QcInspectionDecision.inspection_id.in_(ids),
+                ),
+                select(InventoryTransaction.reference_id).where(
+                    InventoryTransaction.company_id == self.tenant.company_id,
+                    InventoryTransaction.reference_type == "qc_inspection",
+                    InventoryTransaction.reference_id.in_(ids),
+                ),
+            )
+        )
+        return {
+            inspection_id
+            for inspection_id in await self.session.scalars(stmt)
+            if inspection_id is not None
+        }
 
     async def count_for_template(self, template_id: uuid.UUID) -> int:
         """How many inspections have applied this specification.

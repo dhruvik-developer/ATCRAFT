@@ -50,6 +50,8 @@ from src.modules.packing.schemas import (
     PackingOrderLineRead,
     PackingOrderSummary,
     PackingOrderUpdate,
+    PackingReinspectRequest,
+    PackingStartRequest,
     ReadyForDispatchRow,
     ReasonRequest,
     SealCartonRequest,
@@ -245,7 +247,7 @@ async def create_order(
 ) -> ApiResponse[PackingOrderDetail]:
     order, lines = await service.create_order(session, tenant, payload)
     return ApiResponse[PackingOrderDetail].ok(
-        service.order_detail(order, lines),
+        await service.order_read(session, tenant, order, lines),
         message=success_message(f"Packing order {order.code}", "created"),
     )
 
@@ -270,7 +272,7 @@ async def create_order_from_assembly(
 ) -> ApiResponse[PackingOrderDetail]:
     order, lines = await service.create_order_from_assembly(session, tenant, payload)
     return ApiResponse[PackingOrderDetail].ok(
-        service.order_detail(order, lines),
+        await service.order_read(session, tenant, order, lines),
         message=f"Packing order {order.code} created from the assembly",
     )
 
@@ -300,7 +302,7 @@ async def update_order(
 ) -> ApiResponse[PackingOrderDetail]:
     order, lines = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[PackingOrderDetail].ok(
-        service.order_detail(order, lines),
+        await service.order_read(session, tenant, order, lines),
         message=success_message(f"Packing order {order.code}", "updated"),
     )
 
@@ -330,11 +332,18 @@ async def delete_order(
     dependencies=[require_permission(Permission.PACKING_MANAGE)],
 )
 async def start_packing(
-    session: DbSession, tenant: Tenant, order_id: uuid.UUID, payload: ReasonRequest
+    session: DbSession, tenant: Tenant, order_id: uuid.UUID, payload: PackingStartRequest
 ) -> ApiResponse[PackingOrderDetail]:
-    order, lines = await service.start_packing(session, tenant, order_id, reason=payload.reason)
+    order, lines = await service.start_packing(
+        session,
+        tenant,
+        order_id,
+        reason=payload.reason,
+        serial_selections=payload.serial_selections,
+    )
     return ApiResponse[PackingOrderDetail].ok(
-        service.order_detail(order, lines), message=f"{order.code} is now being packed"
+        await service.order_read(session, tenant, order, lines),
+        message=f"{order.code} is now being packed",
     )
 
 
@@ -391,11 +400,19 @@ async def reinspect_line(
     tenant: Tenant,
     order_id: uuid.UUID,
     line_id: uuid.UUID,
-    payload: ReasonRequest,
+    payload: PackingReinspectRequest,
 ) -> ApiResponse[PackingOrderLineRead]:
-    line = await service.reinspect_line(session, tenant, order_id, line_id, reason=payload.reason)
+    line = await service.reinspect_line(
+        session,
+        tenant,
+        order_id,
+        line_id,
+        reason=payload.reason,
+        serial_ids=payload.serial_ids,
+        batch_id=payload.batch_id,
+    )
     return ApiResponse[PackingOrderLineRead].ok(
-        PackingOrderLineRead.model_validate(line),
+        (await service.line_reads(session, tenant, [line]))[0],
         message=f"Line {line.line_number} re-inspected",
     )
 
@@ -530,6 +547,33 @@ async def seal_carton(
 ) -> ApiResponse[SealResult]:
     result = await service.seal_carton(session, tenant, order_id, carton_id, payload)
     return ApiResponse[SealResult].ok(result, message=f"Carton {result.carton.barcode} sealed")
+
+
+@router.post(
+    "/{order_id}/cartons/{carton_id}/recover-legacy",
+    response_model=ApiResponse[CartonDetail],
+    summary="Recover a legacy sealed carton for named-unit repacking",
+    description=(
+        "Only for an active order with quantity-only serial FINAL QC, before dispatch claims it. "
+        "Physically recover the reusable packing material first. Posts MATERIAL_RETURN at the "
+        "original issue cost, preserves both ledger entries and opens the carton for cancellation "
+        "and repacking with actual serial selections. Requires an audit reason."
+    ),
+    dependencies=[require_permission(Permission.PACKING_MANAGE)],
+)
+async def recover_legacy_carton(
+    session: DbSession,
+    tenant: Tenant,
+    order_id: uuid.UUID,
+    carton_id: uuid.UUID,
+    payload: ReasonRequest,
+) -> ApiResponse[CartonDetail]:
+    carton = await service.recover_legacy_carton(
+        session, tenant, order_id, carton_id, reason=payload.reason
+    )
+    return ApiResponse[CartonDetail].ok(
+        carton, message=success_message("Legacy carton", "reopened")
+    )
 
 
 @router.delete(

@@ -1,7 +1,7 @@
 {
   "frame": {
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
-    "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton cannot be unsealed, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
+    "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton can only be reopened through the audited legacy recovery process, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
     "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, sales returns, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, the shift roster, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, sales invoices, credit notes, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, the organisation record and company settings. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
@@ -1447,7 +1447,8 @@
           "rules": [
             "Fifty orders are shown at a time and you page through them; the whole book is never loaded into the browser.",
             "A required date that has already passed is flagged red only while the order is still open \u2014 on a despatched or closed order it is history, not a problem.",
-            "Priority is a rank from 1 to 9 (5 is normal), and urgency is a separate flag. The two are shown separately because they mean different things: priority decides who gets scarce stock first, urgency is a marker for the desk."
+            "Priority is a rank from 1 to 9 (5 is normal), and urgency is a separate flag. The two are shown separately because they mean different things: priority decides who gets scarce stock first, urgency is a marker for the desk.",
+            "Source distinguishes ERP entry from Dealer portal orders. Use the Source filter to narrow the order book."
           ],
           "permission": "Anyone with the right to see sales orders can open this list. The New order button appears only for someone who may create them. The standard Sales Executive role has both.",
           "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
@@ -2297,7 +2298,59 @@
             "Once a vendor has accepted, each consignment it records - courier or transporter, tracking and LR numbers, boxes, weight, freight - and each lorry receipt or dispatch photo it uploads is announced at once to the order's creator, its approvers and the administrators, as one notification per consignment that updates as the consignment moves."
           ],
           "permission": "The right to view purchase orders opens the page. Submit and Vendor acknowledged need the right to update purchase orders; Approve, Reject and Cancel each need their own separate right, and of the ready-made roles only a Purchase Manager and an administrator hold them. Sending to the vendor needs the right to send purchase orders.",
-          "notes": "Two things the system supports but no screen currently offers: editing an order that is still a draft or awaiting approval, and short-closing a part-delivered order. If a draft is wrong, cancel it and raise a new one. The courier and consignment details on the tracking panel are read-only here \u2014 they are written by the vendor's own dispatch side. Recording the vendor's acknowledgement does not capture a revised delivery date they may have committed to, even though the system can hold one. The vendor's name is a link to the vendor list; there is no page for a single vendor."
+          "notes": "Two things the system supports but no screen currently offers: editing an order that is still a draft or awaiting approval, and short-closing a part-delivered order. If a draft is wrong, cancel it and raise a new one. The courier and consignment details on the tracking panel are read-only here \u2014 they are written by the vendor's own dispatch side. Recording the vendor's acknowledgement does not capture a revised delivery date they may have committed to, even though the system can hold one. The vendor's name is a link to the vendor list; there is no page for a single vendor. The Vendor commitment and consignments card keeps planning and vendor dates separate; Adopt vendor date explicitly changes planning. Numbered shipments support recording, correction and confirmed gate arrival. Typed documents can be attached to a consignment and downloaded with document view; purchase order PDF generation runs as a background job. A vendor-declined reason is shown with guidance to cancel or re-send through an eligible assignee."
+        },
+        {
+          "route": "/procurement/inbound-tracking",
+          "title": "Inbound tracking",
+          "purpose": "The receiving board follows what is due from vendors, what has been dispatched, and what is still waiting for a goods receipt or quality decision. Open an order to work with its numbered consignments and attachments.",
+          "whoUses": "Buyers, receiving staff and purchase managers following supplier commitments and deliveries.",
+          "keyActions": [
+            {
+              "action": "Narrow the board",
+              "how": "Use search, vendor/category filters, Overdue, Expected today, In transit or Not acknowledged",
+              "note": "Filters, search and paging are sent to the server and kept in the URL. Include completed brings earlier deliveries back into view."
+            },
+            {
+              "action": "Review a commitment",
+              "how": "Open the order and read Vendor commitment and consignments",
+              "note": "The buyer planning date, vendor committed date and latest shipment expectation remain separate. Adopt vendor date requires confirmation because it changes when planning expects supply."
+            },
+            {
+              "action": "Record or correct a shipment",
+              "how": "Add shipment or Edit shipment on an acknowledged or partly received order",
+              "note": "Each consignment records a transporter or courier, tracking/LR, vehicle and driver, dispatch time, expected delivery, packages, weight and freight. Money is retained at the entered precision."
+            },
+            {
+              "action": "Record gate arrival",
+              "how": "Mark shipment delivered, then confirm",
+              "note": "This records arrival now. It does not receive stock or approve quality; complete the goods receipt and inspection separately."
+            },
+            {
+              "action": "Attach evidence",
+              "how": "Upload inbound document on the order",
+              "note": "Choose invoice, dispatch photo, LR copy, delivery challan or other, optionally against one shipment. Files are shared with the order vendor. Lists are paginated."
+            },
+            {
+              "action": "Generate the order PDF",
+              "how": "Generate purchase order PDF",
+              "note": "The background job panel shows progress, failure/retry and download when ready."
+            }
+          ],
+          "flow": [
+            "Filter the board and open a due order.",
+            "Check acknowledgement, committed delivery and readiness.",
+            "Record each physical consignment and attach transport evidence.",
+            "Record arrival, book the goods receipt and complete QC."
+          ],
+          "rules": [
+            "A vendor promise does not silently change the planning date; a buyer explicitly adopts it.",
+            "A vendor-declined order shows the reason. Cancel it or send it again, choosing an eligible assignee in the existing send dialog.",
+            "Shipment and document lists remain separate and paginated, so large order histories do not load at once.",
+            "Marking delivery never bypasses receiving or quality."
+          ],
+          "permission": "Purchase order view opens the board and order histories. Purchase order update permits date adoption and shipment recording/correction. Goods receipt create marks arrival. Document upload attaches files; document view permits downloads. Transporter/category/vendor pickers require their respective view rights, while entered courier names and row labels remain usable without them.",
+          "notes": "The board reports planning and committed dates, numbered shipments, receipt percentage, GRN/QC pending flags and document/LR evidence. A late badge uses the server-calculated delay against the planning date."
         },
         {
           "route": "/procurement/goods-receipts",
@@ -3100,7 +3153,11 @@
           "permission": "Viewing a job work order needs the right to view job work. Issuing and receiving from the page need their own rights, as on the list; approval and close stay on the orders list, where the audit reason is collected.",
           "rules": [
             "The reconciliation's outstanding is the order's books; the pool is the live ledger. The pool covers the books - shared positions mean it is usually larger, never smaller.",
-            "A rework order is a new order with a source, not an edit of the old one. The rejected output stays accounted for on the original receipt."
+            "A rework order is a new order with a source, not an edit of the old one. The rejected output stays accounted for on the original receipt.",
+            "For a serial-tracked issue, choose one named unit from the warehouse for each issued unit. Changing the batch clears the previous selection.",
+            "For a serial-tracked receipt, name the issued units separately as processed output, rejected output, untouched returns and final process loss. A unit belongs to one outcome only; settled units are no longer offered. The selectors search the units still at the vendor, without a warehouse filter.",
+            "When processing changes the item, the physical serial label remains unchanged. Original and processed item records are linked in the serial conversion history.",
+            "A receipt accounts for at most 500 named serial units in total, across every line and outcome. Record larger serial returns in partial receipts; ordinary nonserial quantities are not subject to this serial-count limit."
           ],
           "notes": "The vendor ledger tab answers the same questions per vendor and period, with a CSV export; the Job-work cost report answers what each line's output really cost."
         },
@@ -3348,7 +3405,11 @@
             "Rejected material from a named vendor is flagged as owing a return and the buyers are notified. The return itself is raised in procurement - quality states that one is owed, it does not raise it, because the return is procurement's document, numbering and approval.",
             "Whether a reading passes is decided by the system against the specification, never asserted by whoever typed it, and the result is stored as it was judged at the time. A later change to the specification therefore cannot rewrite the past.",
             "An item for which nobody has written a specification is still put forward for inspection. It simply arrives with no characteristics to measure, and the inspector dispositions it on judgement with a remark - refusing to raise it would mean the goods were never inspected at all.",
-            "A finished rework cycle hands the lot back for re-decision rather than dispositioning it. Every verdict stays in the lot's history, so re-deciding a reworked lot never erases how it was decided before."
+            "A finished rework cycle hands the lot back for re-decision rather than dispositioning it. Every verdict stays in the lot's history, so re-deciding a reworked lot never erases how it was decided before.",
+            "A manually raised inspection of a serial-tracked item must identify one physical unit for each inspected unit. Changing the item, warehouse or batch clears the selected identities.",
+            "Disposition serial units individually by their printed labels. The accepted, rejected, rework, hold and scrap totals are calculated from those choices. No unit is accepted automatically. Previously final accepted, rejected or scrapped units stay fixed when held or rework units are reconsidered.",
+            "The inspection supplies its unit labels to quality users. If a label is unavailable, its recorded unit identity remains visible and can still be dispositioned.",
+            "When cancellation withdraws an untouched packing inspection, it appears as Withdrawn in the history and cannot receive readings or a decision. The previous source and inspection remain available for traceability."
           ],
           "permission": "Reading the queue, the history and the reports needs the right to see quality. Recording measurements and deciding a lot are two separate rights on purpose: the person who measures a part is usually not the person authorised to release a consignment on the strength of it. An account that may only measure sees the readings and no disposition section at all, and is told so; an account that may only decide sees the readings as recorded and sends only the decision. Attaching a photograph additionally needs the right to upload documents.",
           "notes": "Most inspections arrive automatically from goods receipts, job-work returns, assembly completions, production bookings and packing starts - and a supervisor can raise one by hand with Raise inspection. There is also no Close action anywhere on the screen: a fully dispositioned inspection stays on the record as decided. Rows carry the item, batch and vendor as identifiers rather than names, so the Item column is an eight-character link into the item master; a screenshot will show that rather than an item code. Both report cards are empty until an item or a vendor is chosen, so a screenshot needs a selection made first."
@@ -3465,7 +3526,10 @@
             "An order that has been packed can no longer be cancelled - packing material has been consumed against it. It is closed instead. Cancelling is offered only before that point.",
             "A completed assembly is packed from the Ready from assembly panel, not from the order list: raising its packing order and marking it packed happen in one step, so two packers cannot plan around the same output.",
             "A packed order can be claimed by one consignment only. A second, different consignment is refused, so two dispatchers cannot plan around the same boxes.",
-            "Sealing needs the named packing material to be in stock at that warehouse. If none is, the form says so plainly, and no carton on that order can be sealed until some is."
+            "Sealing needs the named packing material to be in stock at that warehouse. If none is, the form says so plainly, and no carton on that order can be sealed until some is.",
+            "Starting a packing order identifies every serial unit whose item requires final QC. Those named units must match the units later placed in its cartons.",
+            "A serial final-QC carton remains open until its inspection is accepted. For a rejected line, choose Replace rejected QC lot, name replacement units and record a reason. Rejected units retain their original outcome.",
+            "Older sealed cartons whose serial FINAL inspection never named its units may offer Recover legacy carton before dispatch claims the order. Physically recover the reusable packing material first and record a reason; recovery returns the original box issue. Cancel the legacy order and repack with newly named units. Normal sealed cartons have no recovery action."
           ],
           "permission": "Seeing packing orders needs the packing view right. Creating or starting an order, opening and filling cartons, sealing, completing, closing and cancelling all need the packing management right. Handing an order over to a consignment is the one exception: it needs the right to create dispatches, because that is a despatch decision rather than a packing one.",
           "notes": "Packing orders can be raised directly, from a sales order, or from completed assembly output. The sales-order form carries its source lines and prevents quantities above the remaining unshipped amount. Assembly output is linked in the same transaction so it cannot be packed twice."
@@ -3934,7 +3998,8 @@
             "The same label cannot appear twice in one registration or document. Labels are normalised to upper case with whitespace removed, up to 64 characters, and a registration is capped at 500 labels.",
             "A unit is named on every movement that changes who holds it; a quantity-only path refuses stock still held as identifiable units. An outbound line that leaves its lot unnamed is picked FEFO; a transfer or adjustment must name the lot it changes, and a receipt, production or job-work line must name its lot.",
             "The batch list and any unnamed issue use FEFO: earliest expiry first, undated lots last, then earliest receipt. One line is never split across lots; if no single lot covers it, the line is refused as short.",
-            "The expiry sweep warns within 30 days and expires past-due lots. A company receives at most one stock-expiry digest per day, so one warehouse's labels do not bury the notification bell."
+            "The expiry sweep warns within 30 days and expires past-due lots. A company receives at most one stock-expiry digest per day, so one warehouse's labels do not bury the notification bell.",
+            "Serial trace shows product conversion history when job work changes the item. The physical label stays the same; Trace original product and Trace processed product open the linked item identities and their recorded movements."
           ],
           "permission": "Reading both registers needs the right to view stock. Registering a lot or label run, and quarantining, reactivating or expiring a lot, need the separate right to manage batches. The screen shows unit cost and lot value only with the stock-valuation right. The API checks the manage right again, so hiding a button is not the guard for a lifecycle action.",
           "notes": "The register is deliberately read-only apart from lot lifecycle and label runs: stock quantities change only through documents. There is no delete and no manual Consumed action, and the register neither prints nor generates labels from a pattern. A registered serial with no receipt yet is a label waiting for its goods, not stock on hand; it only becomes a unit on hand when a receipt, production or assembly posting adopts it. Expiry warnings compare dates in the browser for display, while the server's date is authoritative for blocking issue."
@@ -4884,7 +4949,8 @@
             "A resetting administrator sees a temporary password once and never again. Hand it over through a channel the account holder controls; the account must choose a new one at its next sign-in.",
             "A role marked as a supplier portal role can only be given to an account tied to a supplier, and that marking cannot be changed after the role is created \u2014 one careless edit would otherwise either strip the portal boundary from everyone holding it, or make every holder invalid.",
             "Hiding a button never grants or withholds authority. The system re-checks the signed-in person's permissions on every single request, so what a screen shows is a convenience and what the system allows is the rule.",
-            "A supplier portal account can be limited only to item categories its supplier is qualified for, and a category covers the categories beneath it. Qualify the supplier for a category on the Vendors screen first."
+            "A supplier portal account can be limited only to item categories its supplier is qualified for, and a category covers the categories beneath it. Qualify the supplier for a category on the Vendors screen first.",
+            "Choose Staff, Vendor or Dealer when creating an account. Dealer bindings only offer dealer and distributor customers and dealer roles. Account-type and customer filters are applied on the server."
           ]
         },
         {
@@ -4918,6 +4984,520 @@
           ],
           "notes": "Only the sales automation switch is on this page today. It is deliberately described as a default rather than a permission: a user who cannot confirm orders is unaffected by it. The setting is stored sparsely, one row per company, so a new company needs no setup before using the default.",
           "permission": "Opening Settings needs settings.view. Save and Restore default need settings.manage; the page disables them for a reader."
+        }
+      ]
+    },
+    {
+      "groupTitle": "Vendor app",
+      "groupIntro": "Suppliers use a separate workspace for the orders the buyer has shared with their vendor account. The phone navigation provides Home, Orders, Shipments, Invoices and More. More leads to receipts and quality, payments, notifications, profile and sign out. Roles decide which actions appear; a vendor cannot enter the staff workspace or choose a different vendor identity.",
+      "screens": [
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal access is required; staff accounts cannot enter the vendor app.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor",
+          "title": "Vendor home",
+          "purpose": "Start with the counts of orders to accept, accepted orders, goods ready to dispatch, consignments in transit, delivered orders, bills awaiting payment and recent QC rejections. Your own vendor rating shows the receipt sample and period behind its score.",
+          "keyActions": [
+            {
+              "action": "Open a queue",
+              "how": "Tap its count tile. The destination opens with the matching filter."
+            },
+            {
+              "action": "Read your rating",
+              "how": "Read the score, on-time percentage, rejected percentage, period and sample below the tiles."
+            }
+          ],
+          "flow": [
+            "Sign in with the vendor email and complete any required password or MFA step.",
+            "Check your vendor name and categories.",
+            "Open the queue that needs attention."
+          ],
+          "rules": [
+            "The QC tile covers the lookback period printed on the screen.",
+            "A score without sufficient receipt evidence is labelled rather than invented."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal access is required; staff accounts cannot enter the vendor app.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/orders",
+          "title": "Vendor purchase orders",
+          "purpose": "Read only the purchase orders shared with your vendor and category scope. Filter by To accept, Accepted, Ready, Dispatched, Delivered or All; search by code and narrow to assignments for your own account.",
+          "keyActions": [
+            {
+              "action": "Find an order",
+              "how": "Choose a status chip, optionally tick Assigned to me, then search."
+            },
+            {
+              "action": "Open the document",
+              "how": "Tap the order number on a card or in the desktop table."
+            }
+          ],
+          "flow": [
+            "Choose the queue.",
+            "Read the buyer's expected delivery date and the delivery status.",
+            "Open an order to review its lines and terms."
+          ],
+          "rules": [
+            "Filters stay in the address and reset pagination to the first page.",
+            "Draft buyer orders are not shared with suppliers."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal access is required; staff accounts cannot enter the vendor app.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/orders/:orderId",
+          "title": "Vendor purchase order detail",
+          "purpose": "Review item quantities, agreed prices, tax, received and rejected quantities, delivery address, terms, dates, status history, shipments, attachments, goods receipts, QC verdicts and invoice balances.",
+          "keyActions": [
+            {
+              "action": "Accept or decline",
+              "how": "On a sent order use Accept, optionally set your committed delivery date and reference, or Decline with a reason.",
+              "note": "These controls require the permission to respond to vendor orders."
+            },
+            {
+              "action": "Update the commitment or mark ready",
+              "how": "On an accepted order use Change delivery date with a reason, or Mark ready for dispatch with the package count.",
+              "note": "Your committed date is separate from the buyer's planning date."
+            },
+            {
+              "action": "Record a consignment",
+              "how": "Add shipment. Choose a registered transporter or enter the courier, then record dispatch date and time, tracking, LR, vehicle, driver, packages, weight, freight and expected delivery."
+            },
+            {
+              "action": "Share evidence",
+              "how": "Upload document. Choose Invoice, Dispatch photo, LR copy, Delivery challan or Other as your role permits. A shipment attachment can name the consignment."
+            },
+            {
+              "action": "Get the purchase order PDF",
+              "how": "Choose Download PO PDF. Wait for the background job to finish, then use its Download button."
+            }
+          ],
+          "flow": [
+            "Read the lines, address and commercial terms.",
+            "Accept or give the buyer a reason for declining.",
+            "When goods are ready, record the shipment and upload its evidence.",
+            "Record delivery, then review the buyer's receipt and quality verdict."
+          ],
+          "rules": [
+            "Accept and decline are available only on sent orders.",
+            "Shipment and readiness actions need an accepted or partially received order and the shipping right.",
+            "The invoice right permits invoice uploads; other attachment kinds require the shipping right.",
+            "All downloads are authenticated. Older shipments, documents and receipts remain available through their page controls."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal access is required; staff accounts cannot enter the vendor app.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/shipments",
+          "title": "Vendor shipments",
+          "purpose": "Follow consignments across your purchase orders. Narrow the list to In transit or Delivered and inspect tracking, LR, dates, packages, weight and driver information.",
+          "keyActions": [
+            {
+              "action": "Narrow the list",
+              "how": "Use All, In transit or Delivered."
+            },
+            {
+              "action": "Record delivery",
+              "how": "Use Mark shipment delivered when your shipping role permits it."
+            },
+            {
+              "action": "Open its order",
+              "how": "Tap the shipment heading."
+            }
+          ],
+          "flow": [
+            "Open Shipments.",
+            "Read the expected date and tracking reference.",
+            "Record a completed delivery or open the associated order."
+          ],
+          "rules": [
+            "Delivery cannot precede dispatch or lie in the future.",
+            "Pagination reads the next server page; it does not filter an already downloaded subset."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal access is required; staff accounts cannot enter the vendor app.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/receipts",
+          "title": "Vendor receipts and quality",
+          "purpose": "Read posted goods receipts and their accepted and rejected quantities, rejection reasons and inspection verdicts.",
+          "keyActions": [
+            {
+              "action": "See rejected goods",
+              "how": "Tick With rejected quantities, or open the QC rejected tile from Home."
+            },
+            {
+              "action": "Read the order behind the receipt",
+              "how": "Tap its receipt and order heading."
+            }
+          ],
+          "flow": [
+            "Open Receipts and quality under More.",
+            "Find the receipt.",
+            "Read each line's accepted and rejected quantities and the recorded reason."
+          ],
+          "rules": [
+            "A supplier reads the buyer's QC result here; this screen cannot approve inspections or change received stock."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal invoice permission is required for the list and submission.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/invoices",
+          "title": "Vendor invoices",
+          "purpose": "Read your submitted bills, approval or dispute status, due dates, paid amounts and remaining balances. Payment pending restricts the list to open bills with money still owed.",
+          "keyActions": [
+            {
+              "action": "Submit a bill",
+              "how": "New invoice against PO. Choose a posted receipt, review the accepted quantities and copied net prices, enter your invoice number and date, review tax, and optionally attach an invoice image or PDF."
+            },
+            {
+              "action": "Read a saved bill",
+              "how": "Tap your invoice number."
+            }
+          ],
+          "flow": [
+            "Choose a posted receipt against your own purchase order.",
+            "Review each copied line, quantity, price and interstate tax choice.",
+            "Enter the bill number, date and any due date or notes.",
+            "Submit for the buyer's review."
+          ],
+          "rules": [
+            "Money and quantities retain their decimal values.",
+            "The form starts from accepted receipt quantities and the agreed discounted order price.",
+            "The vendor account supplies no tenant, vendor or internal cost-centre selection.",
+            "Submitting a bill does not approve or pay it."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal invoice permission is required.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/invoices/:invoiceId",
+          "title": "Vendor invoice detail",
+          "purpose": "Read the saved line values, matching result, total, paid amount, balance and the buyer's dispute or cancellation reason.",
+          "keyActions": [
+            {
+              "action": "Read a dispute",
+              "how": "Review Buyer's dispute in the invoice section and contact the buyer using the stated reason."
+            }
+          ],
+          "flow": [
+            "Open the invoice from Invoices or a payment allocation.",
+            "Review its status and matching result.",
+            "Read the lines and remaining balance."
+          ],
+          "rules": [
+            "Vendors do not approve, pay or edit internal accounting postings from this screen."
+          ]
+        },
+        {
+          "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
+          "permission": "Vendor portal invoice permission is required.",
+          "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
+          "route": "/vendor/payments",
+          "title": "Vendor payments",
+          "purpose": "Review outstanding, overdue, due-soon and paid-this-month totals separately for each currency. The payment list shows bank references and allocations to your bills.",
+          "keyActions": [
+            {
+              "action": "Reconcile a transfer",
+              "how": "Match its bank reference and payment amount to the invoices listed below it."
+            },
+            {
+              "action": "Open a settled invoice",
+              "how": "Tap its invoice number in the payment allocation list."
+            }
+          ],
+          "flow": [
+            "Open Payments under More.",
+            "Read the summary for the currency you need.",
+            "Find the bank reference and inspect its invoice allocations."
+          ],
+          "rules": [
+            "Different currencies are never added together.",
+            "Only approved payments to your vendor are shown."
+          ]
+        }
+      ]
+    },
+    {
+      "groupTitle": "Dealer app",
+      "groupIntro": "Dealers have a separate workspace for their own catalog pricing, saved products, cart, orders, invoices and account activity. Sign in with the account issued by your administrator and complete any required password change. Phone screens provide a bottom navigation bar; larger screens provide compact portal navigation. Images and PDFs are authenticated. Product availability is shown as a band rather than exposing warehouse stock quantities.",
+      "screens": [
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer",
+          "title": "Dealer home",
+          "purpose": "Review credit, current offers, banners, categories, brands and recent orders.",
+          "permission": "Dealer portal browse permission.",
+          "keyActions": [],
+          "flow": [
+            "Read your credit position.",
+            "Use the manual Previous and Next banner controls.",
+            "Open a category, brand, offer or recent order."
+          ],
+          "rules": [
+            "Banners do not advance automatically.",
+            "Current pricing and eligible offers are confirmed by the server."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/catalog",
+          "title": "Dealer catalog",
+          "purpose": "Search a paginated product grid with your commercial channel pricing and availability.",
+          "permission": "Dealer portal browse permission; ordering permission adds cart actions.",
+          "keyActions": [
+            {
+              "action": "Save a product",
+              "how": "Choose Save to place it in your wishlist."
+            }
+          ],
+          "flow": [
+            "Search by code or name.",
+            "Choose category, brand, availability and offer filters.",
+            "Open a product or enter a quantity and add it to the cart."
+          ],
+          "rules": [
+            "Price on request products cannot be ordered until a price is available.",
+            "Filters remain in the address so a selected view can be reopened."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/catalog/:itemId",
+          "title": "Dealer product",
+          "purpose": "Read descriptions, image gallery, specifications, variants, quantity slabs, accessories and a live quantity price.",
+          "permission": "Dealer portal browse permission; ordering permission adds cart actions.",
+          "keyActions": [],
+          "flow": [
+            "Choose a variant if needed.",
+            "Enter a quantity to see its price quote.",
+            "Read the minimum quantities for any price slabs and offers.",
+            "Add the product or an optional accessory to the cart."
+          ],
+          "rules": [
+            "Included accessories appear as In the box and are not ordered separately.",
+            "The cart recalculates current prices and tax."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/cart",
+          "title": "Dealer cart",
+          "purpose": "Review item quantities, discounts, tax, warnings, total and available credit before checkout.",
+          "permission": "Dealer portal ordering permission.",
+          "keyActions": [],
+          "flow": [
+            "Update or remove cart lines.",
+            "Choose Place order for review.",
+            "Enter the required date, shipping and billing addresses, PO reference and notes.",
+            "Place the order and open its detail."
+          ],
+          "rules": [
+            "Checkout creates a draft order for sales review.",
+            "If another session changes the cart, it refreshes and asks you to close checkout and review the new values before retrying.",
+            "Prices, discounts and dealer identity are determined by the server."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/wishlist",
+          "title": "Dealer wishlist",
+          "purpose": "Keep a list of products to consider for a future order.",
+          "permission": "Dealer portal browse permission; ordering permission adds Move to cart.",
+          "keyActions": [],
+          "flow": [
+            "Open a saved product.",
+            "Move it to the cart or remove it from the wishlist."
+          ],
+          "rules": [
+            "Moving a product to the cart uses its current price and availability."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/orders",
+          "title": "Dealer orders",
+          "purpose": "Find your orders and review status, dates and total.",
+          "permission": "Dealer portal ordering permission.",
+          "keyActions": [],
+          "flow": [
+            "Search for an order or customer PO reference.",
+            "Use the server pagination controls.",
+            "Open an order number."
+          ],
+          "rules": [
+            "Only your customer account orders are visible."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/orders/:orderId",
+          "title": "Dealer order detail",
+          "purpose": "Review order lines, fulfilment quantities, consignments and tracking events.",
+          "permission": "Dealer portal ordering permission.",
+          "keyActions": [],
+          "flow": [
+            "Read ordered, allocated, dispatched and invoiced quantities.",
+            "Open Tracking events on a consignment.",
+            "For a draft order, choose Cancel order and provide a reason."
+          ],
+          "rules": [
+            "Only draft orders can be cancelled from the dealer workspace.",
+            "Carrier, LR, tracking and delivery dates are displayed without private driver or freight details."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/invoices",
+          "title": "Dealer invoices",
+          "purpose": "Review issued invoices, due dates, overdue badges and unpaid balances.",
+          "permission": "Dealer portal account permission.",
+          "keyActions": [],
+          "flow": [
+            "Search for an invoice.",
+            "Open its number to see lines, payments and credits."
+          ],
+          "rules": [
+            "Paid amounts and credit notes reduce the remaining balance."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/invoices/:invoiceId",
+          "title": "Dealer invoice detail",
+          "purpose": "Read invoice addresses, tax splits, lines, payments, credits and PDF.",
+          "permission": "Dealer portal account permission.",
+          "keyActions": [],
+          "flow": [
+            "Review seller and buyer details and line values.",
+            "Choose Generate invoice PDF.",
+            "Wait for the job to become ready and choose Download."
+          ],
+          "rules": [
+            "PDF generation runs in the background.",
+            "The PDF and its generation status are restricted to your customer account."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/returns",
+          "title": "Dealer returns",
+          "purpose": "Request a return against eligible dispatched goods and follow review and credited quantities.",
+          "permission": "Dealer portal return permission.",
+          "keyActions": [],
+          "flow": [
+            "Choose Request return.",
+            "Select an eligible dispatch.",
+            "Enter only the quantities being returned and provide a reason for each line.",
+            "Submit the request, then open its number to review progress."
+          ],
+          "rules": [
+            "Quantities cannot exceed the remaining eligible dispatch quantity.",
+            "Submitting a request does not receive goods or create a credit note.",
+            "The detail identifies lines requiring quality inspection and quantities credited."
+          ]
+        },
+        {
+          "whoUses": "Dealer and distributor staff signed in with a dealer account.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/dealer/account",
+          "title": "Dealer account",
+          "purpose": "Review credit, overdue balances, open invoices, a dated statement and credit notes.",
+          "permission": "Dealer portal account permission.",
+          "keyActions": [],
+          "flow": [
+            "Read outstanding and available credit.",
+            "Select the statement date range and page through postings.",
+            "Generate credit-note PDFs when needed.",
+            "Open Profile and security or Notifications for account and device settings."
+          ],
+          "rules": [
+            "Statement balances are calculated by the server across the complete selected period.",
+            "Profile and security includes password, MFA, sessions and supported push device settings."
+          ]
+        }
+      ]
+    },
+    {
+      "groupTitle": "Catalog publishing",
+      "groupIntro": "Staff with promotion management rights prepare content and activate it with an audited reason. Item images and customer bindings determine what the dealer workspace can show.",
+      "screens": [
+        {
+          "whoUses": "Sales and marketing staff.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/promotions",
+          "title": "Promotions - banners",
+          "purpose": "Prepare authenticated banner images, links, audience and validity.",
+          "permission": "Promotion view permission; promotion management allows changes.",
+          "keyActions": [],
+          "flow": [
+            "Open Banners and choose New banner.",
+            "Upload a JPEG, PNG or WebP image.",
+            "Enter the title, optional subtitle, target, audience, dates and sort order.",
+            "Save the inactive content, then activate it with a reason."
+          ],
+          "rules": [
+            "Activation, deactivation and retirement each require a reason.",
+            "Retired content remains in the administrative history."
+          ]
+        },
+        {
+          "whoUses": "Sales and marketing staff.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/promotions?tab=offers",
+          "title": "Promotions - offers",
+          "purpose": "Manage channel or customer offers with minimum quantities and exact percentage discounts.",
+          "permission": "Promotion view permission; promotion management allows changes.",
+          "keyActions": [],
+          "flow": [
+            "Open Offers and create an offer.",
+            "Choose all products or an item, category or brand target.",
+            "Enter minimum quantity, discount, audience and validity.",
+            "Save, preview the matching product count, then activate with a reason."
+          ],
+          "rules": [
+            "Offers start inactive.",
+            "The server chooses the eligible offer during pricing.",
+            "Editing content does not silently change its active status."
+          ]
+        },
+        {
+          "whoUses": "Product master administrators.",
+          "notes": "Phone navigation provides Home, Catalog, Cart, Orders and Account. Your role determines which actions and account sections are available.",
+          "route": "/items/:itemId?tab=images",
+          "title": "Item images",
+          "purpose": "Upload item images, browse the gallery by format and choose a primary catalog image.",
+          "permission": "Item view opens the item. File viewing reads the gallery; item update and file upload allow new images.",
+          "keyActions": [],
+          "flow": [
+            "Open an item and choose Images.",
+            "Choose JPEG, PNG or WebP in Image type.",
+            "Upload and set primary, or select an existing image as primary.",
+            "Remove the primary association when needed."
+          ],
+          "rules": [
+            "Removing primary does not delete the stored image.",
+            "Gallery pagination and image-type filtering are performed by the server."
+          ]
         }
       ]
     }

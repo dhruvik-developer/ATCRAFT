@@ -16,8 +16,17 @@ preserve their original planning and audit evidence.
 
 ## Current checkpoint
 
-Updated 24 October 2026. The migration chain has seven revisions: the verified
-`20261021_0100` baseline and six forward revisions through `20261027_0100`.
+Updated 26 October 2026. The migration chain has eleven
+revisions: the verified `20261021_0100` baseline and ten forward revisions through
+`20261031_0100`. The [current full-scope checkpoint](production-scope-20261025.md)
+distinguishes this delivery's fixes and verification from the software packages
+that remain in the user's authorized full scope. Combined release checks and
+full-scope acceptance remain separate; a historical audit or a passing focused
+suite does not establish completion of the proposal.
+The [26 October local release verification](release-verification-20261026.md)
+records the populated portal/responsive/accessibility checks, patched web/proxy
+runtime, seed and restore proofs. The signing integration decision remains
+pending at the user's request; other full-scope work continues.
 The original 58-revision squash is recorded in
 [migration-squash-20261021.md](migration-squash-20261021.md). Application-wide
 standards checks and their results are recorded in the

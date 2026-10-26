@@ -8,7 +8,7 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "test:readiness": "node scripts/ui-readiness-sweep.mjs",
-    "handbook:check": "node --test lib/handbook.test.mjs && node scripts/capture-screens.mjs --check",
+    "handbook:check": "node --test lib/handbook.test.mjs lib/navigation.test.mjs lib/audiences.test.mjs lib/portal-fixtures.test.mjs lib/screen-registry.test.mjs && node scripts/capture-screens.mjs --check",
     "report": "playwright show-report playwright-report",
     "install:browsers": "playwright install --with-deps chromium"
   },

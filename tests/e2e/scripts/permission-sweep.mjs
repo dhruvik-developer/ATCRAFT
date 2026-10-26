@@ -28,6 +28,7 @@ import { writeFileSync } from 'node:fs'
 
 import { BASE_URL as BASE } from '../lib/env.mjs'
 import { createNavigator } from '../lib/navigation.mjs'
+import { routeAudience } from '../lib/audiences.mjs'
 
 // A restricted account, not the administrator: an administrator passes every
 // gate by construction. Create it with `must_change_password: false`, or the
@@ -49,6 +50,22 @@ const GRANTED = new Set([
 
 /** route -> the permission its route guard declares (null = ungated by design). */
 const ROUTES = [
+  ['/vendor', 'vendor_portal.access'],
+  ['/vendor/orders', 'vendor_portal.access'],
+  ['/vendor/shipments', 'vendor_portal.access'],
+  ['/vendor/receipts', 'vendor_portal.access'],
+  ['/vendor/invoices', 'vendor_portal.invoice'],
+  ['/vendor/payments', 'vendor_portal.invoice'],
+  ['/dealer', 'dealer_portal.browse'],
+  ['/dealer/catalog', 'dealer_portal.browse'],
+  ['/dealer/cart', 'dealer_portal.order'],
+  ['/dealer/wishlist', 'dealer_portal.browse'],
+  ['/dealer/orders', 'dealer_portal.order'],
+  ['/dealer/invoices', 'dealer_portal.account'],
+  ['/dealer/returns', 'dealer_portal.return'],
+  ['/dealer/account', 'dealer_portal.account'],
+  ['/promotions', 'promotion.view'],
+  ['/procurement/inbound-tracking', 'purchase_order.view'],
   ['/production/shift-roster', 'shift_roster.view'],
   ['/', 'dashboard.view'],
   ['/items', 'item.view'],
@@ -133,11 +150,15 @@ for (const [route, permission] of ROUTES) {
   }
   page.on('response', onResponse)
 
-  await navigate(route)
+  let audienceRedirect = false
+  try { await navigate(route) } catch (error) {
+    audienceRedirect = routeAudience(route) !== 'staff' && new URL(page.url()).pathname === '/'
+    if (!audienceRedirect) throw error
+  }
   const body = await page.evaluate(() => document.body.innerText).catch(() => '')
   page.off('response', onResponse)
 
-  const denied = /do not have|not authorised|not authorized|permission to|no access/i.test(body)
+  const denied = audienceRedirect || /do not have|not authorised|not authorized|permission to|no access/i.test(body)
   const inNav = navLinks.includes(route)
 
   let verdict

@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Select, and_, case, func, select, true
 
@@ -30,6 +30,7 @@ from src.modules.finance.models import (
     VendorInvoice,
     VendorInvoiceStatus,
 )
+from src.modules.procurement.inbound_models import PurchaseOrderShipment
 from src.modules.procurement.inbound_repository import RECEIPT_REFERENCE, InboundRepository
 from src.modules.procurement.models import (
     VENDOR_VISIBLE_PO_STATUSES,
@@ -70,6 +71,23 @@ class VendorPortalRepository:
     def __init__(self, session: Any, tenant: TenantContext) -> None:
         self.session, self.tenant = session, tenant
         self.orders = InboundRepository(session, tenant)
+
+    async def shipments(
+        self, params: PageParams, status: Literal["all", "in_transit", "delivered"]
+    ) -> tuple[list[PurchaseOrderShipment], OffsetPagination]:
+        stmt = select(PurchaseOrderShipment).where(
+            PurchaseOrderShipment.company_id == self.tenant.company_id,
+            PurchaseOrderShipment.purchase_order_id.in_(self.orders.visible_order_ids()),
+        )
+        if status == "in_transit":
+            stmt = stmt.where(PurchaseOrderShipment.delivered_at.is_(None))
+        elif status == "delivered":
+            stmt = stmt.where(PurchaseOrderShipment.delivered_at.is_not(None))
+        return await paginate(
+            self.session,
+            stmt.order_by(PurchaseOrderShipment.shipped_at.desc(), PurchaseOrderShipment.id.desc()),
+            params,
+        )
 
     # --- profile ------------------------------------------------------------
 
@@ -247,14 +265,31 @@ class VendorPortalRepository:
         return stmt
 
     async def receipts(
-        self, params: PageParams, order_id: uuid.UUID | None = None
+        self,
+        params: PageParams,
+        order_id: uuid.UUID | None = None,
+        *,
+        rejected_only: bool = False,
+        as_of: date | None = None,
     ) -> tuple[list[GoodsReceipt], OffsetPagination]:
         """Own posted receipts, newest first (``(created_at, id)`` - see ``timeline``)."""
+        stmt = self._receipts(order_id)
+        if rejected_only:
+            if as_of is None:
+                raise ValueError("A rejected-receipt query requires its as-of date.")
+            stmt = stmt.where(
+                GoodsReceipt.receipt_date >= as_of - timedelta(days=VENDOR_QC_LOOKBACK_DAYS),
+                select(GoodsReceiptLine.id)
+                .where(
+                    GoodsReceiptLine.company_id == self.tenant.company_id,
+                    GoodsReceiptLine.goods_receipt_id == GoodsReceipt.id,
+                    GoodsReceiptLine.rejected_quantity > 0,
+                )
+                .exists(),
+            )
         return await paginate(
             self.session,
-            self._receipts(order_id).order_by(
-                GoodsReceipt.created_at.desc(), GoodsReceipt.id.desc()
-            ),
+            stmt.order_by(GoodsReceipt.created_at.desc(), GoodsReceipt.id.desc()),
             params,
         )
 

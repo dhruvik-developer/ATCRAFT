@@ -34,6 +34,7 @@ import {
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Badge, Separator } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { PushSessionBridge } from '@/features/notifications/push-session'
 import { api } from '@/lib/api-client'
 import { NOTIFICATION_POLL_MS, STORAGE_KEYS } from '@/lib/constants'
 import { P } from '@/lib/permissions'
@@ -122,6 +123,7 @@ export function AppLayout() {
 
   return (
     <TooltipProvider delayDuration={300}>
+      <PushSessionBridge />
       <div className="flex h-full">
         {/* ------------------------------------------------------ sidebar -- */}
         <aside

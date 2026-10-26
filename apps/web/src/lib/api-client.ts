@@ -82,6 +82,45 @@ export function emptyOnPermissionError<T>(error: unknown): T[] {
 // ----------------------------------------------------------------- tokens ---
 
 let accessToken: string | null = null
+let authGeneration = 0
+
+interface PendingRefresh {
+  generation: number
+  controller: AbortController
+  promise: Promise<RefreshOutcome>
+}
+interface RefreshOutcome {
+  status: 'refreshed' | 'revoked' | 'stale'
+  generation: number
+}
+let refreshInFlight: PendingRefresh | null = null
+const responseGenerations = new WeakMap<Response, number>()
+
+function sessionChanged(): DOMException {
+  return new DOMException('The signed-in session changed.', 'AbortError')
+}
+
+function assertResponseGeneration(response: Response): void {
+  const generation = responseGenerations.get(response)
+  if (generation !== undefined && generation !== authGeneration) throw sessionChanged()
+}
+
+/** Async session work may only finish for the account that started it. */
+export function getAuthGeneration(): number {
+  return authGeneration
+}
+
+/** Stop an earlier cookie rotation before a new login can set its own cookie. */
+export function beginAuthentication(): number {
+  invalidateAuthGeneration()
+  return authGeneration
+}
+
+function invalidateAuthGeneration(): void {
+  authGeneration += 1
+  refreshInFlight?.controller.abort()
+  refreshInFlight = null
+}
 // Storage can be blocked by a browser policy. Keep the last failed write's
 // decision in memory so sign-out still suppresses restoration in this tab.
 let sessionSuppressionOverride: boolean | undefined
@@ -129,12 +168,18 @@ export function onAuthChange(listener: AuthListener): () => void {
 }
 
 export function setTokens(access: string | null): void {
+  invalidateAuthGeneration()
+  installAccessToken(access)
+}
+
+function installAccessToken(access: string | null): void {
   accessToken = access
   if (access) writeSessionSuppression(false)
   authListeners.forEach((l) => l(Boolean(access)))
 }
 
 export function clearTokens(): void {
+  invalidateAuthGeneration()
   accessToken = null
   // JavaScript cannot and must not erase the HttpOnly cookie. This marker stops
   // a failed logout request from silently restoring that cookie on the next
@@ -158,42 +203,60 @@ export function hasRefreshToken(): boolean {
  * as replay and responds to by revoking the entire session chain. The user gets
  * logged out simply for opening a busy page.
  */
-let refreshInFlight: Promise<boolean> | null = null
-
-async function refreshAccessToken(): Promise<boolean> {
-  if (!hasRefreshToken()) return false
-
-  refreshInFlight ??= (async () => {
+async function refreshAccessToken(generation: number): Promise<RefreshOutcome> {
+  const outcome = (status: RefreshOutcome['status']): RefreshOutcome => ({
+    status,
+    generation: authGeneration,
+  })
+  if (generation !== authGeneration) return outcome('stale')
+  if (!hasRefreshToken()) {
+    clearTokens()
+    return outcome('revoked')
+  }
+  if (refreshInFlight?.generation === generation) return refreshInFlight.promise
+  const controller = new AbortController()
+  const pending: PendingRefresh = {
+    generation,
+    controller,
+    promise: Promise.resolve(outcome('stale')),
+  }
+  pending.promise = (async () => {
     try {
       const response = await fetch(`${BASE_URL}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'X-CSRF-Token': cookieValue(CSRF_COOKIE_NAME) ?? '' },
+        signal: controller.signal,
       })
+      if (generation !== authGeneration) return outcome('stale')
       if (!response.ok) {
         clearTokens()
-        return false
+        return outcome('revoked')
       }
       const body = await readEnvelope(response)
+      if (generation !== authGeneration) return outcome('stale')
       if (
         !isRecord(body?.data) ||
         typeof body.data.access_token !== 'string' ||
         !body.data.access_token
       ) {
         clearTokens()
-        return false
+        return outcome('revoked')
       }
-      setTokens(body.data.access_token)
-      return true
+      // Refresh rotates this session's credential; it does not begin a new login.
+      installAccessToken(body.data.access_token)
+      return outcome('refreshed')
     } catch {
+      if (generation !== authGeneration) return outcome('stale')
       clearTokens()
-      return false
+      return outcome('revoked')
     } finally {
-      refreshInFlight = null
+      if (refreshInFlight === pending) refreshInFlight = null
     }
   })()
 
-  return refreshInFlight
+  refreshInFlight = pending
+  return pending.promise
 }
 
 // ----------------------------------------------------------------- core -----
@@ -221,9 +284,11 @@ function buildUrl(path: string, params?: Record<string, unknown>): string {
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
+  assertResponseGeneration(response)
   const requestId = response.headers.get('X-Request-ID') ?? undefined
   try {
     const body: unknown = await response.json()
+    assertResponseGeneration(response)
     if (!isErrorEnvelope(body)) throw invalidResponse(response)
     const error = body.error
     return new ApiError(
@@ -234,6 +299,7 @@ async function toApiError(response: Response): Promise<ApiError> {
       body.request_id ?? requestId,
     )
   } catch (error) {
+    assertResponseGeneration(response)
     if (isAbortError(error)) throw error
     // A proxy or gateway can fail before the app supplies a valid envelope.
     return new ApiError(
@@ -292,11 +358,14 @@ function invalidResponse(response: Response): ApiError {
 
 /** Validate shared metadata once; resource data remains the caller's generic type. */
 async function readEnvelope(response: Response): Promise<ApiEnvelope<unknown> | undefined> {
+  assertResponseGeneration(response)
   if (response.status === 204 || response.status === 205) return undefined
   let value: unknown
   try {
     value = await response.json()
+    assertResponseGeneration(response)
   } catch (error) {
+    assertResponseGeneration(response)
     if (isAbortError(error)) throw error
     throw invalidResponse(response)
   }
@@ -360,6 +429,7 @@ async function request(
   options: RequestOptions = {},
 ): Promise<Response> {
   const { body, params, anonymous, headers, ...rest } = options
+  const generation = authGeneration
 
   const send = async (): Promise<Response> => {
     const finalHeaders = new Headers(headers)
@@ -401,15 +471,25 @@ async function request(
   }
 
   let response = await send()
+  if (!anonymous && generation !== authGeneration) throw sessionChanged()
+  if (!anonymous) responseGenerations.set(response, generation)
 
   // One transparent refresh-and-retry. The login and refresh endpoints are
   // excluded, since a 401 from those means the credentials are simply wrong.
-  if (response.status === 401 && !anonymous && !path.startsWith('/auth/refresh')) {
-    if (await refreshAccessToken()) {
+  if (
+    response.status === 401 &&
+    !anonymous &&
+    !path.startsWith('/auth/refresh') &&
+    path !== '/auth/logout'
+  ) {
+    const refreshed = await refreshAccessToken(generation)
+    if (refreshed.status === 'stale' || refreshed.generation !== authGeneration)
+      throw sessionChanged()
+    if (refreshed.status === 'refreshed') {
       response = await send()
-    } else {
-      clearTokens()
+      if (generation !== authGeneration) throw sessionChanged()
     }
+    responseGenerations.set(response, refreshed.generation)
   }
 
   if (!response.ok) throw await toApiError(response)
@@ -472,6 +552,7 @@ export const api = {
   async download(path: string, filename?: string, options?: RequestOptions): Promise<void> {
     const response = await request('GET', path, options)
     const blob = await response.blob()
+    assertResponseGeneration(response)
 
     const disposition = response.headers.get('Content-Disposition') ?? ''
     const suggested = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)?.[1]
@@ -496,7 +577,9 @@ export const api = {
    */
   async blobUrl(path: string, options?: RequestOptions): Promise<string> {
     const response = await request('GET', path, options)
-    return URL.createObjectURL(await response.blob())
+    const blob = await response.blob()
+    assertResponseGeneration(response)
+    return URL.createObjectURL(blob)
   },
 }
 

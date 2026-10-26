@@ -51,9 +51,11 @@ taken, named, and is changeable in one place.
   anything else is logged as unusual - but it is not refused, because refusing
   it would be exactly the prohibited branch. The item must exist and be active;
   that is the check that is actually about permission.
-* **A sealed carton cannot be unsealed.** There is no reversing movement in this
-  module. A box packed wrongly is removed from the order by a stock adjustment
-  and a new carton, which leaves a trail; an unseal would leave none.
+* **A sealed carton stays immutable in the normal flow.** The legacy recovery
+  exception only handles an unclaimed order whose serial FINAL inspection named
+  quantities without units. It returns physically recovered packing material at
+  the original issue cost, audits both ledger entries and reopens the carton so
+  the order can be cancelled and repacked with actual serial selections.
 * **Short-packing is allowed only explicitly.** ``CompleteRequest.allow_short_pack``
   defaults to false, so the ordinary case cannot silently ship less than was
   asked for, and using it is recorded on the audit entry.
@@ -74,7 +76,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -146,9 +148,17 @@ from src.modules.packing.schemas import (
     PackingOrderLineRead,
     PackingOrderSummary,
     PackingOrderUpdate,
+    PackingSerialSelection,
     ReadyForDispatchRow,
     SealCartonRequest,
     SealResult,
+)
+from src.modules.packing.serial_tracking import (
+    SerialContent,
+    assert_named_verdicts,
+    assert_selected_contents,
+    requires_named_final,
+    select_final_units,
 )
 from src.modules.products.models import ItemGroup
 from src.modules.reports import service as reports_service
@@ -263,6 +273,12 @@ PACKING_ORDER_LIFECYCLE: StateMachine[PackingOrderStatus] = StateMachine(
             # Freezes the totals a transporter is quoted against and publishes the
             # order to the dispatch feed.
             is_irreversible=True,
+        ),
+        Transition(
+            PackingOrderStatus.PACKED,
+            PackingOrderStatus.IN_PROGRESS,
+            permission=Permission.PACKING_MANAGE,
+            label="Recover legacy serial packing",
         ),
         Transition(
             PackingOrderStatus.PACKED,
@@ -649,6 +665,43 @@ def order_detail(order: PackingOrder, lines: Sequence[PackingOrderLine]) -> Pack
     return detail
 
 
+async def line_reads(
+    session: AsyncSession, tenant: TenantContext, lines: Sequence[PackingOrderLine]
+) -> list[PackingOrderLineRead]:
+    """Packing-authorized facts in two batched reads, never one lookup per line."""
+    items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+    inspected = [line.id for line in lines if line.qc_inspection_id is not None]
+    reader = resolve_inspection_reader_port()
+    inspections = (
+        await reader(session, tenant, QUALITY_REFERENCE_PACKING_ORDER, inspected)
+        if inspected and reader
+        else []
+    )
+    statuses = {row.id: str(row.status) for row in inspections}
+    result = []
+    for line in lines:
+        data = PackingOrderLineRead.model_validate(line)
+        item = items.get(line.item_id)
+        if item is not None:
+            data.is_serial_tracked = item.is_serial_tracked
+            data.is_batch_tracked = item.is_batch_tracked
+            data.requires_final_qc = item.requires_final_qc
+        data.qc_inspection_status = statuses.get(line.qc_inspection_id)
+        result.append(data)
+    return result
+
+
+async def order_read(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PackingOrder,
+    lines: Sequence[PackingOrderLine],
+) -> PackingOrderDetail:
+    detail = PackingOrderDetail.model_validate(order)
+    detail.lines = await line_reads(session, tenant, lines)
+    return detail
+
+
 def carton_detail(carton: Carton, contents: Sequence[CartonContent]) -> CartonDetail:
     detail = CartonDetail.model_validate(carton)
     detail.contents = [CartonContentRead.model_validate(row) for row in contents]
@@ -894,6 +947,11 @@ async def _validate_serials(
                         "order_warehouse_id": str(warehouse_id),
                     },
                 )
+            if serial.batch_id != content.batch_id:
+                raise BusinessRuleError(
+                    f"Serial {serial.serial_number} does not belong to the carton's batch.",
+                    details={"serial_id": str(serial_id), "line_number": content.line_number},
+                )
             if serial.status is not SerialStatus.IN_STOCK:
                 raise BusinessRuleError(
                     f"Serial {serial.serial_number} is {serial.status} and is not in stock.",
@@ -997,7 +1055,7 @@ async def get_order_detail(
     repo = PackingOrderRepository(session, tenant)
     order = await repo.get_or_404(order_id)
     lines = await PackingOrderLineRepository(session, tenant).list_for_order(order_id)
-    return order_detail(order, lines)
+    return await order_read(session, tenant, order, lines)
 
 
 async def list_cartons(
@@ -1765,6 +1823,14 @@ async def _write_contents(
 
     items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
     planned = plan_contents(requests, lines=by_number, items=items)
+    assert_selected_contents(
+        [
+            SerialContent(content.line_id, content.batch_id, content.serial_ids)
+            for content in planned
+        ],
+        lines,
+        items,
+    )
 
     await _validate_batches(session, tenant, planned)
     await _validate_serials(
@@ -1896,6 +1962,27 @@ async def seal_carton(
                 details={"carton_id": str(carton.id), "barcode": carton.barcode},
             )
 
+        lines = await PackingOrderLineRepository(session, tenant).list_for_order(order.id)
+        items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+        assert_selected_contents(
+            [
+                SerialContent(row.packing_order_line_id, row.batch_id, row.serial_ids)
+                for row in contents
+            ],
+            lines,
+            items,
+        )
+        contained = {row.packing_order_line_id for row in contents}
+        serial_final = [
+            line
+            for line in lines
+            if line.id in contained and requires_named_final(items.get(line.item_id))
+        ]
+        if serial_final:
+            # A rejected serial must be replaceable while its carton is open;
+            # sealing before the verdict would permanently freeze rejected units.
+            await _assert_final_qc_accepted(session, tenant, order, serial_final, action="seal")
+
         before = snapshot(carton, CARTON_AUDITED_FIELDS)
         carton.net_weight_kg = net_weight_of(contents)
         carton.gross_weight_kg = gross_weight_of(
@@ -1947,6 +2034,123 @@ async def seal_carton(
         packing_material_item_id=carton.packing_material_item_id,
         packing_material_quantity=Decimal(carton.packing_material_quantity),
     )
+
+
+async def recover_legacy_carton(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    carton_id: uuid.UUID,
+    *,
+    reason: str,
+) -> CartonDetail:
+    """Return a legacy box's original issue and reopen it for audited repacking.
+
+    This exception is restricted to orders with quantity-only serial FINAL QC,
+    before dispatch claims them. It never supplies missing historical unit names.
+    The operator must physically recover the reusable material, then cancel and
+    repack with freshly selected units; shipped history is immutable.
+    """
+    repo = PackingOrderRepository(session, tenant)
+    carton_repo = CartonRepository(session, tenant)
+    async with transaction(session):
+        order = await _lock_order(repo, order_id)
+        if (
+            order.status not in (PackingOrderStatus.IN_PROGRESS, PackingOrderStatus.PACKED)
+            or order.dispatch_id is not None
+        ):
+            raise BusinessRuleError(
+                "Only active packing orders not claimed by dispatch can recover legacy cartons."
+            )
+        lines = await PackingOrderLineRepository(session, tenant).list_for_order(order.id)
+        items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+        if not any(
+            requires_named_final(items.get(line.item_id))
+            and line.qc_inspection_id is not None
+            and not line.qc_serial_ids
+            for line in lines
+        ):
+            raise BusinessRuleError(
+                "Only legacy serial FINAL packing without named QC selections "
+                "can recover a sealed carton."
+            )
+        carton = await carton_repo.get_in_order(order.id, carton_id)
+        if carton is None:
+            raise NotFoundError("Carton", carton_id)
+        if not carton.is_sealed or carton.material_transaction_id is None:
+            raise BusinessRuleError(
+                "Only a sealed legacy carton can return its original packing material."
+            )
+        original_id = carton.material_transaction_id
+        issue = await carton_repo.material_issue(original_id)
+        if (
+            issue is None
+            or str(issue.transaction_type) != "MATERIAL_ISSUE"
+            or issue.reference_type != MOVEMENT_REFERENCE_CARTON
+            or issue.reference_id != carton.id
+            or issue.item_id != carton.packing_material_item_id
+            or issue.warehouse_id != order.warehouse_id
+            or -issue.quantity != carton.packing_material_quantity
+        ):
+            raise BusinessRuleError(
+                "The carton has no matching original material issue; "
+                "reconcile its ledger before recovery."
+            )
+        before = snapshot(carton, CARTON_AUDITED_FIELDS)
+        posted = await post_movements(
+            session,
+            tenant,
+            [
+                MovementRequest(
+                    item_id=issue.item_id,
+                    warehouse_id=issue.warehouse_id,
+                    location_id=issue.location_id,
+                    batch_id=issue.batch_id,
+                    serial_id=issue.serial_id,
+                    quantity=-issue.quantity,
+                    unit_cost=issue.unit_cost,
+                    transaction_type=TransactionType.MATERIAL_RETURN,
+                    reference_type=MOVEMENT_REFERENCE_CARTON,
+                    reference_id=carton.id,
+                    reference_code=carton.barcode,
+                    reason=reason,
+                )
+            ],
+        )
+        carton.is_sealed = False
+        carton.sealed_at = None
+        carton.material_transaction_id = None
+        carton_repo.touch(carton)
+        if order.status == PackingOrderStatus.PACKED:
+            order.packed_date = None
+            order.packed_by_id = None
+            order.total_cartons = 0
+            order.total_gross_weight = ZERO
+            order.total_net_weight = ZERO
+            await _transition(
+                session, tenant, order, PackingOrderStatus.IN_PROGRESS, reason=reason, repo=repo
+            )
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_CARTON,
+            entity_id=carton.id,
+            entity_code=carton.barcode,
+            summary=f"Recovered legacy carton {carton.barcode} for named-unit repacking",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(carton, CARTON_AUDITED_FIELDS),
+            context={
+                "reason": reason,
+                "packing_order_id": str(order.id),
+                "original_material_issue_id": str(original_id),
+                "material_return_id": str(posted[0].id),
+            },
+        )
+        contents = await CartonContentRepository(session, tenant).list_for_carton(carton.id)
+    return carton_detail(carton, contents)
 
 
 async def remove_carton(
@@ -2112,7 +2316,20 @@ class QualityPort(Protocol):
         reference_type: str,
         reference_id: uuid.UUID,
         reference_code: str,
+        batch_id: uuid.UUID | None = None,
+        serial_ids: Sequence[uuid.UUID] | None = None,
     ) -> Any: ...
+
+
+class _SerialInspectionOptions(TypedDict, total=False):
+    serial_ids: Sequence[uuid.UUID]
+    batch_id: uuid.UUID | None
+
+
+def _serial_inspection_options(line: PackingOrderLine) -> _SerialInspectionOptions:
+    if getattr(line, "qc_serial_ids", None):
+        return {"serial_ids": line.qc_serial_ids, "batch_id": line.qc_batch_id}
+    return {}
 
 
 def resolve_quality_port() -> QualityPort | None:
@@ -2194,6 +2411,7 @@ async def _raise_line_inspections(
             reference_type=QUALITY_REFERENCE_PACKING_ORDER,
             reference_id=line.id,
             reference_code=order.code,
+            **_serial_inspection_options(line),
         )
         line.qc_inspection_id = getattr(inspection, "id", None)
         if line.qc_inspection_id is not None:
@@ -2227,7 +2445,9 @@ async def _assert_final_qc_accepted(
     which is refused loudly rather than waved through.
     """
     inspected = [line for line in lines if line.qc_inspection_id is not None]
+    items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
     if not inspected:
+        assert_named_verdicts(lines, items, {})
         return
     reader = resolve_inspection_reader_port()
     if reader is None:
@@ -2242,6 +2462,17 @@ async def _assert_final_qc_accepted(
         [line.id for line in inspected],
     )
     by_id = {getattr(verdict, "id", None): verdict for verdict in verdicts}
+    assert_named_verdicts(lines, items, by_id)
+    if any(requires_named_final(items.get(line.item_id)) for line in lines):
+        contents = await CartonContentRepository(session, tenant).list_for_order(order.id)
+        assert_selected_contents(
+            [
+                SerialContent(row.packing_order_line_id, row.batch_id, row.serial_ids)
+                for row in contents
+            ],
+            lines,
+            items,
+        )
     blocking = [
         line
         for line in inspected
@@ -2262,13 +2493,21 @@ async def _assert_final_qc_accepted(
 
 
 async def start_packing(
-    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    *,
+    reason: str,
+    serial_selections: Sequence[PackingSerialSelection] = (),
 ) -> tuple[PackingOrder, list[PackingOrderLine]]:
     """Put a draft on the bench. Cartons may be opened from here."""
     repo = PackingOrderRepository(session, tenant)
 
     async with transaction(session):
         order = await _lock_order(repo, order_id)
+        PACKING_ORDER_LIFECYCLE.assert_transition(
+            PackingOrderStatus(order.status), PackingOrderStatus.IN_PROGRESS
+        )
         lines = await PackingOrderLineRepository(session, tenant).list_for_order(order.id)
         if not lines:
             raise BusinessRuleError(
@@ -2278,6 +2517,8 @@ async def start_packing(
         # Final QC is fail-closed: a line whose item requires it starts no
         # bench without its FINAL inspection, because completing that bench
         # without one would be the gate waving through goods nobody inspected.
+        items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+        select_final_units(lines, items, serial_selections)
         quality_port = resolve_quality_port()
         if quality_port is not None:
             raised = await _raise_line_inspections(session, tenant, order, lines, quality_port)
@@ -2310,7 +2551,18 @@ async def start_packing(
                 entity_code=order.code,
                 summary=(f"{order.code} raised {raised} FINAL inspection(s) on start"),
                 user_id=tenant.user_id,
-                new_values={"final_inspections_raised": raised},
+                new_values={
+                    "final_inspections_raised": raised,
+                    "final_qc_serial_selections": [
+                        {
+                            "line_id": str(line.id),
+                            "serial_ids": line.qc_serial_ids,
+                            "batch_id": line.qc_batch_id,
+                        }
+                        for line in lines
+                        if line.qc_serial_ids
+                    ],
+                },
                 context={"reason": reason},
             )
 
@@ -2417,7 +2669,7 @@ async def complete_packing(
         )
 
     return PackingCompletionResult(
-        order=order_detail(order, lines),
+        order=await order_read(session, tenant, order, lines),
         total_cartons=totals.carton_count,
         total_gross_weight=totals.gross_weight,
         total_net_weight=totals.net_weight,
@@ -2482,6 +2734,8 @@ async def reinspect_line(
     line_id: uuid.UUID,
     *,
     reason: str,
+    serial_ids: Sequence[uuid.UUID] = (),
+    batch_id: uuid.UUID | None = None,
 ) -> PackingOrderLine:
     """Raise a fresh FINAL inspection for a rejected packing line.
 
@@ -2541,6 +2795,35 @@ async def reinspect_line(
                 details={"order_id": str(order.id), "line_id": str(line.id)},
             )
         quantity = to_quantity(Decimal(line.quantity_to_pack))
+        items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+        if requires_named_final(items.get(line.item_id)):
+            if not serial_ids:
+                raise BusinessRuleError(
+                    "Select the replacement serial units for FINAL re-inspection."
+                )
+            sealed = await CartonContentRepository(session, tenant).list_for_order(
+                order.id, sealed_only=True
+            )
+            if any(row.packing_order_line_id == line.id for row in sealed):
+                raise BusinessRuleError(
+                    "A sealed carton cannot be assigned replacement serials. "
+                    "Recover eligible legacy cartons, then cancel and repack "
+                    "the replacement units.",
+                    details={"line_id": str(line.id)},
+                )
+            select_final_units(
+                lines,
+                items,
+                [
+                    PackingSerialSelection(
+                        line_id=line.id, serial_ids=list(serial_ids), batch_id=batch_id
+                    )
+                ],
+            )
+        elif serial_ids or batch_id is not None:
+            raise BusinessRuleError(
+                "Serial selections belong only to lines requiring serial FINAL QC."
+            )
         inspection = await quality_port(
             session,
             tenant,
@@ -2550,6 +2833,7 @@ async def reinspect_line(
             reference_type=QUALITY_REFERENCE_PACKING_ORDER,
             reference_id=line.id,
             reference_code=order.code,
+            **_serial_inspection_options(line),
         )
         previous = line.qc_inspection_id
         line.qc_inspection_id = getattr(inspection, "id", None)
@@ -2571,6 +2855,8 @@ async def reinspect_line(
                 "line_id": str(line.id),
                 "previous_inspection_id": str(previous),
                 "inspection_id": str(line.qc_inspection_id),
+                "serial_ids": line.qc_serial_ids,
+                "batch_id": line.qc_batch_id,
             },
             context={"reason": reason},
         )
@@ -2619,6 +2905,8 @@ async def cancel_order(
                 details={"order_id": str(order.id), "sealed_cartons": totals.sealed_count},
             )
 
+        await _withdraw_order_inspections(session, tenant, order.id, reason=reason)
+
         cartons = await carton_repo.list_for_order(order.id)
         if cartons:
             carton_ids = [c.id for c in cartons]
@@ -2645,6 +2933,17 @@ async def cancel_order(
         )
 
     return order
+
+
+async def _withdraw_order_inspections(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
+) -> None:
+    lines = await PackingOrderLineRepository(session, tenant).list_for_order(order_id)
+    inspected = [line.id for line in lines if line.qc_inspection_id is not None]
+    if inspected:
+        from src.modules.quality.withdrawal import withdraw_packing_inspections
+
+        await withdraw_packing_inspections(session, tenant, inspected, reason=reason)
 
 
 # -----------------------------------------------------------------------------

@@ -82,6 +82,7 @@ import { useItemFacts, type DispatchRow } from '@/features/dispatch/dispatch-typ
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import {
   LOOKUP_LIST_LIMIT,
   REASON_MAX_LENGTH,
@@ -814,6 +815,7 @@ function CartonCard({
   const queryClient = useQueryClient()
   const [sealOpen, setSealOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [recoverOpen, setRecoverOpen] = useState(false)
   const [labelOpen, setLabelOpen] = useState(false)
 
   const label = useQuery({
@@ -850,6 +852,42 @@ function CartonCard({
       toast.success(success.removed('Carton'), 'Its contents have gone back to the order lines.')
       setDeleteOpen(false)
     },
+  })
+
+  const recoverLegacy = useMutation({
+    mutationFn: (reason: string) =>
+      api.post(`/packing/${order.id}/cartons/${carton.id}/recover-legacy`, { reason }),
+    onSuccess: () => {
+      invalidate()
+      void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
+      toast.success(
+        'Legacy carton recovered',
+        'Cancel the legacy order and repack with named final QC units.',
+      )
+      setRecoverOpen(false)
+    },
+  })
+  const canRecoverLegacy =
+    canManage &&
+    carton.is_sealed &&
+    Boolean(carton.material_transaction_id) &&
+    !order.dispatch_id &&
+    ['IN_PROGRESS', 'PACKED'].includes(order.status) &&
+    lines.some(
+      (line) =>
+        line.is_serial_tracked &&
+        line.requires_final_qc &&
+        line.qc_inspection_id &&
+        !line.qc_serial_ids?.length,
+    )
+
+  const waitingForSerialQc = carton.contents.some((content) => {
+    const line = lines.find((entry) => entry.id === content.packing_order_line_id)
+    return (
+      line?.is_serial_tracked &&
+      line.requires_final_qc &&
+      !['ACCEPTED', 'CLOSED'].includes(line.qc_inspection_status ?? '')
+    )
   })
 
   const emptyCarton = useMutation({
@@ -907,7 +945,12 @@ function CartonCard({
           </Button>
           {canManage && open && orderPackable && (
             <>
-              <Button variant="outline" size="sm" onClick={() => setSealOpen(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={waitingForSerialQc}
+                onClick={() => setSealOpen(true)}
+              >
                 <Lock />
                 Seal carton
               </Button>
@@ -921,10 +964,29 @@ function CartonCard({
               </Button>
             </>
           )}
+          {canRecoverLegacy && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                recoverLegacy.reset()
+                setRecoverOpen(true)
+              }}
+            >
+              Recover legacy carton
+            </Button>
+          )}
         </div>
       </div>
 
       <div className="p-3">
+        {open && waitingForSerialQc && (
+          <p role="status" className="mb-3 text-sm text-warning">
+            This carton must remain open until its named serial units pass final QC. Replace
+            rejected units before sealing.
+          </p>
+        )}
         {carton.contents.length === 0 ? (
           <p className="py-3 text-center text-sm text-muted-foreground">
             Nothing packed in this carton yet.
@@ -1049,7 +1111,21 @@ function CartonCard({
         confirmLabel="Seal carton"
         loading={seal.isPending}
         onConfirm={(reason) => seal.mutate(reason)}
-      />
+      >
+        <FieldError message={fieldErrorSummary(seal.error) || undefined} />
+      </ReasonDialog>
+
+      <ReasonDialog
+        open={recoverOpen}
+        onOpenChange={setRecoverOpen}
+        title={`Recover legacy carton ${carton.carton_number}?`}
+        description="Physically recover its reusable packing material before confirming. This returns the original material issue and reopens the carton, so the legacy order can be cancelled and repacked with named final QC units."
+        confirmLabel="Recover carton for repacking"
+        loading={recoverLegacy.isPending}
+        onConfirm={(reason) => recoverLegacy.mutate(reason)}
+      >
+        <FieldError message={fieldErrorSummary(recoverLegacy.error) || undefined} />
+      </ReasonDialog>
 
       <ReasonDialog
         open={deleteOpen}
@@ -1116,6 +1192,91 @@ function PackingListAction({ order }: { order: PackingOrderDetail }) {
 
 type OrderAction = 'start' | 'complete' | 'hand-over' | 'close' | 'cancel'
 
+function ReinspectLine({ order, line }: { order: PackingOrderDetail; line: PackingOrderLine }) {
+  const [open, setOpen] = useState(false)
+  const [serialIds, setSerialIds] = useState<string[]>([])
+  const [batchId, setBatchId] = useState('')
+  const [error, setError] = useState<string>()
+  const queryClient = useQueryClient()
+  const reinspect = useMutation({
+    mutationFn: (reason: string) =>
+      api.post(`/packing/${order.id}/lines/${line.id}/reinspect`, {
+        reason,
+        ...(line.is_serial_tracked ? { serial_ids: serialIds, batch_id: batchId || null } : {}),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: packingKeys.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      toast.success('Replacement inspection raised', `Line ${line.line_number}`)
+      setOpen(false)
+      setSerialIds([])
+      setBatchId('')
+    },
+  })
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          setError(undefined)
+          reinspect.reset()
+          setOpen(true)
+        }}
+      >
+        Replace rejected QC lot
+      </Button>
+      <ReasonDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={`Replace final QC lot for line ${line.line_number}`}
+        description="Use after the previous final inspection was rejected. Name the replacement units; the rejected lot stays in its recorded disposition."
+        confirmLabel="Raise replacement inspection"
+        loading={reinspect.isPending}
+        onConfirm={(reason) => {
+          if (
+            line.is_serial_tracked &&
+            !toDecimal(line.quantity_to_pack).equals(serialIds.length)
+          ) {
+            setError('Select one replacement serial for every unit on this line.')
+            return
+          }
+          reinspect.mutate(reason)
+        }}
+      >
+        {line.is_serial_tracked && (
+          <div className="space-y-3">
+            {line.is_batch_tracked && (
+              <BatchSelect
+                id={`reinspect-batch-${line.id}`}
+                itemId={line.item_id}
+                value={batchId}
+                onChange={(value) => {
+                  setBatchId(value)
+                  setSerialIds([])
+                }}
+              />
+            )}
+            <SerialPicker
+              idPrefix={`reinspect-${line.id}`}
+              itemId={line.item_id}
+              warehouseId={order.warehouse_id}
+              batchId={batchId || null}
+              quantity={line.quantity_to_pack}
+              selected={serialIds}
+              onChange={setSerialIds}
+              excludedIds={line.qc_serial_ids ?? []}
+            />
+          </div>
+        )}
+        <FieldError message={error || fieldErrorSummary(reinspect.error) || undefined} />
+      </ReasonDialog>
+    </>
+  )
+}
+
 /**
  * The order's lifecycle buttons.
  *
@@ -1129,6 +1290,13 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
   const [action, setAction] = useState<OrderAction | null>(null)
   const [allowShortPack, setAllowShortPack] = useState(false)
   const [dispatchId, setDispatchId] = useState('')
+  const [startUnits, setStartUnits] = useState<
+    Record<string, { serial_ids: string[]; batch_id: string }>
+  >({})
+  const [unitError, setUnitError] = useState<string>()
+  const serialQcLines = order.lines.filter(
+    (line) => line.is_serial_tracked && line.requires_final_qc,
+  )
 
   // A hand-over names the consignment the boxes are loaded onto, so the only
   // useful list is the customer's consignments that have not left yet.
@@ -1172,6 +1340,16 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
       if (next === 'hand-over') {
         return api.post(`/packing/${order.id}/hand-over`, { reason, dispatch_id: dispatchId })
       }
+      if (next === 'start' && serialQcLines.length) {
+        return api.post(`/packing/${order.id}/start`, {
+          reason,
+          serial_selections: serialQcLines.map((line) => ({
+            line_id: line.id,
+            serial_ids: startUnits[line.id]?.serial_ids ?? [],
+            batch_id: startUnits[line.id]?.batch_id || null,
+          })),
+        })
+      }
       return api.post(`/packing/${order.id}/${next}`, { reason })
     },
     onSuccess: (result, { next }) => {
@@ -1191,6 +1369,8 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
       setAction(null)
       setAllowShortPack(false)
       setDispatchId('')
+      setStartUnits({})
+      setUnitError(undefined)
     },
   })
 
@@ -1273,6 +1453,8 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
             setAction(null)
             setAllowShortPack(false)
             setDispatchId('')
+            setStartUnits({})
+            setUnitError(undefined)
           }
         }}
         title={action ? copy[action].title : ''}
@@ -1282,9 +1464,57 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
         loading={run.isPending}
         onConfirm={(reason) => {
           if (action === 'hand-over' && !dispatchId) return
+          if (action === 'start') {
+            const selected = serialQcLines.flatMap((line) => startUnits[line.id]?.serial_ids ?? [])
+            if (
+              selected.length !== new Set(selected).size ||
+              serialQcLines.some(
+                (line) =>
+                  !toDecimal(line.quantity_to_pack).equals(
+                    startUnits[line.id]?.serial_ids.length ?? 0,
+                  ),
+              )
+            ) {
+              setUnitError('Choose one distinct serial unit for every unit requiring final QC.')
+              return
+            }
+          }
           if (action) run.mutate({ next: action, reason })
         }}
       >
+        {action === 'start' && (
+          <div className="space-y-3">
+            {serialQcLines.map((line) => {
+              const selected = startUnits[line.id] ?? { serial_ids: [], batch_id: '' }
+              const update = (value: typeof selected) =>
+                setStartUnits((current) => ({ ...current, [line.id]: value }))
+              return (
+                <div key={line.id} className="space-y-2">
+                  <p className="text-sm font-medium">Line {line.line_number}: final QC units</p>
+                  {line.is_batch_tracked && (
+                    <BatchSelect
+                      id={`packing-qc-batch-${line.id}`}
+                      itemId={line.item_id}
+                      value={selected.batch_id}
+                      onChange={(value) => update({ batch_id: value, serial_ids: [] })}
+                    />
+                  )}
+                  <SerialPicker
+                    idPrefix={`packing-qc-${line.id}`}
+                    itemId={line.item_id}
+                    warehouseId={order.warehouse_id}
+                    batchId={selected.batch_id || null}
+                    quantity={line.quantity_to_pack}
+                    selected={selected.serial_ids}
+                    onChange={(serial_ids) => update({ ...selected, serial_ids })}
+                  />
+                </div>
+              )
+            })}
+            <FieldError message={unitError} />
+          </div>
+        )}
+        <FieldError message={fieldErrorSummary(run.error) || undefined} />
         {action === 'complete' && (
           <div className="flex items-start gap-2.5">
             <Checkbox
@@ -1537,6 +1767,25 @@ export function PackingOrderDialog({
                               >
                                 {line.item_id}
                               </span>
+                              {line.qc_inspection_id && (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Final QC inspection:{' '}
+                                  <span className="font-mono">{line.qc_inspection_id}</span>
+                                  {line.qc_inspection_status && (
+                                    <span className="ml-2">
+                                      <StatusBadge status={line.qc_inspection_status} />
+                                    </span>
+                                  )}
+                                </p>
+                              )}
+                              {canManage &&
+                                isPackable(data.status) &&
+                                line.qc_inspection_id &&
+                                line.qc_inspection_status === 'REJECTED' && (
+                                  <div className="mt-2">
+                                    <ReinspectLine order={data} line={line} />
+                                  </div>
+                                )}
                             </td>
                             <td className="px-3 py-2 text-right tabular">
                               {formatQuantity(line.quantity_to_pack)}

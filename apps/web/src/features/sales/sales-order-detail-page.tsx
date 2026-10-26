@@ -1029,6 +1029,7 @@ export default function SalesOrderDetailPage() {
         status={
           <span className="flex items-center gap-2">
             <StatusBadge status={order.status} />
+            {order.source === 'DEALER_PORTAL' && <Badge variant="secondary">Dealer portal</Badge>}
             <Badge variant="muted">Priority {order.priority}</Badge>
             {order.is_urgent && <Badge variant="destructive">Urgent</Badge>}
           </span>

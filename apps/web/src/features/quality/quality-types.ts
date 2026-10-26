@@ -79,6 +79,7 @@ export const QC_INSPECTION_STATUSES: readonly QcInspectionStatus[] = [
   'HOLD',
   'SCRAP',
   'CLOSED',
+  'WITHDRAWN',
 ]
 
 export type QcParameterType = SchemaOf<'ParameterType'>
@@ -100,6 +101,13 @@ export const QC_PARAMETER_TYPES = ['NUMERIC', 'BOOLEAN', 'TEXT', 'SELECT'] as co
  */
 export const isInspectable = (status: string): boolean =>
   status === 'PENDING' || status === 'IN_PROGRESS' || status === 'REWORK' || status === 'HOLD'
+
+/** A withdrawn lot keeps its historical verdict but no longer authorizes stock release. */
+export function inspectionBadgeStatus(
+  row: Pick<QcInspectionRow, 'status' | 'result'>,
+): QcInspectionStatus | QcResult {
+  return row.status === 'WITHDRAWN' || row.result === 'PENDING' ? row.status : row.result
+}
 
 /**
  * `DecideRequest.rejection_reason` on `POST .../decide`: 3..2000 characters,

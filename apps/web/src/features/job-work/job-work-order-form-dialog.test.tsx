@@ -96,6 +96,8 @@ const DETAIL: JobWorkOrderDetail = {
       line_number: 1,
       item_id: ITEM.id,
       is_batch_tracked: false,
+      is_serial_tracked: false,
+      serial_ids: [],
       batch_id: null,
       uom_id: 'uom-pcs',
       quantity_to_issue: '100.0000',

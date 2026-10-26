@@ -20,11 +20,11 @@
  *    and the whole sidebar hidden until the next hard reload.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { fail, meResponse, ok, renderScreen, type RouteTable } from '@/test/harness'
+import { fail, meResponse, ok, renderScreen, type RouteBody, type RouteTable } from '@/test/harness'
 
 import { LoginPage } from './login-page'
 
@@ -260,6 +260,61 @@ describe('what the form sends', () => {
       challenge_token: 'signed-mfa-challenge',
       code: '123456',
     })
+  })
+
+  it('blocks duplicate MFA verification and cancels it when returning to password sign-in', async () => {
+    let meCalls = 0
+    let passwordCalls = 0
+    let finishVerification!: (response: RouteBody) => void
+    let finishPassword!: (response: RouteBody) => void
+    const { user, fetch } = renderLogin({
+      'GET /auth/me': () =>
+        ++meCalls === 1
+          ? fail(401, 'UNAUTHENTICATED', 'Not authenticated')
+          : meResponse(['item.view']),
+      'POST /auth/login': () =>
+        ++passwordCalls === 1
+          ? ok({ mfa_required: true, challenge_token: 'signed-mfa-challenge', expires_in: 300 })
+          : new Promise<RouteBody>((resolve) => {
+              finishPassword = resolve
+            }),
+      'POST /auth/mfa/verify': () =>
+        new Promise<RouteBody>((resolve) => {
+          finishVerification = resolve
+        }),
+    })
+    const originalFetch = globalThis.fetch
+    let verificationSignal: AbortSignal | null | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/auth/mfa/verify')) verificationSignal = init?.signal
+        return originalFetch(input, init)
+      }),
+    )
+    await signIn(user, 'mfa@atcraft.example', 'correct horse battery')
+    await user.type(screen.getByLabelText(/Authentication code/), '123456')
+    await user.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+    const verify = screen.getByRole('button', { name: /Verify and sign in/ })
+    expect(verify).toBeDisabled()
+    fireEvent.submit(verify.closest('form')!)
+    expect(fetch.calls.filter((call) => call.path === '/auth/mfa/verify')).toHaveLength(1)
+    expect(verificationSignal?.aborted).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Back to password' }))
+    expect(verificationSignal?.aborted).toBe(true)
+    const submit = await signInButton()
+    expect(submit).toBeEnabled()
+    await user.click(submit)
+    expect(submit).toBeDisabled()
+    await act(async () => {
+      finishVerification(fail(401, 'UNAUTHENTICATED', 'Old verification failed'))
+    })
+    expect(submit).toBeDisabled()
+    expect(screen.queryByText('Old verification failed')).not.toBeInTheDocument()
+    await act(async () => {
+      finishPassword(ok(tokenPair()))
+    })
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/'))
   })
 })
 

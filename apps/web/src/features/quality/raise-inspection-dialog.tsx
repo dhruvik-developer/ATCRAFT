@@ -14,7 +14,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -43,6 +43,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { SerialPicker } from '@/features/dispatch/stock-pickers'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
@@ -76,6 +77,7 @@ const schema = z
     item_id: z.string().min(1, validation.choose('the item')),
     warehouse_id: z.string().min(1, validation.choose('the warehouse')),
     batch_id: z.string().trim(),
+    serial_ids: z.array(z.string()).max(10_000),
     inspected_quantity: z
       .string()
       .trim()
@@ -118,6 +120,7 @@ function emptyValues(): RaiseFormValues {
     item_id: '',
     warehouse_id: '',
     batch_id: '',
+    serial_ids: [],
     inspected_quantity: '',
     hold_stock: true,
     template_id: SELECT_NONE,
@@ -146,6 +149,7 @@ export function RaiseInspectionDialog({
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
+  const [serialTracked, setSerialTracked] = useState(false)
 
   const {
     register,
@@ -153,16 +157,23 @@ export function RaiseInspectionDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<RaiseFormValues>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
 
   useEffect(() => {
-    if (open) reset(emptyValues())
+    if (open) {
+      reset(emptyValues())
+      setSerialTracked(false)
+    }
   }, [open, reset])
 
   const itemId = watch('item_id')
   const stage = watch('qc_stage')
+  const warehouseId = watch('warehouse_id')
+  const batchId = watch('batch_id')
+  const quantity = watch('inspected_quantity')
 
   // The template is optional: naming one inspects against that specification,
   // leaving it empty inspects against the inspector's judgement. Scoped to
@@ -186,6 +197,7 @@ export function RaiseInspectionDialog({
         qc_stage: values.qc_stage,
         inspected_quantity: values.inspected_quantity.trim(),
         batch_id: values.batch_id.trim() === '' ? null : values.batch_id.trim(),
+        ...(serialTracked ? { serial_ids: values.serial_ids } : {}),
         hold_stock: values.hold_stock,
         template_id: values.template_id === SELECT_NONE ? null : values.template_id,
         reference_type: values.reference_type,
@@ -214,7 +226,13 @@ export function RaiseInspectionDialog({
         </DialogHeader>
 
         <form
-          onSubmit={handleSubmit((values) => raise.mutate(values))}
+          onSubmit={handleSubmit((values) => {
+            if (serialTracked && values.serial_ids.length !== Number(values.inspected_quantity)) {
+              setError('serial_ids', { message: 'Select one serial unit for each inspected unit.' })
+              return
+            }
+            raise.mutate(values)
+          })}
           className="flex min-h-0 flex-col gap-4"
           noValidate
         >
@@ -254,7 +272,11 @@ export function RaiseInspectionDialog({
                       id="raise-item"
                       label="Item"
                       value={field.value || null}
-                      onChange={(value) => field.onChange(value ?? '')}
+                      onChange={(value, item) => {
+                        field.onChange(value ?? '')
+                        setSerialTracked(item?.is_serial_tracked === true)
+                        setValue('serial_ids', [])
+                      }}
                       placeholder="Search the item master"
                       invalid={Boolean(errors.item_id)}
                     />
@@ -272,7 +294,10 @@ export function RaiseInspectionDialog({
                       id="raise-warehouse"
                       label="Warehouse"
                       value={field.value}
-                      onChange={field.onChange}
+                      onChange={(value) => {
+                        field.onChange(value)
+                        setValue('serial_ids', [])
+                      }}
                     />
                   )}
                 />
@@ -296,12 +321,37 @@ export function RaiseInspectionDialog({
                 <Input
                   id="raise-batch"
                   {...register('batch_id')}
+                  onChange={(event) => {
+                    void register('batch_id').onChange(event)
+                    setValue('serial_ids', [])
+                  }}
                   placeholder="Required for batch-tracked items"
                   className="mt-1.5 font-mono text-xs"
                   aria-invalid={Boolean(errors.batch_id)}
                 />
                 <FieldError message={errors.batch_id?.message} />
               </div>
+
+              {serialTracked && (
+                <div className="sm:col-span-2">
+                  <Controller
+                    control={control}
+                    name="serial_ids"
+                    render={({ field }) => (
+                      <SerialPicker
+                        idPrefix="raise-qc"
+                        itemId={itemId}
+                        warehouseId={warehouseId}
+                        batchId={batchId || null}
+                        quantity={quantity}
+                        selected={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                  <FieldError message={errors.serial_ids?.message} />
+                </div>
+              )}
 
               <div className="sm:col-span-2">
                 <Label htmlFor="raise-template">Specification (optional)</Label>

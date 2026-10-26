@@ -22,6 +22,57 @@ type PageLoader = () => Promise<PageModule>
  * loaded by then, so it is not warmed separately.
  */
 export const routeLoaders = {
+  '/vendor': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({ default: m.VendorHomePage })),
+  '/vendor/orders': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({ default: m.VendorOrdersPage })),
+  '/vendor/orders/:orderId': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({ default: m.VendorOrderPage })),
+  '/vendor/shipments': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({
+      default: m.VendorShipmentsPage,
+    })),
+  '/vendor/receipts': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({
+      default: m.VendorReceiptsPage,
+    })),
+  '/vendor/invoices': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({
+      default: m.VendorInvoicesPage,
+    })),
+  '/vendor/invoices/:invoiceId': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({ default: m.VendorInvoicePage })),
+  '/vendor/payments': () =>
+    import('@/features/vendor-portal/vendor-pages').then((m) => ({
+      default: m.VendorPaymentsPage,
+    })),
+  '/dealer': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerHomePage })),
+  '/dealer/catalog': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerCatalogPage })),
+  '/dealer/catalog/:itemId': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerItemPage })),
+  '/dealer/cart': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerCartPage })),
+  '/dealer/wishlist': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({
+      default: m.DealerWishlistPage,
+    })),
+  '/dealer/orders': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerOrdersPage })),
+  '/dealer/orders/:orderId': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerOrderPage })),
+  '/dealer/invoices': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({
+      default: m.DealerInvoicesPage,
+    })),
+  '/dealer/invoices/:invoiceId': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerInvoicePage })),
+  '/dealer/returns': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerReturnsPage })),
+  '/dealer/account': () =>
+    import('@/features/dealer-portal/dealer-pages').then((m) => ({ default: m.DealerAccountPage })),
+  '/promotions': () => import('@/features/dealer-portal/promotions-page'),
   '/': () => import('@/features/dashboard/dashboard-page'),
   '/items': () => import('@/features/items/items-page'),
   '/items/:itemId': () => import('@/features/items/item-detail-page'),
@@ -44,6 +95,7 @@ export const routeLoaders = {
   '/mrp/runs/:runId': () => import('@/features/mrp/mrp-run-detail-page'),
   '/procurement/requisitions': () => import('@/features/procurement/requisitions-page'),
   '/procurement/purchase-orders': () => import('@/features/procurement/purchase-orders-page'),
+  '/procurement/inbound-tracking': () => import('@/features/procurement/inbound-tracking-page'),
   '/procurement/purchase-orders/:poId': () =>
     import('@/features/procurement/purchase-order-detail-page'),
   '/procurement/goods-receipts': () => import('@/features/procurement/goods-receipts-page'),

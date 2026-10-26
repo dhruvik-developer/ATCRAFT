@@ -8,10 +8,19 @@ export function createNavigator(page) {
   const pending = new Set()
   const relevant = (request) =>
     ['fetch', 'xhr', 'script', 'stylesheet'].includes(request.resourceType())
+  const finished = (request) => {
+    // A CSP-blocked redirect can report failure only for its final request,
+    // even when Playwright never emitted `request` for that blocked URL.
+    // Release that request's ancestors too; unrelated requests stay pending.
+    for (let current = request; current; current = current.redirectedFrom()) {
+      pending.delete(current)
+    }
+  }
   page.on('request', (request) => {
+    const previous = request.redirectedFrom()
+    if (previous) finished(previous)
     if (relevant(request)) pending.add(request)
   })
-  const finished = (request) => pending.delete(request)
   page.on('requestfinished', finished)
   page.on('requestfailed', finished)
 
@@ -64,4 +73,43 @@ export async function errorToastFailures(page) {
     .map((message) => message.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .map((message) => `ui-error: ${message}`)
+}
+
+/** Inspect form openers without submitting an inline business form. */
+export function isReadinessDialogOpener(label, type) {
+  return (
+    type !== 'submit' &&
+    /^(new|add|create|raise|record|invite|upload|register)\b/i.test(label) &&
+    !/^add to (cart|wishlist)\b/i.test(label)
+  )
+}
+
+export const SESSION_ACTIONS = ['login', 'refresh', 'logout', 'mfa/verify']
+
+/** Read-only browser checks may create sessions, but never business records. */
+export function allowsReadOnlyRequest(method, requestUrl, apiUrl, browserUrl = apiUrl) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return true
+  const request = new URL(requestUrl)
+  const api = new URL(apiUrl)
+  const prefix = api.pathname.replace(/\/$/, '')
+  return (
+    method === 'POST' &&
+    [api.origin, new URL(browserUrl).origin].includes(request.origin) &&
+    SESSION_ACTIONS.some((action) => request.pathname === `${prefix}/auth/${action}`)
+  )
+}
+
+/** Return every refused write so a prevented transaction still fails the check. */
+export async function protectReadOnlyContext(context, apiUrl, browserUrl = apiUrl) {
+  const blockedWrites = []
+  await context.route('**/*', async (route) => {
+    const request = route.request()
+    if (allowsReadOnlyRequest(request.method(), request.url(), apiUrl, browserUrl)) {
+      await route.continue()
+      return
+    }
+    blockedWrites.push(`Blocked write: ${request.method()} ${new URL(request.url()).pathname}`)
+    await route.abort('blockedbyclient')
+  })
+  return blockedWrites
 }

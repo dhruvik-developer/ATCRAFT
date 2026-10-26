@@ -74,6 +74,7 @@ new background jobs raised while testing:
 | Engineering | Work centres, machines, shifts, routings, approved BOMs and QC templates |
 | Procurement | Requisitions, RFQs, competing quotations, purchase orders, shipments, posted receipts and purchase returns |
 | Factory operations | Production/work orders, material issues, output, assembly, job work, inspections and rework |
+| Named-unit workflows | Two dedicated serial SKUs; same-item vendor-held rework and a mixed accepted/held QC lot; four SKU conversions retaining the physical label; FINAL QC and a sealed, completed serial carton |
 | Inventory | Ledger/balances, batches, serial units, bin putaway, scrap/disposal, internal issues, transfers, adjustments and physical counts |
 | Sales and fulfilment | Orders at several stages, reservations, MRP, packing/cartons, planned/dispatched/delivered consignments |
 | Finance and returns | Account chart, journals, vendor/sales invoices, payments/allocations, sales returns and credit notes |
@@ -87,9 +88,20 @@ push and signature services still require their own configured test accounts.
 The final report lists any deliberately unavailable scenario or operational
 failure; investigate unexpected skips rather than treating them as coverage.
 
+For serial testing, search job-work notes for `DM-JW-SERIAL-SAME` (a partial
+receipt with one unit still at the vendor and one on QC hold) or
+`DM-JW-SERIAL-CONVERT` (four processed units with their original physical labels).
+Items `DM-FG-SERIAL-BODY` and `DM-FG-SERIAL-PVD` show the two SKU identities;
+labels begin with `DM-SERIAL-SAME-` or `DM-SERIAL-CONVERT-`. Either side of a
+conversion opens the joined movement history. Packing notes
+`DM-PACK-SERIAL-FINAL` identify the completed carton containing two converted
+units after FINAL inspection. These scenarios use the ordinary services and
+resume on rerun; they never replenish units that have already been issued.
+
 ## Verification
 
-Verification used freshly migrated disposable PostgreSQL databases. An
+Earlier verification, before the serial-job-work extensions, used freshly
+migrated disposable PostgreSQL databases. An
 interrupted-PDF scenario marked one queued job failed through the report
 service, then ran the complete command to recover it. The result contained two
 sales-invoice PDFs, two credit-note PDFs and 19 stock-summary rows. A further
@@ -104,3 +116,18 @@ fixture areas, completed PDF references, unchanged table/file counts and
 preserved existing credentials. No external SMTP, push or Redis broker is
 required for this seed. The source development database is not reset by these
 checks.
+
+The 25 October release rehearsal upgraded a separate database through
+`20261031_0100` and loaded the extended dataset, including catalogue images,
+published promotions and named-unit job work/QC/packing. Its final unchanged
+rerun registered 342 references across 51 kinds and created zero records in
+every stage. The dedicated serial-workflow integration test also verifies that
+rerunning preserves serial identities, conversion history, stock ledgers,
+audit rows, QC decisions and packing contents. This extends the earlier
+verification; its historical table and file counts above are not current
+dataset totals.
+
+The complete local CLI regression also passed against the current source in
+230.23 seconds: a fresh database, custom company and administrator, generated
+PDFs, and a second full invocation preserved all table counts, stored-file
+hashes and the administrator's existing password.

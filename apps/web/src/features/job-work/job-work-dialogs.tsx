@@ -43,6 +43,8 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { SerialPicker } from '@/features/dispatch/stock-pickers'
+import { SERIAL_BULK_MAX } from '@/features/inventory/serial-numbers'
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
@@ -65,7 +67,11 @@ import {
   type RejectionAction,
 } from './job-work-model'
 
-const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
+import {
+  JOB_WORK_QUANTITY_INPUT,
+  receiveSchema,
+  type ReceiveFormValues,
+} from './job-work-receive-schema'
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 /** Decimals stay strings all the way to the wire - never parsed into a double. */
@@ -110,10 +116,11 @@ const issueSchema = z.object({
       line_number: z.number(),
       label: z.string(),
       batch_id: z.string(),
+      serial_ids: z.array(z.string()).max(10_000),
       quantity: z
         .string()
         .trim()
-        .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+        .regex(JOB_WORK_QUANTITY_INPUT, 'Enter a quantity with up to 4 decimal places'),
     }),
   ),
 })
@@ -134,6 +141,7 @@ function issueDefaults(order: JobWorkOrderDetail | undefined): IssueFormValues {
       line_number: line.line_number,
       label: `Line ${line.line_number} - ${line.item_id.slice(0, 8)}`,
       batch_id: line.batch_id ?? '',
+      serial_ids: [],
       quantity: stillToIssue(line),
     })),
   }
@@ -160,6 +168,8 @@ export function JobWorkIssueDialog({
     handleSubmit,
     reset,
     setError,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<IssueFormValues>({
     resolver: zodResolver(issueSchema),
@@ -167,6 +177,7 @@ export function JobWorkIssueDialog({
   })
 
   const { fields } = useFieldArray({ control, name: 'lines' })
+  const watchedIssueLines = watch('lines')
 
   // The carrier named on the challan. The options list is bounded and
   // active-only; whoever collected the goods with their own vehicle leaves it
@@ -207,6 +218,7 @@ export function JobWorkIssueDialog({
             line_number: line.line_number,
             issued_quantity: asDecimal(line.quantity),
             batch_id: line.batch_id || null,
+            ...(line.serial_ids.length ? { serial_ids: line.serial_ids } : {}),
           })),
       }),
     onSuccess: () => {
@@ -241,6 +253,27 @@ export function JobWorkIssueDialog({
               })
               return
             }
+            const identified = new Set<string>()
+            let invalidSerials = false
+            values.lines.forEach((value, index) => {
+              if (
+                !linesOf(order)[index]?.is_serial_tracked ||
+                !toDecimal(value.quantity).greaterThan(0)
+              )
+                return
+              if (
+                !toDecimal(value.quantity).equals(value.serial_ids.length) ||
+                value.serial_ids.some((id) => identified.has(id))
+              ) {
+                setError(`lines.${index}.serial_ids`, {
+                  type: 'manual',
+                  message: 'Choose one distinct serial unit for every issued unit.',
+                })
+                invalidSerials = true
+              }
+              value.serial_ids.forEach((id) => identified.add(id))
+            })
+            if (invalidSerials) return
             issue.mutate(values)
           })}
           className="flex min-h-0 flex-col gap-4"
@@ -379,7 +412,10 @@ export function JobWorkIssueDialog({
                                 render={({ field }) => (
                                   <Select
                                     value={field.value || undefined}
-                                    onValueChange={field.onChange}
+                                    onValueChange={(value) => {
+                                      field.onChange(value)
+                                      setValue(`lines.${index}.serial_ids`, [])
+                                    }}
                                     disabled={Boolean(line.batch_id)}
                                   >
                                     <SelectTrigger
@@ -425,6 +461,26 @@ export function JobWorkIssueDialog({
                           />
                           <FieldError message={errors.lines?.[index]?.quantity?.message} />
                         </div>
+                        {line?.is_serial_tracked && (
+                          <div className="sm:col-span-2">
+                            <Controller
+                              control={control}
+                              name={`lines.${index}.serial_ids`}
+                              render={({ field: serials }) => (
+                                <SerialPicker
+                                  idPrefix={`issue-${index}`}
+                                  itemId={line.item_id}
+                                  warehouseId={order.warehouse_id}
+                                  batchId={watchedIssueLines[index]?.batch_id || null}
+                                  quantity={watchedIssueLines[index]?.quantity || '0'}
+                                  selected={serials.value}
+                                  onChange={serials.onChange}
+                                />
+                              )}
+                            />
+                            <FieldError message={errors.lines?.[index]?.serial_ids?.message} />
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -461,57 +517,6 @@ export function JobWorkIssueDialog({
 
 // --------------------------------------------------------------- receive ----
 
-const receiveSchema = z.object({
-  receipt_date: z.string().min(1, 'A receipt needs a date'),
-  remarks: z.string().trim().max(500, 'At most 500 characters'),
-  /** Required by the API on every receipt - it is the audit reason. */
-  reason: z.string().trim().min(1, 'Say what this receipt covers'),
-  vendor_challan_number: z.string().trim().max(64, 'At most 64 characters'),
-  /** The vendor's own delivery document is dated by them, not by us. */
-  vendor_challan_date: z.string(),
-  /**
-   * Acknowledge loss beyond the agreed allowance. Honoured only from a caller
-   * holding `job_work.close` - the excess debits the vendor ledger, so the
-   * storekeeper keying the lot cannot accept it alone.
-   */
-  approve_excess_loss: z.boolean(),
-  lines: z.array(
-    z.object({
-      line_number: z.number(),
-      label: z.string(),
-      received_quantity: z
-        .string()
-        .trim()
-        .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-      rejected_quantity: z
-        .string()
-        .trim()
-        .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-      /**
-       * Material that went out and is coming back untouched. The API models
-       * this as `returned_unprocessed_quantity`; there is no free-standing
-       * "loss" bucket on a receipt.
-       */
-      returned_quantity: z
-        .string()
-        .trim()
-        .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-      /** Where rejected output physically is - ignored when nothing was rejected. */
-      rejection_action: z.enum(REJECTION_ACTIONS),
-      /** Why the output was rejected. Sent as the receipt line's notes. */
-      rejection_reason: z.string().trim().max(500, 'At most 500 characters'),
-      /**
-       * Close the line: everything still at the vendor that this lot does not
-       * account for is written off as process loss, within the allowance as
-       * scrap and beyond it - with approval - as a vendor debit.
-       */
-      is_final: z.boolean(),
-    }),
-  ),
-})
-
-type ReceiveFormValues = z.infer<typeof receiveSchema>
-
 function receiveDefaults(order: JobWorkOrderDetail | undefined): ReceiveFormValues {
   return {
     receipt_date: today(),
@@ -535,6 +540,10 @@ function receiveDefaults(order: JobWorkOrderDetail | undefined): ReceiveFormValu
       rejection_action: 'RETURN_TO_STOCK',
       rejection_reason: '',
       is_final: false,
+      output_serial_ids: [],
+      rejected_serial_ids: [],
+      returned_unprocessed_serial_ids: [],
+      scrapped_serial_ids: [],
     })),
   }
 }
@@ -601,6 +610,7 @@ export function JobWorkReceiveDialog({
     reset,
     setError,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<ReceiveFormValues>({
     resolver: zodResolver(receiveSchema),
@@ -646,6 +656,15 @@ export function JobWorkReceiveDialog({
             batch_id:
               linesOf(order).find((orderLine) => orderLine.line_number === line.line_number)
                 ?.batch_id ?? null,
+            ...(linesOf(order).find((orderLine) => orderLine.line_number === line.line_number)
+              ?.is_serial_tracked
+              ? {
+                  output_serial_ids: line.output_serial_ids,
+                  rejected_serial_ids: line.rejected_serial_ids,
+                  returned_unprocessed_serial_ids: line.returned_unprocessed_serial_ids,
+                  scrapped_serial_ids: line.is_final ? line.scrapped_serial_ids : [],
+                }
+              : {}),
           })),
       }),
     onSuccess: () => {
@@ -665,6 +684,8 @@ export function JobWorkReceiveDialog({
           <DialogDescription>
             Good output returns to stock. Rejection and unworked returns are recorded separately:
             what the vendor spoiled and what simply came back untouched are different conversations.
+            Serial returns are limited to {SERIAL_BULK_MAX} named units per receipt across all lines
+            and outcomes; record larger returns in partial receipts.
           </DialogDescription>
         </DialogHeader>
 
@@ -685,6 +706,34 @@ export function JobWorkReceiveDialog({
               })
               return
             }
+            let invalidUnits = false
+            values.lines.forEach((value, index) => {
+              const line = linesOf(order)[index]
+              if (!line?.is_serial_tracked) return
+              const shortfall = lineShortfall(line, value)
+              const buckets = [
+                [value.output_serial_ids, value.received_quantity],
+                [value.rejected_serial_ids, value.rejected_quantity],
+                [value.returned_unprocessed_serial_ids, value.returned_quantity],
+                [
+                  value.is_final ? value.scrapped_serial_ids : [],
+                  value.is_final ? shortfall.shortfall : '0',
+                ],
+              ] as const
+              const all = buckets.flatMap(([ids]) => ids)
+              if (
+                all.length !== new Set(all).size ||
+                buckets.some(([ids, quantity]) => !toDecimal(quantity || '0').equals(ids.length))
+              ) {
+                setError(`lines.${index}.output_serial_ids`, {
+                  type: 'manual',
+                  message:
+                    'Name each serial unit once, matching every received, rejected, unworked and scrapped quantity.',
+                })
+                invalidUnits = true
+              }
+            })
+            if (invalidUnits) return
             receive.mutate(values)
           })}
           className="flex min-h-0 flex-col gap-4"
@@ -794,6 +843,28 @@ export function JobWorkReceiveDialog({
                     const rejectedLive = toDecimal(live?.rejected_quantity || '0')
                     const closing = live?.is_final === true
                     const shortfall = line && live ? lineShortfall(line, live) : null
+                    const serialBuckets = [
+                      {
+                        key: 'output_serial_ids',
+                        label: 'Processed output serials',
+                        quantity: live?.received_quantity || '0',
+                      },
+                      {
+                        key: 'rejected_serial_ids',
+                        label: 'Rejected serials',
+                        quantity: live?.rejected_quantity || '0',
+                      },
+                      {
+                        key: 'returned_unprocessed_serial_ids',
+                        label: 'Unworked return serials',
+                        quantity: live?.returned_quantity || '0',
+                      },
+                      {
+                        key: 'scrapped_serial_ids',
+                        label: 'Process loss serials',
+                        quantity: closing ? shortfall?.shortfall || '0' : '0',
+                      },
+                    ] as const
                     return (
                       <div key={field.id} className="rounded-md border p-3">
                         <div className="min-w-0">
@@ -907,9 +978,11 @@ export function JobWorkReceiveDialog({
                               <Checkbox
                                 id={`receive-close-${index}`}
                                 checked={closingField.value}
-                                onCheckedChange={(checked) =>
+                                onCheckedChange={(checked) => {
                                   closingField.onChange(checked === true)
-                                }
+                                  if (checked !== true)
+                                    setValue(`lines.${index}.scrapped_serial_ids`, [])
+                                }}
                               />
                               <div>
                                 <Label htmlFor={`receive-close-${index}`}>
@@ -944,9 +1017,47 @@ export function JobWorkReceiveDialog({
                             </div>
                           )}
                         />
+                        {line?.is_serial_tracked && (
+                          <div className="mt-3 space-y-3">
+                            {serialBuckets
+                              .filter((bucket) => toDecimal(bucket.quantity).greaterThan(0))
+                              .map((bucket) => (
+                                <Controller
+                                  key={bucket.key}
+                                  control={control}
+                                  name={`lines.${index}.${bucket.key}`}
+                                  render={({ field: units }) => (
+                                    <SerialPicker
+                                      idPrefix={`receipt-${index}-${bucket.key}`}
+                                      label={bucket.label}
+                                      itemId={line.item_id}
+                                      warehouseId=""
+                                      requireWarehouse={false}
+                                      quantity={bucket.quantity}
+                                      selected={units.value}
+                                      onChange={units.onChange}
+                                      status="ISSUED"
+                                      allowedStatuses={['ISSUED']}
+                                      scope={{
+                                        job_work_order_line_id: line.id,
+                                        job_work_outstanding_only: true,
+                                      }}
+                                      excludedIds={serialBuckets
+                                        .filter((other) => other.key !== bucket.key)
+                                        .flatMap((other) => live?.[other.key] || [])}
+                                    />
+                                  )}
+                                />
+                              ))}
+                            <FieldError
+                              message={errors.lines?.[index]?.output_serial_ids?.message}
+                            />
+                          </div>
+                        )}
                       </div>
                     )
                   })}
+                  <FieldError message={errors.lines?.message} />
                   <FieldError message={errors.root?.message} />
                 </div>
 

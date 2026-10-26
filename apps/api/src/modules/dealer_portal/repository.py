@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy import Select, case, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -451,10 +451,15 @@ class CatalogueRepository(BaseRepository[Item]):
                 func.row_number()
                 .over(
                     partition_by=Document.entity_id,
-                    order_by=(Document.created_at, Document.id),
+                    order_by=(
+                        case((Document.id == Item.image_document_id, 0), else_=1),
+                        Document.created_at,
+                        Document.id,
+                    ),
                 )
                 .label("rn"),
             )
+            .join(Item, (Item.id == Document.entity_id) & (Item.company_id == Document.company_id))
             .where(
                 Document.company_id == self.tenant.company_id,
                 Document.entity_type == CATALOGUE_ENTITY,

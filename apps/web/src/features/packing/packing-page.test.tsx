@@ -65,6 +65,13 @@ function orderDetail(status: PackingStatus, overrides: Partial<PackingOrderRow> 
         quantity_to_pack: '10.0000',
         packed_quantity: '0.0000',
         uom_id: '01a00000-0000-7000-8000-0000000000u1',
+        is_serial_tracked: false,
+        is_batch_tracked: false,
+        requires_final_qc: false,
+        qc_inspection_id: null,
+        qc_inspection_status: null,
+        qc_serial_ids: [],
+        qc_batch_id: null,
       },
     ],
   }
@@ -581,6 +588,219 @@ describe('the order lifecycle', () => {
 })
 
 describe('what a transition sends', () => {
+  const legacyCarton = {
+    id: 'legacy-carton',
+    packing_order_id: ORDER_ID,
+    carton_number: 1,
+    carton_type: 'BOX',
+    barcode: 'LEGACY-C001',
+    length_cm: null,
+    width_cm: null,
+    height_cm: null,
+    tare_weight_kg: '1',
+    net_weight_kg: '1',
+    gross_weight_kg: '2',
+    packing_material_item_id: 'box-item',
+    packing_material_quantity: '1',
+    material_transaction_id: 'original-box-issue',
+    is_sealed: true,
+    sealed_at: '2026-09-05T10:00:00Z',
+    contents: [],
+  }
+  function legacyOrder() {
+    const source = orderDetail('PACKED')
+    return {
+      ...source,
+      lines: [
+        {
+          ...source.lines[0]!,
+          is_serial_tracked: true,
+          requires_final_qc: true,
+          qc_inspection_id: 'old-qc',
+          qc_inspection_status: 'REJECTED',
+          qc_serial_ids: [] as string[],
+        },
+      ],
+    }
+  }
+
+  it('recovers only a legacy sealed carton through its reasoned material-return action', async () => {
+    let recovered = false
+    const source = legacyOrder()
+    const { user, fetch } = await openOrder('PACKED', [P.PACKING_VIEW, P.PACKING_MANAGE], {
+      [`GET /packing/${ORDER_ID}`]: () =>
+        ok(recovered ? { ...source, status: 'IN_PROGRESS' } : source),
+      [`GET /packing/${ORDER_ID}/cartons`]: () =>
+        page([{ ...legacyCarton, is_sealed: !recovered }]),
+      [`POST /packing/${ORDER_ID}/cartons/${legacyCarton.id}/recover-legacy`]: () => {
+        recovered = true
+        return ok({ ...legacyCarton, is_sealed: false })
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Recover legacy carton' }))
+    expect(
+      await screen.findByText(/Physically recover its reusable packing material/),
+    ).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Recover carton for repacking' }))
+    expect(fetch.calls.some((call) => call.path.endsWith('/recover-legacy'))).toBe(false)
+    await user.click(screen.getByRole('textbox', { name: 'Reason' }))
+    await user.paste('Reusable box physically recovered for repacking')
+    await user.click(screen.getByRole('button', { name: 'Recover carton for repacking' }))
+    await waitFor(() =>
+      expect(
+        fetch.requestFor('POST', `/packing/${ORDER_ID}/cartons/${legacyCarton.id}/recover-legacy`),
+      ).toEqual({ reason: 'Reusable box physically recovered for repacking' }),
+    )
+    expect(await screen.findByRole('button', { name: 'Cancel order' })).toBeVisible()
+  })
+
+  it.each(['named', 'dispatched', 'reader'])(
+    'does not offer legacy recovery for a %s carton context',
+    async (context) => {
+      const source = legacyOrder()
+      if (context === 'named') source.lines[0]!.qc_serial_ids = ['known-unit']
+      const { fetch } = await openOrder(
+        'PACKED',
+        context === 'reader' ? [P.PACKING_VIEW] : [P.PACKING_VIEW, P.PACKING_MANAGE],
+        {
+          [`GET /packing/${ORDER_ID}`]: ok({
+            ...source,
+            dispatch_id: context === 'dispatched' ? 'dispatch-1' : null,
+          }),
+          [`GET /packing/${ORDER_ID}/cartons`]: page([legacyCarton]),
+        },
+      )
+      await screen.findByText('LEGACY-C001')
+      expect(screen.queryByRole('button', { name: 'Recover legacy carton' })).toBeNull()
+      expect(fetch.calls.some((call) => call.path.endsWith('/recover-legacy'))).toBe(false)
+    },
+  )
+
+  it.each(['PENDING', 'REJECTED', 'ACCEPTED'])(
+    'offers sealing a named serial carton only after final QC passes (%s)',
+    async (status) => {
+      const source = legacyOrder()
+      source.lines[0]!.qc_serial_ids = ['unit-1']
+      source.lines[0]!.qc_inspection_status = status
+      const line = source.lines[0]!
+      await openOrder('IN_PROGRESS', [P.PACKING_VIEW, P.PACKING_MANAGE], {
+        [`GET /packing/${ORDER_ID}`]: ok({ ...source, status: 'IN_PROGRESS' }),
+        [`GET /packing/${ORDER_ID}/cartons`]: page([
+          {
+            ...legacyCarton,
+            is_sealed: false,
+            material_transaction_id: null,
+            contents: [
+              {
+                id: 'content-1',
+                carton_id: legacyCarton.id,
+                packing_order_line_id: line.id,
+                item_id: line.item_id,
+                quantity: '1',
+                net_weight_kg: '1',
+                batch_id: null,
+                is_serial_tracked_item: true,
+                serial_ids: ['unit-1'],
+              },
+            ],
+          },
+        ]),
+      })
+      const button = await screen.findByRole('button', { name: 'Seal carton' })
+      if (status === 'ACCEPTED') expect(button).toBeEnabled()
+      else {
+        expect(button).toBeDisabled()
+        expect(screen.getByText(/This carton must remain open/)).toBeVisible()
+      }
+    },
+  )
+
+  it('identifies the exact units before starting final QC and never auto-selects them', async () => {
+    const source = orderDetail('DRAFT')
+    const line = {
+      ...source.lines[0]!,
+      quantity_to_pack: '2',
+      is_serial_tracked: true,
+      requires_final_qc: true,
+    }
+    const { user, fetch } = await openOrder(
+      'DRAFT',
+      [P.PACKING_VIEW, P.PACKING_MANAGE, P.INVENTORY_VIEW],
+      {
+        [`GET /packing/${ORDER_ID}`]: ok({ ...source, lines: [line] }),
+        'GET /inventory/serials': page([
+          { id: 'unit-1', serial_number: 'FINAL-001', status: 'IN_STOCK' },
+          { id: 'unit-2', serial_number: 'FINAL-002', status: 'IN_STOCK' },
+        ]),
+        [`POST /packing/${ORDER_ID}/start`]: ok({ ...source, status: 'IN_PROGRESS' }),
+      },
+    )
+    await user.click(screen.getByRole('button', { name: 'Start packing' }))
+    await user.click(await screen.findByRole('textbox', { name: 'Reason' }))
+    await user.paste('Named units sent for final checking')
+    await screen.findByRole('button', { name: 'FINAL-001' })
+    await user.click(screen.getByRole('button', { name: 'Start packing' }))
+    expect(
+      await screen.findByText('Choose one distinct serial unit for every unit requiring final QC.'),
+    ).toBeVisible()
+    expect(fetch.calls.some((call) => call.path.endsWith('/start'))).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'FINAL-001' }))
+    await user.click(screen.getByRole('button', { name: 'FINAL-002' }))
+    await user.click(screen.getByRole('button', { name: 'Start packing' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', `/packing/${ORDER_ID}/start`)).toMatchObject({
+        reason: 'Named units sent for final checking',
+        serial_selections: [{ line_id: line.id, serial_ids: ['unit-1', 'unit-2'], batch_id: null }],
+      }),
+    )
+    expect(fetch.calls.some((call) => call.path.startsWith('/products/items/'))).toBe(false)
+    expect(fetch.calls.some((call) => call.path.startsWith('/quality/inspections/'))).toBe(false)
+  })
+
+  it('keeps rejected units out of a replacement inspection and posts new identities', async () => {
+    const source = orderDetail('IN_PROGRESS')
+    const line = {
+      ...source.lines[0]!,
+      quantity_to_pack: '1',
+      qc_inspection_id: 'qc-rejected',
+      qc_serial_ids: ['old-unit'],
+      qc_batch_id: null,
+      is_serial_tracked: true,
+      requires_final_qc: true,
+      qc_inspection_status: 'REJECTED',
+    }
+    const { user, fetch } = await openOrder(
+      'IN_PROGRESS',
+      [P.PACKING_VIEW, P.PACKING_MANAGE, P.INVENTORY_VIEW],
+      {
+        [`GET /packing/${ORDER_ID}`]: ok({ ...source, lines: [line] }),
+        'GET /inventory/serials': page([
+          { id: 'old-unit', serial_number: 'REJECTED-001', status: 'IN_STOCK' },
+          { id: 'new-unit', serial_number: 'REPLACEMENT-001', status: 'IN_STOCK' },
+        ]),
+        [`POST /packing/${ORDER_ID}/lines/${line.id}/reinspect`]: ok(line),
+      },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Replace rejected QC lot' }))
+    await user.click(await screen.findByRole('textbox', { name: 'Reason' }))
+    await user.paste('Replace the rejected coating unit')
+    expect(await screen.findByRole('button', { name: /REJECTED-001/ })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Raise replacement inspection' }))
+    expect(
+      await screen.findByText('Select one replacement serial for every unit on this line.'),
+    ).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'REPLACEMENT-001' }))
+    await user.click(screen.getByRole('button', { name: 'Raise replacement inspection' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', `/packing/${ORDER_ID}/lines/${line.id}/reinspect`)).toEqual({
+        reason: 'Replace the rejected coating unit',
+        serial_ids: ['new-unit'],
+        batch_id: null,
+      }),
+    )
+    expect(fetch.calls.some((call) => call.path.startsWith('/products/items/'))).toBe(false)
+  })
+
   it('records the reason the API insists on, and refuses to send without one', async () => {
     const { user, fetch } = await openOrder('DRAFT', [P.PACKING_VIEW, P.PACKING_MANAGE], {
       [`POST /packing/${ORDER_ID}/start`]: ok(orderDetail('IN_PROGRESS')),

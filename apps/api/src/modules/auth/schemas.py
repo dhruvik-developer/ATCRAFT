@@ -91,6 +91,9 @@ class AuthenticatedUser(BaseModel):
     email: str
     full_name: str
     company_id: uuid.UUID
+    #: Portal audience remains known while the client loads the full profile.
+    vendor_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     is_superuser: bool
     must_change_password: bool
     roles: list[str] = Field(default_factory=list)

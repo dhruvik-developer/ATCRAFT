@@ -63,7 +63,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.models import ImmutableLedgerEntity, TenantEntity, TenantMasterEntity, sql_in_list
@@ -194,6 +194,9 @@ class InspectionStatus(StrEnum):
     HOLD = "HOLD"
     SCRAP = "SCRAP"
     CLOSED = "CLOSED"
+    #: An unstarted, unheld packing inspection withdrawn with its owner.
+    #: PENDING remains the result: withdrawal asserts no verdict on the goods.
+    WITHDRAWN = "WITHDRAWN"
 
 
 #: Statuses in which the inspection has been decided but the document is still
@@ -452,6 +455,12 @@ class QcInspection(TenantEntity):
     batch_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
     )
+    serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
+    serial_dispositions: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     #: The specification applied. Nullable: an inspection can be raised for a
     #: part nobody has written a check sheet for yet, and refusing to raise it
@@ -546,6 +555,10 @@ class QcInspection(TenantEntity):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "cardinality(serial_ids) = 0 OR cardinality(serial_ids) = inspected_quantity",
+            name="inspection_serials_match_quantity",
+        ),
         UniqueConstraint("company_id", "code", name="uq_qc_inspections_company_id_code"),
         # The pending queue: what is waiting to be inspected, oldest first. A
         # partial index because the queue is a small slice of a table that grows
@@ -616,8 +629,9 @@ class QcInspection(TenantEntity):
         # status and result answer different questions, but may never disagree
         # about whether a decision has been taken at all.
         CheckConstraint(
-            f"(status IN ({sql_in_list(OPEN_STATUSES)}) AND result = 'PENDING') "
-            f"OR (status NOT IN ({sql_in_list(OPEN_STATUSES)}) AND result <> 'PENDING')",
+            f"(status IN ({sql_in_list(OPEN_STATUSES)}, 'WITHDRAWN') AND result = 'PENDING') "
+            f"OR (status NOT IN ({sql_in_list(OPEN_STATUSES)}, 'WITHDRAWN') "
+            "AND result <> 'PENDING')",
             name="status_and_result_agree",
         ),
         CheckConstraint(
@@ -627,9 +641,15 @@ class QcInspection(TenantEntity):
         # A decided inspection has an inspector and a time. Without them the
         # quality history is a set of numbers nobody signed.
         CheckConstraint(
-            f"status IN ({sql_in_list(OPEN_STATUSES)}) "
+            f"status IN ({sql_in_list(OPEN_STATUSES)}, 'WITHDRAWN') "
             "OR (inspector_user_id IS NOT NULL AND inspected_at IS NOT NULL)",
             name="decision_is_attributed",
+        ),
+        CheckConstraint(
+            "status <> 'WITHDRAWN' OR (qc_stage = 'FINAL' AND reference_type = 'packing_order' "
+            "AND accepted_quantity + rejected_quantity + rework_quantity + hold_quantity "
+            "+ scrap_quantity = 0 AND serial_dispositions = '{}'::jsonb)",
+            name="withdrawal_has_no_verdict",
         ),
         CheckConstraint(
             "template_id IS NOT NULL OR template_version IS NULL", name="version_needs_template"
@@ -765,6 +785,9 @@ class QcInspectionDecision(ImmutableLedgerEntity):
     rework_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     hold_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     scrap_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    serial_dispositions: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -142,6 +142,10 @@ jobs:
       E2E_ADMIN_EMAIL: admin@atcraft.example
       E2E_ADMIN_PASSWORD: ChangeMe!Atcraft2026
       E2E_BOOTSTRAP_PASSWORD: Bootstrap!Atcraft2026
+      E2E_VENDOR_EMAIL: e2e.vendor@atcraft.example
+      E2E_VENDOR_PASSWORD: Vendor-E2E!Atcraft2026
+      E2E_DEALER_EMAIL: e2e.dealer@atcraft.example
+      E2E_DEALER_PASSWORD: Dealer-E2E!Atcraft2026
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -170,6 +174,11 @@ jobs:
         run: |
           docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
             python -m src.core.seed --admin-password "$E2E_BOOTSTRAP_PASSWORD"
+
+      - name: Populate real portal and operational fixtures
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
+            python -m src.core.demo_data --admin-email "$E2E_ADMIN_EMAIL"
 
       - name: Install the browser
         working-directory: tests/e2e
@@ -287,6 +296,12 @@ jobs:
           bash scripts/check-host-nginx.sh --installed
       - name: Build production images from fresh bases
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull backend frontend
+      - name: Resolve and pull the deployed edge proxy image
+        id: edge-image
+        run: |
+          image=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["nginx"]["image"])')
+          docker pull "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
       - name: Scan backend image for high-impact vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -294,6 +309,7 @@ jobs:
           format: table
           exit-code: "1"
           severity: HIGH,CRITICAL
+          scanners: vuln,secret
           ignore-unfixed: true
       - name: Scan frontend image for high-impact vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -302,4 +318,12 @@ jobs:
           format: table
           exit-code: "1"
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
+          scanners: vuln,secret
+      - name: Scan the deployed edge proxy for vulnerabilities and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.edge-image.outputs.image }}
+          format: table
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          scanners: vuln,secret

@@ -74,8 +74,7 @@ def test_the_initial_state_is_draft() -> None:
         # Closing skips the handover, which is what records who took the goods.
         (PackingOrderStatus.PACKED, PackingOrderStatus.CLOSED),
         (PackingOrderStatus.IN_PROGRESS, PackingOrderStatus.CLOSED),
-        # There is no way back: unpacking is a new order, not a reverse step.
-        (PackingOrderStatus.PACKED, PackingOrderStatus.IN_PROGRESS),
+        # Shipped history remains immutable, including legacy recovery.
         (PackingOrderStatus.HANDED_OVER, PackingOrderStatus.PACKED),
     ],
 )
@@ -154,9 +153,9 @@ def test_a_packer_is_offered_exactly_the_actions_they_can_perform() -> None:
     offered = {
         transition.target for transition in FLOW.available_actions(PackingOrderStatus.PACKED, held)
     }
-    # PACKED -> HANDED_OVER needs dispatch.create, so a packer is offered nothing
-    # from here at all.
-    assert offered == set()
+    # Only the legacy recovery service can use this edge, after verifying
+    # missing named QC and reversing the original material issue.
+    assert offered == {PackingOrderStatus.IN_PROGRESS}
 
     offered_from_progress = {
         transition.target

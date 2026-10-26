@@ -7,23 +7,26 @@ against a disposable test database. The readiness and accessibility sweeps do no
 submit business forms; their shared authentication bootstrap can replace an
 initial temporary password, so configure a dedicated test account.
 
-The [22–23 October standards verification](implementation/development-standards-20261022.md)
+The [26 October release verification](implementation/release-verification-20261026.md)
 records the latest populated route, theme and error-contract checks. Earlier
 dated results below remain historical evidence for their stated source.
 
 ## Current code and the latest recorded browser evidence
 
-The current loader registry defines 58 application routes, including Sales
-returns and Credit notes, plus three public authentication pages. The readiness
-sweep discovers the registry at runtime, while the accessibility sweep checks 49
-configured static application screens and the login page per theme. A new route
-must be added to the static accessibility list if it is applicable there.
+The current loader registry defines 79 application routes, including the vendor
+and dealer portals and inbound tracking, plus three public authentication pages.
+The readiness sweep discovers every route at runtime. The accessibility sweep
+derives its 65 static application screens from the same registry and also checks
+the login page per theme. Dynamic detail screens and the restricted password
+change screen are covered separately by the readiness sweep.
 
-The latest recorded populated checks are the 22-23 October results linked above:
-402 screen/tab/viewport checks and 195 opened forms across 375, 768 and 1440
-pixels; 50 accessibility screens per theme; and 17 passing browser journeys.
-These are dated results, not evidence of a browser rerun after subsequent
-documentation or cleanup changes.
+The latest populated checks cover all 79 registered application routes:
+474 screen/tab/viewport checks and 213 opened forms across 375, 768 and 1440
+pixels, with no overflow, clipping, render/API failures or blocked business
+writes. Each accessibility theme checked 66 screens with zero violations.
+All 24 browser journeys passed again after publishing the patched web and edge
+images. Portal checks use populated, bound vendor/dealer principals and verify
+cookie-backed restoration and staff-route isolation.
 
 CI runs the browser journeys against the production-style Docker stack and runs
 the static accessibility sweep in both themes, retaining its reports. It also
@@ -79,6 +82,25 @@ tested through `VITE_API_PROXY_TARGET`.
 Configure `tests/e2e/.env` from [its example](../tests/e2e/.env.example) with the matching `E2E_BASE_URL`,
 `E2E_API_URL` and seeded administrator credentials. The existing authentication
 helper completes the initial password change when the seed requires it.
+
+Run the complete [demonstration seed](local-seed-data.md) after baseline setup.
+Configure the vendor/dealer test credentials from the example as well as the
+administrator. Browser setup creates absent test users against populated
+`DM-VEN-PACK` (with its qualified PACKING category) and `DM-DLR-VASTU` records.
+It preserves every existing account's binding and password. Before rendering
+portal screens it verifies non-superuser identities, nonempty order/invoice
+lists and matching detail reads using each portal's own token. Missing or
+incompatible fixtures fail explicitly; an empty portal is not passing coverage.
+The readiness script performs that same audited test-user preparation for the
+portal audiences selected by its route filters. A staff-only subset does not
+require portal credentials. Business forms are inspected without submission.
+The readiness, accessibility and handbook browser contexts share a request guard
+that permits reads and login, refresh, logout and MFA verification only on the
+configured API or web origin, supporting the development API proxy. Other writes
+are blocked before dispatch and fail the check, including
+cart changes and notification updates. Service workers are disabled for these
+read-only inspections so their requests cannot bypass interception. Audited
+fixture preparation and password bootstrap happen separately before inspection.
 
 From `tests/e2e`:
 

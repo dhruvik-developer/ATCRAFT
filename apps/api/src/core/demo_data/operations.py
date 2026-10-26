@@ -1452,10 +1452,9 @@ async def _seed_serial_stock(ctx: DemoContext, look: _Lookup) -> list[uuid.UUID]
 
     _skip(
         ctx,
-        "no assembly consumes a serialised component: the only serial-tracked demonstration "
-        "item is a finished good, and finished goods are not flagged usable as BOM "
-        "components, so no approved structure can name one. The serial trail is carried "
-        "by packing and despatch instead",
+        "no assembly consumes a serialised component: the demonstration BOMs do not "
+        "name a serial-tracked component. Named-unit examples cover job work, SKU "
+        "conversion, QC, packing and despatch instead",
     )
     return in_stock
 
@@ -3066,6 +3065,9 @@ async def seed(ctx: DemoContext) -> None:
     # --- the floor ----------------------------------------------------------
     await _seed_jobs(ctx, look, HANDLE_JOBS)
     await _seed_job_work(ctx, look)
+    from src.core.demo_data.serial_workflows import seed as seed_serial_workflows
+
+    await seed_serial_workflows(ctx)
 
     # Quality runs after the floor and before sales, and the order matters: an
     # inspection holds its lot, so the five handle sets on final inspection have

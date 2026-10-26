@@ -150,6 +150,54 @@ describe('raising an inspection by hand', () => {
     'GET /quality/templates': page([]),
   }
 
+  it('requires named physical units for a serial item and clears them when its warehouse changes', async () => {
+    const { user, fetch } = renderScreen(<RaiseInspectionDialog open onOpenChange={() => {}} />, {
+      permissions: [P.QC_INSPECT, P.INVENTORY_VIEW],
+      routes: {
+        ...routes,
+        'GET /products/items': page([{ ...ITEM, is_serial_tracked: true }]),
+        'GET /warehouses': page([
+          { id: 'wh-1', code: 'MAIN', name: 'Main store' },
+          { id: 'wh-2', code: 'QC', name: 'Quality store' },
+        ]),
+        'GET /inventory/serials': page([
+          { id: 'unit-1', serial_number: 'SERIAL-001', status: 'IN_STOCK' },
+        ]),
+        'POST /quality/inspections': ok(row()),
+      },
+    })
+    await user.click(await screen.findByRole('combobox', { name: 'Item' }))
+    await user.click(await screen.findByRole('option', { name: /FG-100/ }))
+    await user.click(screen.getByRole('combobox', { name: 'Warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+    await user.type(screen.getByLabelText('Quantity'), '1')
+    await user.click(screen.getByLabelText('Reason'))
+    await user.paste('Supervisor pulled this named unit')
+    await user.click(screen.getByRole('button', { name: /raise inspection/i }))
+    expect(await screen.findByText('Select one serial unit for each inspected unit.')).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    await user.click(await screen.findByRole('button', { name: 'SERIAL-001' }))
+    expect(screen.getByRole('button', { name: /SERIAL-001/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await user.click(screen.getByRole('combobox', { name: 'Warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /QC -/ }))
+    expect(await screen.findByRole('button', { name: 'SERIAL-001' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    await user.click(screen.getByRole('button', { name: 'SERIAL-001' }))
+    await user.click(screen.getByRole('button', { name: /raise inspection/i }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/quality/inspections')).toMatchObject({
+        serial_ids: ['unit-1'],
+        warehouse_id: 'wh-2',
+        inspected_quantity: '1',
+      }),
+    )
+  })
+
   it('offers the lot fields the manual endpoint takes', async () => {
     renderScreen(<RaiseInspectionDialog open onOpenChange={() => {}} />, {
       permissions: [P.QC_INSPECT],
@@ -212,6 +260,35 @@ describe('raising an inspection by hand', () => {
 // ------------------------------------------------------------ read-only row --
 
 describe('opening any inspection read-only', () => {
+  it('shows named final and held outcomes to a quality reader without enabling edits', async () => {
+    renderScreen(
+      <InspectionDetailDialog
+        inspection={row()}
+        open
+        onOpenChange={() => {}}
+        onInspect={() => {}}
+      />,
+      {
+        permissions: [P.QC_VIEW],
+        routes: {
+          [`GET /quality/inspections/${row().id}`]: ok(
+            detail({
+              serial_ids: ['unit-1', 'unit-2'],
+              serial_labels: { 'unit-1': 'FINAL-001', 'unit-2': 'HELD-002' },
+              serial_dispositions: { 'unit-1': 'ACCEPTED', 'unit-2': 'HOLD' },
+              parameters: [],
+              results: [],
+              rework_records: [],
+            }),
+          ),
+        },
+      },
+    )
+    expect(await screen.findByText('Serial unit outcomes')).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Disposition for FINAL-001' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Disposition for HELD-002' })).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Disposition for HELD-002' })).toHaveValue('HOLD')
+  })
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()

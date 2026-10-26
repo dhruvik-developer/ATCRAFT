@@ -1,5 +1,5 @@
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
 import { prefetchRoute } from '@/app/route-loaders'
@@ -63,7 +63,7 @@ function validate(email: string, password: string): LoginErrors {
 }
 
 export function LoginPage() {
-  const { login, verifyMfa, isAuthenticated, isRestoring } = useAuth()
+  const { login, verifyMfa, cancelAuthentication, isAuthenticated, isRestoring } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [showPassword, setShowPassword] = useState(false)
@@ -99,6 +99,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<LoginErrors>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const submission = useRef(0)
 
   if (isRestoring) {
     return (
@@ -139,6 +140,7 @@ export function LoginPage() {
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (isSubmitting) return
     const found = validate(email, password)
     setErrors(found)
     // Validating here rather than at the server so an empty submit does not
@@ -148,8 +150,10 @@ export function LoginPage() {
     setFormError(null)
     setRetryAfter(null)
     setIsSubmitting(true)
+    const attempt = ++submission.current
     try {
       const outcome = await login(email.trim(), password)
+      if (attempt !== submission.current) return
       if ('mfa_required' in outcome) {
         setMfaChallenge(outcome.challenge_token)
         setMfaCode('')
@@ -157,21 +161,26 @@ export function LoginPage() {
       }
       finishLogin(outcome)
     } catch (error) {
-      showFailure(error)
+      if (attempt === submission.current) showFailure(error)
     } finally {
-      setIsSubmitting(false)
+      if (attempt === submission.current) setIsSubmitting(false)
     }
   }
 
   const onMfaSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!mfaChallenge || !/^\d{6}$/.test(mfaCode)) return
+    if (isSubmitting || !mfaChallenge || !/^\d{6}$/.test(mfaCode)) return
     setFormError(null)
     setRetryAfter(null)
+    setIsSubmitting(true)
+    const attempt = ++submission.current
     try {
-      finishLogin(await verifyMfa(mfaChallenge, mfaCode))
+      const user = await verifyMfa(mfaChallenge, mfaCode)
+      if (attempt === submission.current) finishLogin(user)
     } catch (error) {
-      showFailure(error)
+      if (attempt === submission.current) showFailure(error)
+    } finally {
+      if (attempt === submission.current) setIsSubmitting(false)
     }
   }
 
@@ -269,6 +278,7 @@ export function LoginPage() {
                 <Button
                   type="submit"
                   className="w-full"
+                  loading={isSubmitting}
                   disabled={mfaCode.length !== 6 || retryAfter !== null}
                 >
                   {retryAfter === null ? 'Verify and sign in' : `Try again in ${retryAfter}s`}
@@ -278,6 +288,9 @@ export function LoginPage() {
                   variant="ghost"
                   className="w-full"
                   onClick={() => {
+                    submission.current += 1
+                    cancelAuthentication()
+                    setIsSubmitting(false)
                     setMfaChallenge(null)
                     setMfaCode('')
                     setFormError(null)

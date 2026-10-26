@@ -50,6 +50,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { ItemImagesPanel } from '@/features/dealer-portal/item-images-panel'
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import {
@@ -1296,6 +1297,7 @@ export default function ItemDetailPage() {
             <Truck className="h-3.5 w-3.5" aria-hidden />
             Vendors
           </TabsTrigger>
+          <TabsTrigger value="images">Images</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -1350,6 +1352,9 @@ export default function ItemDetailPage() {
             canViewMakers={can(P.MANUFACTURER_VIEW)}
             canEdit={can(P.ITEM_UPDATE)}
           />
+        </TabsContent>
+        <TabsContent value="images">
+          <ItemImagesPanel itemId={item.id} primaryImageId={item.image_document_id} />
         </TabsContent>
       </Tabs>
 

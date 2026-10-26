@@ -29,6 +29,8 @@ from src.core.messages import success_message
 from src.core.pagination import PageParams, bind_query_filters, page_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
+from src.modules.dealer_portal.commerce_router import router as commerce_router
+from src.modules.dealer_portal.promotions_router import router as promotions_router
 from src.modules.dealer_portal.schemas import (
     DealerBrandRead,
     DealerCancelRequest,
@@ -426,3 +428,13 @@ async def outstanding(session: DbSession, tenant: Tenant) -> ApiResponse[DealerO
     return ApiResponse[DealerOutstanding].ok(
         await DealerPortalService(session, tenant).outstanding()
     )
+
+
+router.include_router(commerce_router)
+
+# The portal keeps its principal gate; staff promotions have their own gates
+# and prefix while remaining in the module that owns their business rules.
+dealer_portal_router = router
+router = APIRouter()
+router.include_router(dealer_portal_router)
+router.include_router(promotions_router)

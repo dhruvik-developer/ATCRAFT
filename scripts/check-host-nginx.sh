@@ -166,4 +166,4 @@ if [ "$MODE" = "installed" ]; then
   mounts+=(-v "${INSTALLED_CONF_D}:/host/conf.d:ro" -v "${INSTALLED_SNIPPETS}:/host/snippets:ro")
 fi
 MSYS_NO_PATHCONV=1 docker run --rm "${mounts[@]}" -e MODE="$MODE" \
-  --entrypoint sh nginx:1.30.4-alpine3.24 "/repo/${RUNNER}"
+  --entrypoint sh nginx:1.30.6-alpine3.24-slim@sha256:dede8895648b461178c3bc604f7eed4423efe5220b2c4d839f5eb3d34ac3f8f7 "/repo/${RUNNER}"

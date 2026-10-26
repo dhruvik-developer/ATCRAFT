@@ -57,11 +57,12 @@ def test_the_happy_path_is_reachable_step_by_step() -> None:
         assert FLOW.can_transition(current, target), f"{current} -> {target} is missing"
 
 
-def test_closed_is_the_only_terminal_state() -> None:
+def test_closed_and_withdrawn_are_terminal() -> None:
     for state in InspectionStatus:
         has_exit = bool(FLOW.allowed_targets(state))
         assert has_exit is not FLOW.is_terminal(state), state
     assert FLOW.is_terminal(InspectionStatus.CLOSED)
+    assert FLOW.is_terminal(InspectionStatus.WITHDRAWN)
 
 
 @pytest.mark.parametrize("verdict", list(DECIDED_STATUSES))
@@ -174,6 +175,7 @@ def test_the_rejection_names_what_would_have_been_allowed() -> None:
     details = caught.value.details or {}
     assert set(details.get("allowed", [])) == {
         InspectionStatus.IN_PROGRESS.value,
+        InspectionStatus.WITHDRAWN.value,
         *(status.value for status in DECIDED_STATUSES),
     }
 
@@ -183,9 +185,10 @@ def test_the_open_statuses_are_exactly_the_undecided_ones() -> None:
     # all read this tuple; a member drifting out of it would silently change all
     # three at once.
     assert set(OPEN_STATUSES) == {InspectionStatus.PENDING, InspectionStatus.IN_PROGRESS}
-    assert set(OPEN_STATUSES) | set(DECIDED_STATUSES) | {InspectionStatus.CLOSED} == set(
-        InspectionStatus
-    )
+    assert set(OPEN_STATUSES) | set(DECIDED_STATUSES) | {
+        InspectionStatus.CLOSED,
+        InspectionStatus.WITHDRAWN,
+    } == set(InspectionStatus)
 
 
 # -----------------------------------------------------------------------------

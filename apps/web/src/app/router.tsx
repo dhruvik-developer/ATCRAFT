@@ -20,6 +20,27 @@ import { LoginPage } from '@/features/auth/login-page'
 import { P, type PermissionKey } from '@/lib/permissions'
 
 // --- lazy feature routes -----------------------------------------------------
+const PortalLayout = lazy(() => import('@/features/portals/portal-layout'))
+const VendorHomePage = lazy(routeLoaders['/vendor'])
+const VendorOrdersPage = lazy(routeLoaders['/vendor/orders'])
+const VendorOrderPage = lazy(routeLoaders['/vendor/orders/:orderId'])
+const VendorShipmentsPage = lazy(routeLoaders['/vendor/shipments'])
+const VendorReceiptsPage = lazy(routeLoaders['/vendor/receipts'])
+const VendorPortalInvoicesPage = lazy(routeLoaders['/vendor/invoices'])
+const VendorInvoicePage = lazy(routeLoaders['/vendor/invoices/:invoiceId'])
+const VendorPaymentsPage = lazy(routeLoaders['/vendor/payments'])
+const DealerHomePage = lazy(routeLoaders['/dealer'])
+const DealerCatalogPage = lazy(routeLoaders['/dealer/catalog'])
+const DealerItemPage = lazy(routeLoaders['/dealer/catalog/:itemId'])
+const DealerCartPage = lazy(routeLoaders['/dealer/cart'])
+const DealerWishlistPage = lazy(routeLoaders['/dealer/wishlist'])
+const DealerOrdersPage = lazy(routeLoaders['/dealer/orders'])
+const DealerOrderPage = lazy(routeLoaders['/dealer/orders/:orderId'])
+const DealerInvoicesPage = lazy(routeLoaders['/dealer/invoices'])
+const DealerInvoicePage = lazy(routeLoaders['/dealer/invoices/:invoiceId'])
+const DealerReturnsPage = lazy(routeLoaders['/dealer/returns'])
+const DealerAccountPage = lazy(routeLoaders['/dealer/account'])
+const PromotionsPage = lazy(routeLoaders['/promotions'])
 // The import functions live in route-loaders.ts so the sidebar can warm a
 // chunk on hover through the same promise `lazy` will resolve on click.
 const DashboardPage = lazy(routeLoaders['/'])
@@ -42,6 +63,7 @@ const MrpPage = lazy(routeLoaders['/mrp'])
 const MrpRunDetailPage = lazy(routeLoaders['/mrp/runs/:runId'])
 const RequisitionsPage = lazy(routeLoaders['/procurement/requisitions'])
 const PurchaseOrdersPage = lazy(routeLoaders['/procurement/purchase-orders'])
+const InboundTrackingPage = lazy(routeLoaders['/procurement/inbound-tracking'])
 const PurchaseOrderDetailPage = lazy(routeLoaders['/procurement/purchase-orders/:poId'])
 const GoodsReceiptsPage = lazy(routeLoaders['/procurement/goods-receipts'])
 const VendorsPage = lazy(routeLoaders['/vendors'])
@@ -132,6 +154,20 @@ function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/change-password" replace />
   }
 
+  const portalRoot = user?.vendor_id ? '/vendor' : user?.customer_id ? '/dealer' : null
+  const sharedPage = ['/profile', '/notifications', '/change-password'].includes(location.pathname)
+  if (
+    portalRoot &&
+    !sharedPage &&
+    location.pathname !== portalRoot &&
+    !location.pathname.startsWith(`${portalRoot}/`)
+  ) {
+    return <Navigate to={portalRoot} replace />
+  }
+  if (!portalRoot && /^\/(vendor|dealer)(\/|$)/.test(location.pathname)) {
+    return <Navigate to="/" replace />
+  }
+
   return <>{children}</>
 }
 
@@ -182,6 +218,7 @@ function NotFound() {
 }
 
 export function AppRouter() {
+  const { isVendorUser, isDealerUser } = useAuth()
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -215,7 +252,13 @@ export function AppRouter() {
       <Route
         element={
           <RequireAuth>
-            <AppLayout />
+            {isVendorUser || isDealerUser ? (
+              <Suspense fallback={<PageLoader />}>
+                <PortalLayout />
+              </Suspense>
+            ) : (
+              <AppLayout />
+            )}
           </RequireAuth>
         }
       >
@@ -255,6 +298,82 @@ export function AppRouter() {
  * rather than a route that silently hides itself from everyone.
  */
 const routeGroups: { path: string; element: ReactNode; permissions: PermissionKey[] }[] = [
+  { path: '/vendor', element: <VendorHomePage />, permissions: [P.VENDOR_PORTAL_ACCESS] },
+  { path: '/vendor/orders', element: <VendorOrdersPage />, permissions: [P.VENDOR_PORTAL_ACCESS] },
+  {
+    path: '/vendor/orders/:orderId',
+    element: <VendorOrderPage />,
+    permissions: [P.VENDOR_PORTAL_ACCESS],
+  },
+  {
+    path: '/vendor/shipments',
+    element: <VendorShipmentsPage />,
+    permissions: [P.VENDOR_PORTAL_ACCESS],
+  },
+  {
+    path: '/vendor/receipts',
+    element: <VendorReceiptsPage />,
+    permissions: [P.VENDOR_PORTAL_ACCESS],
+  },
+  {
+    path: '/vendor/invoices',
+    element: <VendorPortalInvoicesPage />,
+    permissions: [P.VENDOR_PORTAL_INVOICE],
+  },
+  {
+    path: '/vendor/invoices/:invoiceId',
+    element: <VendorInvoicePage />,
+    permissions: [P.VENDOR_PORTAL_INVOICE],
+  },
+  {
+    path: '/vendor/payments',
+    element: <VendorPaymentsPage />,
+    permissions: [P.VENDOR_PORTAL_INVOICE],
+  },
+  { path: '/dealer', element: <DealerHomePage />, permissions: [P.DEALER_PORTAL_BROWSE] },
+  {
+    path: '/dealer/catalog',
+    element: <DealerCatalogPage />,
+    permissions: [P.DEALER_PORTAL_BROWSE],
+  },
+  {
+    path: '/dealer/catalog/:itemId',
+    element: <DealerItemPage />,
+    permissions: [P.DEALER_PORTAL_BROWSE],
+  },
+  { path: '/dealer/cart', element: <DealerCartPage />, permissions: [P.DEALER_PORTAL_ORDER] },
+  {
+    path: '/dealer/wishlist',
+    element: <DealerWishlistPage />,
+    permissions: [P.DEALER_PORTAL_BROWSE],
+  },
+  { path: '/dealer/orders', element: <DealerOrdersPage />, permissions: [P.DEALER_PORTAL_ORDER] },
+  {
+    path: '/dealer/orders/:orderId',
+    element: <DealerOrderPage />,
+    permissions: [P.DEALER_PORTAL_ORDER],
+  },
+  {
+    path: '/dealer/invoices',
+    element: <DealerInvoicesPage />,
+    permissions: [P.DEALER_PORTAL_ACCOUNT],
+  },
+  {
+    path: '/dealer/invoices/:invoiceId',
+    element: <DealerInvoicePage />,
+    permissions: [P.DEALER_PORTAL_ACCOUNT],
+  },
+  {
+    path: '/dealer/returns',
+    element: <DealerReturnsPage />,
+    permissions: [P.DEALER_PORTAL_RETURN],
+  },
+  {
+    path: '/dealer/account',
+    element: <DealerAccountPage />,
+    permissions: [P.DEALER_PORTAL_ACCOUNT],
+  },
+  { path: '/promotions', element: <PromotionsPage />, permissions: [P.PROMOTION_VIEW] },
   { path: '/items', element: <ItemsPage />, permissions: [P.ITEM_VIEW] },
   { path: '/items/:itemId', element: <ItemDetailPage />, permissions: [P.ITEM_VIEW] },
   { path: '/warehouses', element: <WarehousesPage />, permissions: [P.WAREHOUSE_VIEW] },
@@ -303,6 +422,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   {
     path: '/procurement/purchase-orders',
     element: <PurchaseOrdersPage />,
+    permissions: [P.PURCHASE_ORDER_VIEW],
+  },
+  {
+    path: '/procurement/inbound-tracking',
+    element: <InboundTrackingPage />,
     permissions: [P.PURCHASE_ORDER_VIEW],
   },
   {

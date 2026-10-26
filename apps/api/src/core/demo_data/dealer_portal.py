@@ -28,6 +28,8 @@ from src.core.clock import today
 from src.core.demo_data import DemoContext, find_by_code
 from src.modules.customers.models import Customer
 from src.modules.dealer_portal.models import DealerOffer
+from src.modules.dealer_portal.promotion_schemas import DealerOfferCreate
+from src.modules.dealer_portal.promotion_service import PromotionService
 from src.modules.dealer_portal.schemas import DealerCheckoutRequest
 from src.modules.dealer_portal.service import DealerPortalService
 from src.modules.organization.models import Company
@@ -245,9 +247,9 @@ async def _seed_offers(ctx: DemoContext) -> None:
         if target_id is None:
             ctx.skipped.append((STAGE, f"dealer offer {code} not created: target missing"))
             continue
-        ctx.session.add(
-            DealerOffer(
-                company_id=ctx.company_id,
+        await PromotionService(ctx.session, ctx.tenant).create(
+            "offers",
+            DealerOfferCreate(
                 code=code,
                 title=title,
                 description="Demonstration scheme - safe to edit or retire.",
@@ -263,9 +265,8 @@ async def _seed_offers(ctx: DemoContext) -> None:
                 valid_to=None,
                 is_active=True,
                 sort_order=10,
-            )
+            ),
         )
-        await ctx.session.flush()
         ctx.note(STAGE, created=1)
 
 

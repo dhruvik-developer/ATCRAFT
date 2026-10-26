@@ -128,6 +128,34 @@ export const queryClient = new QueryClient({
  * detail at once.
  */
 export const queryKeys = {
+  vendorPortal: {
+    all: ['vendor-portal'] as const,
+    me: ['vendor-portal', 'me'] as const,
+    dashboard: ['vendor-portal', 'dashboard'] as const,
+    orders: (params: unknown) => ['vendor-portal', 'orders', params] as const,
+    order: (id: string) => ['vendor-portal', 'orders', id] as const,
+    shipments: (params: unknown) => ['vendor-portal', 'shipments', params] as const,
+    receipts: (params: unknown) => ['vendor-portal', 'receipts', params] as const,
+    invoices: (params: unknown) => ['vendor-portal', 'invoices', params] as const,
+    invoice: (id: string) => ['vendor-portal', 'invoices', id] as const,
+    payments: (params: unknown) => ['vendor-portal', 'payments', params] as const,
+    paymentSummary: ['vendor-portal', 'payment-summary'] as const,
+    rating: ['vendor-portal', 'rating'] as const,
+    transporters: (params: unknown) => ['vendor-portal', 'transporters', params] as const,
+  },
+  dealerPortal: {
+    all: ['dealer-portal'] as const,
+    me: ['dealer-portal', 'me'] as const,
+    outstanding: ['dealer-portal', 'outstanding'] as const,
+    categories: ['dealer-portal', 'categories'] as const,
+    brands: ['dealer-portal', 'brands'] as const,
+    cart: ['dealer-portal', 'cart'] as const,
+    wishlist: ['dealer-portal', 'wishlist'] as const,
+    list: (resource: string, params: unknown) => ['dealer-portal', resource, params] as const,
+    detail: (resource: string, id: string) => ['dealer-portal', resource, id] as const,
+    price: (id: string, quantity: string, variantId?: string) =>
+      ['dealer-portal', 'price', id, quantity, variantId] as const,
+  },
   auth: {
     me: ['auth', 'me'] as const,
     sessions: ['auth', 'sessions'] as const,
@@ -205,6 +233,12 @@ export const queryKeys = {
     purchaseOrder: (id: string) => ['procurement', 'po', 'detail', id] as const,
     grns: (params: unknown) => ['procurement', 'grn', params] as const,
     tracking: (params: unknown) => ['procurement', 'tracking', params] as const,
+    inboundTracking: (params: unknown) => ['procurement', 'inbound', params] as const,
+    shipments: (id: string, params: unknown) =>
+      ['procurement', 'po', id, 'shipments', params] as const,
+    documents: (id: string, params: unknown) =>
+      ['procurement', 'po', id, 'documents', params] as const,
+    inboundTransporters: (params: unknown) => ['procurement', 'transporters', params] as const,
   },
   production: {
     all: ['production'] as const,
@@ -262,5 +296,7 @@ export const queryKeys = {
   notifications: {
     all: ['notifications'] as const,
     unreadCount: ['notifications', 'unread-count'] as const,
+    pushConfig: ['notifications', 'push-config'] as const,
+    pushState: ['notifications', 'push-state'] as const,
   },
 } as const

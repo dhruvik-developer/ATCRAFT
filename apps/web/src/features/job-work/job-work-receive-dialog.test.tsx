@@ -10,13 +10,14 @@
  * challan date rides along with the vendor challan number.
  */
 
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, renderScreen } from '@/test/harness'
+import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
-import { JobWorkReceiveDialog } from './job-work-dialogs'
+import { JobWorkIssueDialog, JobWorkReceiveDialog } from './job-work-dialogs'
+import { receiveSchema } from './job-work-receive-schema'
 import type { JobWorkOrderDetail, JobWorkOrderLine } from './job-work-model'
 
 const LINE: JobWorkOrderLine = {
@@ -25,6 +26,8 @@ const LINE: JobWorkOrderLine = {
   line_number: 1,
   item_id: 'item-raw-1',
   is_batch_tracked: false,
+  is_serial_tracked: false,
+  serial_ids: [],
   batch_id: null,
   uom_id: 'uom-1',
   quantity_to_issue: '100.0000',
@@ -72,7 +75,7 @@ const DETAIL: JobWorkOrderDetail = {
   lines: [LINE],
 }
 
-function renderReceive(permissions: string[], detail = DETAIL) {
+function renderReceive(permissions: string[], detail = DETAIL, extraRoutes: RouteTable = {}) {
   return renderScreen(
     <JobWorkReceiveDialog open onOpenChange={() => {}} orderId="jw-1" orderCode="JW-0001" />,
     {
@@ -80,10 +83,199 @@ function renderReceive(permissions: string[], detail = DETAIL) {
       routes: {
         'GET /job-work/jw-1': ok(detail),
         'POST /job-work/jw-1/receive': ok({ received: true }),
+        ...extraRoutes,
       },
     },
   )
 }
+
+const SERIAL_LINE = {
+  ...LINE,
+  is_serial_tracked: true,
+  quantity_to_issue: '4',
+  issued_quantity: '4',
+  expected_output_quantity: '4',
+}
+const SERIAL_UNITS = [1, 2, 3, 4].map((number) => ({
+  id: `unit-${number}`,
+  serial_number: `SERIAL-00${number}`,
+  status: 'ISSUED',
+  item_id: LINE.item_id,
+}))
+
+describe('named serial processing', () => {
+  it('bounds the whole mixed-outcome receipt at 500 units while leaving nonserial quantity uncapped', () => {
+    const line = {
+      line_number: 1,
+      label: 'Line 1',
+      received_quantity: '200',
+      rejected_quantity: '100',
+      returned_quantity: '100',
+      rejection_action: 'RETURN_TO_STOCK',
+      rejection_reason: '',
+      is_final: true,
+      output_serial_ids: Array.from({ length: 200 }, (_, index) => `good-${index}`),
+      rejected_serial_ids: Array.from({ length: 100 }, (_, index) => `rejected-${index}`),
+      returned_unprocessed_serial_ids: Array.from(
+        { length: 100 },
+        (_, index) => `unworked-${index}`,
+      ),
+      scrapped_serial_ids: [],
+    }
+    const body = {
+      receipt_date: '2026-10-25',
+      remarks: '',
+      reason: 'Physical units counted',
+      vendor_challan_number: '',
+      vendor_challan_date: '',
+      approve_excess_loss: false,
+      lines: [
+        line,
+        {
+          ...line,
+          line_number: 2,
+          output_serial_ids: [],
+          rejected_serial_ids: [],
+          returned_unprocessed_serial_ids: [],
+          scrapped_serial_ids: Array.from({ length: 100 }, (_, index) => `loss-${index}`),
+        },
+      ],
+    }
+    expect(receiveSchema.safeParse(body).success).toBe(true)
+    const over = receiveSchema.safeParse({
+      ...body,
+      lines: [
+        body.lines[0],
+        {
+          ...body.lines[1],
+          scrapped_serial_ids: [...body.lines[1]!.scrapped_serial_ids, 'loss-101'],
+        },
+      ],
+    })
+    expect(over.success).toBe(false)
+    expect(over.error?.issues[0]?.message).toContain('at most 500 serial units across all lines')
+    expect(
+      receiveSchema.safeParse({
+        ...body,
+        lines: [
+          {
+            ...line,
+            received_quantity: '100000',
+            output_serial_ids: [],
+            rejected_serial_ids: [],
+            returned_unprocessed_serial_ids: [],
+          },
+        ],
+      }).success,
+    ).toBe(true)
+  })
+  it('requires the exact issue count and sends the selected stock identities', async () => {
+    const urls: URL[] = []
+    const { user, fetch } = renderScreen(
+      <JobWorkIssueDialog open onOpenChange={() => {}} orderId="jw-1" orderCode="JW-0001" />,
+      {
+        permissions: [P.JOB_WORK_VIEW, P.JOB_WORK_ISSUE, P.INVENTORY_VIEW],
+        routes: {
+          'GET /job-work/jw-1': ok({
+            ...DETAIL,
+            lines: [{ ...SERIAL_LINE, issued_quantity: '0', quantity_to_issue: '2' }],
+          }),
+          'GET /transporters/options': ok([]),
+          'GET /inventory/serials': ({ url }) => {
+            urls.push(url)
+            return page(SERIAL_UNITS.slice(0, 2).map((unit) => ({ ...unit, status: 'IN_STOCK' })))
+          },
+          'POST /job-work/jw-1/issue': ok({}),
+        },
+      },
+    )
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Reason' }),
+      'Send named units for coating',
+    )
+    await user.click(screen.getByRole('button', { name: 'Issue and create challan' }))
+    expect(
+      await screen.findByText('Choose one distinct serial unit for every issued unit.'),
+    ).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    await user.click(await screen.findByRole('button', { name: 'SERIAL-001' }))
+    await user.click(screen.getByRole('button', { name: 'SERIAL-002' }))
+    await user.click(screen.getByRole('button', { name: 'Issue and create challan' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/job-work/jw-1/issue')).toMatchObject({
+        lines: [{ issued_quantity: '2', serial_ids: ['unit-1', 'unit-2'] }],
+      }),
+    )
+    expect(urls[0]?.searchParams.get('warehouse_id')).toBe('wh-1')
+  })
+
+  it('names output, rejected, untouched and lost units separately, using only outstanding vendor units', async () => {
+    const urls: URL[] = []
+    const { user, fetch } = renderReceive(
+      [P.JOB_WORK_CLOSE],
+      { ...DETAIL, lines: [SERIAL_LINE] },
+      {
+        'GET /inventory/serials': ({ url }) => {
+          urls.push(url)
+          return page(SERIAL_UNITS)
+        },
+      },
+    )
+    await user.clear(await screen.findByLabelText('Received'))
+    await user.type(screen.getByLabelText('Received'), '1')
+    await user.type(screen.getByLabelText('Rejected'), '1')
+    await user.type(screen.getByLabelText('Returned unworked'), '1')
+    await user.click(screen.getByLabelText('Close line - write off shortfall'))
+    await user.click(screen.getByLabelText('Rejection reason'))
+    await user.paste('Coating did not adhere')
+    await user.click(screen.getByRole('textbox', { name: 'Reason' }))
+    await user.paste('Four units individually reconciled')
+    await user.click(screen.getByRole('button', { name: 'Record receipt' }))
+    expect(await screen.findByText(/Name each serial unit once/)).toBeVisible()
+    const buckets = [
+      'Processed output serials',
+      'Rejected serials',
+      'Unworked return serials',
+      'Process loss serials',
+    ]
+    for (const [index, label] of buckets.entries()) {
+      const search = screen.getByLabelText(label)
+      const picker = search.parentElement!.closest('div.space-y-2')!
+      await user.click(
+        within(picker as HTMLElement).getByRole('button', { name: `SERIAL-00${index + 1}` }),
+      )
+      if (index === 0) {
+        const otherPicker = screen
+          .getByLabelText('Rejected serials')
+          .parentElement!.closest('div.space-y-2')!
+        expect(
+          within(otherPicker as HTMLElement).getByRole('button', { name: /SERIAL-001/ }),
+        ).toBeDisabled()
+      }
+    }
+    await user.click(screen.getByRole('button', { name: 'Record receipt' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/job-work/jw-1/receive')).toMatchObject({
+        lines: [
+          {
+            output_serial_ids: ['unit-1'],
+            rejected_serial_ids: ['unit-2'],
+            returned_unprocessed_serial_ids: ['unit-3'],
+            scrapped_serial_ids: ['unit-4'],
+            is_final: true,
+          },
+        ],
+      }),
+    )
+    expect(urls.length).toBeGreaterThan(0)
+    for (const url of urls) {
+      expect(url.searchParams.get('job_work_order_line_id')).toBe('line-1')
+      expect(url.searchParams.get('job_work_outstanding_only')).toBe('true')
+      expect(url.searchParams.get('status')).toBe('ISSUED')
+      expect(url.searchParams.has('warehouse_id')).toBe(false)
+    }
+  })
+})
 
 describe('the receive dialog request body', () => {
   it.each([

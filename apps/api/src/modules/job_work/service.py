@@ -120,10 +120,13 @@ taken, named, and is changeable in one place.
   selected for each order line on the draft, reserved at that stock grain and
   carried through every challan, receipt and ledger movement; a second batch
   needs a separate line.
-  A tracked input/output conversion is refused until its identity lineage is
-  defined. Serial-tracked items remain refused because processing loss, scrap
-  and vendor-held rework need explicit per-unit dispositions that this
-  document contract does not yet provide.
+  Serial issues name every physical unit, and receipts name disjoint units for
+  output, rejection, unprocessed return and scrap. Vendor-held rework remains
+  eligible for a later receipt. Serial-only SKU conversion is one-to-one: the
+  physical label is retained in a new SKU-scoped serial row, joined to the input
+  by an immutable conversion record. Historical ledger identities are never
+  rewritten. Batch SKU conversion and mixed tracking still need a lineage
+  policy and are refused.
 * **``requires_qc`` is a per-order flag**, not an item-master property. ``items``
   carries no inspection policy and inventing one would put the rule in two
   places that could disagree; ``goods_receipt_lines.requires_qc`` and
@@ -153,6 +156,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
+from src.core.ids import persisted_actor
 from src.core.logging import get_logger
 from src.core.messages import (
     date_before,
@@ -168,7 +172,7 @@ from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.allocation.models import DemandType, ReservationType
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
-from src.modules.inventory.models import StockState, TransactionType
+from src.modules.inventory.models import StockSerialConversion, StockState, TransactionType
 from src.modules.inventory.repository import StockBatchRepository
 from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
 from src.modules.job_work.models import (
@@ -228,6 +232,11 @@ from src.modules.job_work.schemas import (
     VendorChargeRow,
     VendorLedgerItemRow,
     VendorLedgerReport,
+)
+from src.modules.job_work.serial_tracking import (
+    prepare_conversions,
+    receipt_movements,
+    validate_receipt_units,
 )
 from src.modules.organization.models import Company
 from src.modules.organization.service import require_cost_centre
@@ -982,21 +991,6 @@ async def _transition(
     return order
 
 
-def _assert_trackable(item: JobWorkItem, *, role: str) -> None:
-    """Refuse tracking modes this module has no contract to satisfy.
-
-    See the module's Assumptions. Checked at order entry so the order never
-    reaches a vendor it cannot be received from.
-    """
-    if item.is_serial_tracked:
-        raise BusinessRuleError(
-            f"{item.code} is serial tracked and cannot be a job work {role}: there is no "
-            "contract for accounting for each serial through processing, loss and rework.",
-            code=ErrorCode.SERIAL_REQUIRED,
-            details={"item_code": item.code, "role": role},
-        )
-
-
 async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID) -> None:
     """Both warehouses in one statement, and both must be able to hold stock."""
     found = await WarehouseLookupRepository(session, tenant).load(list(ids))
@@ -1080,7 +1074,16 @@ async def _resolve_lines(
                 f"{source.code} is not flagged as usable for job work.",
                 details={"item_code": source.code, "line_number": line.line_number},
             )
-        _assert_trackable(source, role="input")
+        if source.is_serial_tracked and (
+            line.quantity_to_issue != line.quantity_to_issue.to_integral_value()
+            or (
+                line.expected_output_quantity is not None
+                and line.expected_output_quantity != line.quantity_to_issue
+            )
+        ):
+            raise BusinessRuleError(
+                "Serial job work requires whole units and one output per input."
+            )
         if source.is_batch_tracked:
             if line.batch_id is None:
                 raise BusinessRuleError(
@@ -1117,11 +1120,20 @@ async def _resolve_lines(
             )
         # ASSUMPTION: a lot identity survives same-item processing, but cannot
         # be transferred to a different SKU without an explicit lineage record.
-        if output.id != source.id and (
-            source.is_batch_tracked
-            or source.is_serial_tracked
-            or output.is_batch_tracked
-            or output.is_serial_tracked
+        if (
+            output.id != source.id
+            and (
+                source.is_batch_tracked
+                or source.is_serial_tracked
+                or output.is_batch_tracked
+                or output.is_serial_tracked
+            )
+            and not (
+                source.is_serial_tracked
+                and output.is_serial_tracked
+                and not source.is_batch_tracked
+                and not output.is_batch_tracked
+            )
         ):
             raise BusinessRuleError(
                 f"{source.code} cannot be converted to {output.code} in a tracked job-work "
@@ -1132,7 +1144,6 @@ async def _resolve_lines(
                     "line_number": line.line_number,
                 },
             )
-        _assert_trackable(output, role="output")
 
         resolved.append((line, source, output))
     return resolved
@@ -1150,6 +1161,7 @@ def _persist_lines(
                 line_number=line.line_number,
                 item_id=source.id,
                 is_batch_tracked=source.is_batch_tracked,
+                is_serial_tracked=source.is_serial_tracked,
                 batch_id=line.batch_id,
                 uom_id=source.base_uom_id,
                 quantity_to_issue=to_quantity(line.quantity_to_issue),
@@ -2028,6 +2040,10 @@ async def issue_order(
 
         lines = await line_repo.list_for_order(order.id)
         by_number = {line.line_number: line for line in lines}
+        serials_by_number = {entry.line_number: entry.serial_ids for entry in payload.lines}
+        selected_serials = [serial for serials in serials_by_number.values() for serial in serials]
+        if len(selected_serials) != len(set(selected_serials)):
+            raise BusinessRuleError("A serial unit can be issued on only one job-work line.")
         overrides: dict[int, tuple[Decimal, uuid.UUID | None]] = {}
         for entry in payload.lines:
             line = by_number.get(entry.line_number)
@@ -2087,6 +2103,7 @@ async def issue_order(
         movement_reason = f"Job work {order.code} issued to vendor: {payload.reason}"[:255]
         issuing: list[tuple[JobWorkOrderLine, Decimal, uuid.UUID | None]] = []
         movements: list[MovementRequest] = []
+        movement_ranges: list[tuple[int, int]] = []
         for line in lines:
             quantity, batch_id = overrides.get(
                 line.line_number,
@@ -2101,24 +2118,37 @@ async def issue_order(
                     details={"line_number": line.line_number, "item_id": str(line.item_id)},
                 )
             issuing.append((line, quantity, batch_id))
-            movements.append(
-                MovementRequest(
-                    item_id=line.item_id,
-                    warehouse_id=order.warehouse_id,
-                    quantity=quantity,
-                    batch_id=batch_id,
-                    # THE line that keeps the material ours. Not DISPATCH, not
-                    # PURCHASE_RETURN, not ADJUSTMENT_DECREASE - the stock moves
-                    # into job_work_quantity and stays on the company's books.
-                    transaction_type=TransactionType.JOB_WORK_ISSUE,
-                    reference_type=MOVEMENT_REFERENCE_JOB_WORK,
-                    reference_id=order.id,
-                    reference_code=order.code,
-                    reason=movement_reason,
-                    stock_state=StockState.JOB_WORK,
-                    occurred_at=payload.occurred_at,
+            serial_ids = serials_by_number.get(line.line_number, [])
+            if line.is_serial_tracked:
+                if Decimal(len(serial_ids)) != quantity:
+                    raise BusinessRuleError(
+                        "Select one serial unit for every issued job-work unit."
+                    )
+            elif serial_ids:
+                raise BusinessRuleError("Remove serial selections from a non-serial job-work line.")
+            start = len(movements)
+            serial_units: list[uuid.UUID | None] = list(serial_ids) if serial_ids else [None]
+            for serial_id in serial_units:
+                movements.append(
+                    MovementRequest(
+                        item_id=line.item_id,
+                        warehouse_id=order.warehouse_id,
+                        quantity=Decimal("1") if serial_id is not None else quantity,
+                        serial_id=serial_id,
+                        batch_id=batch_id,
+                        # THE line that keeps the material ours. Not DISPATCH, not
+                        # PURCHASE_RETURN, not ADJUSTMENT_DECREASE - the stock moves
+                        # into job_work_quantity and stays on the company's books.
+                        transaction_type=TransactionType.JOB_WORK_ISSUE,
+                        reference_type=MOVEMENT_REFERENCE_JOB_WORK,
+                        reference_id=order.id,
+                        reference_code=order.code,
+                        reason=movement_reason,
+                        stock_state=StockState.JOB_WORK,
+                        occurred_at=payload.occurred_at,
+                    )
                 )
-            )
+            movement_ranges.append((start, len(movements)))
 
         if not movements:
             raise BusinessRuleError(
@@ -2138,10 +2168,29 @@ async def issue_order(
                 line,
                 quantity,
                 batch_id,
-                Decimal(txn.unit_cost),
-                to_money(quantity * Decimal(txn.unit_cost)),
+                to_unit_price(
+                    sum(
+                        (
+                            abs(Decimal(txn.quantity)) * Decimal(txn.unit_cost)
+                            for txn in posted[start:end]
+                        ),
+                        ZERO,
+                    )
+                    / quantity
+                ),
+                to_money(
+                    sum(
+                        (
+                            abs(Decimal(txn.quantity)) * Decimal(txn.unit_cost)
+                            for txn in posted[start:end]
+                        ),
+                        ZERO,
+                    )
+                ),
             )
-            for (line, quantity, batch_id), txn in zip(issuing, posted, strict=True)
+            for (line, quantity, batch_id), (start, end) in zip(
+                issuing, movement_ranges, strict=True
+            )
         ]
         total_quantity = to_quantity(
             sum((quantity for _, quantity, _, _, _ in declared), start=ZERO)
@@ -2179,12 +2228,14 @@ async def issue_order(
                         batch_id=batch_id,
                         uom_id=line.uom_id,
                         quantity=quantity,
+                        serial_ids=serials_by_number.get(line.line_number, []),
                         unit_value=unit_value,
                         total_value=line_value,
                     )
                 )
             )
             line.issued_quantity = to_quantity(Decimal(line.issued_quantity) + quantity)
+            line.serial_ids = serials_by_number.get(line.line_number, [])
             line.batch_id = batch_id
             line_repo.touch(line)
 
@@ -2264,6 +2315,7 @@ def _build_receipt_movements(
     occurred_at: datetime | None,
     capitalised_costs: Mapping[int, Decimal] | None = None,
     rejected_costs: Mapping[int, Decimal] | None = None,
+    converted_serial_ids: Mapping[uuid.UUID, uuid.UUID] | None = None,
 ) -> tuple[list[MovementRequest], dict[int, int]]:
     """Every ledger row one receipt writes, as one batch.
 
@@ -2305,6 +2357,20 @@ def _build_receipt_movements(
 
     for entry in planned:
         line, plan = entry.order_line, entry.plan
+        if line.is_serial_tracked:
+            unit_movements, unit_scrap_index = receipt_movements(
+                entry,
+                order=order,
+                reason=reason,
+                occurred_at=occurred_at,
+                capitalised_cost=capitalised.get(line.line_number),
+                rejected_cost=rejected.get(line.line_number),
+                converted_serial_ids=converted_serial_ids,
+            )
+            if unit_scrap_index is not None:
+                scrap_index[line.line_number] = len(movements) + unit_scrap_index
+            movements.extend(unit_movements)
+            continue
         common: dict[str, Any] = {
             "reference_type": MOVEMENT_REFERENCE_JOB_WORK,
             "reference_id": order.id,
@@ -2499,6 +2565,14 @@ async def receive(
         by_number = {line.line_number: line for line in lines}
 
         planned = _plan_receipt(payload.lines, by_number)
+        await validate_receipt_units(session, tenant, planned)
+        converted_serial_ids = await prepare_conversions(
+            session,
+            tenant,
+            planned,
+            order=order,
+            occurred_at=payload.occurred_at or utcnow(),
+        )
         excess_total = assert_excess_loss_authorised(
             principal,
             order_code=order.code,
@@ -2597,6 +2671,7 @@ async def receive(
             occurred_at=payload.occurred_at,
             capitalised_costs={number: cost.unit_cost for number, cost in costing.items()},
             rejected_costs={number: cost.unit_cost for number, cost in rejected_costing.items()},
+            converted_serial_ids=converted_serial_ids,
         )
         posted = await post_movements(session, tenant, movements)
         # The debit is priced from the cost the ledger actually used for the
@@ -2653,6 +2728,18 @@ async def receive(
                         line_number=line.line_number,
                         output_item_id=line.expected_output_item_id,
                         batch_id=row.batch_id,
+                        output_serial_ids=row.entry.output_serial_ids,
+                        rejected_serial_ids=row.entry.rejected_serial_ids,
+                        returned_unprocessed_serial_ids=row.entry.returned_unprocessed_serial_ids,
+                        scrapped_serial_ids=row.entry.scrapped_serial_ids,
+                        converted_serial_ids={
+                            str(source_id): str(converted_serial_ids[source_id])
+                            for source_id in [
+                                *row.entry.output_serial_ids,
+                                *row.entry.rejected_serial_ids,
+                            ]
+                            if source_id in converted_serial_ids
+                        },
                         output_quantity=plan.output_quantity,
                         rejected_quantity=plan.rejected_quantity,
                         rejection_action=row.entry.rejection_action,
@@ -2692,17 +2779,40 @@ async def receive(
         await session.flush()
 
         inspection_created = False
+        for receipt_line in receipt_lines:
+            for source_id, output_id in receipt_line.converted_serial_ids.items():
+                session.add(
+                    StockSerialConversion(
+                        company_id=tenant.company_id,
+                        created_by_id=persisted_actor(tenant.user_id),
+                        source_serial_id=uuid.UUID(source_id),
+                        output_serial_id=uuid.UUID(output_id),
+                        job_work_receipt_line_id=receipt_line.id,
+                    )
+                )
+        await session.flush()
         if held_for_qc and quality_port is not None:
             # One inspection per output item, each for exactly that item's held
             # quantity. One inspection naming the first item for the whole lot's
             # total could not be decided: it would try to release more of that
             # item than is held, or release another lot held at the same grain.
-            held = held_output_by_item(
-                (row.output_item_id, Decimal(row.output_quantity)) for row in receipt_lines
-            )
+            held: dict[tuple[uuid.UUID, uuid.UUID | None], Decimal] = {}
+            for receipt_line in receipt_lines:
+                if Decimal(receipt_line.output_quantity) > ZERO:
+                    key = (receipt_line.output_item_id, receipt_line.batch_id)
+                    held[key] = held.get(key, ZERO) + Decimal(receipt_line.output_quantity)
             # One call per output item of the lot - a handful at most, bounded by
             # the order's line count - because an inspection is raised per item.
-            for item_id, quantity in held.items():
+            for (item_id, batch_id), quantity in held.items():
+                serial_ids = [
+                    serial_id
+                    for receipt_line in receipt_lines
+                    if receipt_line.output_item_id == item_id and receipt_line.batch_id == batch_id
+                    for serial_id in receipt_line.output_serial_ids
+                ]
+                serial_ids = [
+                    converted_serial_ids.get(serial_id, serial_id) for serial_id in serial_ids
+                ]
                 inspection = await quality_port(
                     session,
                     tenant,
@@ -2712,11 +2822,14 @@ async def receive(
                     reference_type=QC_REFERENCE_RECEIPT,
                     reference_id=receipt.id,
                     reference_code=receipt.code,
+                    **({"serial_ids": serial_ids} if serial_ids else {}),
+                    **({"batch_id": batch_id} if batch_id is not None else {}),
                 )
                 inspection_id = getattr(inspection, "id", None)
                 for receipt_line in receipt_lines:
                     if (
                         receipt_line.output_item_id == item_id
+                        and receipt_line.batch_id == batch_id
                         and Decimal(receipt_line.output_quantity) > ZERO
                     ):
                         receipt_line.qc_inspection_id = inspection_id
@@ -2799,6 +2912,10 @@ async def receive(
                     str(row.order_line.line_number): str(row.plan.rejected_scrap_input_quantity)
                     for row in planned
                     if row.plan.rejected_scrap_input_quantity > ZERO
+                },
+                "serial_conversions": {
+                    str(source_id): str(output_id)
+                    for source_id, output_id in converted_serial_ids.items()
                 },
             },
             context={

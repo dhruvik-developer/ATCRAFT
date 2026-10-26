@@ -3806,6 +3806,46 @@
           }
         },
         {
+          "name": "Banners",
+          "request": {
+            "description": "Banners",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "banners"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/banners?"
+            }
+          }
+        },
+        {
           "name": "Cancel the dealer's own DRAFT order, with a reason",
           "request": {
             "body": {
@@ -3957,6 +3997,35 @@
           }
         },
         {
+          "name": "Credit Note Pdf",
+          "request": {
+            "description": "Credit Note Pdf",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "credit-notes",
+                ":note_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes/{note_id}/pdf",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Dealer-safe tracking: courier, tracking id, dates, events",
           "request": {
             "description": "The driver's mobile number and the freight cost are never included.",
@@ -3986,6 +4055,76 @@
           }
         },
         {
+          "name": "Download",
+          "request": {
+            "description": "Download",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "documents",
+                ":document_id",
+                "download"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/documents/{document_id}/download",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eligible Dispatches",
+          "request": {
+            "description": "Eligible Dispatches",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "returns",
+                "eligible-dispatches"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/returns/eligible-dispatches?"
+            }
+          }
+        },
+        {
           "name": "Empty the cart",
           "request": {
             "description": "Empty the cart",
@@ -4002,6 +4141,307 @@
                 "cart"
               ],
               "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "Get Credit Note",
+          "request": {
+            "description": "Get Credit Note",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "credit-notes",
+                ":note_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes/{note_id}",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Invoice",
+          "request": {
+            "description": "Get Invoice",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Job",
+          "request": {
+            "description": "Get Job",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "jobs",
+                ":job_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/jobs/{job_id}",
+              "variable": [
+                {
+                  "description": "job_id of the record",
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Return",
+          "request": {
+            "description": "Get Return",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "returns",
+                ":return_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/returns/{return_id}",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Image",
+          "request": {
+            "description": "Image",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "images",
+                ":document_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/images/{document_id}",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Invoice Pdf",
+          "request": {
+            "description": "Invoice Pdf",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "invoices",
+                ":invoice_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/invoices/{invoice_id}/pdf",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Credit Notes",
+          "request": {
+            "description": "List Credit Notes",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "credit-notes"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "invoice_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes?"
+            }
+          }
+        },
+        {
+          "name": "List Invoices",
+          "request": {
+            "description": "List Invoices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/invoices?"
+            }
+          }
+        },
+        {
+          "name": "List Returns",
+          "request": {
+            "description": "List Returns",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "returns"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/returns?"
             }
           }
         },
@@ -4039,6 +4479,46 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Offers",
+          "request": {
+            "description": "Offers",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "offers"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/offers?"
             }
           }
         },
@@ -4153,6 +4633,40 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Request Return",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {}\n    }\n  ],\n  \"notes\": \"\"\n}"
+            },
+            "description": "Request Return",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "returns"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/returns"
             }
           }
         },
@@ -8539,6 +9053,30 @@
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
+                  "description": "",
+                  "disabled": true,
+                  "key": "serial_ids",
+                  "value": "['00000000-0000-0000-0000-000000000000']"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "job_work_order_line_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "job_work_outstanding_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "qc_inspection_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
                   "description": "1-based page number",
                   "disabled": true,
                   "key": "page",
@@ -10668,7 +11206,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"line_number\": {},\n      \"batch_id\": {},\n      \"is_final\": {},\n      \"notes\": {},\n      \"output_quantity\": {},\n      \"rejected_quantity\": {},\n      \"rejection_action\": {},\n      \"returned_unprocessed_quantity\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"approve_excess_loss\": false,\n  \"notes\": \"\",\n  \"occurred_at\": \"2026-01-01T00:00:00Z\",\n  \"receipt_date\": \"2026-01-01\",\n  \"vendor_challan_date\": \"2026-01-01\",\n  \"vendor_challan_number\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"line_number\": {},\n      \"batch_id\": {},\n      \"is_final\": {},\n      \"notes\": {},\n      \"output_quantity\": {},\n      \"output_serial_ids\": {},\n      \"rejected_quantity\": {},\n      \"rejected_serial_ids\": {},\n      \"rejection_action\": {},\n      \"returned_unprocessed_quantity\": {},\n      \"returned_unprocessed_serial_ids\": {},\n      \"scrapped_serial_ids\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"approve_excess_loss\": false,\n  \"notes\": \"\",\n  \"occurred_at\": \"2026-01-01T00:00:00Z\",\n  \"receipt_date\": \"2026-01-01\",\n  \"vendor_challan_date\": \"2026-01-01\",\n  \"vendor_challan_number\": \"\"\n}"
             },
             "description": "Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and its value is then debited to the vendor at the material's own moving-average cost. Approving the excess requires `job_work.close`. Receiving more output than the order expected is refused rather than clamped.",
             "header": [
@@ -10752,7 +11290,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"reason\": \"\",\n  \"challan_date\": \"2026-01-01\",\n  \"challan_notes\": \"\",\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"issued_quantity\": {},\n      \"line_number\": {},\n      \"batch_id\": {}\n    }\n  ],\n  \"occurred_at\": \"2026-01-01T00:00:00Z\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\"\n}"
+              "raw": "{\n  \"reason\": \"\",\n  \"challan_date\": \"2026-01-01\",\n  \"challan_notes\": \"\",\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"issued_quantity\": {},\n      \"line_number\": {},\n      \"batch_id\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"occurred_at\": \"2026-01-01T00:00:00Z\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\"\n}"
             },
             "description": "Posts JOB_WORK_ISSUE for every line, which moves the quantity out of the available pool and into inventory_balances.job_work_quantity. The stock is still company property at the vendor's premises: it stays on the books, stays in the valuation and stays traceable to this order and challan - it simply cannot be promised to anybody. The statutory delivery challan is raised in the same transaction, valued from the ledger rows the issue actually wrote.",
             "header": [
@@ -13657,7 +14195,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"reason\": \"\"\n}"
+              "raw": "{\n  \"reason\": \"\",\n  \"serial_selections\": [\n    {\n      \"line_id\": {},\n      \"serial_ids\": {},\n      \"batch_id\": {}\n    }\n  ]\n}"
             },
             "description": "Put a draft on the packing bench",
             "header": [
@@ -13760,7 +14298,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"reason\": \"\"\n}"
+              "raw": "{\n  \"reason\": \"\",\n  \"batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"serial_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
             },
             "description": "Only once the line's FINAL inspection is REJECTED: the rejected stock has moved to DAMAGED, so the operator repacks replacement goods and this raises the inspection that covers them.",
             "header": [
@@ -13864,6 +14402,55 @@
                 "scan"
               ],
               "raw": "{{base_url}}/api/v1/packing/scan"
+            }
+          }
+        },
+        {
+          "name": "Recover a legacy sealed carton for named-unit repacking",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Only for an active order with quantity-only serial FINAL QC, before dispatch claims it. Physically recover the reusable packing material first. Posts MATERIAL_RETURN at the original issue cost, preserves both ledger entries and opens the carton for cancellation and repacking with actual serial selections. Requires an audit reason.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                ":order_id",
+                "cartons",
+                ":carton_id",
+                "recover-legacy"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/{order_id}/cartons/{carton_id}/recover-legacy",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "carton_id of the record",
+                  "key": "carton_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -20322,6 +20909,49 @@
           }
         },
         {
+          "name": "Set Item Image",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"document_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Set Item Image",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "items",
+                ":item_id",
+                "image"
+              ],
+              "raw": "{{base_url}}/api/v1/products/items/{item_id}/image",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Update a brand",
           "request": {
             "body": {
@@ -20705,6 +21335,654 @@
     {
       "item": [
         {
+          "name": "Activate Banner",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Activate Banner",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity",
+                "activate"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}/activate",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Activate Offer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Activate Offer",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity",
+                "activate"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}/activate",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Banner",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"image_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"\",\n  \"audience_price_type\": \"SALE\",\n  \"link_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"link_kind\": \"NONE\",\n  \"sort_order\": 0,\n  \"status\": \"ACTIVE\",\n  \"subtitle\": \"\",\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
+            },
+            "description": "Create Banner",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners"
+            }
+          }
+        },
+        {
+          "name": "Create Offer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"discount_percentage\": 0,\n  \"scope_kind\": \"ALL\",\n  \"title\": \"\",\n  \"audience_price_type\": \"SALE\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"is_active\": false,\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"min_quantity\": 0,\n  \"sort_order\": 0,\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
+            },
+            "description": "Create Offer",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers"
+            }
+          }
+        },
+        {
+          "name": "Deactivate Banner",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Deactivate Banner",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity",
+                "deactivate"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}/deactivate",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Deactivate Offer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Deactivate Offer",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity",
+                "deactivate"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}/deactivate",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Banner",
+          "request": {
+            "description": "Get Banner",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Offer",
+          "request": {
+            "description": "Get Offer",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Banners",
+          "request": {
+            "description": "List Banners",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners?"
+            }
+          }
+        },
+        {
+          "name": "List Offers",
+          "request": {
+            "description": "List Offers",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers?"
+            }
+          }
+        },
+        {
+          "name": "Preview Offer",
+          "request": {
+            "description": "Preview Offer",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity",
+                "preview"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}/preview",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire Banner",
+          "request": {
+            "description": "Retire Banner",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire Banner With Reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Retire Banner With Reason",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity",
+                "retire"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}/retire",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire Offer",
+          "request": {
+            "description": "Retire Offer",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire Offer With Reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Retire Offer With Reason",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity",
+                "retire"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}/retire",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Banner",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"audience_price_type\": \"SALE\",\n  \"image_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"link_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"link_kind\": \"NONE\",\n  \"sort_order\": 0,\n  \"status\": \"ACTIVE\",\n  \"subtitle\": \"\",\n  \"title\": \"\",\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
+            },
+            "description": "Update Banner",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Offer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"audience_price_type\": \"SALE\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"discount_percentage\": 0,\n  \"is_active\": false,\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"min_quantity\": 0,\n  \"scope_kind\": \"ALL\",\n  \"sort_order\": 0,\n  \"title\": \"\",\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
+            },
+            "description": "Update Offer",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Promotions"
+    },
+    {
+      "item": [
+        {
           "name": "Amend a specification",
           "request": {
             "body": {
@@ -20876,7 +22154,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"reason\": \"\",\n  \"accepted_quantity\": 0,\n  \"close\": false,\n  \"hold_quantity\": 0,\n  \"inspected_at\": \"2026-01-01T00:00:00Z\",\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"remarks\": \"\",\n  \"rework_quantity\": 0,\n  \"scrap_quantity\": 0\n}"
+              "raw": "{\n  \"reason\": \"\",\n  \"accepted_quantity\": 0,\n  \"close\": false,\n  \"hold_quantity\": 0,\n  \"inspected_at\": \"2026-01-01T00:00:00Z\",\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"remarks\": \"\",\n  \"rework_quantity\": 0,\n  \"scrap_quantity\": 0,\n  \"serial_dispositions\": {}\n}"
             },
             "description": "Accepted quantity is released from QC hold into the available pool, rejected quantity moves to the damaged pool and raises the vendor return, scrapped quantity is written off, and rework and hold quantities deliberately stay on QC hold to be decided again later. The five quantities must add up to the inspected quantity. A critical characteristic out of specification rejects the lot outright: none of it may be accepted or reworked.",
             "header": [
@@ -21398,7 +22676,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"inspected_quantity\": 0,\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"qc_stage\": \"INCOMING\",\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"hold_stock\": false,\n  \"reference_code\": \"\",\n  \"reference_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reference_type\": \"manual\",\n  \"remarks\": \"\",\n  \"template_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"inspected_quantity\": 0,\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"qc_stage\": \"INCOMING\",\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"hold_stock\": false,\n  \"reference_code\": \"\",\n  \"reference_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reference_type\": \"manual\",\n  \"remarks\": \"\",\n  \"serial_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"template_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Most inspections are raised automatically by the goods receipt, job work return or assembly completion that put the stock on QC hold. This endpoint is for a supervisor pulling a lot off the shelf: pass `hold_stock` to move the quantity from AVAILABLE into QC_HOLD as part of raising it. Leave it false when an upstream document has already held the stock, or the quantity would be taken out of availability twice.",
             "header": [
@@ -28507,6 +29785,52 @@
           }
         },
         {
+          "name": "Consignments across the vendor's visible purchase orders",
+          "request": {
+            "description": "Consignments across the vendor's visible purchase orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "all"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/shipments?"
+            }
+          }
+        },
+        {
           "name": "Decline a sent order, with the reason",
           "request": {
             "body": {
@@ -28844,6 +30168,12 @@
               ],
               "query": [
                 {
+                  "description": "",
+                  "disabled": true,
+                  "key": "rejected_only",
+                  "value": "False"
+                },
+                {
                   "description": "1-based page number",
                   "disabled": true,
                   "key": "page",
@@ -29106,6 +30436,12 @@
                 "invoices"
               ],
               "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "unpaid_only",
+                  "value": "False"
+                },
                 {
                   "description": "1-based page number",
                   "disabled": true,

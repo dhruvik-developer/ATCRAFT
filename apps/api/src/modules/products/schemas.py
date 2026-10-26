@@ -487,6 +487,7 @@ class ItemSummary(_Base):
     can_be_spare: bool
     can_job_work: bool
     is_batch_tracked: bool
+    is_serial_tracked: bool
 
 
 class ItemSummaryWithCost(ItemSummary):
@@ -502,6 +503,7 @@ class ItemDetail(_Base):
     description: str | None
     item_group: ItemGroup
     category_id: uuid.UUID | None
+    image_document_id: uuid.UUID | None = None
 
     base_uom_id: uuid.UUID
     purchase_uom_id: uuid.UUID | None
@@ -865,6 +867,11 @@ class VendorLinkOut(_Base):
     is_active: bool
 
 
+class ItemImageUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_id: uuid.UUID | None
+
+
 __all__ = [
     "BrandCreate",
     "BrandOut",
@@ -878,6 +885,7 @@ __all__ = [
     "ItemDetail",
     "ItemDetailWithCost",
     "ItemFilters",
+    "ItemImageUpdate",
     "ItemStatusChange",
     "ItemSummary",
     "ItemSummaryWithCost",

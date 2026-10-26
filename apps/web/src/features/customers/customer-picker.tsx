@@ -33,6 +33,7 @@ export function CustomerPicker({
   invalid = false,
   disabled = false,
   className,
+  channels,
 }: {
   id: string
   label: string
@@ -43,6 +44,8 @@ export function CustomerPicker({
   invalid?: boolean
   disabled?: boolean
   className?: string
+  /** Dealer bindings only offer accounts from these commercial channels. */
+  channels?: readonly ('DEALER' | 'DISTRIBUTOR')[]
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
@@ -57,12 +60,14 @@ export function CustomerPicker({
     is_active: true,
     sort_by: 'code',
     sort_dir: 'asc',
+    ...(channels?.length === 1 ? { customer_type: channels[0] } : {}),
     ...(debouncedTerm ? { search: debouncedTerm } : {}),
   }
+  const path = channels?.length ? '/customers/dealers' : '/customers'
 
   const results = useQuery({
-    queryKey: queryKeys.customers.list(searchParams),
-    queryFn: () => api.getPage<CustomerRow>('/customers', { params: searchParams }),
+    queryKey: queryKeys.customers.list({ ...searchParams, path }),
+    queryFn: () => api.getPage<CustomerRow>(path, { params: searchParams }),
     enabled: open && !disabled,
     staleTime: staleTimes.master,
   })

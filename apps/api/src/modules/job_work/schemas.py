@@ -24,6 +24,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import MAX_SERIAL_BULK
 from src.modules.job_work.models import (
     VEHICLE_NUMBER_LENGTH,
     JobWorkOrderStatus,
@@ -185,6 +186,8 @@ class JobWorkOrderLineRead(BaseModel):
     line_number: int
     item_id: uuid.UUID
     is_batch_tracked: bool
+    is_serial_tracked: bool
+    serial_ids: list[uuid.UUID]
     batch_id: uuid.UUID | None
     uom_id: uuid.UUID
     quantity_to_issue: Decimal
@@ -298,6 +301,15 @@ class IssueLineIn(BaseModel):
     line_number: LineNumber
     issued_quantity: PositiveQuantity
     batch_id: uuid.UUID | None = None
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+
+    @model_validator(mode="after")
+    def _serials_are_unique(self) -> IssueLineIn:
+        if len(self.serial_ids) != len(set(self.serial_ids)):
+            raise ValueError("A serial unit can appear only once on an issue line.")
+        if self.serial_ids and Decimal(len(self.serial_ids)) != self.issued_quantity:
+            raise ValueError("Select one serial unit for every issued unit.")
+        return self
 
 
 class IssueRequest(BaseModel):
@@ -354,9 +366,23 @@ class ReceiptLineIn(BaseModel):
     #: outstanding balance nobody ever chases.
     is_final: bool = False
     notes: Notes | None = None
+    output_serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+    rejected_serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+    returned_unprocessed_serial_ids: list[uuid.UUID] = Field(
+        default_factory=list, max_length=10_000
+    )
+    scrapped_serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
 
     @model_validator(mode="after")
     def _something_came_back(self) -> ReceiptLineIn:
+        serial_ids = (
+            self.output_serial_ids
+            + self.rejected_serial_ids
+            + self.returned_unprocessed_serial_ids
+            + self.scrapped_serial_ids
+        )
+        if len(serial_ids) != len(set(serial_ids)):
+            raise ValueError("A serial unit can have only one disposition in a receipt.")
         if (
             self.output_quantity + self.rejected_quantity + self.returned_unprocessed_quantity <= 0
             and not self.is_final
@@ -391,6 +417,18 @@ class ReceiveRequest(BaseModel):
         numbers = [line.line_number for line in self.lines]
         if len(set(numbers)) != len(numbers):
             raise ValueError("A line may only appear once in a receipt.")
+        serial_count = sum(
+            len(line.output_serial_ids)
+            + len(line.rejected_serial_ids)
+            + len(line.returned_unprocessed_serial_ids)
+            + len(line.scrapped_serial_ids)
+            for line in self.lines
+        )
+        if serial_count > MAX_SERIAL_BULK:
+            raise ValueError(
+                f"A receipt may account for at most {MAX_SERIAL_BULK} serial units across all "
+                "lines and dispositions. Split a larger return into partial receipts."
+            )
         return self
 
 
@@ -459,6 +497,7 @@ class ChallanLineRead(BaseModel):
     batch_id: uuid.UUID | None
     uom_id: uuid.UUID
     quantity: Decimal
+    serial_ids: list[uuid.UUID]
     unit_value: Decimal
     total_value: Decimal
 
@@ -489,6 +528,11 @@ class ReceiptLineRead(BaseModel):
     line_number: int
     output_item_id: uuid.UUID
     batch_id: uuid.UUID | None
+    output_serial_ids: list[uuid.UUID]
+    rejected_serial_ids: list[uuid.UUID]
+    returned_unprocessed_serial_ids: list[uuid.UUID]
+    scrapped_serial_ids: list[uuid.UUID]
+    converted_serial_ids: dict[str, str] = Field(default_factory=dict)
     output_quantity: Decimal
     rejected_quantity: Decimal
     rejection_action: RejectionAction

@@ -35,6 +35,7 @@ from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 import anyio
 from openpyxl import Workbook
@@ -203,7 +204,7 @@ def _header_block(data: dict[str, Any], styles: dict[str, ParagraphStyle]) -> li
         )
     )
     return [
-        Paragraph(f"Packing list {data.get('code', '')}", styles["title"]),
+        Paragraph(f"Packing list {escape(str(data.get('code', '')))}", styles["title"]),
         table,
     ]
 
@@ -215,8 +216,8 @@ def _line_table(data: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list
         rows.append(
             [
                 str(line["line_number"]),
-                Paragraph(line["item_code"], styles["body"]),
-                Paragraph(line["item_name"], styles["body"]),
+                Paragraph(escape(str(line["item_code"])), styles["body"]),
+                Paragraph(escape(str(line["item_name"])), styles["body"]),
                 line["quantity_to_pack"],
                 line["packed_quantity"],
             ]
@@ -232,9 +233,10 @@ def _line_table(data: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list
 def _carton_block(carton: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list[Any]:
     """One carton's heading and content table, kept on a single page."""
     heading = Paragraph(
-        f"Carton {carton['carton_number']} &mdash; {carton['barcode']} "
-        f"({carton['carton_type']}, {carton['gross_weight_kg']} kg gross / "
-        f"{carton['net_weight_kg']} kg net"
+        f"Carton {escape(str(carton['carton_number']))} &mdash; {escape(str(carton['barcode']))} "
+        f"({escape(str(carton['carton_type']))}, "
+        f"{escape(str(carton['gross_weight_kg']))} kg gross / "
+        f"{escape(str(carton['net_weight_kg']))} kg net"
         f"{'' if carton['is_sealed'] else ', NOT SEALED'})",
         styles["heading"],
     )
@@ -244,8 +246,8 @@ def _carton_block(carton: dict[str, Any], styles: dict[str, ParagraphStyle]) -> 
         serials = content.get("serial_numbers") or []
         rows.append(
             [
-                Paragraph(content["item_code"], styles["body"]),
-                Paragraph(content["item_name"], styles["body"]),
+                Paragraph(escape(str(content["item_code"])), styles["body"]),
+                Paragraph(escape(str(content["item_name"])), styles["body"]),
                 content["quantity"],
                 content.get("batch_number") or "-",
                 # The serial values themselves are on the traceability record;
@@ -296,7 +298,7 @@ def render_packing_list_pdf(data: dict[str, Any]) -> bytes:
     if data.get("notes"):
         story.append(Spacer(1, 8))
         story.append(Paragraph("Notes", styles["heading"]))
-        story.append(Paragraph(str(data["notes"]), styles["body"]))
+        story.append(Paragraph(escape(str(data["notes"])), styles["body"]))
 
     story.append(Spacer(1, 10))
     story.append(
@@ -359,8 +361,6 @@ def render_purchase_order_pdf(data: dict[str, Any]) -> bytes:
     Every stored value is escaped before it becomes a reportlab ``Paragraph``,
     whose mini-markup would otherwise interpret a ``<`` in an item name.
     """
-    from xml.sax.saxutils import escape
-
     styles = _styles()
     buffer = io.BytesIO()
     document = SimpleDocTemplate(
@@ -629,8 +629,6 @@ JOB_WORK_CHALLAN_ENTITY = "job_work_challan"
 
 def _party_paragraphs(party: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list[Any]:
     """One GST party block: name, address, GSTIN - the Rule 55 minimum."""
-    from xml.sax.saxutils import escape
-
     name = escape(str(party.get("legal_name") or party.get("name") or "-"))
     out: list[Any] = [Paragraph(f"<b>{name}</b>", styles["body"])]
     for key in _ADDRESS_KEYS:
@@ -653,8 +651,6 @@ def render_job_work_challan_pdf(data: dict[str, Any]) -> bytes:
     bytes. No session, no ORM instance and no I/O, which is what lets it run on
     a worker thread and be exercised without a database.
     """
-    from xml.sax.saxutils import escape
-
     styles = _styles()
     buffer = io.BytesIO()
     document = SimpleDocTemplate(

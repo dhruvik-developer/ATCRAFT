@@ -95,7 +95,7 @@ const schema = z
     // wanted, because that is what an order raised against it delivers to.
     warehouse_id: z.string().min(1, validation.choose('where the material is needed')),
     department_id: z.string(),
-    priority: z.coerce
+    priority: z
       .number()
       .int(validation.integer('Priority'))
       .min(MIN_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`)
@@ -531,7 +531,7 @@ export function RequisitionFormDialog({
                     min={MIN_PRIORITY}
                     max={MAX_PRIORITY}
                     step={1}
-                    {...register('priority')}
+                    {...register('priority', { valueAsNumber: true })}
                     className="mt-1.5"
                     aria-invalid={Boolean(errors.priority)}
                   />

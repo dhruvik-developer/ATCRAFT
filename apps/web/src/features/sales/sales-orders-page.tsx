@@ -49,6 +49,7 @@ export default function SalesOrdersPage() {
   const [createOpen, setCreateOpen] = useState(false)
 
   const status = searchParams.get('status') ?? ''
+  const source = searchParams.get('source') ?? ''
   const customerId = searchParams.get('customer_id') ?? ''
   const requiredFrom = searchParams.get('required_from') ?? ''
   const requiredTo = searchParams.get('required_to') ?? ''
@@ -65,6 +66,7 @@ export default function SalesOrdersPage() {
     staleTime: staleTimes.transactional,
     filters: {
       ...(status ? { status } : {}),
+      ...(source ? { source } : {}),
       ...(customerId ? { customer_id: customerId } : {}),
       // The API windows on the required date, which is the date MRP plans
       // against - not on when the order was keyed in.
@@ -106,6 +108,7 @@ export default function SalesOrdersPage() {
 
   const filterCount =
     (status ? 1 : 0) +
+    (source ? 1 : 0) +
     (customerId ? 1 : 0) +
     (requiredFrom ? 1 : 0) +
     (requiredTo ? 1 : 0) +
@@ -137,6 +140,16 @@ export default function SalesOrdersPage() {
           <span className="block max-w-[12rem] truncate text-muted-foreground">
             {row.original.customer_po_number ?? '-'}
           </span>
+        ),
+      },
+      {
+        accessorKey: 'source',
+        header: 'Source',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Badge variant={row.original.source === 'DEALER_PORTAL' ? 'secondary' : 'outline'}>
+            {row.original.source === 'DEALER_PORTAL' ? 'Dealer portal' : 'ERP'}
+          </Badge>
         ),
       },
       {
@@ -280,6 +293,21 @@ export default function SalesOrdersPage() {
               onChange={(value) => setParams({ customer_id: value ?? undefined })}
               placeholder="All customers"
             />
+            <Select
+              value={source || SELECT_ALL}
+              onValueChange={(value) =>
+                setParams({ source: value === SELECT_ALL ? undefined : value })
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by source">
+                <SelectValue placeholder="All sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All sources</SelectItem>
+                <SelectItem value="ERP">ERP</SelectItem>
+                <SelectItem value="DEALER_PORTAL">Dealer portal</SelectItem>
+              </SelectContent>
+            </Select>
 
             <DateRangeFilter
               id="orders-required"
@@ -323,6 +351,7 @@ export default function SalesOrdersPage() {
                 onClick={() =>
                   setParams({
                     status: undefined,
+                    source: undefined,
                     customer_id: undefined,
                     required_from: undefined,
                     required_to: undefined,

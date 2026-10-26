@@ -88,6 +88,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, TypeVar
 
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -149,6 +150,7 @@ from src.modules.inventory.models import (
     StockAdjustmentLine,
     StockBatch,
     StockSerial,
+    StockSerialConversion,
     StockState,
     StockTransfer,
     StockTransferLine,
@@ -215,6 +217,7 @@ from src.modules.inventory.schemas import (
     StockBatchCreate,
     StockBatchRead,
     StockSerialBulkCreate,
+    StockSerialConversionRead,
     StockSerialCreate,
     StockSerialDetail,
     StockSerialRead,
@@ -1945,6 +1948,12 @@ SERIAL_FLOW: StateMachine[SerialStatus] = StateMachine(
             SerialStatus.IN_STOCK,
             label="Return to store",
         ),
+        Transition(
+            SerialStatus.ISSUED,
+            SerialStatus.SCRAPPED,
+            label="Vendor process loss",
+            is_irreversible=True,
+        ),
         # The only way back from a customer.
         Transition(
             SerialStatus.DISPATCHED,
@@ -2173,6 +2182,7 @@ def serial_transition(
     transaction_type: TransactionType,
     landing_state: StockState | None,
     already_received: bool = False,
+    source_state: StockState | None = None,
 ) -> SerialStatus | None:
     """The status this movement leaves the serial in, or ``None`` for no change.
 
@@ -2205,6 +2215,22 @@ def serial_transition(
     transaction_type = TransactionType(transaction_type)
     current = SerialStatus(current)
     target = SERIAL_MOVEMENT_TARGETS[transaction_type]
+
+    # Processing draws a named input from the vendor pool before the processed
+    # receipt returns that physical unit. It is already issued; issuing it a
+    # second time from an ordinary warehouse remains an invalid transition.
+    if (
+        current is SerialStatus.ISSUED
+        and source_state is StockState.JOB_WORK
+        and transaction_type is TransactionType.MATERIAL_ISSUE
+    ):
+        return None
+    if (
+        current is SerialStatus.ISSUED
+        and target is SerialStatus.SCRAPPED
+        and not (transaction_type is TransactionType.SCRAP and source_state is StockState.JOB_WORK)
+    ):
+        raise BusinessRuleError("An issued serial can be scrapped only from its job-work pool.")
 
     # ASSUMPTION: passing inspection is what puts a customer return back into
     # normal stock. Every movement type that targets IN_STOCK also *adds* a unit
@@ -2328,6 +2354,7 @@ class _MasterData:
     #: that names the same unit on two receipt lines has to refuse the second
     #: line as well, and the first line's ledger row has not been flushed yet.
     received_serials: set[uuid.UUID] = field(default_factory=set)
+    job_work_serials: dict[uuid.UUID, tuple[str, uuid.UUID | None]] = field(default_factory=dict)
 
 
 #: The serial columns a movement can change. Snapshotted before and after so the
@@ -2588,6 +2615,7 @@ class MovementEngine:
                 master,
                 serials=serial_ids_locked,
                 received_serials=await self._received_serials(movements, serial_ids_locked),
+                job_work_serials=await self._job_work_serials(movements),
             )
 
             transactions: list[InventoryTransaction] = []
@@ -3145,6 +3173,44 @@ class MovementEngine:
             return set()
         return await self.ledger.received_serial_ids(candidates)
 
+    async def _job_work_serials(
+        self, movements: list[MovementRequest]
+    ) -> dict[uuid.UUID, tuple[str, uuid.UUID | None]]:
+        candidates = {
+            movement.serial_id
+            for movement in movements
+            if movement.serial_id is not None
+            and (
+                resolve_pools(
+                    movement.transaction_type,
+                    stock_state=movement.stock_state,
+                    from_state=movement.from_state,
+                )[0]
+                is StockState.JOB_WORK
+                or movement.transaction_type is TransactionType.JOB_WORK_ISSUE
+            )
+        }
+        if not candidates:
+            return {}
+        rows = await self.session.scalars(
+            select(InventoryTransaction)
+            .where(
+                InventoryTransaction.company_id == self.tenant.company_id,
+                InventoryTransaction.serial_id.in_(candidates),
+            )
+            .distinct(InventoryTransaction.serial_id)
+            .order_by(
+                InventoryTransaction.serial_id,
+                InventoryTransaction.created_at.desc(),
+                InventoryTransaction.id.desc(),
+            )
+        )
+        return {
+            row.serial_id: (row.reference_type, row.reference_id)
+            for row in rows
+            if row.serial_id is not None and row.transaction_type is TransactionType.JOB_WORK_ISSUE
+        }
+
     async def _lock_serials(self, movements: list[MovementRequest]) -> dict[uuid.UUID, StockSerial]:
         """Take the row lock on every serial the batch names, and re-read them.
 
@@ -3522,6 +3588,13 @@ class MovementEngine:
         serial = master.serials.get(movement.serial_id)
         if serial is None:  # pragma: no cover - _validate already refused this
             raise NotFoundError("Stock serial", movement.serial_id)
+        if source_state is StockState.JOB_WORK:
+            owner = master.job_work_serials.get(serial.id)
+            if owner is None or (
+                movement.reference_type == "job_work_order"
+                and owner != (movement.reference_type, movement.reference_id)
+            ):
+                raise BusinessRuleError("The serial unit is not held by this job-work order.")
 
         # A unit belongs to one lot. Naming the other lot would draw from a
         # position the unit is not in and leave both records disagreeing.
@@ -3556,12 +3629,17 @@ class MovementEngine:
             transaction_type=movement.transaction_type,
             landing_state=landing_state,
             already_received=movement.serial_id in master.received_serials,
+            source_state=source_state,
         )
         # A document that names one unit on two receipt lines has to be refused
         # on the second line as well, and the first line's ledger row has not
         # been flushed yet - so the batch remembers what it has just received.
         if target is SerialStatus.IN_STOCK:
             master.received_serials.add(movement.serial_id)
+        if movement.transaction_type is TransactionType.JOB_WORK_ISSUE:
+            master.job_work_serials[serial.id] = (movement.reference_type, movement.reference_id)
+        elif source_state is StockState.JOB_WORK:
+            master.job_work_serials.pop(serial.id, None)
         return serial, target
 
     def _advance_serial(
@@ -4598,13 +4676,23 @@ class TraceabilityService:
         *,
         status: SerialStatus | None = None,
         batch_id: uuid.UUID | None = None,
+        serial_ids: list[uuid.UUID] | None = None,
+        job_work_order_line_id: uuid.UUID | None = None,
+        job_work_outstanding_only: bool = False,
+        qc_inspection_id: uuid.UUID | None = None,
     ) -> tuple[list[StockSerialRead], OffsetPagination]:
+        if job_work_outstanding_only and job_work_order_line_id is None:
+            raise ValidationError("Select a job-work line to list its outstanding serial units.")
         stmt = self.serials.build_list_stmt(
             item_id=item_id,
             warehouse_id=warehouse_id,
             search=search,
             status=status,
             batch_id=batch_id,
+            serial_ids=serial_ids,
+            job_work_order_line_id=job_work_order_line_id,
+            job_work_outstanding_only=job_work_outstanding_only,
+            qc_inspection_id=qc_inspection_id,
         )
         rows, pagination = await paginate(self.session, stmt, params)
         return await self._serial_reads(rows), pagination
@@ -4636,8 +4724,24 @@ class TraceabilityService:
         if serial is None:
             raise NotFoundError("Stock serial", serial_id)
         read = (await self._serial_reads([serial]))[0]
-        movements = await LedgerRepository(self.session, self.tenant).for_serial(serial_id)
-        items = await self.inventory.item_facts([serial.item_id])
+        ledger = LedgerRepository(self.session, self.tenant)
+        family = await ledger.serial_family(serial_id)
+        if len(family) > 500:
+            raise BusinessRuleError("This serial history exceeds the interactive trace limit.")
+        movements = await ledger.for_serial(serial_id, related_ids=family)
+        conversions = (
+            await self.session.scalars(
+                select(StockSerialConversion)
+                .where(
+                    StockSerialConversion.company_id == self.tenant.company_id,
+                    StockSerialConversion.source_serial_id.in_(family),
+                )
+                .order_by(StockSerialConversion.created_at, StockSerialConversion.id)
+            )
+        ).all()
+        items = await self.inventory.item_facts(
+            [serial.item_id, *(row.item_id for row in movements)]
+        )
         warehouses = await self.inventory.warehouse_facts(
             [movement.warehouse_id for movement in movements]
         )
@@ -4650,7 +4754,11 @@ class TraceabilityService:
             warehouse = warehouses.get(movement.warehouse_id)
             entry.warehouse_code = warehouse.code if warehouse else None
             entries.append(entry)
-        return StockSerialDetail(serial=read, movements=entries)
+        return StockSerialDetail(
+            serial=read,
+            movements=entries,
+            conversions=[StockSerialConversionRead.model_validate(row) for row in conversions],
+        )
 
     async def quarantine_batch(
         self, batch_id: uuid.UUID, payload: StockBatchAction

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from typing import Any
+from xml.sax.saxutils import escape
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -15,13 +16,14 @@ def render_credit_note_pdf(data: dict[str, Any]) -> bytes:
     body = styles["BodyText"]
     story: list[Any] = [
         Paragraph("CREDIT NOTE", styles["Title"]),
-        Paragraph(f"Credit note: {data.get('code', '-')}", styles["Heading2"]),
+        Paragraph(f"Credit note: {escape(str(data.get('code', '-')))}", styles["Heading2"]),
         Paragraph(
-            f"Date: {data.get('note_date', '-')} | Currency: {data.get('currency', 'INR')}",
+            f"Date: {escape(str(data.get('note_date', '-')))} | "
+            f"Currency: {escape(str(data.get('currency', 'INR')))}",
             body,
         ),
         Spacer(1, 8),
-        Paragraph(f"Customer: {data.get('buyer_name', '-')}", body),
+        Paragraph(f"Customer: {escape(str(data.get('buyer_name', '-')))}", body),
         Spacer(1, 8),
     ]
     rows = [["Item", "Quantity", "Taxable", "Tax", "Total"]]
@@ -50,9 +52,12 @@ def render_credit_note_pdf(data: dict[str, Any]) -> bytes:
         [
             table,
             Spacer(1, 8),
-            Paragraph(f"Taxable amount: {data.get('taxable_amount', '0')}", body),
-            Paragraph(f"Tax amount: {data.get('tax_amount', '0')}", body),
-            Paragraph(f"Total amount: {data.get('total_amount', '0')}", styles["Heading2"]),
+            Paragraph(f"Taxable amount: {escape(str(data.get('taxable_amount', '0')))}", body),
+            Paragraph(f"Tax amount: {escape(str(data.get('tax_amount', '0')))}", body),
+            Paragraph(f"Round-off: {escape(str(data.get('round_off_amount', '0')))}", body),
+            Paragraph(
+                f"Total amount: {escape(str(data.get('total_amount', '0')))}", styles["Heading2"]
+            ),
         ]
     )
     SimpleDocTemplate(output, pagesize=A4, rightMargin=15 * mm, leftMargin=15 * mm).build(story)

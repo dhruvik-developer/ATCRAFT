@@ -22,7 +22,9 @@ from src.modules.finance import sales_invoice_service as invoices
 from src.modules.finance import service as finance
 from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNoteLineIn
 from src.modules.finance.models import (
+    CreditNote,
     CreditNoteReason,
+    CreditNoteStatus,
     LedgerEntry,
     PartyType,
     PaymentMethod,
@@ -34,8 +36,13 @@ from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate, SalesI
 from src.modules.finance.schemas import AllocationRequest, PaymentAllocationIn, PaymentCreate
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import TransactionType
+from src.modules.quality import service as quality
+from src.modules.quality.schemas import DecideRequest
 from src.modules.sales import service as sales
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
+from src.modules.sales_returns import service as returns
+from src.modules.sales_returns.models import SalesReturn, SalesReturnStatus
+from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
 from tests.seed_support import seed_customer, seed_item, seed_uom, seed_warehouse
 
 pytestmark = pytest.mark.integration
@@ -328,7 +335,9 @@ async def test_receipt_allocation_and_cancel_restore_invoice(bench, principal):
 async def test_credit_note_cancellation_restores_receivable_and_invoice_status(bench, principal):
     b = bench
     invoice = await issue(b, await make_dispatch(b))
-    credit_amount = Decimal("118")
+    # The original invoice carries -0.27 round-off; this partial credit takes
+    # its -0.01 share as well as 100 taxable + 18 GST.
+    credit_amount = Decimal("117.99")
     receipt = await finance.create_payment(
         b.session,
         b.tenant,
@@ -687,3 +696,198 @@ async def test_closed_order_disables_cancel_in_both_list_and_detail(bench, princ
     assert not next(row for row in rows if row.id == invoice.id).can_cancel
     with pytest.raises(BusinessRuleError, match="closed"):
         await invoices.cancel_sales_invoice(b.session, b.tenant, invoice.id, reason="Try reversal")
+
+
+async def _return_for_invoice(b, dispatch, *, quantity="2", requires_qc=True, receive=False):
+    row = await returns.create_return(
+        b.session,
+        b.tenant,
+        SalesReturnCreate(
+            dispatch_id=dispatch.id,
+            lines=[
+                SalesReturnLineIn(
+                    dispatch_line_id=dispatch.lines[0].id,
+                    quantity=Decimal(quantity),
+                    reason_code="CUSTOMER_RETURN",
+                    requires_qc=requires_qc,
+                )
+            ],
+        ),
+    )
+    if receive:
+        row = await returns.transition_return(
+            b.session, b.tenant, row.id, SalesReturnStatus.RECEIVED
+        )
+    return row
+
+
+def _return_credit(invoice, return_id, *, quantity="1"):
+    return CreditNoteCreate(
+        sales_invoice_id=invoice.id,
+        sales_return_id=return_id,
+        note_date=today(),
+        reason_type=CreditNoteReason.RETURN,
+        lines=[
+            CreditNoteLineIn(sales_invoice_line_id=invoice.lines[0].id, quantity=Decimal(quantity))
+        ],
+    )
+
+
+@pytest.mark.parametrize("cancelled", [False, True], ids=["draft", "cancelled"])
+async def test_unreceived_return_cannot_credit_an_invoice_and_failure_is_atomic(bench, cancelled):
+    b = bench
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    row = await _return_for_invoice(b, dispatch)
+    if cancelled:
+        await returns.transition_return(
+            b.session, b.tenant, row.id, SalesReturnStatus.CANCELLED, reason="Never received"
+        )
+    payload = _return_credit(invoice, row.id)
+    before_entries = await b.session.scalar(select(func.count()).select_from(LedgerEntry))
+    before_outstanding = b.customer.outstanding_amount
+    with pytest.raises(BusinessRuleError, match="received sales return"):
+        await credit_notes.issue_credit_note(b.session, b.tenant, payload)
+    assert await b.session.scalar(select(func.count()).select_from(CreditNote)) == 0
+    assert await b.session.scalar(select(func.count()).select_from(LedgerEntry)) == before_entries
+    await b.session.refresh(b.customer)
+    assert b.customer.outstanding_amount == before_outstanding
+    unchanged = await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
+    assert unchanged.lines[0].credited_amount == 0
+
+
+async def test_cross_tenant_return_id_is_not_a_finance_authorization_bypass(bench, other_company):
+    from src.core.deps import TenantContext
+
+    b = bench
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    row = await _return_for_invoice(b, dispatch)
+    other_tenant = TenantContext(company_id=other_company.id, user_id=b.tenant.user_id)
+    with pytest.raises(NotFoundError, match="Sales return"):
+        await credit_notes.issue_credit_note(
+            b.session, other_tenant, _return_credit(invoice, row.id)
+        )
+    assert await b.session.scalar(select(func.count()).select_from(CreditNote)) == 0
+
+
+@pytest.mark.parametrize("different", ["customer", "invoice"])
+async def test_return_must_match_the_invoice_dispatch_and_customer(bench, different):
+    b = bench
+    dispatch = await make_dispatch(b, "100")
+    invoice = await issue(b, dispatch)
+    if different == "invoice":
+        dispatch = await make_dispatch(b, "100")
+    row = await _return_for_invoice(b, dispatch, receive=True)
+    if different == "customer":
+        customer = await seed_customer(
+            b.session, company_id=b.tenant.company_id, code=f"OTHER{uuid.uuid4().hex[:6]}"
+        )
+        stored = await b.session.get(SalesReturn, row.id)
+        stored.customer_id = customer.id
+        await b.session.flush()
+    with pytest.raises(BusinessRuleError, match="selected invoice and customer"):
+        await credit_notes.issue_credit_note(b.session, b.tenant, _return_credit(invoice, row.id))
+    assert await b.session.scalar(select(func.count()).select_from(CreditNote)) == 0
+
+
+async def test_pending_qc_does_not_allow_manual_return_credit(bench):
+    b = bench
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    row = await _return_for_invoice(b, dispatch, receive=True)
+    with pytest.raises(BusinessRuleError, match="accepted sales-return balance"):
+        await credit_notes.issue_credit_note(b.session, b.tenant, _return_credit(invoice, row.id))
+    assert await b.session.scalar(select(func.count()).select_from(CreditNote)) == 0
+
+
+async def test_settled_return_credit_cannot_be_replayed_or_exceed_its_accepted_quantity(bench):
+    b = bench
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    row = await _return_for_invoice(b, dispatch, requires_qc=False, receive=True)
+    with pytest.raises(BusinessRuleError, match="accepted sales-return balance"):
+        await credit_notes.issue_credit_note(b.session, b.tenant, _return_credit(invoice, row.id))
+    assert await b.session.scalar(select(func.count()).select_from(CreditNote)) == 1
+    assert (await returns.get_return(b.session, b.tenant, row.id)).lines[0].credited_quantity == 2
+
+
+async def test_return_credit_cannot_include_qc_rejected_quantity(bench):
+    b = bench
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    row = await _return_for_invoice(b, dispatch, receive=True)
+    await quality.decide_inspection(
+        b.session,
+        b.tenant,
+        row.lines[0].qc_inspection_id,
+        DecideRequest(
+            accepted_quantity=Decimal("1"),
+            rejected_quantity=Decimal("1"),
+            rejection_reason="Returned part is damaged",
+            reason="Settled the returned lot",
+        ),
+    )
+    closed = await returns.get_return(b.session, b.tenant, row.id)
+    assert closed.status == SalesReturnStatus.CLOSED
+    assert closed.lines[0].credited_quantity == 1
+    with pytest.raises(BusinessRuleError, match="accepted sales-return balance"):
+        await credit_notes.issue_credit_note(b.session, b.tenant, _return_credit(invoice, row.id))
+    assert await b.session.scalar(select(func.count()).select_from(CreditNote)) == 1
+
+
+async def test_paid_return_credit_cancellation_and_reissue_preserve_counters_and_customer_credit(
+    bench, principal
+):
+    b = bench
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    receipt = await finance.create_payment(
+        b.session,
+        b.tenant,
+        PaymentCreate(
+            payment_type=PaymentType.RECEIPT,
+            party_type=PartyType.CUSTOMER,
+            party_id=b.customer.id,
+            amount=invoice.total_amount,
+            payment_date=today(),
+            payment_method=PaymentMethod.CASH,
+        ),
+    )
+    await finance.approve_payment(b.session, b.tenant, principal, receipt.id, reason="Paid in full")
+    await finance.allocate_payment(
+        b.session,
+        b.tenant,
+        receipt.id,
+        AllocationRequest(
+            allocations=[
+                PaymentAllocationIn(sales_invoice_id=invoice.id, amount=invoice.total_amount)
+            ]
+        ),
+    )
+    row = await _return_for_invoice(b, dispatch, requires_qc=False, receive=True)
+    note = await b.session.scalar(select(CreditNote))
+    note_id, total = note.id, note.total_amount
+    assert b.customer.outstanding_amount == -total
+    assert row.lines[0].credited_quantity == 2
+    await credit_notes.cancel_credit_note(
+        b.session, b.tenant, note_id, reason="Replace credit note"
+    )
+    cancelled = await returns.get_return(b.session, b.tenant, row.id)
+    assert cancelled.lines[0].credited_quantity == 0
+    assert b.customer.outstanding_amount == 0
+
+    closed = await returns.transition_return(b.session, b.tenant, row.id, SalesReturnStatus.CLOSED)
+    assert closed.lines[0].credited_quantity == 2
+    assert b.customer.outstanding_amount == -total
+    assert (
+        await b.session.scalar(
+            select(func.count())
+            .select_from(CreditNote)
+            .where(CreditNote.status == CreditNoteStatus.ISSUED)
+        )
+        == 1
+    )
+    assert (
+        await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
+    ).status == SalesInvoiceStatus.PAID

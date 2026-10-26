@@ -558,6 +558,10 @@ async def list_serials(
     search: Annotated[str | None, Query(max_length=64)] = None,
     serial_status: Annotated[SerialStatus | None, Query(alias="status")] = None,
     batch_id: Annotated[uuid.UUID | None, Query()] = None,
+    serial_ids: Annotated[list[uuid.UUID] | None, Query(max_length=100)] = None,
+    job_work_order_line_id: Annotated[uuid.UUID | None, Query()] = None,
+    job_work_outstanding_only: bool = False,
+    qc_inspection_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> PaginatedResponse[StockSerialRead]:
     items, pagination = await TraceabilityService(session, tenant).list_serials(
         item_id,
@@ -566,6 +570,10 @@ async def list_serials(
         params,
         status=serial_status,
         batch_id=batch_id,
+        serial_ids=serial_ids,
+        job_work_order_line_id=job_work_order_line_id,
+        job_work_outstanding_only=job_work_outstanding_only,
+        qc_inspection_id=qc_inspection_id,
     )
     return PaginatedResponse[StockSerialRead](data=items, pagination=pagination)
 

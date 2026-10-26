@@ -36,6 +36,7 @@ from pydantic import (
 )
 
 from src.common.codes import clean_text
+from src.core.constants import MAX_SERIAL_BULK
 from src.modules.inventory.models import (
     AdjustmentReason,
     AdjustmentStatus,
@@ -65,10 +66,6 @@ NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=
 #: would hold row locks on an unbounded number of balances for an unbounded
 #: time, which is how one careless import stalls every other stock movement.
 MAX_DOCUMENT_LINES = 500
-
-#: A label run at goods-in. Small enough that registering the range and then
-#: receiving it stays one quick transaction.
-MAX_SERIAL_BULK = 500
 
 
 def _normalise_serial_labels(values: list[str]) -> list[str]:
@@ -422,11 +419,22 @@ class StockSerialBulkCreate(BaseModel):
         return _normalise_serial_labels(values)
 
 
+class StockSerialConversionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source_serial_id: uuid.UUID
+    output_serial_id: uuid.UUID
+    job_work_receipt_line_id: uuid.UUID
+    created_at: datetime
+
+
 class StockSerialDetail(BaseModel):
     """One unit and the ledger rows that moved it, newest first."""
 
     serial: StockSerialRead
     movements: list[LedgerEntryRead] = Field(default_factory=list)
+    conversions: list[StockSerialConversionRead] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------

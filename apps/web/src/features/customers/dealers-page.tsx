@@ -24,6 +24,7 @@ import { type ColumnDef } from '@tanstack/react-table'
 import { Infinity as InfinityIcon, ShieldAlert, ShieldOff, X } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
 import { EmptyState, PageHeader, StatusBadge } from '@/components/shared'
@@ -73,7 +74,7 @@ const FILTER_KEYS = [
 ] as const
 
 export default function DealersPage() {
-  const { canAny, user } = useAuth()
+  const { can, canAny, user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
   /**
@@ -294,8 +295,23 @@ export default function DealersPage() {
           </span>
         ),
       },
+      {
+        id: 'portal-users',
+        header: 'Portal accounts',
+        cell: ({ row }) =>
+          can(P.USER_VIEW) ? (
+            <Link
+              to={`/admin/users?account_type=dealer&customer_id=${row.original.id}`}
+              className="inline-flex min-h-11 items-center text-sm underline"
+            >
+              Portal users
+            </Link>
+          ) : (
+            '—'
+          ),
+      },
     ],
-    [],
+    [can],
   )
 
   if (!canView) {

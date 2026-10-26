@@ -14,6 +14,12 @@ rewriting the baseline. It preserves the existing chronological QC-decision
 index. Fresh-upgrade, enforcement and downgrade tests live in
 `tests/integration/test_schema_contract_migration.py` under `apps/api`.
 
+User placement and portal-binding foreign keys use SQLAlchemy `use_alter=True`
+so table creation can precede those named constraints. Their targets also refer
+to users as creators or owners; declaring the creation order breaks that cycle
+and lets Alembic compare every foreign key without a sort warning. This changes
+metadata ordering only, preserving the database names and deletion rules.
+
 ---
 
 ## 1. Conventions
@@ -625,9 +631,20 @@ These documents keep the identity they captured:
 | `assembly_order_components` | `is_batch_tracked_component`, `issued_batch_id`, `consumed_batch_id` |
 | `stock_transfer_lines` | `batch_id`, `serial_ids`, `dispatch_transaction_ids`; count check against `quantity` |
 | `stock_adjustment_lines` | `batch_id`, `serial_ids`; count check against `abs(quantity)` |
-| `job_work_order_lines` | `is_batch_tracked`, `batch_id` |
-| `job_work_challan_lines` | `batch_id` |
-| `job_work_receipt_lines` | `batch_id` |
+| `job_work_order_lines` | `is_batch_tracked`, `batch_id`, `is_serial_tracked`, issued `serial_ids` |
+| `job_work_challan_lines` | `batch_id`, issued `serial_ids` |
+| `job_work_receipt_lines` | `batch_id`; input identity arrays `output_serial_ids`, `rejected_serial_ids`, `returned_unprocessed_serial_ids`, `scrapped_serial_ids`; `converted_serial_ids` maps input to output identities when the SKU changes |
+| `qc_inspections` | `serial_ids`, current `serial_dispositions`; counts agree with the named units |
+| `qc_inspection_decisions` | immutable per-cycle `serial_dispositions` |
+
+`stock_serial_conversions` preserves serial-only, one-to-one job-work SKU
+conversion without changing historical item identities. Input and output rows
+retain the same physical `serial_number` under their respective SKUs; tenant
+unique source and output references prevent duplicate lineage. The append-only
+table points to the receipt line. A serial detail follows the conversion family
+in both directions and returns its movement history under warehouse scope.
+Same-item job work retains the original serial row. Batch SKU conversion,
+mixed tracking, and non-one-to-one serial conversion are refused.
 
 FEFO picking uses `(expires_on NULLS LAST, received_on, id)`. When a caller names
 no lot on `MATERIAL_ISSUE`, `DISPATCH`, `ASSEMBLY_CONSUME`, `JOB_WORK_ISSUE` or
@@ -1212,3 +1229,68 @@ less issued credit-note lines by credit-note date and their snapshotted HSN;
 cancelled credits do not reduce output GST. Dispatched not yet invoiced goods
 form a separate operational figure. Invoice PDF jobs and REPORT documents never
 expire.
+
+### Named FINAL QC at packing
+
+For a serial-tracked item requiring FINAL QC, `POST /packing/{id}/start` accepts
+`serial_selections: [{line_id, serial_ids, batch_id?}]`. Every unit on each
+applicable line must be selected exactly once, across a single batch per line.
+The packing read exposes `is_serial_tracked`, `is_batch_tracked`,
+`requires_final_qc` and `qc_inspection_status` in batched reads under packing
+authorization; extra item or quality permissions are unnecessary.
+
+`packing_order_lines.qc_serial_ids` and `qc_batch_id` preserve the selection.
+FINAL inspection creation validates the named units' tenant, item, warehouse,
+batch and available/QC-hold custody under inventory locks. Carton writes cannot
+substitute other units; serial FINAL cartons stay open until every selected unit
+has an ACCEPTED disposition. Sealing, completion and dispatch handover recheck
+the exact inspection and carton membership. Re-inspection of a rejected serial
+line takes `serial_ids` and `batch_id` for replacement units, which must be
+repacked into the open carton. Quantity-based nonserial packing keeps its flow.
+
+Cancelling an unsealed packing order withdraws only untouched PENDING FINAL
+checks that held no stock. `WITHDRAWN` is terminal with result PENDING: it records
+no verdict, keeps the original identities and writes the operator's reason to
+the audit. Started or explicitly held checks must complete their QC flow first;
+existing decisions are preserved. Withdrawal locks all affected balance grains
+before all serial rows in the inventory engine's fixed order, batches evidence
+reads and flushes status changes and audits together. A withdrawn check cannot
+later decide stock, and a fresh order can inspect the same available units.
+
+Revision `20261030_0100` backfills line selections only from matching named-unit
+inspections. It never invents identities for quantity-only history. Before
+upgrading an existing installation, identify active serial FINAL orders whose
+line selection remains empty. Their sealed cartons can use the reasoned
+`POST /packing/{id}/cartons/{carton_id}/recover-legacy` operation before dispatch
+claims the order: physically recover reusable packing material first, then the
+service posts MATERIAL_RETURN at the original matching issue's quantity and cost,
+preserves both immutable ledger rows and audits their IDs. A PACKED legacy order
+returns to IN_PROGRESS with its completion totals cleared. Recover every sealed
+carton, cancel, and repack with actual scanned units and fresh FINAL QC. Normal
+named-unit sealed cartons and handed-over history cannot use this exception.
+
+Revisions 30 and 31 refuse downgrades that would discard populated selections or
+WITHDRAWN history. A downgrade across several revisions may roll back a newer
+empty revision before an older protected one refuses; run `alembic upgrade head`
+to restore that newer DDL. Review the refusal and retain the recorded history.
+
+### Partial credit-note rounding
+
+Credit issuance locks the invoice and source lines, then reads prior ISSUED
+credit quantities, taxable amounts and GST components in one batched query.
+Cancelled notes contribute nothing. A quantity credit shares the remaining
+taxable value over the remaining creditable units, so earlier amount-only price
+credits reduce the value still owed and the last unit takes the exact remainder.
+For example, three separate one-unit credits against quantity 3 and taxable 1.00
+allocate 0.33, 0.34 and 0.33. A prior 0.10 value adjustment leaves 0.90 to allocate.
+
+GST components use the rounded cumulative taxable target less that component's
+previously issued credit. Previously rounded legacy tax is retained and carried
+forward; history exceeding an original tax component fails closed. The original
+invoice's round-off is shared cumulatively over gross credits and posted through
+the ROUND_OFF account, including its sign. Thus a complete reversal matches the
+original taxable, CGST/SGST/IGST, round-off and receivable exactly. Zero ledger
+legs are omitted. Staff and dealer responses and the credit-note PDF expose the
+stored round-off. Existing issued notes keep their original values and audit
+history; cancelling a note restores its balances before a replacement allocates
+the remaining value.

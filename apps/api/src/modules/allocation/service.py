@@ -2068,7 +2068,7 @@ async def _notify_donor_owner(
         ),
         entity_type=AUDIT_ENTITY_RESERVATION,
         entity_id=donor.id,
-        action_url=f"/allocation/reservations/{donor.id}",
+        action_url="/inventory/reservations",
         # One bell row per donor reservation: a demand losing stock three times
         # in an afternoon is one situation, not three alerts.
         group_key=f"reallocation:{donor.id}",

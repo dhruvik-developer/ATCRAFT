@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 
 afterEach(() => cleanup())
 
@@ -81,3 +81,79 @@ window.Element.prototype.matches = function (this: Element, selectors: string): 
   if (typeof selectors === 'string' && TOP_LAYER_SELECTORS.has(selectors.trim())) return false
   return nativeMatches.call(this, selectors)
 }
+
+// One browser capability seam for push tests and every screen that mounts the
+// device card. The default is supported but not opted in: loading a shell must
+// never request notification permission or register a device automatically.
+export const pushBrowser = {
+  permission: 'default' as NotificationPermission,
+  registered: false,
+  subscription: null as PushSubscription | null,
+  requestPermission: vi.fn<() => Promise<NotificationPermission>>(),
+  subscribe: vi.fn<(options: PushSubscriptionOptionsInit) => Promise<PushSubscription>>(),
+  getSubscription: vi.fn<() => Promise<PushSubscription | null>>(),
+  register: vi.fn<() => Promise<ServiceWorkerRegistration>>(),
+  getRegistration: vi.fn<() => Promise<ServiceWorkerRegistration | undefined>>(),
+  unregister: vi.fn<() => Promise<boolean>>(),
+  getNotifications: vi.fn<() => Promise<Notification[]>>(),
+}
+const pushRegistration = {
+  active: {},
+  pushManager: { subscribe: pushBrowser.subscribe, getSubscription: pushBrowser.getSubscription },
+  unregister: pushBrowser.unregister,
+  getNotifications: pushBrowser.getNotifications,
+} as unknown as ServiceWorkerRegistration
+export const pushWorkerEvents = new EventTarget()
+Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+Object.defineProperty(window, 'PushManager', {
+  configurable: true,
+  writable: true,
+  value: class {},
+})
+Object.defineProperty(window, 'Notification', {
+  configurable: true,
+  writable: true,
+  value: class {
+    static get permission() {
+      return pushBrowser.permission
+    }
+    static requestPermission() {
+      return pushBrowser.requestPermission()
+    }
+  },
+})
+Object.defineProperty(navigator, 'serviceWorker', {
+  configurable: true,
+  value: {
+    register: pushBrowser.register,
+    getRegistration: pushBrowser.getRegistration,
+    ready: Promise.resolve(pushRegistration),
+    addEventListener: pushWorkerEvents.addEventListener.bind(pushWorkerEvents),
+    removeEventListener: pushWorkerEvents.removeEventListener.bind(pushWorkerEvents),
+  },
+})
+beforeEach(() => {
+  pushBrowser.permission = 'default'
+  pushBrowser.registered = false
+  pushBrowser.subscription = null
+  pushBrowser.requestPermission.mockReset().mockImplementation(async () => {
+    pushBrowser.permission = 'granted'
+    return 'granted'
+  })
+  pushBrowser.getSubscription.mockReset().mockImplementation(async () => pushBrowser.subscription)
+  pushBrowser.register.mockReset().mockImplementation(async () => {
+    pushBrowser.registered = true
+    return pushRegistration
+  })
+  pushBrowser.getRegistration
+    .mockReset()
+    .mockImplementation(async () => (pushBrowser.registered ? pushRegistration : undefined))
+  pushBrowser.subscribe.mockReset().mockImplementation(async () => {
+    throw new Error('PushManager.subscribe must be configured by the test')
+  })
+  pushBrowser.unregister.mockReset().mockImplementation(async () => {
+    pushBrowser.registered = false
+    return true
+  })
+  pushBrowser.getNotifications.mockReset().mockResolvedValue([])
+})

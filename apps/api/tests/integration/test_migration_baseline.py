@@ -21,6 +21,8 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from src.modules.finance.models import PurchaseReturnDebitAllocation, VendorInvoice
 from src.modules.inventory.models import (
@@ -46,13 +48,15 @@ from src.modules.sales.models import SalesSettings
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "20261027_0100"
 DB_NAME = f"atcraft_baseline_mig_{uuid.uuid4().hex[:8]}"
 CONNECTION_GUARDS = (
     "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
 )
 ALEMBIC_TIMEOUT_SECONDS = 600
 API_ROOT = Path(__file__).resolve().parents[2]
+_migration_config = Config(str(API_ROOT / "alembic.ini"))
+_migration_config.set_main_option("script_location", str(API_ROOT / "migrations"))
+HEAD_REVISION = ScriptDirectory.from_config(_migration_config).get_current_head()
 
 
 def _server() -> str:

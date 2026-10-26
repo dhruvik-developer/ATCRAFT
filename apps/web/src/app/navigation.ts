@@ -182,6 +182,12 @@ export const navigation: NavSection[] = [
         badgeKey: 'pendingPoApprovals',
       },
       {
+        label: 'Inbound Tracking',
+        to: '/procurement/inbound-tracking',
+        icon: Truck,
+        permissions: [P.PURCHASE_ORDER_VIEW],
+      },
+      {
         label: 'Goods Receipts',
         to: '/procurement/goods-receipts',
         icon: PackageCheck,

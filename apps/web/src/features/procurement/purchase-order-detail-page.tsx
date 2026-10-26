@@ -102,6 +102,7 @@ import {
   type PurchaseOrderTracking,
 } from './procurement-types'
 import { PurchaseOrderSendDialog } from './purchase-order-send-dialog'
+import { PurchaseOrderInboundPanel } from './purchase-order-inbound-panel'
 import { serverFieldMessage } from './server-field-errors'
 
 // -------------------------------------------------------------- stepper -----
@@ -974,6 +975,7 @@ export default function PurchaseOrderDetailPage() {
         </Card>
 
         <TrackingPanel orderId={order.id} />
+        <PurchaseOrderInboundPanel order={order} />
       </div>
 
       {sending && (

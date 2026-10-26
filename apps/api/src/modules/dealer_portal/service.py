@@ -83,6 +83,7 @@ from src.modules.dealer_portal.schemas import (
     DealerOrderLineRead,
     DealerOrderSummary,
     DealerOutstanding,
+    DealerOverdueInvoice,
     DealerPortalMe,
     DealerPriceQuote,
     DealerPriceSlab,
@@ -1155,7 +1156,7 @@ class DealerPortalService:
             severity=NotificationSeverity.INFO,
             entity_type="sales_order",
             entity_id=order.id,
-            action_url=f"/sales/orders/{order.id}",
+            action_url=f"/sales-orders/{order.id}",
             actor_id=self.tenant.user_id,
         )
 
@@ -1355,12 +1356,9 @@ class DealerPortalService:
         return statement
 
     async def outstanding(self) -> DealerOutstanding:
-        """Ageing for the dealer plus its overdue position.
+        """Ledger ageing plus the oldest 100 unpaid invoices, net of issued credits."""
+        from src.modules.dealer_portal.commerce_repository import DealerCommerceRepository
 
-        Sales invoices exist, but this portal has no invoice-level outstanding
-        projection yet. The list remains empty while ledger-based receivables
-        ageing supplies the overdue position (docs/assumptions.md §C3-10).
-        """
         customer = await self._customer()
         report = await ageing_report(
             self.session, self.tenant, party_type=PartyType.CUSTOMER, party_id=customer.id
@@ -1391,7 +1389,18 @@ class DealerPortalService:
             ageing_not_due=to_money(block.total_not_due if block else 0),
             oldest_due_date=oldest,
             open_document_count=documents,
-            overdue_invoices=[],
+            overdue_invoices=[
+                DealerOverdueInvoice(
+                    document_id=invoice.id,
+                    document_code=invoice.code,
+                    due_date=invoice.due_date,
+                    outstanding_amount=to_money(balance),
+                    currency=invoice.currency,
+                )
+                for invoice, balance in await DealerCommerceRepository(
+                    self.session, self.tenant
+                ).overdue_invoices(today())
+            ],
         )
 
 

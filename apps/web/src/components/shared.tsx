@@ -221,6 +221,7 @@ const STATUS_VARIANTS: Record<
 
   // bad outcomes
   CANCELLED: 'destructive',
+  WITHDRAWN: 'muted',
   REJECTED: 'destructive',
   // Not terminal - the buyer cancels or re-sends - but it is a refusal to act on.
   VENDOR_DECLINED: 'destructive',

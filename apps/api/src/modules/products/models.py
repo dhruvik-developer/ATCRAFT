@@ -596,6 +596,8 @@ class Item(TenantMasterEntity):
     default_location_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    image_document_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+
     # NOTE: there is deliberately no ``valuation_method`` column. Stock is
     # valued FIFO, for every item, by ``inventory.service`` - see
     # ``docs/assumptions.md`` and revision ``fdb4d5a8c211``. A per-item column

@@ -1475,6 +1475,8 @@ def _authenticated_user(account: User) -> AuthenticatedUser:
         email=account.email,
         full_name=account.full_name,
         company_id=account.company_id,
+        vendor_id=account.vendor_id,
+        customer_id=account.customer_id,
         is_superuser=account.is_superuser,
         must_change_password=account.must_change_password,
         roles=sorted(role.code for role in account.roles if role.is_active),

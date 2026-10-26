@@ -97,7 +97,16 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
 
   const activeState = searchParams.get('is_active') ?? ''
   const roleId = searchParams.get('role_id') ?? ''
-  const accountType = searchParams.get('is_vendor_user') ?? ''
+  const accountType =
+    searchParams.get('account_type') ??
+    (searchParams.get('is_dealer_user') === 'true'
+      ? 'dealer'
+      : searchParams.get('is_vendor_user') === 'true'
+        ? 'vendor'
+        : searchParams.get('is_vendor_user') === 'false'
+          ? 'staff'
+          : '')
+  const customerId = searchParams.get('customer_id') ?? ''
 
   // `GET /roles` enforces `role.view` in its own right, and this tab is mounted
   // for anyone holding `user.view`. Asking without the right produced a "Not
@@ -118,7 +127,14 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
     filters: {
       ...(activeState ? { is_active: activeState === 'true' } : {}),
       ...(roleId ? { role_id: roleId } : {}),
-      ...(accountType ? { is_vendor_user: accountType === 'true' } : {}),
+      ...(accountType === 'vendor'
+        ? { is_vendor_user: true }
+        : accountType === 'dealer'
+          ? { is_dealer_user: true }
+          : accountType === 'staff'
+            ? { is_vendor_user: false, is_dealer_user: false }
+            : {}),
+      ...(customerId ? { customer_id: customerId } : {}),
     },
   })
 
@@ -250,7 +266,9 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
         header: 'Account',
         enableSorting: false,
         cell: ({ row }) =>
-          row.original.vendor_id ? (
+          row.original.customer_id ? (
+            <Badge variant="muted">Dealer portal</Badge>
+          ) : row.original.vendor_id ? (
             <Badge variant="muted">Vendor portal</Badge>
           ) : (
             <span className="text-xs text-muted-foreground">Internal</span>
@@ -363,7 +381,7 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
     </Button>
   ) : null
 
-  const hasFilters = Boolean(activeState || roleId || accountType)
+  const hasFilters = Boolean(activeState || roleId || accountType || customerId)
 
   return (
     <>
@@ -429,7 +447,11 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
             <Select
               value={accountType || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('is_vendor_user', value === SELECT_ALL ? undefined : value)
+                setParams({
+                  account_type: value === SELECT_ALL ? undefined : value,
+                  is_vendor_user: undefined,
+                  is_dealer_user: undefined,
+                })
               }
             >
               <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by account type">
@@ -437,8 +459,9 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={SELECT_ALL}>All accounts</SelectItem>
-                <SelectItem value="false">Internal staff</SelectItem>
-                <SelectItem value="true">Vendor portal</SelectItem>
+                <SelectItem value="staff">Internal staff</SelectItem>
+                <SelectItem value="vendor">Vendor portal</SelectItem>
+                <SelectItem value="dealer">Dealer portal</SelectItem>
               </SelectContent>
             </Select>
 
@@ -454,6 +477,9 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
                     is_active: undefined,
                     role_id: undefined,
                     is_vendor_user: undefined,
+                    is_dealer_user: undefined,
+                    account_type: undefined,
+                    customer_id: undefined,
                   })
                 }}
               >
@@ -606,6 +632,7 @@ function RolesTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
               <Badge variant="outline">Custom</Badge>
             )}
             {row.original.is_vendor_role && <Badge variant="muted">Vendor</Badge>}
+            {row.original.is_dealer_role && <Badge variant="muted">Dealer</Badge>}
             {!row.original.is_active && <StatusBadge status="INACTIVE" />}
           </span>
         ),

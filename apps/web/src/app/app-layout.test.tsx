@@ -29,6 +29,10 @@ import { STORAGE_KEYS } from '@/lib/constants'
 
 import { AppLayout } from './app-layout'
 
+// Menu focus/hover warms real chunks in the browser. Download behavior has its
+// own tests; compiling those pages must not keep a drawer interaction pending.
+vi.mock('@/app/route-loaders', () => ({ prefetchRoute: vi.fn() }))
+
 /** `GET /notifications/unread-count` - the `UnreadCountRead` payload. */
 function unreadCount(count: number, capped = false): RouteTable {
   return {

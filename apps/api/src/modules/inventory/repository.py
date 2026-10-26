@@ -29,7 +29,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select, text, tuple_
+from sqlalchemy import Select, and_, any_, case, func, or_, select, text, tuple_
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from src.common.repository import BaseRepository
@@ -61,6 +61,7 @@ from src.modules.inventory.models import (
     StockAdjustmentLine,
     StockBatch,
     StockSerial,
+    StockSerialConversion,
     StockTransfer,
     StockTransferLine,
     fifo_sort_key,
@@ -846,14 +847,14 @@ class LedgerRepository(BaseRepository[InventoryTransaction]):
     model = InventoryTransaction
 
     async def for_serial(
-        self, serial_id: uuid.UUID, *, limit: int = 500
+        self, serial_id: uuid.UUID, *, limit: int = 500, related_ids: Sequence[uuid.UUID] = ()
     ) -> list[InventoryTransaction]:
         """A unit's whole journey, newest first."""
         stmt = (
             select(InventoryTransaction)
             .where(
                 InventoryTransaction.company_id == self.tenant.company_id,
-                InventoryTransaction.serial_id == serial_id,
+                InventoryTransaction.serial_id.in_(related_ids or [serial_id]),
                 *warehouse_scope(self.tenant, InventoryTransaction.warehouse_id),
             )
             .order_by(
@@ -864,6 +865,35 @@ class LedgerRepository(BaseRepository[InventoryTransaction]):
             .limit(limit)
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def serial_family(self, serial_id: uuid.UUID) -> list[uuid.UUID]:
+        """Walk both directions of an acyclic one-to-one conversion chain in SQL."""
+        family = (
+            select(StockSerial.id)
+            .where(StockSerial.company_id == self.tenant.company_id, StockSerial.id == serial_id)
+            .cte("serial_family", recursive=True)
+        )
+        related = (
+            select(
+                case(
+                    (
+                        StockSerialConversion.source_serial_id == family.c.id,
+                        StockSerialConversion.output_serial_id,
+                    ),
+                    else_=StockSerialConversion.source_serial_id,
+                )
+            )
+            .join(
+                family,
+                or_(
+                    StockSerialConversion.source_serial_id == family.c.id,
+                    StockSerialConversion.output_serial_id == family.c.id,
+                ),
+            )
+            .where(StockSerialConversion.company_id == self.tenant.company_id)
+        )
+        family = family.union(related)
+        return list((await self.session.scalars(select(family.c.id).limit(501))).all())
 
     async def by_ids(
         self, transaction_ids: Sequence[uuid.UUID]
@@ -1606,8 +1636,57 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         search: str | None,
         status: SerialStatus | None = None,
         batch_id: uuid.UUID | None = None,
+        serial_ids: Sequence[uuid.UUID] | None = None,
+        job_work_order_line_id: uuid.UUID | None = None,
+        job_work_outstanding_only: bool = False,
+        qc_inspection_id: uuid.UUID | None = None,
     ) -> Select[tuple[StockSerial]]:
         stmt = self._scoped()
+        if serial_ids is not None:
+            stmt = stmt.where(StockSerial.id.in_(serial_ids))
+        if job_work_order_line_id is not None:
+            from src.modules.job_work.models import JobWorkOrderLine
+
+            stmt = stmt.where(
+                select(JobWorkOrderLine.id)
+                .where(
+                    JobWorkOrderLine.company_id == self.tenant.company_id,
+                    JobWorkOrderLine.id == job_work_order_line_id,
+                    StockSerial.id == any_(JobWorkOrderLine.serial_ids),
+                )
+                .exists()
+            )
+        if qc_inspection_id is not None:
+            from src.modules.quality.models import QcInspection
+
+            stmt = stmt.where(
+                select(QcInspection.id)
+                .where(
+                    QcInspection.company_id == self.tenant.company_id,
+                    QcInspection.id == qc_inspection_id,
+                    StockSerial.id == any_(QcInspection.serial_ids),
+                )
+                .exists()
+            )
+        if job_work_outstanding_only and job_work_order_line_id is not None:
+            from src.modules.job_work.models import JobWorkReceiptLine, RejectionAction
+
+            # Source serials retain their ledger identity after SKU conversion.
+            # Status alone cannot tell whether the vendor has settled that unit.
+            settled = select(JobWorkReceiptLine.id).where(
+                JobWorkReceiptLine.company_id == self.tenant.company_id,
+                JobWorkReceiptLine.job_work_order_line_id == job_work_order_line_id,
+                or_(
+                    StockSerial.id == any_(JobWorkReceiptLine.output_serial_ids),
+                    StockSerial.id == any_(JobWorkReceiptLine.returned_unprocessed_serial_ids),
+                    StockSerial.id == any_(JobWorkReceiptLine.scrapped_serial_ids),
+                    and_(
+                        JobWorkReceiptLine.rejection_action != RejectionAction.REWORK_AT_VENDOR,
+                        StockSerial.id == any_(JobWorkReceiptLine.rejected_serial_ids),
+                    ),
+                ),
+            )
+            stmt = stmt.where(~settled.exists())
         if item_id is not None:
             stmt = stmt.where(StockSerial.item_id == item_id)
         if status is not None:
@@ -1629,7 +1708,7 @@ class StockSerialRepository(BaseRepository[StockSerial]):
                 ),
             )
         stmt = self._apply_search(stmt, search)
-        return stmt.order_by(StockSerial.serial_number)
+        return stmt.order_by(StockSerial.serial_number, StockSerial.id)
 
 
 # Line repositories exist so a line is added through a repository typed for it.

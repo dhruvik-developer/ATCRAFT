@@ -153,6 +153,13 @@ class PackingOrderLineRead(BaseModel):
     #: item requires final QC. The order cannot complete or hand over until it
     #: is ACCEPTED; a REJECTED one is replaced through re-inspection.
     qc_inspection_id: uuid.UUID | None = None
+    qc_serial_ids: list[uuid.UUID] = Field(default_factory=list)
+    qc_batch_id: uuid.UUID | None = None
+    #: Current item facts supplied by the packing read, without extra permissions.
+    is_serial_tracked: bool = False
+    is_batch_tracked: bool = False
+    requires_final_qc: bool = False
+    qc_inspection_status: str | None = None
 
 
 class PackingOrderSummary(BaseModel):
@@ -416,6 +423,46 @@ class ReasonRequest(BaseModel):
     reason: Reason
 
 
+class PackingSerialSelection(BaseModel):
+    """Named units for one serial-tracked line that requires FINAL QC."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    line_id: uuid.UUID
+    serial_ids: list[uuid.UUID] = Field(min_length=1, max_length=10_000)
+    batch_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def unique_serials(self) -> PackingSerialSelection:
+        if len(self.serial_ids) != len(set(self.serial_ids)):
+            raise ValueError("Select each serial unit only once.")
+        return self
+
+
+class PackingStartRequest(ReasonRequest):
+    serial_selections: list[PackingSerialSelection] = Field(
+        default_factory=list, max_length=MAX_LINES_PER_ORDER
+    )
+
+    @model_validator(mode="after")
+    def unique_lines(self) -> PackingStartRequest:
+        ids = [selection.line_id for selection in self.serial_selections]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Provide one serial selection per packing line.")
+        return self
+
+
+class PackingReinspectRequest(ReasonRequest):
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+    batch_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def unique_serials(self) -> PackingReinspectRequest:
+        if len(self.serial_ids) != len(set(self.serial_ids)):
+            raise ValueError("Select each serial unit only once.")
+        return self
+
+
 class CompleteRequest(BaseModel):
     """Finish packing.
 
@@ -535,6 +582,9 @@ __all__ = [
     "PackingOrderLineRead",
     "PackingOrderSummary",
     "PackingOrderUpdate",
+    "PackingReinspectRequest",
+    "PackingSerialSelection",
+    "PackingStartRequest",
     "ReadyForDispatchRow",
     "ReasonRequest",
     "SealCartonRequest",

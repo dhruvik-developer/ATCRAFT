@@ -809,6 +809,30 @@ class TestWhereTheUnitIsRecorded:
         assert (await read_serial(session, gone)).warehouse_id == warehouse_id
 
 
+async def test_serial_id_selection_is_tenant_scoped_and_paginated(ctx) -> None:
+    session, tenant, other, _ = ctx
+    async with seeded(session):
+        item_id, _ = await seed_serialised_item(session, tenant)
+        other_item, _ = await seed_serialised_item(session, other)
+    own = [await register_serial(session, tenant, item_id) for _ in range(3)]
+    foreign = await register_serial(session, other, other_item)
+    service = inv.TraceabilityService(session, tenant)
+    selected, pagination = await service.list_serials(
+        None, None, None, PageParams(page=1, limit=1), serial_ids=[*own[:2], foreign]
+    )
+    assert len(selected) == 1
+    assert selected[0].id in own[:2]
+    assert pagination.total == 2
+    second, _ = await service.list_serials(
+        None, None, None, PageParams(page=2, limit=1), serial_ids=[*own[:2], foreign]
+    )
+    assert {selected[0].id, second[0].id} == set(own[:2])
+    empty, _ = await service.list_serials(
+        None, None, None, PageParams(page=1, limit=10), serial_ids=[]
+    )
+    assert empty == []
+
+
 class TestTheBinHalfOfTheAgreementRule:
     """The wrong-warehouse case was closed and the wrong-*bin* case was not.
 
