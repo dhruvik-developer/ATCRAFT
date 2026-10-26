@@ -17,3 +17,5 @@ This repository has exactly one working copy on this machine,
   (`atcraft_erp`) and its test database (`atcraft_erp_test`). Do not leave
   clone databases, per-task test databases or extra Compose projects behind; if
   a task needs a throwaway one, drop it before you finish.
+- Leave `TEST_POSTGRES_DB` unset (it defaults to `atcraft_erp_test`). The test
+  fixture creates whatever database that variable names, and nothing drops it.
