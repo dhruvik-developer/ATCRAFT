@@ -70,7 +70,12 @@ def test_signed_in_sweeps_open_every_static_screen() -> None:
         assert "STATIC_ROUTES" not in source
     readiness = (SWEEPS / "ui-readiness-sweep.mjs").read_text(encoding="utf-8")
     assert "const registered = registeredScreens" in readiness
-    assert "for (const route of registered)" in readiness
+    # Optional route filters select from the complete registry; an unfiltered
+    # run must retain every screen, including the populated portal details.
+    assert "process.env.READINESS_ROUTES?.split(',') ?? []" in readiness
+    assert "const selectedScreens = registered.filter(" in readiness
+    assert "!filters.length || filters.some(" in readiness
+    assert "for (const route of selectedScreens)" in readiness
     accessibility = (SWEEPS / "a11y-sweep.mjs").read_text(encoding="utf-8")
     assert "const ROUTES = staticScreenRoutes(registeredScreens)" in accessibility
     shared = (SWEEPS.parent / "lib" / "screen-registry.mjs").read_text(encoding="utf-8")
