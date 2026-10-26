@@ -162,9 +162,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["specification_attribute_id"],
             ["specification_attributes.id"],
-            name=op.f(
-                "fk_category_specifications_specification_attribute_id_specification_attributes"
-            ),
+            name=op.f("fk_category_specifications_attribute"),
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(

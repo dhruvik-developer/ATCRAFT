@@ -132,6 +132,9 @@ def test_withdrawn_qc_history_cannot_be_downgraded(migration_database: _Migratio
             assert row.status == "WITHDRAWN"
             assert row.result == "PENDING"
             assert len(row.serial_ids) == 2
+        # Each revision commits on its own, so any revision newer than the guarded
+        # one was already undone before the refusal; return to HEAD before checking.
+        db.alembic("upgrade", "head")
         db.alembic("check")
     finally:
         engine.dispose()

@@ -35,7 +35,6 @@ pytestmark = pytest.mark.integration
 
 PREVIOUS_REVISION = "20261026_0100"
 REPAIR_REVISION = "20261027_0100"
-REVISION = "20261031_0100"
 API_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_TABLES = (
     "credit_note_lines",
@@ -329,10 +328,12 @@ def test_fresh_schema_alignment_preserves_data_constraints_and_rollback(
             assert banner is not None
             assert (banner.created_at, banner.updated_at) == (created_at, updated_at)
 
-        database.alembic("upgrade", REVISION)
+        # Upgrade to HEAD, not a pinned revision: `alembic check` refuses a database
+        # that is behind, and only HEAD matches the current models. Historical
+        # revision 27 is checked independently above; newer revisions legitimately
+        # add/replace constraints.
+        database.alembic("upgrade", "head")
         database.alembic("check")
-        # Historical revision 27 is checked independently above: newer revisions
-        # legitimately add/replace constraints, so only HEAD matches current models.
         expected_checks = {
             (table.name, str(constraint.name))
             for table in get_metadata().tables.values()

@@ -966,8 +966,15 @@ class CategorySpecification(TenantEntity):
     category_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("item_categories.id", ondelete="RESTRICT"), nullable=False
     )
+    # Named explicitly: the fk convention would render 78 bytes, past PostgreSQL's 63.
     specification_attribute_id: Mapped[uuid.UUID] = mapped_column(
-        GUID, ForeignKey("specification_attributes.id", ondelete="RESTRICT"), nullable=False
+        GUID,
+        ForeignKey(
+            "specification_attributes.id",
+            ondelete="RESTRICT",
+            name="fk_category_specifications_attribute",
+        ),
+        nullable=False,
     )
     is_required: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
