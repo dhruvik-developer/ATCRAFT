@@ -115,7 +115,10 @@ test('a customer is created through the form and exists in the API', async ({ re
   const code = `E2E-CUST-${RUN}`
 
   await page.goto(`/customers`)
-  await page.getByRole('button', { name: /new customer|add customer|create/i }).first().click()
+  await page
+    .getByRole('button', { name: /new customer|add customer|create/i })
+    .first()
+    .click()
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
@@ -140,27 +143,39 @@ test('a customer is created through the form and exists in the API', async ({ re
   ).toBeTruthy()
 })
 
-test('the form shows the server\'s validation message rather than swallowing it', async () => {
+test("the form shows the server's validation message rather than swallowing it", async () => {
   const page = shared
   // A duplicate code is refused by a per-company unique constraint, surfaced as
-  // a 422 with a field-level message. If the screen drops it, the user presses
+  // a 409 with a safe message. If the screen drops it, the user presses
   // Save repeatedly against a form that will never be accepted and is told
   // nothing - which is the failure mode this asserts against.
   const code = `E2E-CUST-${RUN}`
 
   await page.goto(`/customers`)
-  await page.getByRole('button', { name: /new customer|add customer|create/i }).first().click()
+  await page
+    .getByRole('button', { name: /new customer|add customer|create/i })
+    .first()
+    .click()
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
   await fill(page, /^code$/i, code)
   await fill(page, /^trading name$/i, `Duplicate ${RUN}`)
+  const duplicateResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `${new URL(API_URL).pathname}/customers`,
+  )
   await dialog.getByRole('button', { name: /^create customer$/i }).click()
+  const response = await duplicateResponse
+  expect(response.status(), 'Only a real duplicate refusal proves this scenario').toBe(409)
+  const refused = await response.json()
+  expect(refused.error.code).toBe('DUPLICATE_DOCUMENT')
 
   // Either an inline field error or a visible alert - the assertion is that the
   // user is told, not how.
   await expect(
-    page.getByText(/already|exists|duplicate|in use|taken/i).first(),
+    page.getByText(refused.error.message).first(),
     'a duplicate code produced no visible message',
   ).toBeVisible({ timeout: 15_000 })
 
@@ -173,7 +188,10 @@ test('the form shows the server\'s validation message rather than swallowing it'
 test('a required field is refused before anything reaches the network', async () => {
   const page = shared
   await page.goto(`/customers`)
-  await page.getByRole('button', { name: /new customer|add customer|create/i }).first().click()
+  await page
+    .getByRole('button', { name: /new customer|add customer|create/i })
+    .first()
+    .click()
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
@@ -187,8 +205,10 @@ test('a required field is refused before anything reaches the network', async ()
   await expect(page.getByText(/required|enter|choose|must/i).first()).toBeVisible({
     timeout: 10_000,
   })
-  expect(posted, 'an empty form was posted to the server instead of being caught in the browser')
-    .toBeFalsy()
+  expect(
+    posted,
+    'an empty form was posted to the server instead of being caught in the browser',
+  ).toBeFalsy()
 })
 
 // -------------------------------------------------------------- inventory ---

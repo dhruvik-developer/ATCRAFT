@@ -17,6 +17,7 @@ import { prefetchRoute, routeLoaders } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import { LoginPage } from '@/features/auth/login-page'
+import { SessionRecovery } from '@/features/auth/session-recovery'
 import { P, type PermissionKey } from '@/lib/permissions'
 
 // --- lazy feature routes -----------------------------------------------------
@@ -124,7 +125,7 @@ function PageLoader() {
 }
 
 function RequireAuth({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isRestoring, user } = useAuth()
+  const { isAuthenticated, isRestoring, restorationError, user } = useAuth()
   const location = useLocation()
 
   // Restoring must not redirect: a hard reload has a refresh token but no user
@@ -142,6 +143,8 @@ function RequireAuth({ children }: { children: ReactNode }) {
       </div>
     )
   }
+
+  if (restorationError) return <SessionRecovery error={restorationError} />
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />

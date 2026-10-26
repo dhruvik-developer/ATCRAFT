@@ -17,19 +17,10 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { authenticationRetryAfter } from '@/features/auth/auth-retry'
+import { SessionRecovery } from '@/features/auth/session-recovery'
 import { ApiError } from '@/lib/api-client'
 import { describeError, validation } from '@/lib/messages'
-
-/**
- * How long to hold the form when a 429 arrives without a usable wait.
- *
- * `RateLimitedError` and the rate-limit middleware both put
- * `retry_after_seconds` in the error body, so this is defensive - but the
- * fallback has to be a real, finite wait. It used to be zero, which disabled
- * the submit button with no countdown to re-enable it: the form was dead until
- * the page was reloaded, which is a worse outcome than the rate limit itself.
- */
-const DEFAULT_RETRY_AFTER_SECONDS = 30
 
 /**
  * Two required fields and one shape check, written by hand.
@@ -63,7 +54,8 @@ function validate(email: string, password: string): LoginErrors {
 }
 
 export function LoginPage() {
-  const { login, verifyMfa, cancelAuthentication, isAuthenticated, isRestoring } = useAuth()
+  const { login, verifyMfa, cancelAuthentication, isAuthenticated, isRestoring, restorationError } =
+    useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [showPassword, setShowPassword] = useState(false)
@@ -109,6 +101,8 @@ export function LoginPage() {
     )
   }
 
+  if (restorationError) return <SessionRecovery error={restorationError} />
+
   if (isAuthenticated) {
     const from = (location.state as { from?: string } | null)?.from ?? '/'
     return <Navigate to={from} replace />
@@ -117,13 +111,7 @@ export function LoginPage() {
   const showFailure = (error: unknown) => {
     if (error instanceof ApiError) {
       if (error.status === 429) {
-        const raw = error.details?.retry_after_seconds
-        const seconds = typeof raw === 'number' ? raw : Number(raw)
-        setRetryAfter(
-          Number.isFinite(seconds) && seconds > 0
-            ? Math.ceil(seconds)
-            : DEFAULT_RETRY_AFTER_SECONDS,
-        )
+        setRetryAfter(authenticationRetryAfter(error))
         setFormError(describeError(error) || 'Too many attempts. Wait before trying again.')
       } else {
         setFormError(describeError(error))

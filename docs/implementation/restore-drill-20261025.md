@@ -51,7 +51,12 @@ Archive SHA-256 values:
 The sanitized machine-readable result is retained outside Git at
 `%TEMP%\atcraft-release-20261024\restore-evidence.json`; archives, document
 identifiers, credentials and the private capture manifest remain outside the
-repository. The restored database and volume were retained for inspection.
+repository. The restored database and volume were initially retained for inspection.
+On 26 October the owner's single-stack policy required removing the extra
+rehearsal resources. Its stopped database/storage volumes were archived and
+verified under `%TEMP%\atcraft-single-checkout-20261026` before removal; the
+original drill evidence and archives remain. The historical verification above
+does not imply those Docker targets still exist.
 
 Production still requires the deployment runbook's encrypted off-box backups,
 retention policy, production-sized restore rehearsal, host recovery checks and

@@ -220,8 +220,11 @@ async function refreshAccessToken(generation: number): Promise<RefreshOutcome> {
     controller,
     promise: Promise.resolve(outcome('stale')),
   }
-  pending.promise = (async () => {
+  // Publish the single-flight record before invoking fetch. A transport that
+  // throws synchronously must still clear that record in finally.
+  pending.promise = Promise.resolve().then(async () => {
     try {
+      if (generation !== authGeneration) return outcome('stale')
       const response = await fetch(`${BASE_URL}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
@@ -230,8 +233,14 @@ async function refreshAccessToken(generation: number): Promise<RefreshOutcome> {
       })
       if (generation !== authGeneration) return outcome('stale')
       if (!response.ok) {
-        clearTokens()
-        return outcome('revoked')
+        if (response.status === 401 || response.status === 403) {
+          clearTokens()
+          return outcome('revoked')
+        }
+        // A gateway failure or rate limit does not invalidate the cookie.
+        // Propagate this response, rather than the request's original 401, so
+        // callers can offer recovery without suppressing a valid session.
+        throw await toApiError(response)
       }
       const body = await readEnvelope(response)
       if (generation !== authGeneration) return outcome('stale')
@@ -240,20 +249,19 @@ async function refreshAccessToken(generation: number): Promise<RefreshOutcome> {
         typeof body.data.access_token !== 'string' ||
         !body.data.access_token
       ) {
-        clearTokens()
-        return outcome('revoked')
+        throw invalidResponse(response)
       }
       // Refresh rotates this session's credential; it does not begin a new login.
       installAccessToken(body.data.access_token)
       return outcome('refreshed')
-    } catch {
+    } catch (error) {
       if (generation !== authGeneration) return outcome('stale')
-      clearTokens()
-      return outcome('revoked')
+      if (error instanceof ApiError || isAbortError(error)) throw error
+      throw networkError(error)
     } finally {
       if (refreshInFlight === pending) refreshInFlight = null
     }
-  })()
+  })
 
   refreshInFlight = pending
   return pending.promise
@@ -320,6 +328,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isAbortError(error: unknown): boolean {
   return isRecord(error) && error.name === 'AbortError'
+}
+
+function networkError(cause: unknown): ApiError {
+  const failure = new ApiError(
+    0,
+    'NETWORK_ERROR',
+    navigator.onLine === false ? errors.networkOffline : errors.networkFailed,
+  )
+  failure.cause = cause
+  return failure
 }
 
 function isErrorEnvelope(value: unknown): value is ErrorResponse {
@@ -460,13 +478,7 @@ async function request(
     } catch (error) {
       // Cancellation belongs to the caller/query lifecycle, rather than an outage notice.
       if (isAbortError(error)) throw error
-      const failure = new ApiError(
-        0,
-        'NETWORK_ERROR',
-        navigator.onLine === false ? errors.networkOffline : errors.networkFailed,
-      )
-      failure.cause = error
-      throw failure
+      throw networkError(error)
     }
   }
 

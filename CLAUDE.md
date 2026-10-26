@@ -573,7 +573,9 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
 ## Things not to do
 
 - Do not create a second copy of this repository. There is one working copy,
-  `C:\Project\Other\ATCRAFT`; work on a branch in it. No `git worktree add`,
+  `C:\Project\Other\ATCRAFT`; work directly on `develop`. Keep only `main` and
+  `develop`, and synchronize their verified revisions locally and remotely. Do
+  not create feature, temporary or backup branches. No `git worktree add`,
   clone or copied folder - beside it, under a tool's data directory or through
   a tool's worktree mode - and no clone databases or extra Compose projects left
   behind. `AGENTS.md` carries the same rule for tools that read it instead of

@@ -6,7 +6,72 @@ not close the [remaining full-scope packages](production-scope-20261025.md) or
 approve deployment to a real host. The user kept the DSC/PAdES signer decision
 pending while other work continues.
 
-## Verified application behavior
+The [completed CI run for `2db4a5e`](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40282596137)
+passed all five jobs: backend quality, backend integration, frontend, production
+configuration/image scans and browser journeys. It recorded 6,171 backend
+passes with 81.38% branch coverage, 4,095 unit passes in the separate quality
+job, 25 browser journeys and clean accessibility checks in both themes. This
+verifies that checkpoint; the newer D5 and session-recovery changes require
+their own combined checks.
+
+## Canonical local installation
+
+The owner's [single-checkout instructions](../../AGENTS.md) now govern local
+work. Only `C:\Project\Other\ATCRAFT` remains as a working copy. All 56 changed
+or new D5 files from the former checkout were checked against the main copy;
+the four differences were retained improvements to identifier naming, export
+ordering and the category-retirement regression. The obsolete dependency
+junctions were detached before removing the old worktree, preserving the main
+virtual environment and both Node installations.
+
+The sole project stack is `atcraft-erp`. Its development database is
+`atcraft_erp`; tests use `atcraft_erp_test` with `TEST_POSTGRES_DB` unset. Twenty-nine
+disposable databases and seven extra volumes were archived and verified before
+removal. The extra rehearsal containers and networks were removed. The primary
+database was archived and preserved; other projects were not changed.
+The cleanup manifest and 64,711,664 bytes of archives are outside Git under
+`%TEMP%\atcraft-single-checkout-20261026`.
+
+The primary database upgraded from `20261027_0100` to `20261101_0100` with every
+existing table's row count preserved: 136 existing tables and five added tables.
+An unfiltered `alembic check` found no changes. The complete local seed now
+registers 351 references across 52 kinds, including D5 descriptions/accessories;
+its rerun created no replacement PDFs. Existing account passwords were retained.
+The current local UI/API use ports 5173/8000 rather than the removed rehearsal's
+18081 port.
+
+## D5 candidate checks
+
+The consolidated D5 backend run passed 167 tests with no skips, including
+category-lock concurrency, retained archived references, typed values,
+permission and tenant boundaries, preserving seed behavior and migration
+round trips. Ruff passed 634 files and mypy passed 278 source files. The
+frontend candidate passed 222 relevant cases, generated-contract checks and
+the unchanged production budgets. Three new browser journeys passed at
+375/768/1440 pixels using actual staff and bound dealer principals. Handbook
+validation covers 97 views; product-detail capture can select the populated
+`DM-FG-LEVER-AB` fixture through normal read-only list navigation.
+
+The complete backend coverage run passed 6,338 tests with two deprecation
+warnings and 81.64% combined statement/branch coverage. The standard test
+database was used with no `TEST_POSTGRES_DB` override.
+
+The local browser run exposed transient authentication failures under rate
+limiting. Refresh/profile recovery now preserves the session and presents an
+explicit retry while protected content remains blocked until identity is
+verified. All 179 focused authentication/client/router tests passed, as did two
+real-cookie Chromium recovery cases plus their setup. The full browser rerun,
+accessibility sweep and 97-view handbook capture remain continuation checks.
+
+The owner now requires only `main` and `develop`, synchronized to the same
+verified revision locally and remotely. Feature/recovery refs are being
+consolidated with their histories preserved. Dependency-update PR generation
+is paused through the seven update configurations; CI audits remain enabled.
+The deployment named `dev` now tracks `develop`, so no third Git branch is
+required. The branch mapping passed 36 release/configuration unit cases and
+shell syntax validation.
+
+## Previously verified application behavior
 
 | Check | Result |
 |---|---|
@@ -44,8 +109,8 @@ did not order tied timestamps. Both regressions now pass within their complete
 finance table scroll area. The shared table now provides a named, focusable
 group with a visible keyboard focus indicator; Chromium verified Tab access and
 ArrowRight scrolling at 375 px. Using a group avoids duplicate page landmarks
-when two tables are present. These corrections still require a fresh CI result
-for the commit that contains them.
+when two tables are present. The completed `2db4a5e` CI run above verifies these
+corrections.
 
 The responsive run found a real tablet catalogue overflow. Long offer labels
 and quantity/action rows now wrap inside their cards, and the 768 px browser

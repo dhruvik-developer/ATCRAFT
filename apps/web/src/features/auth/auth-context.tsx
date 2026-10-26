@@ -162,6 +162,9 @@ interface AuthContextValue {
   isAuthenticated: boolean
   /** True only while the initial session restore is in flight. */
   isRestoring: boolean
+  /** A failed profile lookup blocks protected content without discarding a valid cookie. */
+  restorationError: Error | null
+  retryRestoration: () => void
   login: (email: string, password: string) => Promise<LoginOutcome>
   verifyMfa: (challengeToken: string, code: string) => Promise<CurrentUser>
   cancelAuthentication: () => void
@@ -208,6 +211,9 @@ async function withinLogoutBudget(
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [isRestoring, setIsRestoring] = useState(hasRefreshToken())
+  const [restorationError, setRestorationError] = useState<Error | null>(null)
+  const [restorationAttempt, setRestorationAttempt] = useState(0)
+  const pendingRestoration = useRef<AbortController | null>(null)
   const queryClient = useQueryClient()
   const pendingLogout = useRef<{
     generation: number
@@ -217,6 +223,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pendingAuthentication = useRef<AbortController | null>(null)
 
   const beginLogin = useCallback(() => {
+    pendingRestoration.current?.abort()
+    setRestorationError(null)
+    setIsRestoring(false)
     pendingAuthentication.current?.abort()
     // Cookie changes happen before JavaScript receives a response. Stop the old
     // logout request before a new login can install its refresh credential.
@@ -261,14 +270,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const generation = getAuthGeneration()
 
     if (!hasRefreshToken()) {
+      setRestorationError(null)
       setIsRestoring(false)
       return
     }
 
+    const controller = new AbortController()
+    pendingRestoration.current = controller
+
     void (async () => {
       try {
-        const me = await api.get<MeResponse>('/auth/me')
-        if (!cancelled && generation === getAuthGeneration()) setUser(toCurrentUser(me))
+        const me = await api.get<MeResponse>('/auth/me', { signal: controller.signal })
+        if (!cancelled && !controller.signal.aborted && generation === getAuthGeneration()) {
+          setRestorationError(null)
+          setUser(toCurrentUser(me))
+        }
       } catch (error) {
         // Only an authentication failure ends the session. A 5xx or a dropped
         // connection on the restore call says nothing about whether the refresh
@@ -277,19 +293,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // and a refresh token that was perfectly valid. The client clears the
         // tokens itself when a refresh genuinely fails, and `onAuthChange`
         // below mirrors that into this state.
-        if (generation === getAuthGeneration() && error instanceof ApiError && error.isAuthError) {
-          clearTokens()
-          if (!cancelled) setUser(null)
+        if (!cancelled && !controller.signal.aborted && generation === getAuthGeneration()) {
+          if (error instanceof ApiError && (error.isAuthError || error.isPermissionError)) {
+            // A profile/refresh rejection concerns the session itself. Ordinary
+            // resource403s remain permission failures in their own screens.
+            clearTokens()
+            setUser(null)
+            setRestorationError(null)
+          } else {
+            setRestorationError(error instanceof Error ? error : new Error('Session unavailable'))
+          }
         }
       } finally {
         if (!cancelled) setIsRestoring(false)
+        if (pendingRestoration.current === controller) pendingRestoration.current = null
       }
     })()
 
     return () => {
       cancelled = true
+      controller.abort()
+      if (pendingRestoration.current === controller) pendingRestoration.current = null
     }
-  }, [])
+  }, [restorationAttempt])
+
+  const retryRestoration = useCallback(() => {
+    if (isRestoring) return
+    setRestorationError(null)
+    setIsRestoring(true)
+    setRestorationAttempt((attempt) => attempt + 1)
+  }, [isRestoring])
 
   // The API client clears tokens when a refresh fails. Mirror that into React
   // state so the router redirects instead of rendering a shell with no data.
@@ -297,7 +330,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () =>
       onAuthChange((authenticated) => {
         if (!authenticated) {
+          pendingRestoration.current?.abort()
           setUser(null)
+          setRestorationError(null)
+          setIsRestoring(false)
           queryClient.clear()
         }
       }),
@@ -415,6 +451,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const logout = useCallback((): Promise<void> => {
+    pendingRestoration.current?.abort()
+    setRestorationError(null)
+    setIsRestoring(false)
     pendingAuthentication.current?.abort()
     pendingAuthentication.current = null
     const generation = getAuthGeneration()
@@ -481,6 +520,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isAuthenticated: Boolean(user),
       isRestoring,
+      restorationError,
+      retryRestoration,
       login,
       verifyMfa,
       cancelAuthentication,
@@ -492,7 +533,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isVendorUser: Boolean(user?.vendor_id),
       isDealerUser: Boolean(user?.customer_id),
     }),
-    [user, isRestoring, login, verifyMfa, cancelAuthentication, logout, refreshUser, can],
+    [
+      user,
+      isRestoring,
+      restorationError,
+      retryRestoration,
+      login,
+      verifyMfa,
+      cancelAuthentication,
+      logout,
+      refreshUser,
+      can,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

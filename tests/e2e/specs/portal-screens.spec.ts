@@ -95,7 +95,15 @@ for (const audience of ['vendor', 'dealer'] as const) {
       ])
       await expect(page).toHaveURL(`${BASE_URL}/${audience}`)
       await expect(page.locator('main').getByRole('heading').first()).toBeVisible()
-      expect(restoration).toEqual(['me401', 'refresh200', 'me200'])
+      // Vite StrictMode can repeat profile reads on mount. Preserve the
+      // ordered authentication phases and prove the rotating refresh cookie
+      // was consumed exactly once; a later 401 still fails this assertion.
+      expect(restoration.filter((event) => event === 'refresh200')).toHaveLength(1)
+      expect(restoration.filter((event, index) => event !== restoration[index - 1])).toEqual([
+        'me401',
+        'refresh200',
+        'me200',
+      ])
       await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toHaveCount(0)
       expect(await errorToastFailures(page)).toEqual([])
       expect(failures).toEqual([])

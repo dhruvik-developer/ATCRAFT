@@ -49,6 +49,13 @@ node scripts/capture-screens.mjs
 node scripts/build-handbook.mjs
 ```
 
+For populated product-description illustrations, set `HANDBOOK_ITEM_CODE` to
+`DM-FG-LEVER-AB` before capture. Staff and dealer item-detail resolvers search
+for that demo handle through their own list screens, retaining each requested
+tab. This selection performs no business writes and leaves other detail
+resolvers unchanged. An unavailable selected item fails capture instead of
+illustrating an unrelated record.
+
 The capture signs in through the shared form helper, opens detail records from
 populated lists and navigates within the application. RFQs use their first data
 row, whose click handler opens the detail page without submitting a document. It captures every

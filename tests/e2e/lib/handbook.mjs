@@ -30,3 +30,13 @@ export function resolveHandbookDetailRoute(template, detailRoute) {
   const queryIndex = template.indexOf('?')
   return detailRoute.split('?')[0] + (queryIndex >= 0 ? template.slice(queryIndex) : '')
 }
+
+/** Select one populated product for staff/dealer illustrations without changing data. */
+export function handbookDetailListRoute(template, listRoute, itemCode) {
+  const shape = handbookRouteShape(template.split('?')[0])
+  if (!itemCode?.trim() || !['/items/:id', '/dealer/catalog/:id'].includes(shape)) return listRoute
+  const url = new URL(listRoute, 'http://handbook.invalid')
+  url.searchParams.set('search', itemCode.trim())
+  url.searchParams.delete('page')
+  return `${url.pathname}${url.search}`
+}

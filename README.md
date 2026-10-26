@@ -318,13 +318,15 @@ succeed.
 
 ## Contributing
 
-Current development integrates on `develop`; base new `feature/*`, `bugfix/*`
-and `hotfix/*` branches there, in this one checkout. Do not create git
-worktrees, clones or copied folders of the repository; [`AGENTS.md`](AGENTS.md)
-states the rule for coding agents. Deployment names remain `main` and `dev`:
-`scripts/deploy.sh` deliberately requires the corresponding `main` or `dev`
-branch and its matching remote HEAD. Promoting `develop` into a deployment
-branch is a separate release step; passing `dev` selects that deployment.
+The repository keeps only `main` and `develop`, locally and on the remote.
+Work directly on `develop` in this one checkout. After checks pass, commit the
+changes and push the same verified revision to both branches. Do not create
+feature, temporary or backup branches, worktrees, clones or copied folders;
+[`AGENTS.md`](AGENTS.md) records this policy. Automatic dependency-update PRs
+are paused; CI continues auditing dependencies and container images.
+Deployment names remain `main` and `dev`, tracking the `main` and `develop`
+branches respectively. The deployment script checks the configured branch and
+its matching remote HEAD before releasing.
 
 `make install` installs the git hooks from `.pre-commit-config.yaml`
 (`make hooks` on its own does the same). The pre-commit hook formats and lints
@@ -332,7 +334,7 @@ what you are committing; the pre-push hook runs the type checks, unit tests,
 vitest, the OpenAPI contract check and a Compose config parse. Do not bypass
 them with `--no-verify`.
 
-Before opening a pull request:
+Before committing and synchronizing the branches:
 
 ```bash
 make check              # contracts + lint/types + backend coverage + frontend tests + production build

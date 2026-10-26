@@ -1,7 +1,7 @@
 /**
  * Capture the handbook without submitting business documents or changing passwords.
  * Screen descriptions come from content.json and must cover the route registry.
- * Use an already configured test administrator and a populated disposable stack.
+ * Use an already configured test administrator and the populated local installation.
  *
  * node scripts/capture-screens.mjs --check  validates coverage without a browser.
  * node scripts/capture-screens.mjs          refreshes screens/ and its index.
@@ -15,7 +15,11 @@ import { chromium } from '@playwright/test'
 
 import { API_URL, BASE_URL } from '../lib/env.mjs'
 import { accountForAudience, routeAudience } from '../lib/audiences.mjs'
-import { handbookRouteShape, resolveHandbookDetailRoute } from '../lib/handbook.mjs'
+import {
+  handbookDetailListRoute,
+  handbookRouteShape,
+  resolveHandbookDetailRoute,
+} from '../lib/handbook.mjs'
 import {
   allowsReadOnlyRequest,
   createNavigator,
@@ -30,6 +34,7 @@ import { registeredScreens } from '../lib/screen-registry.mjs'
 const HANDBOOK = fileURLToPath(new URL('../../../docs/handbook/', import.meta.url))
 const OUT = path.join(HANDBOOK, 'screens')
 const VIEWPORT = { width: 1600, height: 1000 }
+const PREFERRED_ITEM_CODE = process.env.HANDBOOK_ITEM_CODE
 const PUBLIC = ['/login', '/forgot-password', '/reset-password']
 const DETAIL_LISTS = {
   '/items/:id': ['/items', '/items/'],
@@ -270,7 +275,7 @@ if (process.argv.includes('--check')) {
           const key = canonical(route)
           if (!resolved.has(key)) {
             const [listRoute, prefix] = DETAIL_LISTS[key]
-            await navigate(listRoute)
+            await navigate(handbookDetailListRoute(screen.route, listRoute, PREFERRED_ITEM_CODE))
             const hrefs = await page
               .locator(`main a[href^="${prefix}"]`)
               .evaluateAll((links) => links.map((link) => link.getAttribute('href')))

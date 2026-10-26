@@ -20,7 +20,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, api, clearTokens, hasRefreshToken, setTokens } from './api-client'
+import {
+  ApiError,
+  api,
+  clearTokens,
+  getAuthGeneration,
+  hasRefreshToken,
+  onAuthChange,
+  setTokens,
+} from './api-client'
 import { errors } from './messages'
 
 /** Build a `Response`-alike carrying the API's standard success envelope. */
@@ -477,10 +485,12 @@ describe('transport errors', () => {
 describe('cookie-backed refresh', () => {
   function deferredResponse() {
     let resolve!: (value: Response) => void
-    const promise = new Promise<Response>((done) => {
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<Response>((done, fail) => {
       resolve = done
+      reject = fail
     })
-    return { promise, resolve }
+    return { promise, resolve, reject }
   }
 
   it('never installs a refresh response that arrives after local sign-out', async () => {
@@ -510,7 +520,7 @@ describe('cookie-backed refresh', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it.each([200, 401])(
+  it.each([200, 401, 403, 429, 503])(
     'does not replace or revoke a new login when an old refresh finishes with HTTP %i',
     async (status) => {
       document.cookie = 'atcraft_csrf=session-hint; Path=/'
@@ -537,7 +547,7 @@ describe('cookie-backed refresh', () => {
       refresh.resolve(
         status === 200
           ? envelope({ access_token: 'old-user-late-access' })
-          : failure(401, { error: { code: 'INVALID_TOKEN', message: 'Revoked' } }),
+          : failure(status, { error: { code: 'INVALID_TOKEN', message: 'Old response' } }),
       )
       expect(await pending).toMatchObject({ name: 'AbortError' })
       expect(hasRefreshToken()).toBe(true)
@@ -594,16 +604,165 @@ describe('cookie-backed refresh', () => {
     { success: true, data: { access_token: 123 }, message: 'Invalid token type' },
     { success: true, data: { access_token: '' }, message: 'Empty token' },
     { success: true, data: null, message: 'Missing token' },
-  ])('rejects malformed refresh data and clears the session: %j', async (body) => {
+  ])('rejects malformed refresh data without invalidating the session: %j', async (body) => {
     document.cookie = 'atcraft_csrf=csrf-value; Path=/'
     setTokens('old-access')
     fetchMock
       .mockResolvedValueOnce(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }))
       .mockResolvedValueOnce(jsonSuccess(body))
 
-    expect((await rejection(api.get('/protected'))).code).toBe('TOKEN_EXPIRED')
-    expect(hasRefreshToken()).toBe(false)
+    expect((await rejection(api.get('/protected'))).code).toBe('INVALID_RESPONSE')
+    expect(hasRefreshToken()).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2)
+    fetchMock
+      .mockResolvedValueOnce(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }))
+      .mockResolvedValueOnce(envelope({ access_token: 'retry-access' }))
+      .mockResolvedValueOnce(envelope({ id: 'recovered' }))
+    await expect(api.get('/protected')).resolves.toEqual({ id: 'recovered' })
+    expect(new Headers(callAt(4)[1].headers).get('authorization')).toBe('Bearer retry-access')
+  })
+
+  it.each([429, 503, 502])(
+    'preserves the session on refresh HTTP %i and lets an explicit later request recover',
+    async (status) => {
+      document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+      setTokens('old-access')
+      const generation = getAuthGeneration()
+      fetchMock
+        .mockResolvedValueOnce(
+          failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }),
+        )
+        .mockResolvedValueOnce(
+          failure(status, {
+            error: {
+              code: status === 429 ? 'RATE_LIMITED' : 'SERVICE_UNAVAILABLE',
+              message: 'Please retry later.',
+              details: { retry_after_seconds: 60 },
+            },
+          }),
+        )
+      const error = await rejection(api.get('/protected'))
+      expect(error.status).toBe(status)
+      expect(error.message).toBe('Please retry later.')
+      expect(error.details?.retry_after_seconds).toBe(60)
+      expect(getAuthGeneration()).toBe(generation)
+      expect(hasRefreshToken()).toBe(true)
+      expect(localStorage.getItem('atcraft.session_suppressed')).toBeNull()
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+
+      fetchMock
+        .mockResolvedValueOnce(
+          failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }),
+        )
+        .mockResolvedValueOnce(envelope({ access_token: 'retry-access' }))
+        .mockResolvedValueOnce(envelope({ id: 'recovered' }))
+      await expect(api.get('/protected')).resolves.toEqual({ id: 'recovered' })
+      expect(new Headers(callAt(4)[1].headers).get('authorization')).toBe('Bearer retry-access')
+    },
+  )
+
+  it.each(['rejected', 'thrown'])(
+    'preserves a %s network-failed refresh without exposing transport details',
+    async (mode) => {
+      document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+      setTokens('old-access')
+      fetchMock
+        .mockResolvedValueOnce(
+          failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }),
+        )
+        .mockImplementationOnce(() => {
+          const error = new TypeError('Private proxy credentials could not be read')
+          if (mode === 'thrown') throw error
+          return Promise.reject(error)
+        })
+      const error = await rejection(api.get('/protected'))
+      expect(error).toMatchObject({
+        status: 0,
+        code: 'NETWORK_ERROR',
+        message: errors.networkFailed,
+      })
+      expect(error.message).not.toContain('credentials')
+      expect(hasRefreshToken()).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      fetchMock
+        .mockResolvedValueOnce(
+          failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }),
+        )
+        .mockResolvedValueOnce(envelope({ access_token: 'retry-access' }))
+        .mockResolvedValueOnce(envelope({ id: 'recovered' }))
+      await expect(api.get('/protected')).resolves.toEqual({ id: 'recovered' })
+    },
+  )
+
+  it.each([401, 403])(
+    'still suppresses restoration after a confirmed refresh HTTP %i denial',
+    async (status) => {
+      document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+      setTokens('old-access')
+      const listener = vi.fn()
+      const unsubscribe = onAuthChange(listener)
+      try {
+        fetchMock
+          .mockResolvedValueOnce(
+            failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }),
+          )
+          .mockResolvedValueOnce(
+            failure(status, { error: { code: 'INVALID_TOKEN', message: 'Revoked' } }),
+          )
+        expect((await rejection(api.get('/protected'))).isAuthError).toBe(true)
+        expect(hasRefreshToken()).toBe(false)
+        expect(localStorage.getItem('atcraft.session_suppressed')).toBe('1')
+        expect(listener).toHaveBeenCalledExactlyOnceWith(false)
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+      } finally {
+        unsubscribe()
+      }
+    },
+  )
+
+  it('shares one failed refresh across concurrent requests without retrying their protected calls', async () => {
+    document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+    setTokens('old-access')
+    const refresh = deferredResponse()
+    fetchMock.mockImplementation((url: string) =>
+      url.endsWith('/auth/refresh')
+        ? refresh.promise
+        : Promise.resolve(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } })),
+    )
+    const pending = Promise.allSettled([api.get('/one'), api.get('/two')])
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/auth/refresh')),
+      ).toHaveLength(1),
+    )
+    refresh.resolve(
+      failure(503, { error: { code: 'SERVICE_UNAVAILABLE', message: 'Please retry.' } }),
+    )
+    const results = await pending
+    expect(results).toEqual([
+      { status: 'rejected', reason: expect.objectContaining({ status: 503 }) },
+      { status: 'rejected', reason: expect.objectContaining({ status: 503 }) },
+    ])
+    expect(hasRefreshToken()).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('ignores a late network refresh failure after another account signs in', async () => {
+    document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+    setTokens('old-access')
+    const refresh = deferredResponse()
+    fetchMock
+      .mockResolvedValueOnce(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }))
+      .mockReturnValueOnce(refresh.promise)
+    const pending = api.get('/protected').catch((error: unknown) => error)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    setTokens('new-account-access')
+    refresh.reject(new TypeError('Old transport failure'))
+    expect(await pending).toMatchObject({ name: 'AbortError' })
+    expect(hasRefreshToken()).toBe(true)
+    fetchMock.mockResolvedValueOnce(envelope({ id: 'new-account' }))
+    await api.get('/new-account')
+    expect(new Headers(callAt(2)[1].headers).get('authorization')).toBe('Bearer new-account-access')
   })
 })
 

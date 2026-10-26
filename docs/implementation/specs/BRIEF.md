@@ -54,7 +54,7 @@ Lane names are historical. Any lane may be assigned any work package; follow the
   - Your harness's default working directory is the main tree, so be deliberate: `cd` into your lane in every shell command.
 - **Your lane `.env` is already wired.**
   - `DATABASE_URL` and `DATABASE_SYNC_URL` point at your lane's own dev DB. It is a clone of the real dev DB, with baseline and demo data, migrated to your lane's head.
-  - `TEST_POSTGRES_DB` names your lane's own test DB.
+  - Leave `TEST_POSTGRES_DB` unset; use the standard `atcraft_erp_test` database.
   - Postgres runs at 127.0.0.1:5433 and Redis at 127.0.0.1:6380 (Docker, already up).
 - **Shared environment: do not touch.** `apps/api/.venv`, `apps/web/node_modules` and `tests/e2e/node_modules` are junctions to the main tree's copies. **Never** run any of these, because they would destroy the environment every lane shares:
   - `pip install`, `pip uninstall`

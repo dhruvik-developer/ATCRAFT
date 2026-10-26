@@ -50,7 +50,7 @@ inspection.
    ══════════════════════▼═══════  ═════▼════════════   reach these directly
     DEPLOYMENT 1  "main"            DEPLOYMENT 2  "dev"
     project: atcraft-main           project: atcraft-dev
-    branch:  main                   branch:  dev
+    branch:  main                   branch:  develop
    ────────────────────────────    ────────────────────────────
     nginx      (app router)         nginx      (app router)
     frontend   (static SPA)         frontend   (static SPA)
@@ -70,16 +70,16 @@ inspection.
 Both deployments run the **same** compose files. Everything that differs
 between them lives in `deploy/main.env` and `deploy/dev.env`.
 
-`develop` is the current code integration branch. The deployment named `dev`
-still tracks the separate `dev` branch in its environment template and branch
-guard. Promote tested changes from `develop` to `dev` before deploying them;
-do not treat the deployment name as an alias for `develop`.
+Only `main` and `develop` are retained as Git branches. Work on `develop` and
+synchronize both to the same verified revision. The deployment named `dev`
+tracks `develop` in its environment template and branch guard; the deployment
+named `main` tracks `main`. No separate `dev` or feature branch is required.
 
 |                  | Deployment 1                                  | Deployment 2                                 |
 | ---------------- | --------------------------------------------- | -------------------------------------------- |
 | name             | `main`                                        | `dev`                                        |
 | compose project  | `atcraft-main`                                | `atcraft-dev`                                |
-| git branch       | `main`                                        | `dev`                                        |
+| git branch       | `main`                                        | `develop`                                    |
 | loopback port    | `8081`                                        | `8082`                                       |
 | domain           | `erp.example.com`                             | `dev.erp.example.com`                        |
 | `APP_ENV`        | `production`                                  | `staging`                                    |
@@ -736,10 +736,10 @@ commit. Images are tagged and labelled with the
 exact commit, so the running artifact can be traced and an old commit's image
 cannot be silently overwritten by a later branch build.
 
-Promote the integration revision through the guarded deployment branches:
+Verify and synchronize the two branches, then release each deployment independently:
 
 ```
-feature branch → develop → dev → deployment 2 → verify → main → deployment 1
+develop → checks → same commit on develop and main → deployment verification
 ```
 
 ### Once, when upgrading past the tax-identifier release
@@ -969,11 +969,11 @@ for the local stack `make dev` (hybrid) or `make dev-docker` (full Docker) —
 deliberate — see [What keeps the two deployments
 apart](#what-keeps-the-two-deployments-apart).
 
-### `deployment 'dev' tracks branch 'dev' but the working tree is on 'main'`
+### `deployment 'dev' tracks branch 'develop' but the working tree is on 'main'`
 
-`git checkout dev`, or use a second checkout. The current integration branch
-`develop` must be promoted to `dev` first. Do not bypass the branch guard as a
-normal release procedure.
+Use `git switch develop` in the existing checkout. The deployment template must
+set `DEPLOY_BRANCH=develop`; older templates naming `dev` need that non-secret
+setting updated. Do not create another branch or checkout, or bypass the guard.
 
 ### `HEAD is not the tested upstream revision`
 

@@ -16,9 +16,13 @@ preserve their original planning and audit evidence.
 
 ## Current checkpoint
 
-Updated 26 October 2026. The migration chain has eleven
-revisions: the verified `20261021_0100` baseline and ten forward revisions through
-`20261031_0100`. The [current full-scope checkpoint](production-scope-20261025.md)
+Updated 26 October 2026. The migration chain has twelve
+revisions: the verified `20261021_0100` baseline and eleven forward revisions through
+`20261101_0100`. D5 specification masters, inherited item descriptions and
+accessories are implemented; combined acceptance is in progress. The owner's
+[single-checkout policy](../../AGENTS.md) supersedes the historical lane/worktree
+instructions below. Only `atcraft-erp`, `atcraft_erp` and `atcraft_erp_test` remain
+locally; leave `TEST_POSTGRES_DB` unset. The [current full-scope checkpoint](production-scope-20261025.md)
 distinguishes this delivery's fixes and verification from the software packages
 that remain in the user's authorized full scope. Combined release checks and
 full-scope acceptance remain separate; a historical audit or a passing focused

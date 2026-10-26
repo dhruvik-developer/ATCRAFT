@@ -6,10 +6,10 @@ deployments, host Nginx/TLS, backup and restore, isolation verification, and
 handover. Do not substitute a bare `docker compose up` command: the guarded
 deployment script supplies the project isolation boundary and release identity.
 
-The current integration branch is `develop`. The existing deployed stacks
-remain `main` and `dev`, with `DEPLOY_BRANCH=main` and `DEPLOY_BRANCH=dev` in
-their templates. Promote the tested integration revision to the intended
-deployment branch before releasing; the stack name does not select `develop`.
+The repository keeps only `main` and `develop`, synchronized to the same tested
+revision. Deployment names remain `main` and `dev`, with `DEPLOY_BRANCH=main`
+and `DEPLOY_BRANCH=develop` in their templates. The deployment name and the
+configured Git branch are separate; `dev` requires no extra branch.
 
 ## Release workflow
 

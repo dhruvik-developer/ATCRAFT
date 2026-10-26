@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   createScreenshotLookup,
+  handbookDetailListRoute,
   handbookRouteShape,
   resolveHandbookDetailRoute,
 } from './handbook.mjs'
@@ -70,5 +71,31 @@ test('uses the detail link identity with the original template query', () => {
   assert.equal(
     resolveHandbookDetailRoute('/items/:itemId', '/items/record-id?previous=ignored'),
     '/items/record-id',
+  )
+})
+
+test('selects a populated product on staff and dealer lists while preserving template tabs', () => {
+  for (const [template, list] of [
+    ['/items/:itemId?tab=specifications', '/items'],
+    ['/items/:itemId?tab=accessories', '/items'],
+    ['/dealer/catalog/:itemId', '/dealer/catalog'],
+  ]) {
+    assert.equal(
+      handbookDetailListRoute(template, list, ' DM-FG-LEVER-AB '),
+      `${list}?search=DM-FG-LEVER-AB`,
+    )
+  }
+})
+
+test('leaves unrelated lists and unspecified product selection unchanged', () => {
+  assert.equal(handbookDetailListRoute('/sales-orders/:id', '/sales-orders', 'FG'), '/sales-orders')
+  assert.equal(handbookDetailListRoute('/items/:id', '/items', ''), '/items')
+  assert.equal(handbookDetailListRoute('/items/:id', '/items'), '/items')
+})
+
+test('encodes product search characters and resets an obsolete list page', () => {
+  assert.equal(
+    handbookDetailListRoute('/items/:id', '/items?page=3&search=old', 'A&B /+'),
+    '/items?search=A%26B+%2F%2B',
   )
 })

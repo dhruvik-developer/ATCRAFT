@@ -97,6 +97,7 @@ export const errors = {
   connectionFailed: 'Could not connect to the service',
   networkFailed: 'Could not reach the service. Check your connection and try again.',
   sessionExpired: 'Your session has expired. Please sign in again.',
+  sessionRestoreFailed: 'We could not restore your session',
   networkOffline: 'You appear to be offline. Check the connection and try again.',
   notEnoughStock: 'Not enough stock',
   invalidStateTransition: 'Action not allowed in this state',

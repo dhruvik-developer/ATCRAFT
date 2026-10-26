@@ -46,7 +46,7 @@ Usage: ./scripts/deploy.sh <deployment> <command> [args]
 
 Deployments
   main            deployment 1 - main branch, the client's environment
-  dev             deployment 2 - dev branch, integration testing
+  dev             deployment 2 - develop branch, integration testing
 
 Setup
   init            create deploy/<name>.env from the template with generated

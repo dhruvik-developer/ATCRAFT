@@ -1,23 +1,30 @@
 version: 2
+# The repository keeps only main/develop. Apply reviewed dependency updates on
+# develop; CI dependency/image audits continue without automatic PR branches.
 updates:
   - package-ecosystem: npm
     directory: /apps/web
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: npm
     directory: /tests/e2e
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: pip
     directory: /apps/api
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: docker
     directory: /apps/api
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: docker
     directory: /apps/web
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   # docker-compose, not docker: the docker ecosystem reads Dockerfiles, and
@@ -27,9 +34,11 @@ updates:
   # and deploy.sh comments promise.
   - package-ecosystem: docker-compose
     directory: /
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
     directory: /
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly

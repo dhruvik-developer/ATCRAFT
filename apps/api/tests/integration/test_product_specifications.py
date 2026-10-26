@@ -34,7 +34,7 @@ from src.modules.products.models import (
 )
 from src.modules.products.repository import ItemRepository
 from src.modules.products.schemas import ItemFilters
-from src.modules.products.service import delete_category
+from src.modules.products.service import delete_category, delete_item
 from src.modules.products.specification_schemas import (
     CategorySpecificationIn,
     CategorySpecificationsReplace,
@@ -361,6 +361,49 @@ async def test_used_options_and_types_are_protected_but_unused_choices_can_chang
         attribute_id, SpecificationAttributeUpdate(options=["Brass", "Zinc"])
     )
     assert changed.options == ["Brass", "Zinc"]
+
+
+@pytest.mark.parametrize("operation", ["type", "options", "deactivate", "retire"])
+async def test_archived_item_values_continue_to_protect_their_attribute(
+    service, session, tenant, operation
+):
+    item_id = (await make_item(session, tenant)).id
+    attribute = await make_attribute(service, value_type="OPTION", options=["Brass", "Steel"])
+    await service.replace_item_specifications(
+        item_id, values((attribute.id, {"value_option": "Brass"}))
+    )
+    await delete_item(session, tenant, item_id)
+    before_audits = await session.scalar(
+        select(func.count(AuditLog.id)).where(AuditLog.company_id == tenant.company_id)
+    )
+
+    with pytest.raises(BusinessRuleError):
+        if operation == "retire":
+            await service.retire_attribute(attribute.id, reason="Historical values still need this")
+        else:
+            changes = {
+                "type": SpecificationAttributeUpdate(value_type="TEXT", options=[]),
+                "options": SpecificationAttributeUpdate(options=["Steel"]),
+                "deactivate": SpecificationAttributeUpdate(is_active=False),
+            }
+            await service.update_attribute(attribute.id, changes[operation])
+
+    assert await service.get_attribute(attribute.id) == attribute
+    stored = (
+        await session.execute(
+            select(ItemSpecification.value_type, ItemSpecification.value_option).where(
+                ItemSpecification.item_id == item_id
+            )
+        )
+    ).one()
+    assert stored == (SpecificationValueType.OPTION, "Brass")
+    assert await session.scalar(select(Item.deleted_at).where(Item.id == item_id)) is not None
+    assert (
+        await session.scalar(
+            select(func.count(AuditLog.id)).where(AuditLog.company_id == tenant.company_id)
+        )
+        == before_audits
+    )
 
 
 async def test_foreign_tenant_references_are_indistinguishable_from_missing(
@@ -739,6 +782,74 @@ async def test_item_filters_intersect_filterable_values_and_treat_empty_as_no_ma
         )
         assert {row.id for row in rows} == expected, (spec, has_accessories)
         assert pagination.total == len(expected)
+
+
+@pytest.mark.concurrency
+@pytest.mark.parametrize("retirement_first", [True, False])
+async def test_category_retirement_and_template_assignment_share_the_category_lock(
+    engine, retirement_first
+):
+    maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+    async with maker() as setup:
+        company_id = (await seed_company(setup, prefix="D5CATEGORYRACE")).id
+        user_id = (await seed_user(setup, company_id=company_id)).id
+        tenant = TenantContext(company_id=company_id, user_id=user_id)
+        category_id = (await seed_category(setup, company_id=company_id)).id
+        attribute_id = (await make_attribute(SpecificationService(setup, tenant))).id
+        await setup.commit()
+    waiting: asyncio.Task[Any] | None = None
+    try:
+        async with maker() as holder, maker() as writer:
+            await holder.execute(
+                select(ItemCategory).where(ItemCategory.id == category_id).with_for_update()
+            )
+            payload = templates((attribute_id, True, 0))
+            waiting = asyncio.create_task(
+                SpecificationService(writer, tenant).replace_category_specifications(
+                    category_id, payload
+                )
+                if retirement_first
+                else delete_category(writer, tenant, category_id)
+            )
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(waiting), timeout=0.2)
+            if retirement_first:
+                await delete_category(holder, tenant, category_id)
+                expected_error = NotFoundError
+            else:
+                await SpecificationService(holder, tenant).replace_category_specifications(
+                    category_id, payload
+                )
+                expected_error = BusinessRuleError
+            await holder.commit()
+            with pytest.raises(expected_error):
+                await asyncio.wait_for(waiting, timeout=10)
+        async with maker() as check:
+            archived = await check.scalar(
+                select(ItemCategory.deleted_at).where(ItemCategory.id == category_id)
+            )
+            template_count = await check.scalar(
+                select(func.count(CategorySpecification.id)).where(
+                    CategorySpecification.category_id == category_id
+                )
+            )
+            assert (archived is not None) is retirement_first
+            assert template_count == (0 if retirement_first else 1)
+    finally:
+        if waiting is not None and not waiting.done():
+            waiting.cancel()
+            await asyncio.gather(waiting, return_exceptions=True)
+        async with maker() as cleanup:
+            for model in (
+                CategorySpecification,
+                SpecificationAttribute,
+                AuditLog,
+                ItemCategory,
+                User,
+            ):
+                await cleanup.execute(delete(model).where(model.company_id == company_id))
+            await cleanup.execute(delete(Company).where(Company.id == company_id))
+            await cleanup.commit()
 
 
 @pytest.mark.concurrency

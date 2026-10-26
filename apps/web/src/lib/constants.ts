@@ -47,6 +47,7 @@ export const PAGE_SIZES = [25, 50, 100, MAX_PAGE_SIZE] as const
 
 /** Default rows per page on a list screen. */
 export const DEFAULT_PAGE_SIZE = 50
+export const AUTH_RETRY_AFTER_SECONDS = 30
 
 /** Recent scan-history window shown on the packing screen. */
 export const CARTON_SCAN_HISTORY_DAYS = 30

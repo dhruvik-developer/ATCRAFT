@@ -12,7 +12,9 @@ This repository has exactly one working copy on this machine,
   (`ATCRAFT-lanes`, `ATCRAFT-priority2`, `ATCRAFT-review` and
   `ATCRAFT-worktrees` were all made that way and had to be removed), not under a
   tool's own data directory, and not through a tool's "worktree" run mode.
-- Do separate work on a branch in this checkout, and finish it on `develop`.
+- Keep exactly two branches, locally and on every remote: `main` and `develop`.
+  Work directly on `develop`; do not create feature, temporary or backup branches.
+  After verification, commit and push the same revision to both branches.
 - Keep one Docker stack (`atcraft-erp`), one development database
   (`atcraft_erp`) and its test database (`atcraft_erp_test`). Do not leave
   clone databases, per-task test databases or extra Compose projects behind; if
