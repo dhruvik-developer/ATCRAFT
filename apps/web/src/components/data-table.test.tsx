@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SEARCH_DEBOUNCE_MS } from '@/lib/constants'
@@ -8,6 +9,24 @@ import { errors } from '@/lib/messages'
 import { DataTable } from './data-table'
 
 afterEach(() => vi.useRealTimers())
+
+describe('keyboard table navigation', () => {
+  it('lets keyboard users focus the scroll area even when rows have no actions', async () => {
+    const user = userEvent.setup()
+    render(
+      <DataTable
+        columns={[{ accessorKey: 'code', header: 'Code' }]}
+        data={[{ code: 'SALES-REVENUE' }]}
+      />,
+    )
+    const region = screen.getByRole('region', { name: 'Table results' })
+    expect(region).toContainElement(screen.getByRole('table'))
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Columns' })).toHaveFocus()
+    await user.tab()
+    expect(region).toHaveFocus()
+  })
+})
 
 describe('shared table errors', () => {
   const columns = [{ accessorKey: 'code', header: 'Code' }]

@@ -72,7 +72,13 @@ async def test_banner_lifecycle_requires_reasoned_actions_and_writes_audit(
     with pytest.raises(NotFoundError):
         await promotions.update("banners", banner.id, DealerBannerUpdate(title="Resurrected"))
     logs = list(
-        (await session.scalars(select(AuditLog).where(AuditLog.entity_id == banner.id))).all()
+        (
+            await session.scalars(
+                select(AuditLog)
+                .where(AuditLog.entity_id == banner.id)
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        ).all()
     )
     assert len(logs) == 3
     assert logs[-1].context["reason"] == "Campaign finished"

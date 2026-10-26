@@ -39,7 +39,7 @@ async def portal(bench):
 async def test_invoice_projection_nets_issued_credits_without_internal_fields(bench, portal):
     b = bench
     invoice = await issue(b, await make_dispatch(b))
-    await credit_note_service.issue_credit_note(
+    credit = await credit_note_service.issue_credit_note(
         b.session,
         b.tenant,
         CreditNoteCreate(
@@ -55,8 +55,11 @@ async def test_invoice_projection_nets_issued_credits_without_internal_fields(be
     )
     rows, page = await portal.invoices(PageParams())
     assert page.total == 1
-    assert rows[0].credited_amount == Decimal("118")
-    assert rows[0].balance_amount == invoice.total_amount - Decimal("118")
+    # This invoice rounds down to the rupee. Its first partial credit carries
+    # one paisa of that round-off, so the dealer owes the posted credit total.
+    assert credit.round_off_amount == Decimal("-0.01")
+    assert rows[0].credited_amount == Decimal("117.99")
+    assert rows[0].balance_amount == invoice.total_amount - Decimal("117.99")
     detail = await portal.invoice(invoice.id)
     assert len(detail.credit_notes) == 1 and len(detail.lines) == 1
     assert {"journal_id", "issued_by_id", "cancelled_by_id", "company_id", "notes"}.isdisjoint(

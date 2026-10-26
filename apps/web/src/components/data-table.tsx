@@ -270,7 +270,10 @@ export function DataTable<T>({
       <div className="rounded-lg border">
         <div
           ref={scrollRef}
-          className="relative overflow-auto"
+          role="region"
+          aria-label="Table results"
+          tabIndex={0}
+          className="relative overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           style={{ maxHeight: virtualise ? maxHeight : undefined }}
         >
           <table className="w-full caption-bottom text-sm">
