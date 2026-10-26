@@ -27,6 +27,7 @@ from src.modules.dealer_portal.models import (
 from src.modules.documents.models import Document
 from src.modules.inventory.models import InventoryBalance
 from src.modules.products.models import Brand, Item, ItemCategory, ItemVariant
+from src.modules.products.specification_repository import specification_predicates
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse
 
@@ -222,6 +223,8 @@ class CatalogueRepository(BaseRepository[Item]):
         customer_id: uuid.UUID,
         on_date: date,
         sort_by: str,
+        spec: Sequence[str] = (),
+        has_accessories: bool | None = None,
     ) -> tuple[list[Item], OffsetPagination]:
         """Sellable items for the catalogue, filtered and paged in SQL.
 
@@ -232,6 +235,15 @@ class CatalogueRepository(BaseRepository[Item]):
         (docs/assumptions.md §C3-9).
         """
         stmt = catalogue_item_stmt().where(Item.company_id == self.tenant.company_id)
+        stmt = stmt.where(
+            *specification_predicates(
+                self.tenant.company_id,
+                Item.id,
+                spec,
+                has_accessories,
+                dealer_visible_only=True,
+            )
+        )
         if search:
             pattern = f"%{search.strip()}%"
             stmt = stmt.where(or_(Item.code.ilike(pattern), Item.name.ilike(pattern)))

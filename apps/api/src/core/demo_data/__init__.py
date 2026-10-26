@@ -192,6 +192,7 @@ async def _resolve_principal(
 #: this sequence is a contract, not a preference.
 STAGE_ORDER: tuple[str, ...] = (
     "masters",
+    "specifications",
     "engineering",
     "procurement",
     "operations",

@@ -65,6 +65,7 @@ from src.modules.dealer_portal.repository import (
     DealerCartRepository as CartRepository,
 )
 from src.modules.dealer_portal.schemas import (
+    DealerAccessoryRead,
     DealerAddressRead,
     DealerBrandRead,
     DealerCartLineRead,
@@ -88,6 +89,7 @@ from src.modules.dealer_portal.schemas import (
     DealerPriceQuote,
     DealerPriceSlab,
     DealerSalesPerson,
+    DealerSpecificationRead,
     DealerTracking,
     DealerTrackingEvent,
     DealerVariantRead,
@@ -101,8 +103,24 @@ from src.modules.finance.service import ageing_report, party_statement
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.repository import NotificationRepository
 from src.modules.notifications.service import notify
-from src.modules.products.models import Item, ItemPrice, ItemVariant, PriceType
+from src.modules.products.models import (
+    AccessoryRelation,
+    Item,
+    ItemPrice,
+    ItemVariant,
+    PriceType,
+    SpecificationValueType,
+)
 from src.modules.products.service import ITEM_MASTER_FALLBACK_FIELD, select_price_row
+from src.modules.products.specification_schemas import (
+    DealerSpecificationFilterRead,
+    ItemSpecificationValueRead,
+)
+from src.modules.products.specification_service import (
+    SpecificationService,
+    accessories_for_items,
+    specifications_for_items,
+)
 from src.modules.sales import service as sales_service
 from src.modules.sales.models import (
     SalesOrder,
@@ -125,6 +143,16 @@ from src.modules.warehouses.repository import WarehouseRepository
 CATALOGUE_SORT_FIELDS = ("code", "name")
 
 AUDIT_DEALER_CHECKOUT = "dealer_checkout"
+
+
+def _specification_display(value: ItemSpecificationValueRead) -> str:
+    if value.value_type == SpecificationValueType.BOOLEAN:
+        return "Yes" if value.value_bool else "No"
+    if value.value_type == SpecificationValueType.NUMBER and value.value_number is not None:
+        return format(value.value_number.normalize(), "f")
+    if value.value_type == SpecificationValueType.OPTION:
+        return value.value_option or ""
+    return value.value_text or ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +377,8 @@ class DealerPortalService:
         in_stock_only: bool,
         on_offer_only: bool,
         sort_by: str,
+        spec: list[str] | None = None,
+        has_accessories: bool | None = None,
     ) -> tuple[list[DealerCatalogItem], OffsetPagination]:
         """One page of the dealer catalogue, priced and indicated.
 
@@ -384,6 +414,8 @@ class DealerPortalService:
             customer_id=customer.id,
             on_date=today(),
             sort_by=sort_by,
+            spec=spec or [],
+            has_accessories=has_accessories,
         )
         if not rows:
             return [], pagination
@@ -454,6 +486,10 @@ class DealerPortalService:
         price = self._channel_price(item, rows, CATALOGUE_PRICE_QUANTITY, context.price_type)
         offers = self._matching_offers(context, item, CATALOGUE_PRICE_QUANTITY)
         best = offers[0] if offers and price is not None else None
+        specifications = (await specifications_for_items(self.session, self.tenant, [item.id]))[
+            item.id
+        ]
+        accessories = await self._catalogue_accessories(item.id, context)
         return DealerCatalogItemDetail(
             id=item.id,
             code=item.code,
@@ -499,13 +535,68 @@ class DealerPortalService:
             ],
             offers=[offer_snippet(offer) for offer in offers] if price is not None else [],
             image_ids=images.get(item.id, []),
-            # Item specifications and kit accessories are D5 masters, which do
-            # not exist yet: the detail carries the shape with no rows rather
-            # than inventing tables this package does not own
-            # (docs/assumptions.md §C3-8).
-            specifications=[],
-            accessories=[],
+            specifications=[
+                DealerSpecificationRead(
+                    name=value.attribute.name,
+                    value=_specification_display(value),
+                    unit=value.attribute.unit,
+                )
+                for value in specifications.values
+            ],
+            accessories=accessories,
         )
+
+    async def catalogue_specification_filters(
+        self, params: PageParams
+    ) -> tuple[list[DealerSpecificationFilterRead], OffsetPagination]:
+        await self._customer()
+        return await SpecificationService(self.session, self.tenant).dealer_facets(params)
+
+    async def _catalogue_accessories(
+        self, item_id: uuid.UUID, context: DealerContext
+    ) -> list[DealerAccessoryRead]:
+        relations = (await accessories_for_items(self.session, self.tenant, [item_id])).get(
+            item_id, []
+        )
+        optional_ids = [
+            row.accessory_item_id
+            for row in relations
+            if row.relation == AccessoryRelation.OPTIONAL
+            and row.accessory_is_active
+            and row.accessory_can_sell
+        ]
+        items = await self.catalog.items_by_ids(optional_ids)
+        prices = await PriceListRepository(self.session, self.tenant).candidates_for_items(
+            optional_ids, price_type=context.price_type, variant_ids=[], on_date=today()
+        )
+        result: list[DealerAccessoryRead] = []
+        for relation in relations:
+            included = relation.relation == AccessoryRelation.INCLUDED
+            item = items.get(relation.accessory_item_id)
+            if not included and (
+                item is None or not relation.accessory_is_active or not relation.accessory_can_sell
+            ):
+                continue
+            price = (
+                None
+                if included or item is None
+                else self._channel_price(
+                    item, prices.get(item.id, []), relation.quantity, context.price_type
+                )
+            )
+            result.append(
+                DealerAccessoryRead(
+                    accessory_item_id=relation.accessory_item_id,
+                    code=relation.accessory_code,
+                    name=relation.accessory_name,
+                    relation=relation.relation,
+                    quantity=relation.quantity,
+                    price=price,
+                    price_on_request=not included and price is None,
+                    in_the_box=included,
+                )
+            )
+        return result
 
     def _matching_offers(
         self, context: DealerContext, item: Item, quantity: Decimal

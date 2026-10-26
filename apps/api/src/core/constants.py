@@ -28,4 +28,22 @@ CURRENCY_CODE_LENGTH = 3
 #: workers carry. Keep input validation aligned with ``audit_logs.request_id``.
 MAX_REQUEST_ID_LENGTH = 64
 
-__all__ = ["CURRENCY_CODE_LENGTH", "DEFAULT_CURRENCY", "MAX_REQUEST_ID_LENGTH", "MAX_SERIAL_BULK"]
+# Specifications are bounded document-sized settings, not an unbounded catalogue.
+MAX_SPECIFICATIONS_PER_ITEM = 200
+MAX_SPECIFICATION_OPTIONS = 100
+MAX_SPECIFICATION_FILTERS = 20
+# Match one maximum-sized item page; inherited templates can amplify every item.
+MAX_SPECIFICATION_BATCH = 200
+MAX_ITEM_ACCESSORIES = 200
+
+__all__ = [
+    "CURRENCY_CODE_LENGTH",
+    "DEFAULT_CURRENCY",
+    "MAX_ITEM_ACCESSORIES",
+    "MAX_REQUEST_ID_LENGTH",
+    "MAX_SERIAL_BULK",
+    "MAX_SPECIFICATIONS_PER_ITEM",
+    "MAX_SPECIFICATION_BATCH",
+    "MAX_SPECIFICATION_FILTERS",
+    "MAX_SPECIFICATION_OPTIONS",
+]

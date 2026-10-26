@@ -805,7 +805,11 @@ async def delete_category(
     repo = ItemCategoryRepository(session, tenant)
 
     async with transaction(session):
-        category = await repo.get_or_404(category_id)
+        # Serialize retirement with specification-template replacement, so a
+        # template cannot become an inaccessible reference on an archived row.
+        category = await repo.lock_for_update(category_id)
+        if category is None:
+            raise NotFoundError("Item category", category_id)
 
         if await repo.has_children(category_id):
             raise BusinessRuleError(
@@ -816,6 +820,12 @@ async def delete_category(
             raise BusinessRuleError(
                 "This category still has items assigned. Reassign them first.",
                 details={"category_id": str(category_id)},
+            )
+        if await repo.has_specification_template(category_id):
+            raise referenced_in_use(
+                "This category still has a specification template. "
+                "Clear it before retiring the category.",
+                category_id=str(category_id),
             )
 
         await repo.soft_delete(category)

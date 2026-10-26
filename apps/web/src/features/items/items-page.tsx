@@ -84,6 +84,7 @@ export default function ItemsPage() {
   const categoryId = searchParams.get('category_id') ?? ''
   const itemGroup = searchParams.get('item_group') ?? ''
   const brandId = searchParams.get('brand_id') ?? ''
+  const hasAccessories = searchParams.get('has_accessories')
   // The API models `is_active` as a two-valued filter that always defaults to
   // active, so the control offers exactly the two states the server can answer
   // rather than an "all" option it would silently ignore.
@@ -112,6 +113,9 @@ export default function ItemsPage() {
       ...(categoryId ? { category_id: categoryId } : {}),
       ...(itemGroup ? { item_group: itemGroup } : {}),
       ...(brandId ? { brand_id: brandId } : {}),
+      ...(hasAccessories === 'true' || hasAccessories === 'false'
+        ? { has_accessories: hasAccessories === 'true' }
+        : {}),
       is_active: activeState === 'false' ? false : true,
       ...Object.fromEntries(activeCapabilities.map((key) => [key, true])),
     },
@@ -123,6 +127,7 @@ export default function ItemsPage() {
     (categoryId ? 1 : 0) +
     (itemGroup ? 1 : 0) +
     (brandId ? 1 : 0) +
+    (hasAccessories === 'true' || hasAccessories === 'false' ? 1 : 0) +
     (activeState === 'false' ? 1 : 0)
 
   const columns = useMemo<ColumnDef<ItemRow, unknown>[]>(() => {
@@ -326,6 +331,26 @@ export default function ItemsPage() {
               </Select>
             )}
 
+            <Select
+              value={
+                hasAccessories === 'true' || hasAccessories === 'false'
+                  ? hasAccessories
+                  : SELECT_ALL
+              }
+              onValueChange={(value) =>
+                setParam('has_accessories', value === SELECT_ALL ? undefined : value)
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by accessories">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>Any accessories</SelectItem>
+                <SelectItem value="true">Has accessories</SelectItem>
+                <SelectItem value="false">No accessories</SelectItem>
+              </SelectContent>
+            </Select>
+
             <Select value={activeState} onValueChange={(value) => setParam('is_active', value)}>
               <SelectTrigger className="w-full sm:w-[130px]" aria-label="Filter by status">
                 <SelectValue />
@@ -378,6 +403,7 @@ export default function ItemsPage() {
                     category_id: undefined,
                     item_group: undefined,
                     brand_id: undefined,
+                    has_accessories: undefined,
                     is_active: undefined,
                     ...Object.fromEntries(FILTERABLE_CAPABILITIES.map((key) => [key, undefined])),
                   })

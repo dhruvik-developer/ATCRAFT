@@ -1504,6 +1504,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dealer-portal/catalog/specifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Catalogue Specification Filters */
+        get: operations["catalogue_specification_filters_api_v1_dealer_portal_catalog_specifications_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dealer-portal/checkout": {
         parameters: {
             query?: never;
@@ -6604,6 +6621,42 @@ export interface paths {
         patch: operations["update_category_api_v1_products_categories__category_id__patch"];
         trace?: never;
     };
+    "/api/v1/products/categories/{category_id}/specifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Category Specifications */
+        get: operations["category_specifications_api_v1_products_categories__category_id__specifications_get"];
+        /** Replace Category Specifications */
+        put: operations["replace_category_specifications_api_v1_products_categories__category_id__specifications_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/item-accessories/{accessory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Accessory */
+        delete: operations["delete_accessory_api_v1_products_item_accessories__accessory_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Accessory */
+        patch: operations["update_accessory_api_v1_products_item_accessories__accessory_id__patch"];
+        trace?: never;
+    };
     "/api/v1/products/item-vendors/{link_id}": {
         parameters: {
             query?: never;
@@ -6682,6 +6735,24 @@ export interface paths {
         patch: operations["update_item_api_v1_products_items__item_id__patch"];
         trace?: never;
     };
+    "/api/v1/products/items/{item_id}/accessories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Item Accessories */
+        get: operations["item_accessories_api_v1_products_items__item_id__accessories_get"];
+        put?: never;
+        /** Create Accessory */
+        post: operations["create_accessory_api_v1_products_items__item_id__accessories_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/items/{item_id}/image": {
         parameters: {
             query?: never;
@@ -6730,6 +6801,41 @@ export interface paths {
          */
         get: operations["resolved_price_api_v1_products_items__item_id__resolved_price_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/items/{item_id}/specification-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Item Attribute Options */
+        get: operations["item_attribute_options_api_v1_products_items__item_id__specification_attributes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/items/{item_id}/specifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Item Specifications */
+        get: operations["item_specifications_api_v1_products_items__item_id__specifications_get"];
+        /** Replace Item Specifications */
+        put: operations["replace_item_specifications_api_v1_products_items__item_id__specifications_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -6849,6 +6955,60 @@ export interface paths {
         head?: never;
         /** Update a price-list entry */
         patch: operations["update_price_api_v1_products_prices__price_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/products/specification-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Attributes */
+        get: operations["list_attributes_api_v1_products_specification_attributes_get"];
+        put?: never;
+        /** Create Attribute */
+        post: operations["create_attribute_api_v1_products_specification_attributes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/specification-attributes/{attribute_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Attribute */
+        get: operations["get_attribute_api_v1_products_specification_attributes__attribute_id__get"];
+        put?: never;
+        post?: never;
+        /** Retire Attribute */
+        delete: operations["retire_attribute_api_v1_products_specification_attributes__attribute_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Attribute */
+        patch: operations["update_attribute_api_v1_products_specification_attributes__attribute_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/products/specification-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Specification Categories */
+        get: operations["specification_categories_api_v1_products_specification_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/products/uom-conversions": {
@@ -10161,6 +10321,11 @@ export interface components {
              */
             token_type: string;
         };
+        /**
+         * AccessoryRelation
+         * @enum {string}
+         */
+        AccessoryRelation: "OPTIONAL" | "INCLUDED";
         /** AcknowledgeRequest */
         AcknowledgeRequest: {
             /** Expected Delivery Date */
@@ -10834,6 +10999,21 @@ export interface components {
         /** ApiResponse[CategoryOut] */
         ApiResponse_CategoryOut_: {
             data?: components["schemas"]["CategoryOut"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[CategorySpecificationsRead] */
+        ApiResponse_CategorySpecificationsRead_: {
+            data?: components["schemas"]["CategorySpecificationsRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -11551,6 +11731,21 @@ export interface components {
              */
             success: true;
         };
+        /** ApiResponse[ItemAccessoryRead] */
+        ApiResponse_ItemAccessoryRead_: {
+            data?: components["schemas"]["ItemAccessoryRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** ApiResponse[ItemAttributeOut] */
         ApiResponse_ItemAttributeOut_: {
             data?: components["schemas"]["ItemAttributeOut"] | null;
@@ -11584,6 +11779,21 @@ export interface components {
         /** ApiResponse[ItemQualityHistory] */
         ApiResponse_ItemQualityHistory_: {
             data?: components["schemas"]["ItemQualityHistory"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[ItemSpecificationsRead] */
+        ApiResponse_ItemSpecificationsRead_: {
+            data?: components["schemas"]["ItemSpecificationsRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -12755,6 +12965,21 @@ export interface components {
         /** ApiResponse[ShortfallPlanRead] */
         ApiResponse_ShortfallPlanRead_: {
             data?: components["schemas"]["ShortfallPlanRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[SpecificationAttributeRead] */
+        ApiResponse_SpecificationAttributeRead_: {
+            data?: components["schemas"]["SpecificationAttributeRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -15778,6 +16003,57 @@ export interface components {
              */
             updated_at: string;
         };
+        /** CategorySpecificationIn */
+        CategorySpecificationIn: {
+            /**
+             * Is Required
+             * @default false
+             */
+            is_required: boolean;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+            /**
+             * Specification Attribute Id
+             * Format: uuid
+             */
+            specification_attribute_id: string;
+        };
+        /** CategorySpecificationRead */
+        CategorySpecificationRead: {
+            attribute: components["schemas"]["SpecificationAttributeRead"];
+            /**
+             * Category Id
+             * Format: uuid
+             */
+            category_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Required */
+            is_required: boolean;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /** CategorySpecificationsRead */
+        CategorySpecificationsRead: {
+            /**
+             * Category Id
+             * Format: uuid
+             */
+            category_id: string;
+            /** Specifications */
+            specifications: components["schemas"]["CategorySpecificationRead"][];
+        };
+        /** CategorySpecificationsReplace */
+        CategorySpecificationsReplace: {
+            /** Specifications */
+            specifications: components["schemas"]["CategorySpecificationIn"][];
+        };
         /** CategoryUpdate */
         CategoryUpdate: {
             /** Description */
@@ -18567,6 +18843,23 @@ export interface components {
             /** Phone */
             phone: string | null;
         };
+        /** DealerSpecificationFilterRead */
+        DealerSpecificationFilterRead: {
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Options */
+            options: string[];
+            /** Unit */
+            unit: string | null;
+            value_type: components["schemas"]["SpecificationValueType"];
+        };
         /** DealerSpecificationRead */
         DealerSpecificationRead: {
             /** Name */
@@ -21090,6 +21383,71 @@ export interface components {
             /** Quantity At Vendor */
             quantity_at_vendor: string;
         };
+        /** ItemAccessoryCreate */
+        ItemAccessoryCreate: {
+            /**
+             * Accessory Item Id
+             * Format: uuid
+             */
+            accessory_item_id: string;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Quantity
+             * @default 1
+             */
+            quantity: number | string;
+            /** @default OPTIONAL */
+            relation: components["schemas"]["AccessoryRelation"];
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+        };
+        /** ItemAccessoryRead */
+        ItemAccessoryRead: {
+            /** Accessory Can Sell */
+            accessory_can_sell: boolean;
+            /** Accessory Code */
+            accessory_code: string;
+            /** Accessory Is Active */
+            accessory_is_active: boolean;
+            /**
+             * Accessory Item Id
+             * Format: uuid
+             */
+            accessory_item_id: string;
+            /** Accessory Name */
+            accessory_name: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Notes */
+            notes: string | null;
+            /** Quantity */
+            quantity: string;
+            relation: components["schemas"]["AccessoryRelation"];
+            /** Sort Order */
+            sort_order: number;
+        };
+        /** ItemAccessoryUpdate */
+        ItemAccessoryUpdate: {
+            /** Notes */
+            notes?: string | null;
+            /** Quantity */
+            quantity?: number | string | null;
+            relation?: components["schemas"]["AccessoryRelation"] | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
         /** ItemAttributeCreate */
         ItemAttributeCreate: {
             attribute: components["schemas"]["ItemAttributeType"];
@@ -21600,6 +21958,67 @@ export interface components {
              * Format: date-time
              */
             window_start: string;
+        };
+        /** ItemSpecificationValueIn */
+        ItemSpecificationValueIn: {
+            /**
+             * Specification Attribute Id
+             * Format: uuid
+             */
+            specification_attribute_id: string;
+            /** Value Bool */
+            value_bool?: boolean | null;
+            /** Value Number */
+            value_number?: number | string | null;
+            /** Value Option */
+            value_option?: string | null;
+            /** Value Text */
+            value_text?: string | null;
+        };
+        /** ItemSpecificationValueRead */
+        ItemSpecificationValueRead: {
+            attribute: components["schemas"]["SpecificationAttributeRead"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Specification Attribute Id
+             * Format: uuid
+             */
+            specification_attribute_id: string;
+            /** Value Bool */
+            value_bool: boolean | null;
+            /** Value Number */
+            value_number: string | null;
+            /** Value Option */
+            value_option: string | null;
+            /** Value Text */
+            value_text: string | null;
+            value_type: components["schemas"]["SpecificationValueType"];
+        };
+        /** ItemSpecificationsRead */
+        ItemSpecificationsRead: {
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /**
+             * Missing Required Count
+             * @default 0
+             */
+            missing_required_count: number;
+            /** Template */
+            template?: components["schemas"]["ResolvedSpecificationRead"][];
+            /** Values */
+            values?: components["schemas"]["ItemSpecificationValueRead"][];
+        };
+        /** ItemSpecificationsReplace */
+        ItemSpecificationsReplace: {
+            /** Values */
+            values: components["schemas"]["ItemSpecificationValueIn"][];
         };
         /**
          * ItemStatusChange
@@ -24985,6 +25404,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[DealerSpecificationFilterRead] */
+        PaginatedResponse_DealerSpecificationFilterRead_: {
+            /** Data */
+            data?: components["schemas"]["DealerSpecificationFilterRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[DelayedDispatchRow] */
         PaginatedResponse_DelayedDispatchRow_: {
             /** Data */
@@ -25193,6 +25629,23 @@ export interface components {
         PaginatedResponse_InventoryValuationRow_: {
             /** Data */
             data?: components["schemas"]["src__modules__reports__schemas__InventoryValuationRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[ItemAccessoryRead] */
+        PaginatedResponse_ItemAccessoryRead_: {
+            /** Data */
+            data?: components["schemas"]["ItemAccessoryRead"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -26179,6 +26632,40 @@ export interface components {
         PaginatedResponse_ShiftRead_: {
             /** Data */
             data?: components["schemas"]["ShiftRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[SpecificationAttributeRead] */
+        PaginatedResponse_SpecificationAttributeRead_: {
+            /** Data */
+            data?: components["schemas"]["SpecificationAttributeRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[SpecificationCategoryOption] */
+        PaginatedResponse_SpecificationCategoryOption_: {
+            /** Data */
+            data?: components["schemas"]["SpecificationCategoryOption"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -31128,6 +31615,18 @@ export interface components {
             /** Variant Id */
             variant_id: string | null;
         };
+        /** ResolvedSpecificationRead */
+        ResolvedSpecificationRead: {
+            attribute: components["schemas"]["SpecificationAttributeRead"];
+            /** Is Required */
+            is_required: boolean;
+            /** Missing Required */
+            missing_required: boolean;
+            /** Sort Order */
+            sort_order: number;
+            /** Source Category Ids */
+            source_category_ids: string[];
+        };
         /**
          * ReworkCompleteRequest
          * @description Finish a rework cycle and hand the quantity back for re-decision.
@@ -33734,6 +34233,107 @@ export interface components {
             /** Demand Type */
             demand_type: string;
         };
+        /** SpecificationAttributeCreate */
+        SpecificationAttributeCreate: {
+            /** Code */
+            code: string;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /**
+             * Is Filterable
+             * @default false
+             */
+            is_filterable: boolean;
+            /** Name */
+            name: string;
+            /** Options */
+            options?: string[];
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+            /** Unit */
+            unit?: string | null;
+            value_type: components["schemas"]["SpecificationValueType"];
+        };
+        /** SpecificationAttributeRead */
+        SpecificationAttributeRead: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Is Filterable */
+            is_filterable: boolean;
+            /** Name */
+            name: string;
+            /** Options */
+            options: string[];
+            /** Sort Order */
+            sort_order: number;
+            /** Unit */
+            unit: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            value_type: components["schemas"]["SpecificationValueType"];
+        };
+        /** SpecificationAttributeUpdate */
+        SpecificationAttributeUpdate: {
+            /** Is Active */
+            is_active?: boolean | null;
+            /** Is Filterable */
+            is_filterable?: boolean | null;
+            /** Name */
+            name?: string | null;
+            /** Options */
+            options?: string[] | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Unit */
+            unit?: string | null;
+            value_type?: components["schemas"]["SpecificationValueType"] | null;
+        };
+        /** SpecificationCategoryOption */
+        SpecificationCategoryOption: {
+            /** Code */
+            code: string;
+            /** Depth */
+            depth: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Path */
+            path: string;
+        };
+        /**
+         * SpecificationValueType
+         * @enum {string}
+         */
+        SpecificationValueType: "TEXT" | "NUMBER" | "BOOLEAN" | "OPTION";
         /** StartRequest */
         StartRequest: {
             /** Actual Start Date */
@@ -50254,6 +50854,8 @@ export interface operations {
                 on_offer_only?: boolean;
                 /** @description code or name */
                 sort_by?: string;
+                spec?: string[] | null;
+                has_accessories?: boolean | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */
@@ -50519,6 +51121,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_DealerPriceQuote_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalogue_specification_filters_api_v1_dealer_portal_catalog_specifications_get: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_DealerSpecificationFilterRead_"];
                 };
             };
             /** @description Malformed request */
@@ -94506,6 +95234,500 @@ export interface operations {
             };
         };
     };
+    category_specifications_api_v1_products_categories__category_id__specifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CategorySpecificationsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replace_category_specifications_api_v1_products_categories__category_id__specifications_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategorySpecificationsReplace"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CategorySpecificationsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_accessory_api_v1_products_item_accessories__accessory_id__delete: {
+        parameters: {
+            query: {
+                reason: string;
+            };
+            header?: never;
+            path: {
+                accessory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_accessory_api_v1_products_item_accessories__accessory_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                accessory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemAccessoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ItemAccessoryRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     unlink_vendor_api_v1_products_item_vendors__link_id__delete: {
         parameters: {
             query?: never;
@@ -94777,6 +95999,9 @@ export interface operations {
                 is_batch_tracked?: boolean | null;
                 is_serial_tracked?: boolean | null;
                 default_warehouse_id?: string | null;
+                /** @description Repeated CODE=value specification filters */
+                spec?: string[] | null;
+                has_accessories?: boolean | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */
@@ -95052,6 +96277,9 @@ export interface operations {
                 is_batch_tracked?: boolean | null;
                 is_serial_tracked?: boolean | null;
                 default_warehouse_id?: string | null;
+                /** @description Repeated CODE=value specification filters */
+                spec?: string[] | null;
+                has_accessories?: boolean | null;
                 /** @description Opaque cursor from the previous page */
                 cursor?: string | null;
                 limit?: number;
@@ -95436,6 +96664,259 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_Union_ItemDetail__ItemDetailWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    item_accessories_api_v1_products_items__item_id__accessories_get: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_ItemAccessoryRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_accessory_api_v1_products_items__item_id__accessories_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemAccessoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ItemAccessoryRead_"];
                 };
             };
             /** @description Malformed request */
@@ -95944,6 +97425,381 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_ResolvedPrice_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    item_attribute_options_api_v1_products_items__item_id__specification_attributes_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_SpecificationAttributeRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    item_specifications_api_v1_products_items__item_id__specifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ItemSpecificationsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replace_item_specifications_api_v1_products_items__item_id__specifications_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemSpecificationsReplace"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ItemSpecificationsRead_"];
                 };
             };
             /** @description Malformed request */
@@ -97449,6 +99305,758 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_PriceOut_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_attributes_api_v1_products_specification_attributes_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                is_active?: boolean | null;
+                filterable_only?: boolean;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_SpecificationAttributeRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_attribute_api_v1_products_specification_attributes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpecificationAttributeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SpecificationAttributeRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_attribute_api_v1_products_specification_attributes__attribute_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SpecificationAttributeRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retire_attribute_api_v1_products_specification_attributes__attribute_id__delete: {
+        parameters: {
+            query: {
+                reason: string;
+            };
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_attribute_api_v1_products_specification_attributes__attribute_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpecificationAttributeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SpecificationAttributeRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    specification_categories_api_v1_products_specification_categories_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_SpecificationCategoryOption_"];
                 };
             };
             /** @description Malformed request */

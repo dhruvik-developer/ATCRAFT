@@ -24,6 +24,7 @@ import type { SchemaOf } from '@/types/api'
 import { dealerQuantity } from './dealer-payloads'
 import { DEALER_API, dealerError, useDealerAction, useDealerRead } from './dealer-hooks'
 import { DealerCredit, DealerImage, DealerPagination, DealerResult } from './dealer-shared'
+import { DealerSpecificationFilters } from './dealer-specification-filters'
 
 type CatalogItem = SchemaOf<'DealerCatalogItem'>
 
@@ -154,6 +155,11 @@ export function DealerCatalogPage() {
       brand_id: searchParams.get('brand_id') || undefined,
       in_stock_only: searchParams.get('in_stock_only') === 'true',
       on_offer_only: searchParams.get('on_offer_only') === 'true',
+      spec: searchParams.getAll('spec'),
+      ...(searchParams.get('has_accessories') === 'true' ||
+      searchParams.get('has_accessories') === 'false'
+        ? { has_accessories: searchParams.get('has_accessories') === 'true' }
+        : {}),
     },
   })
   return (
@@ -242,7 +248,21 @@ export function DealerCatalogPage() {
           />
           On offer
         </label>
+        <div>
+          <Label htmlFor="catalog-accessories">Accessories</Label>
+          <select
+            id="catalog-accessories"
+            className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+            value={searchParams.get('has_accessories') || ''}
+            onChange={(event) => list.setParam('has_accessories', event.target.value || undefined)}
+          >
+            <option value="">Any accessories</option>
+            <option value="true">Has accessories</option>
+            <option value="false">No accessories</option>
+          </select>
+        </div>
       </div>
+      <DealerSpecificationFilters />
       <DealerResult loading={list.isLoading} error={list.error}>
         {list.data.length ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -422,14 +442,22 @@ export function DealerItemPage() {
                 <h2 className="mb-3 font-semibold">Accessories and in the box</h2>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {item.accessories.map((accessory) => (
-                    <Card key={accessory.accessory_item_id}>
+                    <Card
+                      key={accessory.accessory_item_id}
+                      role="group"
+                      aria-label={accessory.name}
+                    >
                       <CardContent className="p-4">
-                        <Link
-                          to={`/dealer/catalog/${accessory.accessory_item_id}`}
-                          className="font-medium underline"
-                        >
-                          {accessory.name}
-                        </Link>
+                        {accessory.in_the_box ? (
+                          <p className="font-medium">{accessory.name}</p>
+                        ) : (
+                          <Link
+                            to={`/dealer/catalog/${accessory.accessory_item_id}`}
+                            className="font-medium underline"
+                          >
+                            {accessory.name}
+                          </Link>
+                        )}
                         <p className="mt-1 text-sm text-muted-foreground">
                           {accessory.in_the_box ? 'In the box' : humanise(accessory.relation)} ·{' '}
                           {formatQuantity(accessory.quantity)}
@@ -441,7 +469,11 @@ export function DealerItemPage() {
                                 ? 'Price on request'
                                 : formatMoney(accessory.price)}
                             </p>
-                            <AddToCart itemId={accessory.accessory_item_id} />
+                            <AddToCart
+                              itemId={accessory.accessory_item_id}
+                              initialQuantity={accessory.quantity}
+                              disabled={accessory.price_on_request}
+                            />
                           </>
                         )}
                       </CardContent>

@@ -68,7 +68,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `login_attempts` |
 | `audit` | `audit_logs`, `approval_requests` |
 | `warehouses` | `warehouses`, `storage_locations` |
-| `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
+| `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links`, `specification_attributes`, `category_specifications`, `item_specifications`, `item_accessories` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
 | `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines`, `bin_moves`, `bin_move_lines`, `scrap_disposals`, `scrap_disposal_lines`, `internal_issues`, `internal_issue_lines` |
@@ -244,6 +244,67 @@ Retirement is the `is_active` flag and is refused while an item or a variant
 still carries the value — otherwise an item would display a value its own edit
 form could no longer offer, and saving that form would silently drop it. There
 is no delete.
+
+### Specifications and accessories
+
+Revision `20261101_0100` adds four descriptive product tables. It creates new
+tables and indexes without rewriting existing item or inventory rows. Its
+five-second lock timeout bounds DDL waiting; downgrade refuses while any of
+these tables contains data, so it cannot silently discard operator descriptions.
+
+`specification_attributes` is a `TenantMasterEntity` vocabulary with a normalized,
+company-unique `code`, `name`, `value_type` (`TEXT | NUMBER | BOOLEAN | OPTION`),
+optional `unit`, bounded `options`, `is_filterable`, `sort_order` and `is_active`.
+OPTION requires one to 100 distinct configured choices; other types have none.
+The master lifecycle is ACTIVE ↔ INACTIVE, with ARCHIVED terminal. Deactivation
+and retirement are refused while item values or category templates reference
+the attribute. A type cannot change while values exist, and an option already
+used by an item cannot be removed. Codes are never reused after retirement.
+Assignments take shared locks on attributes in ID order; lifecycle and type
+changes take conflicting exclusive locks and re-read committed state.
+
+`category_specifications` is a `TenantEntity` template, unique by category and
+attribute, with `is_required` and `sort_order`. Items inherit their category's
+template and every ancestor's. Duplicate attributes resolve once: required is
+true if any ancestor or the direct category requires it; the nearest category
+provides display ordering. Missing required values produce completeness
+warnings, never a stock, sales or item-save refusal. Templates and item values
+remain editable on inactive but live categories/items, matching existing
+descriptive-edit rules. New attribute assignments still require active masters.
+Category retirement takes the same row lock as template replacement and refuses
+until the category's direct template is cleared, keeping that reference editable.
+Item archival retains its values as historical descriptions; those references
+continue protecting the attribute's type, used options and retirement.
+
+`item_specifications` is a `TenantEntity`, unique by item and attribute, with
+exactly one of `value_text`, `value_number` (`NUMERIC(18,4)`), `value_bool` and
+`value_option`. A server-owned `value_type` participates in a composite foreign
+key to the tenant-owned master; a CHECK enforces the matching value column and
+rejects empty text and NaN. Zero, negative finite measurements and false are
+real values. The service also validates configured OPTION membership. The
+full-set PUT accepts at most 200 values, locks the item, validates the entire
+replacement before deleting anything, and audits old/new values atomically.
+
+`item_accessories` is a `TenantEntity`, unique by `(item_id, accessory_item_id)`,
+with positive `quantity`, `relation` (`OPTIONAL | INCLUDED`), `sort_order` and
+optional notes. Self-reference is refused; cycles between different products
+are allowed. Creation and editing require both items active and tenant-owned;
+OPTIONAL targets must be sellable. An item has at most 200 associations.
+INCLUDED means “in the box” and is descriptive, including when its internal SKU
+is later retired or not separately sellable. Staff reads retain association
+metadata so it can be removed. Dealer reads expose INCLUDED descriptions and
+only active, live, sellable OPTIONAL targets, priced through the dealer's
+existing channel rules; a missing price remains price-on-request.
+
+**Nothing branches on a specification value, and an accessory association
+never changes inventory, reservations, BOM explosion, production or MRP.**
+These tables describe a product; they do not define a kit or a material rule.
+The one-query `specifications_for_items` and `accessories_for_items` helpers
+accept at most 200 item IDs and supply the dealer detail without per-row
+database calls. Repeated specification filters intersect in SQL, bounded at
+20 OPTION/BOOLEAN expressions; an explicitly empty value matches no rows.
+Staff `has_accessories` means a persisted relation; the dealer predicate uses
+the exact visible-association rules above.
 
 ### Brands and manufacturers
 

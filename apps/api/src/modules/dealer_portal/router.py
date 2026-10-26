@@ -18,6 +18,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from src.core.constants import MAX_SPECIFICATION_FILTERS
 from src.core.deps import (
     CurrentUser,
     DbSession,
@@ -54,6 +55,10 @@ from src.modules.dealer_portal.schemas import (
 )
 from src.modules.dealer_portal.service import DealerPortalService
 from src.modules.finance.schemas import LedgerStatement, StatementFilters
+from src.modules.products.specification_schemas import (
+    DealerSpecificationFilterRead,
+    SpecificationFilterFields,
+)
 from src.modules.sales.models import SalesOrderStatus
 
 router = APIRouter(
@@ -147,7 +152,12 @@ async def catalog_items(
     in_stock_only: Annotated[bool, Query()] = False,
     on_offer_only: Annotated[bool, Query()] = False,
     sort_by: Annotated[str, Query(description="code or name")] = "code",
+    spec: Annotated[list[str] | None, Query(max_length=MAX_SPECIFICATION_FILTERS)] = None,
+    has_accessories: Annotated[bool | None, Query()] = None,
 ) -> PaginatedResponse[DealerCatalogItem]:
+    specification_filters = bind_query_filters(
+        SpecificationFilterFields, spec=spec or [], has_accessories=has_accessories
+    )
     rows, page = await DealerPortalService(session, tenant).catalog_items(
         params,
         search=search,
@@ -156,8 +166,24 @@ async def catalog_items(
         in_stock_only=in_stock_only,
         on_offer_only=on_offer_only,
         sort_by=sort_by,
+        spec=specification_filters.spec,
+        has_accessories=specification_filters.has_accessories,
     )
     return PaginatedResponse(data=rows, pagination=page)
+
+
+@router.get(
+    "/catalog/specifications",
+    response_model=PaginatedResponse[DealerSpecificationFilterRead],
+    dependencies=[require_permission(Permission.DEALER_PORTAL_BROWSE)],
+)
+async def catalogue_specification_filters(
+    session: DbSession, tenant: Tenant, params: PageDep
+) -> PaginatedResponse[DealerSpecificationFilterRead]:
+    rows, pagination = await DealerPortalService(session, tenant).catalogue_specification_filters(
+        params
+    )
+    return PaginatedResponse(data=rows, pagination=pagination)
 
 
 @router.get(

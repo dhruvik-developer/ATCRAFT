@@ -26,8 +26,9 @@
  * it is presentation - the API authorises every request regardless (master
  * rules 38).
  *
- * None of the list endpoints behind the tabs in this file publishes `sort_by`,
- * so every column here sets `enableSorting: false`. Paging, searching and
+ * The inline category, unit, attribute and price panels do not publish
+ * `sort_by`; their columns disable sorting. Lazy master panels use their own
+ * supported server sort fields. Paging, searching and
  * filtering are all server-side; nothing on this screen fetches a table to
  * filter it in the browser.
  */
@@ -113,7 +114,14 @@ import {
 import { useFilterWriter } from './use-filter-writer'
 
 type TabKey =
-  'categories' | 'units' | 'conversions' | 'attributes' | 'brands' | 'manufacturers' | 'prices'
+  | 'categories'
+  | 'units'
+  | 'conversions'
+  | 'attributes'
+  | 'specifications'
+  | 'brands'
+  | 'manufacturers'
+  | 'prices'
 
 // The brand and manufacturer tabs load on first open. Each carries its own list,
 // form and retire dialog, and folding all of it into this chunk would put the
@@ -121,6 +129,9 @@ type TabKey =
 const BrandsTab = lazy(() => import('./brands-tab').then((m) => ({ default: m.BrandsTab })))
 const ManufacturersTab = lazy(() =>
   import('./manufacturers-tab').then((m) => ({ default: m.ManufacturersTab })),
+)
+const SpecificationsTab = lazy(() =>
+  import('./specifications-tab').then((module) => ({ default: module.SpecificationsTab })),
 )
 
 // ------------------------------------------------------------ categories ----
@@ -1254,7 +1265,10 @@ export default function MastersPage() {
         ]
       : []),
     ...(can(P.ITEM_ATTRIBUTE_VIEW)
-      ? [{ key: 'attributes' as const, label: 'Attributes', icon: Palette }]
+      ? [
+          { key: 'attributes' as const, label: 'Attributes', icon: Palette },
+          { key: 'specifications' as const, label: 'Specifications', icon: Tags },
+        ]
       : []),
     ...(can(P.BRAND_VIEW) ? [{ key: 'brands' as const, label: 'Brands', icon: Award }] : []),
     ...(can(P.MANUFACTURER_VIEW)
@@ -1317,6 +1331,12 @@ export default function MastersPage() {
 
           <TabsContent value="attributes">
             <AttributesTab />
+          </TabsContent>
+
+          <TabsContent value="specifications">
+            <Suspense fallback={<PanelLoader />}>
+              <SpecificationsTab />
+            </Suspense>
           </TabsContent>
 
           <TabsContent value="brands">

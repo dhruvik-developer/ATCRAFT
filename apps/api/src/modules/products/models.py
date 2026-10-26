@@ -37,10 +37,12 @@ from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     CheckConstraint,
     Date,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -51,8 +53,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
-from src.core.models import TenantMasterEntity, sql_in_list
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY, MAX_SPECIFICATION_OPTIONS
+from src.core.models import TenantEntity, TenantMasterEntity, sql_in_list
 from src.core.types import GUID, Money, Quantity, UnitPrice
 
 # A conversion factor is neither money nor a quantity: it is a ratio that has to
@@ -906,23 +908,192 @@ class ItemVendorLink(TenantMasterEntity):
     )
 
 
+class SpecificationValueType(StrEnum):
+    TEXT = "TEXT"
+    NUMBER = "NUMBER"
+    BOOLEAN = "BOOLEAN"
+    OPTION = "OPTION"
+
+
+class AccessoryRelation(StrEnum):
+    OPTIONAL = "OPTIONAL"
+    INCLUDED = "INCLUDED"
+
+
+class SpecificationAttribute(TenantMasterEntity):
+    """Governed descriptive vocabulary; no operational rule branches on its value."""
+
+    __tablename__ = "specification_attributes"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    value_type: Mapped[SpecificationValueType] = mapped_column(String(16), nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    options: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False, default=list, server_default=text("'{}'::varchar[]")
+    )
+    is_filterable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_specification_attributes_company_code"),
+        UniqueConstraint(
+            "company_id", "id", "value_type", name="uq_specification_attributes_typed_identity"
+        ),
+        CheckConstraint(
+            f"value_type IN ({sql_in_list(SpecificationValueType)})", name="value_type_valid"
+        ),
+        CheckConstraint(
+            "(value_type = 'OPTION' AND cardinality(options) > 0 "
+            f"AND cardinality(options) <= {MAX_SPECIFICATION_OPTIONS} "
+            "AND array_position(options, NULL) IS NULL) "
+            "OR (value_type <> 'OPTION' AND cardinality(options) = 0)",
+            name="options_match_type",
+        ),
+        CheckConstraint("sort_order BETWEEN 0 AND 9999", name="sort_order_bounded"),
+        Index("ix_specification_attributes_picker", "company_id", "is_active", "sort_order"),
+    )
+
+
+class CategorySpecification(TenantEntity):
+    __tablename__ = "category_specifications"
+
+    category_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("item_categories.id", ondelete="RESTRICT"), nullable=False
+    )
+    specification_attribute_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("specification_attributes.id", ondelete="RESTRICT"), nullable=False
+    )
+    is_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "category_id", "specification_attribute_id", name="uq_category_specifications_attribute"
+        ),
+        Index("ix_category_specifications_company_category", "company_id", "category_id"),
+        Index("ix_category_specifications_attribute", "company_id", "specification_attribute_id"),
+        CheckConstraint("sort_order BETWEEN 0 AND 9999", name="sort_order_bounded"),
+    )
+
+
+class ItemSpecification(TenantEntity):
+    __tablename__ = "item_specifications"
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    specification_attribute_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    # The discriminator is server-owned and tied to the master by this composite
+    # foreign key. A client cannot bypass the typed CHECK by inventing a type.
+    value_type: Mapped[SpecificationValueType] = mapped_column(String(16), nullable=False)
+    value_text: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    value_number: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    value_bool: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    value_option: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["company_id", "specification_attribute_id", "value_type"],
+            [
+                "specification_attributes.company_id",
+                "specification_attributes.id",
+                "specification_attributes.value_type",
+            ],
+            name="fk_item_specifications_typed_attribute",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "item_id", "specification_attribute_id", name="uq_item_specifications_attribute"
+        ),
+        CheckConstraint(
+            "(value_type = 'TEXT' AND value_text IS NOT NULL AND length(btrim(value_text)) > 0 "
+            "AND value_number IS NULL AND value_bool IS NULL AND value_option IS NULL) OR "
+            "(value_type = 'NUMBER' AND value_number IS NOT NULL "
+            "AND value_number <> 'NaN'::numeric "
+            "AND value_text IS NULL AND value_bool IS NULL AND value_option IS NULL) OR "
+            "(value_type = 'BOOLEAN' AND value_bool IS NOT NULL AND value_text IS NULL "
+            "AND value_number IS NULL AND value_option IS NULL) OR "
+            "(value_type = 'OPTION' AND value_option IS NOT NULL "
+            "AND length(btrim(value_option)) > 0 "
+            "AND value_text IS NULL AND value_number IS NULL AND value_bool IS NULL)",
+            name="exactly_one_typed_value",
+        ),
+        Index("ix_item_specifications_company_item", "company_id", "item_id"),
+        Index(
+            "ix_item_specifications_option",
+            "company_id",
+            "specification_attribute_id",
+            "value_option",
+        ),
+        Index(
+            "ix_item_specifications_boolean",
+            "company_id",
+            "specification_attribute_id",
+            "value_bool",
+        ),
+    )
+
+
+class ItemAccessory(TenantEntity):
+    """Informational association only; never a BOM, reservation or stock issue."""
+
+    __tablename__ = "item_accessories"
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    accessory_item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("1"), server_default="1"
+    )
+    relation: Mapped[AccessoryRelation] = mapped_column(String(16), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("item_id", "accessory_item_id", name="uq_item_accessories_pair"),
+        CheckConstraint("item_id <> accessory_item_id", name="not_self"),
+        CheckConstraint("quantity > 0 AND quantity <> 'NaN'::numeric", name="quantity_positive"),
+        CheckConstraint(f"relation IN ({sql_in_list(AccessoryRelation)})", name="relation_valid"),
+        CheckConstraint("sort_order BETWEEN 0 AND 9999", name="sort_order_bounded"),
+        Index("ix_item_accessories_company_item", "company_id", "item_id"),
+        Index("ix_item_accessories_company_accessory", "company_id", "accessory_item_id"),
+    )
+
+
 __all__ = [
     "CATEGORY_PATH_LENGTH",
     "DEFAULT_MANUFACTURER_COUNTRY",
     "MAX_BRAND_SORT_ORDER",
     "MAX_CATEGORY_DEPTH",
+    "AccessoryRelation",
     "Brand",
+    "CategorySpecification",
     "ConversionFactor",
     "Item",
+    "ItemAccessory",
     "ItemCategory",
     "ItemGroup",
     "ItemLifecycleState",
     "ItemPrice",
+    "ItemSpecification",
     "ItemVariant",
     "ItemVendorLink",
     "Manufacturer",
     "PriceType",
     "ProductionType",
+    "SpecificationAttribute",
+    "SpecificationValueType",
     "UnitOfMeasure",
     "UomCategory",
     "UomConversion",

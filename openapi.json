@@ -61,6 +61,14 @@
         "title": "AccessTokenResponse",
         "type": "object"
       },
+      "AccessoryRelation": {
+        "enum": [
+          "OPTIONAL",
+          "INCLUDED"
+        ],
+        "title": "AccessoryRelation",
+        "type": "string"
+      },
       "AcknowledgeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1584,6 +1592,33 @@
         "title": "ApiResponse[CategoryOut]",
         "type": "object"
       },
+      "ApiResponse_CategorySpecificationsRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CategorySpecificationsRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CategorySpecificationsRead]",
+        "type": "object"
+      },
       "ApiResponse_ChangePasswordResult_": {
         "properties": {
           "data": {
@@ -2853,6 +2888,33 @@
         "title": "ApiResponse[IssueResult]",
         "type": "object"
       },
+      "ApiResponse_ItemAccessoryRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemAccessoryRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ItemAccessoryRead]",
+        "type": "object"
+      },
       "ApiResponse_ItemAttributeOut_": {
         "properties": {
           "data": {
@@ -2932,6 +2994,33 @@
           }
         },
         "title": "ApiResponse[ItemQualityHistory]",
+        "type": "object"
+      },
+      "ApiResponse_ItemSpecificationsRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemSpecificationsRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ItemSpecificationsRead]",
         "type": "object"
       },
       "ApiResponse_JobWorkOrderDetail_": {
@@ -5032,6 +5121,33 @@
           }
         },
         "title": "ApiResponse[ShortfallPlanRead]",
+        "type": "object"
+      },
+      "ApiResponse_SpecificationAttributeRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpecificationAttributeRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[SpecificationAttributeRead]",
         "type": "object"
       },
       "ApiResponse_StockAdjustmentRead_": {
@@ -12638,6 +12754,107 @@
           "updated_at"
         ],
         "title": "CategoryOut",
+        "type": "object"
+      },
+      "CategorySpecificationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "is_required": {
+            "default": false,
+            "title": "Is Required",
+            "type": "boolean"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "specification_attribute_id": {
+            "format": "uuid",
+            "title": "Specification Attribute Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "specification_attribute_id"
+        ],
+        "title": "CategorySpecificationIn",
+        "type": "object"
+      },
+      "CategorySpecificationRead": {
+        "properties": {
+          "attribute": {
+            "$ref": "#/components/schemas/SpecificationAttributeRead"
+          },
+          "category_id": {
+            "format": "uuid",
+            "title": "Category Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_required": {
+            "title": "Is Required",
+            "type": "boolean"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "category_id",
+          "attribute",
+          "is_required",
+          "sort_order"
+        ],
+        "title": "CategorySpecificationRead",
+        "type": "object"
+      },
+      "CategorySpecificationsRead": {
+        "properties": {
+          "category_id": {
+            "format": "uuid",
+            "title": "Category Id",
+            "type": "string"
+          },
+          "specifications": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySpecificationRead"
+            },
+            "title": "Specifications",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category_id",
+          "specifications"
+        ],
+        "title": "CategorySpecificationsRead",
+        "type": "object"
+      },
+      "CategorySpecificationsReplace": {
+        "additionalProperties": false,
+        "properties": {
+          "specifications": {
+            "items": {
+              "$ref": "#/components/schemas/CategorySpecificationIn"
+            },
+            "maxItems": 200,
+            "title": "Specifications",
+            "type": "array"
+          }
+        },
+        "required": [
+          "specifications"
+        ],
+        "title": "CategorySpecificationsReplace",
         "type": "object"
       },
       "CategoryUpdate": {
@@ -20650,6 +20867,54 @@
         "title": "DealerSalesPerson",
         "type": "object"
       },
+      "DealerSpecificationFilterRead": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/SpecificationValueType"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "value_type",
+          "unit",
+          "options"
+        ],
+        "title": "DealerSpecificationFilterRead",
+        "type": "object"
+      },
       "DealerSpecificationRead": {
         "properties": {
           "name": {
@@ -28243,6 +28508,189 @@
         "title": "IssueResult",
         "type": "object"
       },
+      "ItemAccessoryCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "accessory_item_id": {
+            "format": "uuid",
+            "title": "Accessory Item Id",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              }
+            ],
+            "default": "1",
+            "title": "Quantity"
+          },
+          "relation": {
+            "$ref": "#/components/schemas/AccessoryRelation",
+            "default": "OPTIONAL"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accessory_item_id"
+        ],
+        "title": "ItemAccessoryCreate",
+        "type": "object"
+      },
+      "ItemAccessoryRead": {
+        "properties": {
+          "accessory_can_sell": {
+            "title": "Accessory Can Sell",
+            "type": "boolean"
+          },
+          "accessory_code": {
+            "title": "Accessory Code",
+            "type": "string"
+          },
+          "accessory_is_active": {
+            "title": "Accessory Is Active",
+            "type": "boolean"
+          },
+          "accessory_item_id": {
+            "format": "uuid",
+            "title": "Accessory Item Id",
+            "type": "string"
+          },
+          "accessory_name": {
+            "title": "Accessory Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "relation": {
+            "$ref": "#/components/schemas/AccessoryRelation"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "item_id",
+          "accessory_item_id",
+          "accessory_code",
+          "accessory_name",
+          "accessory_is_active",
+          "accessory_can_sell",
+          "quantity",
+          "relation",
+          "sort_order",
+          "notes"
+        ],
+        "title": "ItemAccessoryRead",
+        "type": "object"
+      },
+      "ItemAccessoryUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "relation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessoryRelation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "maximum": 9999.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          }
+        },
+        "title": "ItemAccessoryUpdate",
+        "type": "object"
+      },
       "ItemAttributeCreate": {
         "properties": {
           "attribute": {
@@ -29748,6 +30196,201 @@
           "rejection_rate"
         ],
         "title": "ItemQualityHistory",
+        "type": "object"
+      },
+      "ItemSpecificationValueIn": {
+        "additionalProperties": false,
+        "properties": {
+          "specification_attribute_id": {
+            "format": "uuid",
+            "title": "Specification Attribute Id",
+            "type": "string"
+          },
+          "value_bool": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Bool"
+          },
+          "value_number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Number"
+          },
+          "value_option": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Option"
+          },
+          "value_text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Text"
+          }
+        },
+        "required": [
+          "specification_attribute_id"
+        ],
+        "title": "ItemSpecificationValueIn",
+        "type": "object"
+      },
+      "ItemSpecificationValueRead": {
+        "properties": {
+          "attribute": {
+            "$ref": "#/components/schemas/SpecificationAttributeRead"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "specification_attribute_id": {
+            "format": "uuid",
+            "title": "Specification Attribute Id",
+            "type": "string"
+          },
+          "value_bool": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Bool"
+          },
+          "value_number": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Number"
+          },
+          "value_option": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Option"
+          },
+          "value_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Text"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/SpecificationValueType"
+          }
+        },
+        "required": [
+          "id",
+          "specification_attribute_id",
+          "value_type",
+          "value_text",
+          "value_number",
+          "value_bool",
+          "value_option",
+          "attribute"
+        ],
+        "title": "ItemSpecificationValueRead",
+        "type": "object"
+      },
+      "ItemSpecificationsRead": {
+        "properties": {
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "missing_required_count": {
+            "default": 0,
+            "title": "Missing Required Count",
+            "type": "integer"
+          },
+          "template": {
+            "items": {
+              "$ref": "#/components/schemas/ResolvedSpecificationRead"
+            },
+            "title": "Template",
+            "type": "array"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ItemSpecificationValueRead"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_id"
+        ],
+        "title": "ItemSpecificationsRead",
+        "type": "object"
+      },
+      "ItemSpecificationsReplace": {
+        "additionalProperties": false,
+        "properties": {
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/ItemSpecificationValueIn"
+            },
+            "maxItems": 200,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "values"
+        ],
+        "title": "ItemSpecificationsReplace",
         "type": "object"
       },
       "ItemStatusChange": {
@@ -38148,6 +38791,33 @@
         "title": "PaginatedResponse[DealerReturnSummary]",
         "type": "object"
       },
+      "PaginatedResponse_DealerSpecificationFilterRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DealerSpecificationFilterRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[DealerSpecificationFilterRead]",
+        "type": "object"
+      },
       "PaginatedResponse_DelayedDispatchRow_": {
         "properties": {
           "data": {
@@ -38497,6 +39167,33 @@
           }
         },
         "title": "PaginatedResponse[InventoryValuationRow]",
+        "type": "object"
+      },
+      "PaginatedResponse_ItemAccessoryRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ItemAccessoryRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[ItemAccessoryRead]",
         "type": "object"
       },
       "PaginatedResponse_ItemAttributeOut_": {
@@ -40063,6 +40760,60 @@
           }
         },
         "title": "PaginatedResponse[ShiftRead]",
+        "type": "object"
+      },
+      "PaginatedResponse_SpecificationAttributeRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SpecificationAttributeRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[SpecificationAttributeRead]",
+        "type": "object"
+      },
+      "PaginatedResponse_SpecificationCategoryOption_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SpecificationCategoryOption"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[SpecificationCategoryOption]",
         "type": "object"
       },
       "PaginatedResponse_StockAdjustmentRead_": {
@@ -53811,6 +54562,42 @@
         "title": "ResolvedPrice",
         "type": "object"
       },
+      "ResolvedSpecificationRead": {
+        "properties": {
+          "attribute": {
+            "$ref": "#/components/schemas/SpecificationAttributeRead"
+          },
+          "is_required": {
+            "title": "Is Required",
+            "type": "boolean"
+          },
+          "missing_required": {
+            "title": "Missing Required",
+            "type": "boolean"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "source_category_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Category Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "attribute",
+          "is_required",
+          "source_category_ids",
+          "sort_order",
+          "missing_required"
+        ],
+        "title": "ResolvedSpecificationRead",
+        "type": "object"
+      },
       "ReworkCompleteRequest": {
         "additionalProperties": false,
         "description": "Finish a rework cycle and hand the quantity back for re-decision.\n\nThe outcome is the bench's recommendation, not a stock movement: quality\nowns the hold and the decision is the one release path, so even a SCRAPPED\noutcome leaves the quantity in QC hold for the inspector to scrap on\nre-decision. A RETURNED outcome against a named vendor flags the inspection\nfor a vendor return, the way a rejection does.",
@@ -60914,6 +61701,305 @@
         ],
         "title": "SourceDemandRef",
         "type": "object"
+      },
+      "SpecificationAttributeCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_filterable": {
+            "default": false,
+            "title": "Is Filterable",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Options",
+            "type": "array"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/SpecificationValueType"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "value_type"
+        ],
+        "title": "SpecificationAttributeCreate",
+        "type": "object"
+      },
+      "SpecificationAttributeRead": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_filterable": {
+            "title": "Is Filterable",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/SpecificationValueType"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "value_type",
+          "unit",
+          "options",
+          "is_filterable",
+          "sort_order",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpecificationAttributeRead",
+        "type": "object"
+      },
+      "SpecificationAttributeUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "is_filterable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Filterable"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "maximum": 9999.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpecificationValueType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "SpecificationAttributeUpdate",
+        "type": "object"
+      },
+      "SpecificationCategoryOption": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "parent_id",
+          "path",
+          "depth",
+          "is_active"
+        ],
+        "title": "SpecificationCategoryOption",
+        "type": "object"
+      },
+      "SpecificationValueType": {
+        "enum": [
+          "TEXT",
+          "NUMBER",
+          "BOOLEAN",
+          "OPTION"
+        ],
+        "title": "SpecificationValueType",
+        "type": "string"
       },
       "StartRequest": {
         "additionalProperties": false,
@@ -91707,6 +92793,42 @@
             }
           },
           {
+            "in": "query",
+            "name": "spec",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Spec"
+            }
+          },
+          {
+            "in": "query",
+            "name": "has_accessories",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Accessories"
+            }
+          },
+          {
             "description": "1-based page number",
             "in": "query",
             "name": "page",
@@ -92207,6 +93329,184 @@
           }
         ],
         "summary": "Channel price plus the best offer for a quantity",
+        "tags": [
+          "Dealer Portal"
+        ]
+      }
+    },
+    "/api/v1/dealer-portal/catalog/specifications": {
+      "get": {
+        "operationId": "catalogue_specification_filters_api_v1_dealer_portal_catalog_specifications_get",
+        "parameters": [
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_DealerSpecificationFilterRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Catalogue Specification Filters",
         "tags": [
           "Dealer Portal"
         ]
@@ -155260,6 +156560,626 @@
         ]
       }
     },
+    "/api/v1/products/categories/{category_id}/specifications": {
+      "get": {
+        "operationId": "category_specifications_api_v1_products_categories__category_id__specifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Category Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CategorySpecificationsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Category Specifications",
+        "tags": [
+          "Products"
+        ]
+      },
+      "put": {
+        "operationId": "replace_category_specifications_api_v1_products_categories__category_id__specifications_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Category Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategorySpecificationsReplace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CategorySpecificationsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Replace Category Specifications",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/item-accessories/{accessory_id}": {
+      "delete": {
+        "operationId": "delete_accessory_api_v1_products_item_accessories__accessory_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "accessory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Accessory Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 3,
+              "pattern": "\\S.{1,253}\\S|\\S{3}",
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Accessory",
+        "tags": [
+          "Products"
+        ]
+      },
+      "patch": {
+        "operationId": "update_accessory_api_v1_products_item_accessories__accessory_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "accessory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Accessory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemAccessoryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ItemAccessoryRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Accessory",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
     "/api/v1/products/item-vendors/{link_id}": {
       "delete": {
         "operationId": "unlink_vendor_api_v1_products_item_vendors__link_id__delete",
@@ -155863,6 +157783,44 @@
                 }
               ],
               "title": "Default Warehouse Id"
+            }
+          },
+          {
+            "description": "Repeated CODE=value specification filters",
+            "in": "query",
+            "name": "spec",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repeated CODE=value specification filters",
+              "title": "Spec"
+            }
+          },
+          {
+            "in": "query",
+            "name": "has_accessories",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Accessories"
             }
           },
           {
@@ -156519,6 +158477,44 @@
             }
           },
           {
+            "description": "Repeated CODE=value specification filters",
+            "in": "query",
+            "name": "spec",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Repeated CODE=value specification filters",
+              "title": "Spec"
+            }
+          },
+          {
+            "in": "query",
+            "name": "has_accessories",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Accessories"
+            }
+          },
+          {
             "description": "Opaque cursor from the previous page",
             "in": "query",
             "name": "cursor",
@@ -157127,6 +159123,350 @@
           }
         ],
         "summary": "Update an item",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/items/{item_id}/accessories": {
+      "get": {
+        "operationId": "item_accessories_api_v1_products_items__item_id__accessories_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_ItemAccessoryRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Item Accessories",
+        "tags": [
+          "Products"
+        ]
+      },
+      "post": {
+        "operationId": "create_accessory_api_v1_products_items__item_id__accessories_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemAccessoryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ItemAccessoryRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Accessory",
         "tags": [
           "Products"
         ]
@@ -157889,6 +160229,515 @@
           }
         ],
         "summary": "Resolve the effective price for a channel and quantity",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/items/{item_id}/specification-attributes": {
+      "get": {
+        "operationId": "item_attribute_options_api_v1_products_items__item_id__specification_attributes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_SpecificationAttributeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Item Attribute Options",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/items/{item_id}/specifications": {
+      "get": {
+        "operationId": "item_specifications_api_v1_products_items__item_id__specifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ItemSpecificationsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Item Specifications",
+        "tags": [
+          "Products"
+        ]
+      },
+      "put": {
+        "operationId": "replace_item_specifications_api_v1_products_items__item_id__specifications_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemSpecificationsReplace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ItemSpecificationsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Replace Item Specifications",
         "tags": [
           "Products"
         ]
@@ -159927,6 +162776,1062 @@
           }
         ],
         "summary": "Update a price-list entry",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/specification-attributes": {
+      "get": {
+        "operationId": "list_attributes_api_v1_products_specification_attributes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Active"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filterable_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Filterable Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Field to sort by",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Field to sort by",
+              "title": "Sort By"
+            }
+          },
+          {
+            "description": "Sort direction",
+            "in": "query",
+            "name": "sort_dir",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Sort direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Sort Dir",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_SpecificationAttributeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Attributes",
+        "tags": [
+          "Products"
+        ]
+      },
+      "post": {
+        "operationId": "create_attribute_api_v1_products_specification_attributes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecificationAttributeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SpecificationAttributeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Attribute",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/specification-attributes/{attribute_id}": {
+      "delete": {
+        "operationId": "retire_attribute_api_v1_products_specification_attributes__attribute_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 3,
+              "pattern": "\\S.{1,253}\\S|\\S{3}",
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Attribute",
+        "tags": [
+          "Products"
+        ]
+      },
+      "get": {
+        "operationId": "get_attribute_api_v1_products_specification_attributes__attribute_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SpecificationAttributeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Attribute",
+        "tags": [
+          "Products"
+        ]
+      },
+      "patch": {
+        "operationId": "update_attribute_api_v1_products_specification_attributes__attribute_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpecificationAttributeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SpecificationAttributeRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Attribute",
+        "tags": [
+          "Products"
+        ]
+      }
+    },
+    "/api/v1/products/specification-categories": {
+      "get": {
+        "operationId": "specification_categories_api_v1_products_specification_categories_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_SpecificationCategoryOption_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Specification Categories",
         "tags": [
           "Products"
         ]

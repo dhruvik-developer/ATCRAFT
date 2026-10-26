@@ -165,6 +165,17 @@ export const queryKeys = {
     list: (params: unknown) => ['items', 'list', params] as const,
     detail: (id: string) => ['items', 'detail', id] as const,
     variants: (id: string, params: unknown) => ['items', 'detail', id, 'variants', params] as const,
+    specifications: (id: string) => ['items', 'detail', id, 'specifications'] as const,
+    specificationOptions: (id: string, params: unknown) =>
+      ['items', 'detail', id, 'specification-options', params] as const,
+    accessories: (id: string, params: unknown) =>
+      ['items', 'detail', id, 'accessories', params] as const,
+  },
+  specifications: {
+    all: ['specifications'] as const,
+    attributes: (params: unknown) => ['specifications', 'attributes', params] as const,
+    categories: (params: unknown) => ['specifications', 'categories', params] as const,
+    templates: (categoryId: string) => ['specifications', 'templates', categoryId] as const,
   },
   categories: { all: ['categories'] as const },
   uoms: { all: ['uoms'] as const },

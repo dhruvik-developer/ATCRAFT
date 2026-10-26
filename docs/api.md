@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 701 requests in 31
+Import `postman_collection.json` (Postman v2.1 format, 717 requests in 31
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -500,7 +500,7 @@ download; long work runs in a worker rather than holding the HTTP request open.
                       cost centres · financial years
 /warehouses           warehouses · storage locations
 /products             items · categories · UoM · attributes · brands · manufacturers
-                      prices · vendor links
+                      prices · vendor links · specification masters/templates · accessories
 /customers  /vendors  business partners · transporters
 /inventory            balances · ledger · transfers · adjustments · physical counts
                       batches · serials · bin moves · scrap disposals · internal issues
@@ -538,6 +538,57 @@ download; long work runs in a worker rather than holding the HTTP request open.
 
 Full request and response schemas are generated from the code in
 `openapi.json` and, in development, at `/docs`.
+
+## Product specifications and accessories
+
+All paths below retain `/api/v1`, the standard response envelope and tenant
+scope derived from the verified token. Lists are paginated. Creates return 201,
+updates/removals return 200, invalid typed values return 422, and foreign IDs
+return the same scoped 404 as missing IDs.
+
+| Resource | Operations | Permission |
+|---|---|---|
+| `/products/specification-attributes` and `/{id}` | GET list/detail; POST; PATCH; DELETE with a 3–255 character reason | Reads: `item_attribute.view`; writes: `item_attribute.manage` |
+| `/products/specification-categories` | GET narrow category picker | `item_attribute.view` or `item_attribute.manage` |
+| `/products/categories/{id}/specifications` | GET template; PUT complete replacement | Read: either attribute right; write: `item_attribute.manage` |
+| `/products/items/{id}/specification-attributes` | GET active attribute picker, authorized for that item | `item.view` or `item.update` |
+| `/products/items/{id}/specifications` | GET values, inherited template and missing-required count; PUT complete replacement | Read: `item.view`; write: `item.update` |
+| `/products/items/{id}/accessories` | GET associations; POST association | Read: `item.view`; write: `item.update` |
+| `/products/item-accessories/{id}` | PATCH quantity/relation/order/notes; DELETE with reason | `item.update` |
+| `/dealer-portal/catalog/specifications` | GET eligible OPTION/BOOLEAN filter metadata | `dealer_portal.browse` and a valid dealer binding |
+
+The item picker does not require master-view permission, and the template's
+category picker does not require `category.view`. These narrow endpoints expose
+the data needed for the caller's authorized edit without widening master access.
+Master retirement and accessory deletion require a meaningful reason.
+
+An item specification PUT has shape:
+
+```json
+{
+  "values": [
+    {"specification_attribute_id": "<boolean-attribute-id>", "value_bool": false},
+    {"specification_attribute_id": "<number-attribute-id>", "value_number": "0"}
+  ]
+}
+```
+
+Exactly one typed value is required per attribute. Omitted attributes are removed
+and an empty `values` list deliberately clears the set. Requests may contain at
+most 200 values; numbers use finite Decimal strings with up to 14 whole digits
+and four decimal places. Unknown fields and a client-supplied `value_type` are
+refused. A category replacement similarly uses
+`{"specifications":[{"specification_attribute_id":"…","is_required":true,"sort_order":10}]}`.
+Required fields are completeness warnings and do not prevent ordinary item use.
+
+Staff and dealer item lists accept repeated query filters such as
+`?spec=DM-SPEC-MATERIAL=Brass&spec=DM-SPEC-FIRE-RATED=false` (URL-encoded by the
+client) and optional `has_accessories=true|false`. At most 20 expressions are
+allowed; they intersect, use active filterable OPTION/BOOLEAN masters and
+return no rows for an explicit empty value. Dealer item detail exposes formatted
+specifications and its own channel-priced OPTIONAL accessories. INCLUDED entries
+are informational: they do not expose a price or add an automatic cart/stock line.
+Price-on-request accessories cannot be added through a fabricated price.
 
 ## Inventory operation documents
 

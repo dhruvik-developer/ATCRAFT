@@ -3,7 +3,7 @@
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
     "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton can only be reopened through the audited legacy recovery process, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
-    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, sales returns, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, the shift roster, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, sales invoices, credit notes, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, the organisation record and company settings. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
+    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, sales returns, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, specifications, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, the shift roster, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, sales invoices, credit notes, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, the organisation record and company settings. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
       {
         "step": 1,
@@ -348,8 +348,8 @@
           "whoUses": "The owner, or whoever is trusted with the item master - often the same person who creates new items.",
           "keyActions": [
             {
-              "action": "Move between the seven lists",
-              "how": "The tabs across the top: Categories, Units, Conversions, Attributes, Brands, Manufacturers, Prices.",
+              "action": "Move between the eight lists",
+              "how": "The tabs across the top: Categories, Units, Conversions, Attributes, Specifications, Brands, Manufacturers, Prices.",
               "note": "The tab is part of the web address, so a colleague can be sent straight to the unit conversions rather than told to open Masters and click the third tab."
             },
             {
@@ -365,8 +365,9 @@
           ],
           "rules": [
             "Which tabs appear depends on what the account may read. Units and Conversions are governed by one right, so they always appear and disappear together.",
-            "Brands and Manufacturers can be sorted by clicking the Code or Name heading - and brands by Position as well. The other five lists cannot: each arrives in the order that makes sense for it - categories in tree order, prices by validity - and the search box and filters are how a row is found.",
-            "Every list shows fifty rows at a time by default and pages through the rest."
+            "Brands, Manufacturers and Specifications can be sorted by their supported headings. The other lists arrive in the order that makes sense for them - categories in tree order, prices by validity - and the search box and filters are how a row is found.",
+            "Every list shows fifty rows at a time by default and pages through the rest.",
+            "Specifications use the existing item attribute rights and include category templates; required specifications produce completeness warnings."
           ],
           "permission": "Opening the screen at all needs the right to read at least one of its lists: categories, units, attributes, brands, manufacturers or prices. Each tab is then shown or hidden on its own read right, and the create, edit and delete buttons on its own change right - so a person can be given the ability to read every list and change only one of them.",
           "notes": "Two things the deck assembler should know. First, the screenshot of /masters will show the Categories tab, because that is the first tab an owner sees. Second, and worth telling the client: every tab's read right opens this screen and its sidebar entry on its own - an account that may only maintain brands, say, gets in and sees only the Brands tab. On a system installed before brands and manufacturers existed, the administrator roles receive those four rights automatically and every other role is granted them from Settings -> Roles."
@@ -555,6 +556,69 @@
           ],
           "permission": "Reading the list needs the right to view item attributes; adding, renaming and retiring need the right to manage them. Without the change right the list is fully readable with no New button and no pencil.",
           "notes": "This is the newest part of the screen and the one the client asked for, so it deserves a full page in the deck. For the screenshot, filter to Finish - a list of real finishes reads far better than a mixture of all three. The Offered/Retired filter is labelled in those words rather than Active/Inactive, which is worth matching in the caption."
+        },
+        {
+          "route": "/masters?tab=specifications",
+          "title": "Specification attributes",
+          "purpose": "Maintain the technical vocabulary used to describe products: material, lock type, backset, key count, warranty and fire rating. These descriptions are separate from finish, size and colour variants.",
+          "whoUses": "Staff responsible for item master data and engineering descriptions.",
+          "permission": "The existing item attribute view permission opens the tab; item attribute management permits changes. No new role or permission is required.",
+          "keyActions": [
+            {
+              "action": "Create or edit a specification",
+              "how": "Choose New specification, or Edit on a row. Set its code, name, value type, optional unit, presentation position and status. Option specifications require one permitted option per line.",
+              "note": "Text, Number, Boolean and Option use different item controls. The code stays fixed. A type change or option removal is refused if it would invalidate a recorded item value."
+            },
+            {
+              "action": "Offer a catalog filter",
+              "how": "Select Available as a catalog filter.",
+              "note": "Only Option and Boolean specifications provide dealer filters. The flag on Text or Number does not create a filter."
+            },
+            {
+              "action": "Retire a specification",
+              "how": "Choose Retire on the row and enter an audit reason.",
+              "note": "First remove its item values and category-template references. The retired code is not reused."
+            }
+          ],
+          "flow": [
+            "Open Item masters and choose Specifications.",
+            "Create the vocabulary before assigning it to categories or items.",
+            "Use Category templates to define completeness expectations, then record values on item details."
+          ],
+          "rules": [
+            "Option labels must be unique and at most 64 characters each; at most 100 options are allowed.",
+            "Specifications describe products. Stock, costing, pricing, BOM and MRP rules do not branch on their values.",
+            "Changes and lifecycle decisions are recorded in the audit history."
+          ]
+        },
+        {
+          "route": "/masters?tab=specifications&view=templates",
+          "title": "Category specification templates",
+          "purpose": "Attach technical specifications to a category and mark the descriptions staff should complete. Items inherit the templates of their category and every ancestor.",
+          "whoUses": "Engineering and master-data staff.",
+          "permission": "Item attribute view reads templates and their category choices. Item attribute management saves them; a separate category-view permission is not needed.",
+          "keyActions": [
+            {
+              "action": "Choose a category",
+              "how": "Search categories, choose one from the server-paged choices and press Choose category."
+            },
+            {
+              "action": "Maintain this category template",
+              "how": "Choose specifications, mark Required warning where appropriate, set positions and remove unwanted entries. Save category template replaces this category's own set.",
+              "note": "Ancestor templates remain in force. If any inherited template marks an attribute required, a child cannot remove that requirement."
+            }
+          ],
+          "flow": [
+            "Choose the category.",
+            "Add the active specifications it needs.",
+            "Mark completeness expectations and save the full template.",
+            "Open an item in that category to see inherited controls and missing-value warnings."
+          ],
+          "rules": [
+            "A missing required value is a warning and never makes an existing item unsaveable.",
+            "Only active specification attributes can be newly assigned.",
+            "Removing a template entry does not delete values already recorded on items."
+          ]
         },
         {
           "route": "/masters?tab=brands",
@@ -1052,6 +1116,11 @@
             {
               "action": "Change how many rows are shown, or the sort order",
               "how": "Use the page-size selector at the foot of the grid (25, 50, 100 or 200 \u2014 it opens at 50) and click the Code or Name column heading to sort."
+            },
+            {
+              "action": "Filter by accessories",
+              "how": "Choose Has accessories or No accessories in the accessories filter. Clear removes this narrowing along with the other filters.",
+              "note": "The server filters the item collection before paging."
             }
           ],
           "flow": [
@@ -1138,6 +1207,11 @@
             {
               "action": "Retire a variant",
               "how": "Variants tab, then the bin icon at the end of the variant's row."
+            },
+            {
+              "action": "Maintain technical descriptions and accessories",
+              "how": "Open Specifications for typed values and inherited completeness warnings, or Accessories for in-the-box items and optional add-ons.",
+              "note": "Both panels read with item view and save with item update. Neither changes stock, BOM or MRP."
             }
           ],
           "flow": [
@@ -1157,7 +1231,77 @@
             "A brand or manufacturer that has been switched off cannot be newly given to an item, and neither can be switched off while items still carry it - so the brand an item shows is always one the business still offers."
           ],
           "permission": "Viewing needs the right to see items. Edit appears for someone with the right to update items; Retire, both for the item and for a variant, needs the right to delete items \u2014 deliberately a different right, because deactivating is reversible and retiring is not. The Stock tab needs the right to view inventory, Where used the right to view bills of materials, and Prices the right to view prices; without them the tab shows a polite note instead of the data. Standard cost and the variants' cost difference are shown only with the right to see item costs.",
-          "notes": "Several things on this screen are read-only and the deck should say so rather than leave the reader hunting for a button. Variants cannot be created or edited anywhere in the application \u2014 only listed and retired. Supplier links cannot be created or edited anywhere. Prices are maintained under Masters, not here. Sale price and dealer price appear on the Overview but there is no field for them on the item form, so on a system without seeded data they will read zero. The 'Valuation' line on the Overview will show a dash: the field was removed from the system and the screen still asks for it. Batch and serial tracking are edited on the item form; both may only change while the item holds no stock anywhere, and a shelf life requires batch tracking. There is no activate/deactivate control. The Where used tab lists direct parents only, so its Level column always reads 1."
+          "notes": "Open only the panel needed: Overview, Variants, Stock, Where used, Prices, Vendors, Images, Specifications or Accessories. Variants can be created and edited with their separate item rights; supplier links can be maintained with item update. Dated prices are maintained under Masters. Sale and dealer prices can be edited on the item form by someone with the price-management right. Batch and serial tracking can change only while the item holds no stock anywhere, and a shelf life requires batch tracking. The Where used tab lists direct parent bills of material. Specifications and accessory links describe the item; they do not reserve, consume or create inventory."
+        },
+        {
+          "route": "/items/:itemId?tab=accessories",
+          "title": "Item accessories",
+          "purpose": "Describe included items and optional add-ons independently of bills of material and stock consumption.",
+          "whoUses": "Product, engineering and sales staff.",
+          "permission": "Item view opens the accessory list. Item update adds, edits, reorders and removes links.",
+          "keyActions": [
+            {
+              "action": "Add an accessory",
+              "how": "Choose Add accessory, select Optional add-on or In the box, choose an active item, and enter a positive quantity.",
+              "note": "Optional choices are narrowed to sellable items. Included items may be non-sellable and need no free stock."
+            },
+            {
+              "action": "Reorder or amend",
+              "how": "Edit the row's quantity, relation, notes or position. Lower positions appear first."
+            },
+            {
+              "action": "Remove a link",
+              "how": "Choose Remove and record a reason.",
+              "note": "Only the relationship is removed; the accessory item and its stock remain."
+            }
+          ],
+          "flow": [
+            "Open the item and choose Accessories.",
+            "Add the items supplied in the box and any separately orderable add-ons.",
+            "Arrange positions and save each change.",
+            "Review the product in the dealer catalog."
+          ],
+          "rules": [
+            "An item cannot name itself and the same accessory cannot be linked twice.",
+            "Reciprocal accessory links are allowed; they are not BOM cycles.",
+            "Accessories never reserve, consume, price as a kit or move stock and never affect BOM explosion or MRP.",
+            "Included items are informational in the dealer catalog. Optional items use the dealer's current price and order permissions."
+          ]
+        },
+        {
+          "route": "/items/:itemId?tab=specifications",
+          "title": "Item specifications",
+          "purpose": "Read and maintain governed technical descriptions using the item category and ancestor templates, with additional active attributes where needed.",
+          "whoUses": "Engineering, sales and staff who maintain or read items.",
+          "permission": "Item view reads values and inherited metadata. Item update allows saving and the item-authorized attribute picker; specification-master permissions are not needed.",
+          "keyActions": [
+            {
+              "action": "Record typed values",
+              "how": "Use text or decimal inputs, a Yes/No selection, or a permitted Option selection. Units appear beside the label.",
+              "note": "Zero and No are real values. Not recorded or a cleared value removes that value when the full set is saved."
+            },
+            {
+              "action": "Add another specification",
+              "how": "Search the available specifications, page through choices if needed, choose one and enter its value."
+            },
+            {
+              "action": "Save or reset the draft",
+              "how": "Save specifications replaces the whole set. Reset changes restores the latest loaded record.",
+              "note": "Validation or server refusals keep the draft visible. Missing required values produce warnings and do not block saving."
+            }
+          ],
+          "flow": [
+            "Open the item and choose Specifications.",
+            "Review inherited completeness warnings.",
+            "Enter values and add extra descriptions as needed.",
+            "Save the complete set, then check any remaining warning."
+          ],
+          "rules": [
+            "Number values support up to 14 whole digits and 4 decimal places and retain their exact decimal representation.",
+            "A blank value is absent; zero and false remain present.",
+            "The server validates each attribute's tenant, active status, type and permitted options.",
+            "Saving these descriptions does not move stock or change planning."
+          ]
         },
         {
           "route": "/bom",
@@ -2409,7 +2553,7 @@
             "A short delivery leaves the order Partially received; a complete one moves it to Received and then straight on \u2014 to QC pending if any line is held for inspection, otherwise to receipt complete.",
             "A posted receipt is final. It can never be edited, cancelled or retracted; the way to correct it is a purchase return, which posts the opposite movement.",
             "A receipt does not create a bill. It is the delivery half of the check the accounts team runs when the vendor's invoice arrives: the invoice is recorded in the finance area against this order and this receipt, checked against both, and only then does the order move on to Invoiced and later Paid.",
-            "A receipt line requiring incoming inspection is received at warehouse level. After acceptance, put it away with a bin move. Other lines can receive directly into their selected bin."
+            "A receipt line requiring incoming inspection is received at warehouse level. After acceptance, nonserial stock can be put away with a bin move. Serial bin moves remain unsupported; do not substitute a quantity-only move for a named physical unit. Other lines can receive directly into their selected bin."
           ],
           "permission": "The right to view goods receipts opens the list \u2014 a Store Keeper has it. Recording a receipt needs the right to create them, which a Store Keeper also has. Posting one is a separate right, and of the ready-made roles only an administrator carries it, so out of the box a storekeeper keys the delivery and somebody else posts it. That split is deliberate and can be changed by granting the posting right to a role.",
           "notes": "There is no page for a single receipt \u2014 the register plus the receive dialog is the whole screen. The system can cancel an unposted draft receipt but no screen offers it. The receive form will not let you enter more than a line still has outstanding, so the 5% over-delivery tolerance the system allows cannot be used from this screen; a genuine over-delivery has to have the purchase order amended. The form does not record which transporter brought the goods, only the vehicle number, even though the underlying document can hold a carrier."
@@ -3029,7 +3173,7 @@
             {
               "action": "Raise a job work order",
               "how": "New job work order, top right, on the Orders tab",
-              "note": "For a batch-tracked item, name the lot on the line before approval; serial-tracked items are still refused because a challan has no unit list. The order is saved as a draft. Nothing is reserved and no material moves. Someone who may see cost centres can name the cost centre the processing charges belong to - typically the job-worked process, such as plating; an amendment by anyone else keeps it as it was."
+              "note": "For a batch-tracked item, name the lot on the line before approval. For serial-tracked items, name the physical units when issuing the challan and account for them on receipt. The order is saved as a draft. Nothing is reserved and no material moves. Someone who may see cost centres can name the cost centre the processing charges belong to - typically the job-worked process, such as plating; an amendment by anyone else keeps it as it was."
             },
             {
               "action": "Amend a draft",
@@ -3098,7 +3242,7 @@
             "Tick 'Output must be inspected' if the returned goods have to go through QC.",
             "Add the lines: the item going out, the quantity, what it comes back as (leave blank if the same item comes back), the expected output quantity if the yield is not one for one, and the agreed loss percentage.",
             "Save the draft, then Approve it. Approval reserves the material.",
-            "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number, the transporter if a carrier took the goods, and the quantities going out; a batch-tracked line's lot travels with it. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
+            "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number, the transporter if a carrier took the goods, and the quantities going out. A batch-tracked line's lot travels with it; a serial-tracked line must name one available physical unit for every whole unit issued. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
             "The material sits at the vendor. Watch it on the Pending at vendor tab, or open the order for its timeline.",
             "When a lot comes back, press Receive output. Split it across Received (good processed output), Rejected (what the vendor spoiled) and Returned unworked (material that came back exactly as it went), and record the vendor's challan number and date; the returned units stay in the lot that went out. A rejected quantity needs a disposition - back to stock, kept at the vendor for rework, or scrapped there - and a reason. Tick Close line to write off whatever is still out as process loss; loss beyond the agreed allowance needs the excess-loss approval, which only the senior job-work right gives, and is debited to the vendor.",
             "Repeat for each lot until everything is back. Then Close the order.",
@@ -3118,7 +3262,8 @@
             "Give the order its GST rate and SAC when raising it - 18% and 9988 unless the vendor's paperwork says otherwise. Both are copied onto the vendor-invoice lines when the work is billed.",
             "A job-work bill charges receipt lines, never the order in the abstract. Approving one books the processing charge to the job-work expense account, moves what each receipt line has billed, and recovers the chargeback for material the vendor lost beyond allowance against the same bill. Cancelling a posted bill reverses both postings.",
             "Where an order requires inspection, the returned output is received onto QC hold rather than into the available pool, and an inspection is raised with it.",
-            "A batch-tracked item can be sent for job work only when its lot is named on the line before approval; the lot follows the material out and back. A serial-tracked item is still refused at order entry, because neither the challan nor the receipt has a place to name individual units.",
+            "A batch-tracked item requires its lot on the order line before approval; the lot follows the material out and back. A serial-tracked challan and receipt name each physical unit. Every received, rejected, returned-unworked, scrapped or vendor-held rework unit must be accounted for without duplicates; a receipt accepts at most 500 named units in total across its lines and dispositions. Use partial receipts for larger quantities.",
+            "Same-item serial processing keeps the existing identity. Supported one-to-one serial conversion to a different SKU keeps the physical serial label and links the old and new identities in an immutable history; either identity's trace follows that family. Batch SKU conversion, mixed batch/serial tracking and conversion ratios other than one-to-one remain unsupported.",
             "Only items flagged for job work on the item master, and still active, can be put on a line."
           ],
           "notes": "The received output is booked at what it cost - the input it consumed at the frozen challan issue value plus the processing charge the receipt accrued - not at the output item's standard cost. The Job-work cost report reads the same figures back per order line. The delivery challan PDF is generated in the background: queue it from a challan row and download it once the job completes."
@@ -3927,6 +4072,7 @@
             "New scrap is refused for an item whose Can scrap capability is off. Record unusable inspected stock as damaged instead. Existing scrap can still be disposed of after the capability is disabled.",
             "Scrap disposal uses what that scrap originally cost. A later, more expensive receipt does not reprice it. FIFO cost columns are visible only with cost-view rights.",
             "Bin moves and scrap disposals post when saved. Review the positions and quantities before saving; a posted document is corrected with a further stock document.",
+            "Bin moves, internal issues and scrap disposals currently refuse serial-tracked items because these documents do not persist named-unit selections. A physical count with matching serial quantity can confirm without a movement; a serial variance is refused without partially posting the count. Transfers and stock adjustments have their own supported named-unit workflows.",
             "Internal issue approval is measured against the actual oldest stock consumed. If its value rises beyond the limit at posting, nothing moves until it has approval.",
             "The consumables warehouse is a classification. Internal issues may consume permitted stock from any warehouse you are allowed to operate."
           ],
@@ -5269,7 +5415,8 @@
           ],
           "rules": [
             "Price on request products cannot be ordered until a price is available.",
-            "Filters remain in the address so a selected view can be reopened."
+            "Filters remain in the address so a selected view can be reopened.",
+            "Technical specifications opens the server-paged Option and Boolean filters. No is a real Boolean filter. Multiple specifications narrow the catalog together; Accessories can require or exclude accessory links."
           ]
         },
         {
@@ -5288,7 +5435,8 @@
           ],
           "rules": [
             "Included accessories appear as In the box and are not ordered separately.",
-            "The cart recalculates current prices and tax."
+            "The cart recalculates current prices and tax.",
+            "In-the-box accessories are descriptive: no separate price, stock requirement, cart action or required product-detail link. Optional add-ons use current dealer pricing and cannot be added when the price is on request or the account has no order right."
           ]
         },
         {

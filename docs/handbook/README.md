@@ -2,7 +2,7 @@
 
 `content.json` is the maintained handbook source. It describes all 79 current
 application routes, three public authentication routes and selected master-data
-tabs: 93 screen/tab entries across eleven chapters. Parameter names such as
+tabs: 97 screen/tab entries across eleven chapters. Parameter names such as
 `:itemId` and `:id` describe the same detail route.
 
 `Atcraft-ERP-Handbook.pdf`, `handbook.html` and `screens/` are generated local

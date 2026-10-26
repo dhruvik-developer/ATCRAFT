@@ -41,6 +41,7 @@ from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.products.models import (
     Brand,
+    CategorySpecification,
     Item,
     ItemAttribute,
     ItemAttributeType,
@@ -54,6 +55,7 @@ from src.modules.products.models import (
     UomConversion,
 )
 from src.modules.products.schemas import ItemFilters
+from src.modules.products.specification_repository import specification_predicates
 from src.modules.vendors.models import Vendor
 from src.modules.warehouses.models import StorageLocation, Warehouse
 
@@ -146,6 +148,22 @@ class ItemCategoryRepository(BaseRepository[ItemCategory]):
 
     async def get_by_code(self, code: str) -> ItemCategory | None:
         return await self.get_by_field("code", code)
+
+    async def lock_for_update(self, category_id: uuid.UUID) -> ItemCategory | None:
+        stmt = _locked_read(self._scoped().where(ItemCategory.id == category_id), share=False)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def has_specification_template(self, category_id: uuid.UUID) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(
+                    exists().where(
+                        CategorySpecification.company_id == self.tenant.company_id,
+                        CategorySpecification.category_id == category_id,
+                    )
+                )
+            )
+        )
 
     async def list_children(self, parent_id: uuid.UUID | None) -> list[ItemCategory]:
         """Direct children only - what a lazily-expanded tree control needs.
@@ -794,6 +812,11 @@ class ItemRepository(BaseRepository[Item]):
         # raiseload=True turns "someone serialised a column the list did not
         # select" into a loud error instead of one extra query per row.
         stmt = self._scoped().options(load_only(*columns, raiseload=True))
+        stmt = stmt.where(
+            *specification_predicates(
+                self.tenant.company_id, Item.id, filters.spec, filters.has_accessories
+            )
+        )
 
         if filters.is_active is not None:
             stmt = stmt.where(Item.is_active.is_(filters.is_active))

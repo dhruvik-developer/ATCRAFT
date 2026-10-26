@@ -11,6 +11,57 @@ The [26 October release verification](implementation/release-verification-202610
 records the latest populated route, theme and error-contract checks. Earlier
 dated results below remain historical evidence for their stated source.
 
+## D5 specifications and accessories candidate
+
+The D5 candidate adds four documented views on existing routes:
+`/masters?tab=specifications`,
+`/masters?tab=specifications&view=templates`,
+`/items/:itemId?tab=specifications` and
+`/items/:itemId?tab=accessories`. The maintained handbook now has 97 entries.
+The 93-view capture below predates these additions; a text update does not
+establish fresh browser or screenshot evidence for D5.
+
+The frontend uses generated API schemas and lazy-loads the new master tab and
+item panels. Its focused tests cover typed zero/false values, exact decimal
+strings, full replacements, warning-only completeness, permitted Option values,
+metadata pagination, accessory quantity/relation/ordering/removal, audit reasons,
+pending/error behavior, read-only permissions and dealer-safe descriptions and
+filters. Item-value editing uses item-authorized metadata; template category
+choices do not require an unrelated category-view permission.
+
+Candidate checks on 26 October passed 69 focused frontend cases, 103 other
+affected item/dealer cases and all 50 master-screen cases. Type checking,
+lint, formatting, generated-contract comparison and handbook validation passed.
+The production build meets the unchanged limits: 203.3 KB gzip initial load
+against 210 KB, and 37.9 KB for the heaviest screen against 40 KB; its asset
+scan found no credentials. These checks do not replace the populated browser
+and capture work below.
+
+Before promoting this candidate, run the unchanged production build budgets and
+the full checks, then use populated D5 demo data for these browser checks at
+375, 768 and 1440 pixels in both themes:
+
+- Create/edit an Option master, inspect required options and a refused in-use
+  type/option change, then inspect the reasoned retirement dialog.
+- Choose a category, attach attributes, change required warnings and save its
+  template with only the existing item-attribute permissions.
+- Open an item's Specifications panel with item-view/update permissions and no
+  specification-master permission. Verify that zero and No remain recorded,
+  missing required values warn without blocking saves, and field refusals keep
+  the draft available.
+- Add/edit/reorder/remove included and optional accessories. Included choices
+  may be non-sellable and need no stock; optional choices must be sellable.
+  Inspect long labels, keyboard focus, scrolling dialogs and pending controls.
+- Browse the dealer catalog with its own bound principal. Check paginated
+  Option/Boolean filters, false filters, combined filters and accessories
+  filtering. Included items have no separate price/cart/link requirement;
+  price-on-request optional items cannot be added. A browse-only dealer sees
+  descriptions without order actions.
+
+Refresh all 97 handbook captures on that candidate before describing its images
+as current. Follow the existing capture guard and preserve the dated release
+evidence below rather than attributing it to these new views.
+
 ## Current code and the latest recorded browser evidence
 
 The current loader registry defines 79 application routes, including the vendor

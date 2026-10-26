@@ -108,6 +108,22 @@ function listSpy(rows: unknown[] = [BRASS_ROD]) {
 // ------------------------------------------------------------- rendering ----
 
 describe('the grid', () => {
+  it.each(['true', 'false'])('keeps the accessories filter on the server (%s)', async (value) => {
+    const requests = listSpy()
+    const { user } = renderScreen(<ItemsPage />, {
+      route: `/items?has_accessories=${value}`,
+      permissions: [P.ITEM_VIEW],
+      routes: { 'GET /products/items': requests.handler },
+    })
+    await screen.findByRole('link', { name: 'RM-001' })
+    expect(requests.last().get('has_accessories')).toBe(value)
+    expect(screen.getByRole('combobox', { name: 'Filter by accessories' })).toHaveTextContent(
+      value === 'true' ? 'Has accessories' : 'No accessories',
+    )
+    await user.click(screen.getByRole('button', { name: 'Clear' }))
+    await waitFor(() => expect(requests.last().has('has_accessories')).toBe(false))
+  })
+
   it('links each row to its own detail page', async () => {
     // A real link, not only a row click: this screen is driven from the
     // keyboard all day, and a `<tr onClick>` alone is unreachable that way.
