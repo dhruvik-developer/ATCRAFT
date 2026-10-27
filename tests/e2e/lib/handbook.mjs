@@ -36,7 +36,39 @@ export function handbookDetailListRoute(template, listRoute, itemCode) {
   const shape = handbookRouteShape(template.split('?')[0])
   if (!itemCode?.trim() || !['/items/:id', '/dealer/catalog/:id'].includes(shape)) return listRoute
   const url = new URL(listRoute, 'http://handbook.invalid')
-  url.searchParams.set('search', itemCode.trim())
+  // useListQuery reads the browser's q parameter and sends search to the API.
+  url.searchParams.set('q', itemCode.trim())
+  url.searchParams.delete('search')
   url.searchParams.delete('page')
   return `${url.pathname}${url.search}`
+}
+
+/** Never substitute another record when a specific demonstration item is requested. */
+export function findHandbookDetailLink(links, prefix, itemCode) {
+  return links.find(
+    (link) =>
+      link.href?.startsWith(prefix) &&
+      /^[0-9a-f-]{20,}$/i.test(link.href.slice(prefix.length).split('/')[0]) &&
+      (!itemCode?.trim() || link.text.trim().split(/\s+/).includes(itemCode.trim())),
+  )?.href
+}
+
+/** A category choice only loads its template; it never saves changed values. */
+export function handbookTemplateCategory(route, categoryCode) {
+  const url = new URL(route, 'http://handbook.invalid')
+  return url.pathname === '/masters' &&
+    url.searchParams.get('tab') === 'specifications' &&
+    url.searchParams.get('view') === 'templates'
+    ? categoryCode?.trim() || null
+    : null
+}
+
+/** Pace read-only captures on installations with stricter API rate limits. */
+export function handbookViewDelayMs(value) {
+  const text = value?.trim() ?? ''
+  if (!text) return 0
+  const delay = Number(text)
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(delay) || delay > 60_000)
+    throw new RangeError('HANDBOOK_VIEW_DELAY_MS must be an integer from 0 to 60000.')
+  return delay
 }

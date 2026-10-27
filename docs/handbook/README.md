@@ -36,8 +36,7 @@ administrator whose initial password change is already complete, and dedicated
 vendor and dealer accounts bound to populated partners. Each portal is captured
 using its own principal; an administrator session cannot substitute for one. For the
 standard host setup, the UI is `http://localhost:5173` and the API is
-`http://localhost:8000/api/v1`. A production-build preview normally uses UI port
-4173. Use the actual published nginx URL when capturing a Docker stack.
+`http://localhost:8000/api/v1`. A production-build preview normally uses UI port 4173. Use the actual published nginx URL when capturing a Docker stack.
 
 From `tests/e2e`:
 
@@ -52,9 +51,20 @@ node scripts/build-handbook.mjs
 For populated product-description illustrations, set `HANDBOOK_ITEM_CODE` to
 `DM-FG-LEVER-AB` before capture. Staff and dealer item-detail resolvers search
 for that demo handle through their own list screens, retaining each requested
-tab. This selection performs no business writes and leaves other detail
-resolvers unchanged. An unavailable selected item fails capture instead of
-illustrating an unrelated record.
+tab. The resolver checks the exact requested code in the rendered detail link.
+This selection performs no business writes and leaves other detail resolvers
+unchanged. An unavailable selected item fails capture instead of illustrating
+an unrelated record.
+
+Set `HANDBOOK_CATEGORY_CODE=HANDLE-LEVER` to illustrate the populated category
+template too. Capture searches and chooses that category in the template view;
+it does not change checkboxes, values or ordering, or press the save button.
+
+If the selected installation has strict API request limits, set
+`HANDBOOK_VIEW_DELAY_MS=6000` to pause six seconds between authenticated views.
+The default is zero; supported values are whole milliseconds from 0 to 60000.
+Pacing leaves the server limits and failure checks intact. Network requests
+must still settle before capture, and HTTP 429 responses still fail the run.
 
 The capture signs in through the shared form helper, opens detail records from
 populated lists and navigates within the application. RFQs use their first data

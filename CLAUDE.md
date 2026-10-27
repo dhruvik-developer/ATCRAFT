@@ -617,10 +617,10 @@ uses commands from PATH: activate `apps/api/.venv` after installation before
 running the local development and checking targets. The PowerShell wrapper uses
 the backend interpreter explicitly for its backend commands.
 
-Current integration work and feature, bugfix and hotfix branches use `develop`.
-The deployment guard still maps deployment `main` to branch `main` and deployment
-`dev` to branch `dev`; promote reviewed changes into those deployment branches
-before running `scripts/deploy.sh`. Deployment names are not integration aliases.
+All development, fixes and integration work use `develop` in this checkout.
+Keep the verified revision synchronized to `main`. The deployment guard maps
+deployment `main` to branch `main` and deployment `dev` to branch `develop`;
+deployment names do not require additional Git branches.
 
 The hooks are defined in `.pre-commit-config.yaml`. `pre-commit` runs the
 formatters, linters and file-hygiene checks on the staged files; `pre-push`

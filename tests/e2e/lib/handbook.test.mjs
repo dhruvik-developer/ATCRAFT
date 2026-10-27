@@ -3,8 +3,11 @@ import test from 'node:test'
 
 import {
   createScreenshotLookup,
+  findHandbookDetailLink,
   handbookDetailListRoute,
   handbookRouteShape,
+  handbookTemplateCategory,
+  handbookViewDelayMs,
   resolveHandbookDetailRoute,
 } from './handbook.mjs'
 
@@ -82,7 +85,7 @@ test('selects a populated product on staff and dealer lists while preserving tem
   ]) {
     assert.equal(
       handbookDetailListRoute(template, list, ' DM-FG-LEVER-AB '),
-      `${list}?search=DM-FG-LEVER-AB`,
+      `${list}?q=DM-FG-LEVER-AB`,
     )
   }
 })
@@ -96,6 +99,66 @@ test('leaves unrelated lists and unspecified product selection unchanged', () =>
 test('encodes product search characters and resets an obsolete list page', () => {
   assert.equal(
     handbookDetailListRoute('/items/:id', '/items?page=3&search=old', 'A&B /+'),
-    '/items?search=A%26B+%2F%2B',
+    '/items?q=A%26B+%2F%2B',
   )
+})
+
+test('requires the selected product code in the actual rendered staff/dealer link', () => {
+  const first = { href: '/items/01234567-89ab-cdef-0123-456789abcdef', text: 'OTHER-CODE' }
+  const wanted = { href: '/items/11234567-89ab-cdef-0123-456789abcdef', text: 'DM-FG-LEVER-AB' }
+  assert.equal(findHandbookDetailLink([first, wanted], '/items/', 'DM-FG-LEVER-AB'), wanted.href)
+  assert.equal(findHandbookDetailLink([first], '/items/', 'DM-FG-LEVER-AB'), undefined)
+  assert.equal(findHandbookDetailLink([first], '/items/'), first.href)
+  const dealer = {
+    ...wanted,
+    href: wanted.href.replace('/items/', '/dealer/catalog/'),
+    text: 'DM-FG-LEVER-AB\nLever Handle',
+  }
+  assert.equal(findHandbookDetailLink([dealer], '/dealer/catalog/', 'DM-FG-LEVER-AB'), dealer.href)
+})
+
+test('refuses partial product codes and non-detail links', () => {
+  const similar = { href: '/items/01234567-89ab-cdef-0123-456789abcdef', text: 'DM-FG-LEVER-AB-2' }
+  assert.equal(findHandbookDetailLink([similar], '/items/', 'DM-FG-LEVER-AB'), undefined)
+  assert.equal(
+    findHandbookDetailLink(
+      [{ href: '/items/new', text: 'DM-FG-LEVER-AB' }],
+      '/items/',
+      'DM-FG-LEVER-AB',
+    ),
+    undefined,
+  )
+  assert.equal(
+    findHandbookDetailLink(
+      [{ ...similar, href: '/elsewhere/01234567-89ab-cdef-0123-456789abcdef' }],
+      '/items/',
+    ),
+    undefined,
+  )
+})
+
+test('selects a template illustration only for the category-template view', () => {
+  assert.equal(
+    handbookTemplateCategory('/masters?view=templates&tab=specifications', ' HANDLE-LEVER '),
+    'HANDLE-LEVER',
+  )
+  assert.equal(handbookTemplateCategory('/masters?tab=specifications', 'HANDLE-LEVER'), null)
+  assert.equal(
+    handbookTemplateCategory('/items?tab=specifications&view=templates', 'HANDLE-LEVER'),
+    null,
+  )
+  assert.equal(handbookTemplateCategory('/masters?tab=specifications&view=templates', ' '), null)
+})
+
+test('defaults capture pacing to zero and accepts bounded milliseconds', () => {
+  assert.equal(handbookViewDelayMs(), 0)
+  assert.equal(handbookViewDelayMs(' '), 0)
+  assert.equal(handbookViewDelayMs('0'), 0)
+  assert.equal(handbookViewDelayMs(' 6000 '), 6000)
+  assert.equal(handbookViewDelayMs('60000'), 60_000)
+})
+
+test('refuses invalid capture pacing instead of silently flooding the API', () => {
+  for (const value of ['-1', '1.5', '1e3', 'Infinity', 'NaN', '60001', '9007199254740992'])
+    assert.throws(() => handbookViewDelayMs(value), /HANDBOOK_VIEW_DELAY_MS/)
 })

@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { chromium } from '@playwright/test'
@@ -16,8 +17,11 @@ import { chromium } from '@playwright/test'
 import { API_URL, BASE_URL } from '../lib/env.mjs'
 import { accountForAudience, routeAudience } from '../lib/audiences.mjs'
 import {
+  findHandbookDetailLink,
   handbookDetailListRoute,
   handbookRouteShape,
+  handbookTemplateCategory,
+  handbookViewDelayMs,
   resolveHandbookDetailRoute,
 } from '../lib/handbook.mjs'
 import {
@@ -35,6 +39,7 @@ const HANDBOOK = fileURLToPath(new URL('../../../docs/handbook/', import.meta.ur
 const OUT = path.join(HANDBOOK, 'screens')
 const VIEWPORT = { width: 1600, height: 1000 }
 const PREFERRED_ITEM_CODE = process.env.HANDBOOK_ITEM_CODE
+const VIEW_DELAY_MS = handbookViewDelayMs(process.env.HANDBOOK_VIEW_DELAY_MS)
 const PUBLIC = ['/login', '/forgot-password', '/reset-password']
 const DETAIL_LISTS = {
   '/items/:id': ['/items', '/items/'],
@@ -214,6 +219,9 @@ if (process.argv.includes('--check')) {
     const sessions = new Map([['staff', { page, navigate, settle }]])
 
     for (const screen of screens.filter((screen) => !PUBLIC.includes(screen.route))) {
+      // This is request pacing between views; readiness still depends on the
+      // navigator's settled requests and visible route content, never this delay.
+      if (VIEW_DELAY_MS) await delay(VIEW_DELAY_MS)
       const audience = routeAudience(screen.route)
       if (!sessions.has(audience)) {
         const roleContext = await protectedContext()
@@ -276,15 +284,15 @@ if (process.argv.includes('--check')) {
           if (!resolved.has(key)) {
             const [listRoute, prefix] = DETAIL_LISTS[key]
             await navigate(handbookDetailListRoute(screen.route, listRoute, PREFERRED_ITEM_CODE))
-            const hrefs = await page
+            const links = await page
               .locator(`main a[href^="${prefix}"]`)
-              .evaluateAll((links) => links.map((link) => link.getAttribute('href')))
-            resolved.set(
-              key,
-              hrefs.find((href) =>
-                /^[0-9a-f-]{20,}$/i.test(href.slice(prefix.length).split('/')[0]),
-              ),
-            )
+              .evaluateAll((links) =>
+                links.map((link) => ({ href: link.getAttribute('href'), text: link.innerText })),
+              )
+            const itemCode = ['/items/:id', '/dealer/catalog/:id'].includes(key)
+              ? PREFERRED_ITEM_CODE
+              : undefined
+            resolved.set(key, findHandbookDetailLink(links, prefix, itemCode))
             if (!resolved.get(key) && key === '/procurement/rfqs/:id') {
               // RFQ codes are spans: this verified first-cell row handler only
               // navigates to its detail page. Do not click an actions menu.
@@ -314,6 +322,37 @@ if (process.argv.includes('--check')) {
         await navigate(route)
         if (new URL(page.url()).pathname !== route.split('?')[0])
           throw new Error(`Unexpected redirect while capturing ${route}`)
+        const categoryCode = handbookTemplateCategory(
+          screen.route,
+          process.env.HANDBOOK_CATEGORY_CODE,
+        )
+        if (categoryCode) {
+          await page
+            .getByRole('textbox', { name: 'Search category', exact: true })
+            .fill(categoryCode)
+          const categoryPicker = page.getByRole('combobox', { name: 'Category', exact: true })
+          await page.waitForFunction(
+            (code) =>
+              [...document.querySelectorAll('select option')].some((option) =>
+                option.textContent.startsWith(`${code} - `),
+              ),
+            categoryCode,
+          )
+          const choices = await categoryPicker
+            .locator('option')
+            .evaluateAll(
+              (options, code) =>
+                options
+                  .filter((option) => option.textContent.startsWith(`${code} - `))
+                  .map((option) => option.value),
+              categoryCode,
+            )
+          if (choices.length !== 1)
+            throw new Error(`No unique category fixture for ${categoryCode}`)
+          await categoryPicker.selectOption(choices[0])
+          await page.getByRole('button', { name: 'Choose category', exact: true }).click()
+          await settle()
+        }
         if (failures.length) throw new Error(failures.join('; '))
         await photograph(page, screen, route)
       } catch (error) {

@@ -155,5 +155,8 @@ with all four types and both accessory relations; identical rerun snapshots;
 preserved operator edits/clears/retirement/removal and pre-existing changed
 masters; and atomic rollback/retry after a simulated late failure. All four
 pass. Snapshot checks include product, audit, BOM and inventory tables, proving
-the descriptive stage creates no stock movements or BOM rows. A full CLI rerun
-on the combined release remains part of final integration verification.
+the descriptive stage creates no stock movements or BOM rows. The combined
+release's fresh CLI regression passed in 186.45 seconds, including generated
+PDFs and an unchanged second invocation. The canonical local database was also
+upgraded and seeded without resetting existing credentials; its unchanged rerun
+registered 351 references across 52 kinds and created no replacement PDFs.

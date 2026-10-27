@@ -6,13 +6,15 @@ not close the [remaining full-scope packages](production-scope-20261025.md) or
 approve deployment to a real host. The user kept the DSC/PAdES signer decision
 pending while other work continues.
 
-The [completed CI run for `2db4a5e`](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40282596137)
-passed all five jobs: backend quality, backend integration, frontend, production
-configuration/image scans and browser journeys. It recorded 6,171 backend
-passes with 81.38% branch coverage, 4,095 unit passes in the separate quality
-job, 25 browser journeys and clean accessibility checks in both themes. This
-verifies that checkpoint; the newer D5 and session-recovery changes require
-their own combined checks.
+The shared `b4804d9` checkpoint passed all five CI jobs on both
+[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40378297997)
+and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40378299144):
+backend quality, backend integration, frontend, production configuration/image
+scans and browser journeys. The develop run recorded 6,338 backend passes with
+81.63% combined statement/branch coverage and 30 browser tests. Accessibility
+checks covered 66 screens in each theme with zero violated rules or render
+failures. The frontend suite passed 1,493 tests across 113 files. These combined
+checks include D5 and transient session recovery.
 
 ## Canonical local installation
 
@@ -40,7 +42,7 @@ its rerun created no replacement PDFs. Existing account passwords were retained.
 The current local UI/API use ports 5173/8000 rather than the removed rehearsal's
 18081 port.
 
-## D5 candidate checks
+## D5 and session-recovery verification
 
 The consolidated D5 backend run passed 167 tests with no skips, including
 category-lock concurrency, retained archived references, typed values,
@@ -60,13 +62,25 @@ The local browser run exposed transient authentication failures under rate
 limiting. Refresh/profile recovery now preserves the session and presents an
 explicit retry while protected content remains blocked until identity is
 verified. All 179 focused authentication/client/router tests passed, as did two
-real-cookie Chromium recovery cases plus their setup. The full browser rerun,
-accessibility sweep and 97-view handbook capture remain continuation checks.
+real-cookie Chromium recovery cases plus their setup. The pushed checkpoint's
+30-test browser run and both accessibility sweeps passed as recorded above.
+The 27 October read-only capture passed all 97 views with zero failures using
+staff, bound vendor and bound dealer accounts. The rebuilt 199-page handbook
+has an image for every view and no out-of-page text. All pages were rendered;
+contact sheets and selected product, job-work, packing and dealer pages were
+reviewed visually. The selected demo handle shows its actual zero/false values
+and both accessory relations. The capture now checks the requested code in
+the rendered link, rather than trusting an ineffective URL filter. Optional
+pacing respects the local API limits without relaxing HTTP-error checks.
+All 45 offline capture/navigation/portal tests pass.
 
 The owner now requires only `main` and `develop`, synchronized to the same
-verified revision locally and remotely. Feature/recovery refs are being
-consolidated with their histories preserved. Dependency-update PR generation
-is paused through the seven update configurations; CI audits remain enabled.
+verified revision locally and remotely. The consolidation synchronized both
+branches locally and on origin to `b4804d9`. Superseded snapshot histories were
+retained with an ordinary merge whose application tree was unchanged. Four obsolete
+local branches and eight remote dependency-update branches were removed; no
+open pull requests remain. Dependency version-update PR generation is paused
+through the seven update configurations; CI audits remain enabled.
 The deployment named `dev` now tracks `develop`, so no third Git branch is
 required. The branch mapping passed 36 release/configuration unit cases and
 shell syntax validation.
@@ -109,7 +123,7 @@ did not order tied timestamps. Both regressions now pass within their complete
 finance table scroll area. The shared table now provides a named, focusable
 group with a visible keyboard focus indicator; Chromium verified Tab access and
 ArrowRight scrolling at 375 px. Using a group avoids duplicate page landmarks
-when two tables are present. The completed `2db4a5e` CI run above verifies these
+when two tables are present. The completed CI runs above verify these
 corrections.
 
 The responsive run found a real tablet catalogue overflow. Long offer labels

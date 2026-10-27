@@ -340,12 +340,13 @@ git clone <repo> /srv/atcraft-main
 cd /srv/atcraft-main && git checkout main
 
 git clone <repo> /srv/atcraft-dev
-cd /srv/atcraft-dev && git checkout dev
+cd /srv/atcraft-dev && git checkout develop
 ```
 
 `scripts/deploy.sh` refuses to build deployment `main` from a tree that is not
-on `main`, and likewise for `dev`, so a forgotten `git checkout` cannot ship
-the wrong code.
+on `main`, or deployment `dev` from a tree that is not on `develop`, so a
+forgotten `git checkout` cannot ship the wrong code. These server provisioning
+examples do not authorize a second checkout on the local development machine.
 
 ### 5. Generate each deployment's secrets
 
