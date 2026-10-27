@@ -126,7 +126,7 @@ build-web: ## Production frontend build, bundle budgets and secret scan
 	cd $(WEB_DIR) && npm run build
 
 test-e2e: ## Playwright end-to-end tests against a running stack
-	cd tests/e2e && npx playwright test
+	cd tests/e2e && npm test
 
 test-load: ## Locust load test (headless smoke profile)
 	cd tests/load && locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost

@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
+import type { SchemaOf } from '../../../apps/web/src/types/api'
 import { API_URL, BASE_URL } from '../lib/env.mjs'
 import { readyAdminToken } from '../lib/session.mjs'
 
@@ -132,11 +133,15 @@ test('01 — master data: warehouse, items, partners', async ({ request }) => {
   // Every item needs a base unit: `base_uom_id` is required, and omitting it is
   // a 422 rather than a defaulted NOS. The baseline seed loads the unit table,
   // so this resolves what is there instead of creating one.
-  const units = await apiJson(request, 'get', '/products/uoms?limit=50')
+  const units: SchemaOf<'UomOut'>[] = await apiJson(request, 'get', '/products/uoms?limit=50')
   const baseUomId = (units.find((u) => u.code === 'NOS') ?? units[0])?.id
   expect(baseUomId, 'no unit of measure exists — run the seed first').toBeTruthy()
 
-  const warehouses = await apiJson(request, 'get', '/warehouses?limit=1&warehouse_type=FINISHED_GOODS')
+  const warehouses = await apiJson(
+    request,
+    'get',
+    '/warehouses?limit=1&warehouse_type=FINISHED_GOODS',
+  )
   ids.warehouseId =
     warehouses?.[0]?.id ??
     (
@@ -241,7 +246,12 @@ test('02 — BOM is created and approved', async ({ request }) => {
     is_default: true,
     lines: [
       { line_number: 1, component_item_id: ids.componentId, quantity_per: '2' },
-      { line_number: 2, component_item_id: ids.rawMaterialId, quantity_per: '8', scrap_percentage: '5' },
+      {
+        line_number: 2,
+        component_item_id: ids.rawMaterialId,
+        quantity_per: '8',
+        scrap_percentage: '5',
+      },
     ],
   })
   ids.bomId = bom.id
@@ -279,7 +289,9 @@ test('03 — sales order confirms and reserves what stock exists', async ({ requ
     customer_id: ids.customerId,
     warehouse_id: ids.warehouseId,
     required_date: inDays(21),
-    lines: [{ line_number: 1, item_id: ids.finishedGoodId, quantity: '100', unit_price: '4500.00' }],
+    lines: [
+      { line_number: 1, item_id: ids.finishedGoodId, quantity: '100', unit_price: '4500.00' },
+    ],
   })
   ids.salesOrderId = order.id
 
@@ -315,7 +327,8 @@ test('04 — MRP consolidates demand and proposes purchases', async ({ request }
   )
   expect(completed.status, `MRP run failed: ${completed.error_message ?? ''}`).toBe('COMPLETED')
 
-  const suggestions = (await apiJson(request, 'get', `/mrp/runs/${runId}/suggestions?limit=200`)) ?? []
+  const suggestions =
+    (await apiJson(request, 'get', `/mrp/runs/${runId}/suggestions?limit=200`)) ?? []
   const rows = Array.isArray(suggestions) ? suggestions : suggestions.data
 
   // 100 kits × 2 rose handles = 200, and the screw requirement must appear as a
@@ -335,7 +348,13 @@ test('05 — purchase order, receipt, and stock actually moves', async ({ reques
     warehouse_id: ids.warehouseId,
     expected_delivery_date: inDays(7),
     lines: [
-      { line_number: 1, item_id: ids.componentId, quantity: '200', unit_price: '380.00', required_date: inDays(7) },
+      {
+        line_number: 1,
+        item_id: ids.componentId,
+        quantity: '200',
+        unit_price: '380.00',
+        required_date: inDays(7),
+      },
     ],
   })
 
@@ -387,11 +406,7 @@ test('05 — purchase order, receipt, and stock actually moves', async ({ reques
 
 test('06 — the audit trail reconstructs what happened', async ({ request }) => {
   const page = shared
-  const history = await apiJson(
-    request,
-    'get',
-    `/audit/entity/sales_order/${ids.salesOrderId}`,
-  )
+  const history = await apiJson(request, 'get', `/audit/entity/sales_order/${ids.salesOrderId}`)
   const entries = Array.isArray(history) ? history : history.data
   expect(entries.length, 'a confirmed sales order must leave an audit trail').toBeGreaterThan(0)
 

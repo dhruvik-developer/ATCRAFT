@@ -8,7 +8,9 @@ import { BASE_URL } from './lib/env.mjs'
  * These tests run against a *running stack* — they are not unit tests with a
  * browser attached. Start the environment first:
  *
- *     make dev-docker        (or: make dev, then make migrate && make seed)
+ * Follow the root README to start the API, frontend, PostgreSQL and Redis;
+ * populate the installation with `make seed-local`. In this folder, `npm ci`
+ * installs the test tooling and `npm test` checks types before Playwright.
  *
  * Configuration comes from `lib/env.mjs`, which loads `tests/e2e/.env` when it
  * exists - copy `.env.example` to get one - and is the same module the specs

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "allowJs": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["playwright.config.ts", "specs/**/*.ts"]
+}

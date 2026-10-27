@@ -191,7 +191,7 @@ switch ($Target) {
     'test-integration' { $py = Get-VenvPython; Invoke-Step "& '$py' -m pytest tests/integration tests/api -q" $ApiDir }
     'test-cov'         { $py = Get-VenvPython; Invoke-Step "& '$py' -m pytest --cov=src --cov-report=term-missing --cov-report=html" $ApiDir }
     'test-web'         { Invoke-Step 'npm run test' $WebDir }
-    'test-e2e'         { Invoke-Step 'npx playwright test' (Join-Path $Root 'tests\e2e') }
+    'test-e2e'         { Invoke-Step 'npm test' (Join-Path $Root 'tests\e2e') }
     'test-load'        { Invoke-Step 'locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost' (Join-Path $Root 'tests\load') }
 
     'lint' {

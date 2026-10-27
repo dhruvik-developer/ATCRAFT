@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run typecheck",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
@@ -15,6 +17,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.49.1",
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "typescript": "5.9.3"
   }
 }

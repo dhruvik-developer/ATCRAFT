@@ -184,6 +184,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm audit --audit-level=high
+          npm run typecheck
           npm run handbook:check
           npx playwright install --with-deps chromium
 

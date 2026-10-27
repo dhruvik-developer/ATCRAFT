@@ -122,6 +122,13 @@ The Git hooks and pushed-revision CI repeat the whole-tree gates; each workflow
 run is evidence for its own commit. The completed checkpoint's CI above does
 not substitute for the workflow of a later source revision.
 
+The E2E folder now has an explicit strict TypeScript project with Node.js and
+browser types. Its compiler matches the frontend's locked 5.9.3 version. The
+full E2E typecheck passes; the unit-of-measure lookup uses the generated API
+schema, all 30 browser tests are discoverable and the test dependencies have
+zero audit findings. CI checks these types before running the journeys, and
+both `make test-e2e` variants use the same npm pretest check.
+
 ## Previously verified application behavior
 
 | Check | Result |

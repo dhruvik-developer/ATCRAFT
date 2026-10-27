@@ -309,6 +309,11 @@ make test-e2e           # Playwright, needs a running stack
 make test-load          # Locust
 ```
 
+The E2E TypeScript project declares its Node.js and browser types explicitly.
+Install its dependencies with `npm --prefix tests/e2e ci`; run
+`npm --prefix tests/e2e run typecheck` to check all specs without opening a
+browser. `make test-e2e` runs that check before Playwright, and CI enforces it too.
+
 Integration tests expect the development infrastructure to be up
 (`make dev` or `make up`). The concurrency tests are the important ones: they
 assert that two simultaneous reservations against the same stock cannot both
