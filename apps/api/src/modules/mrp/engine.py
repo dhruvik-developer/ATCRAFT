@@ -134,13 +134,12 @@ land. A parent's expected date is then pulled no earlier than its components'
 dates plus its own lead time, so one late part moves the assembly it feeds
 instead of disappearing into a lead-time roll-up.
 
-Remaining limitation, stated rather than hidden
------------------------------------------------
-**Job-work output is not yet a supply feed.** Purchase orders and production
-output are netted; material sent out to a processor and due back is not, because
-the job-work contract arrives with E3b. Until then an item covered only by an
-open job-work challan is suggested again - an over-order in the cancellable
-direction, never a silent stockout.
+Job-work supply
+---------------
+Expected good output from issued, unaccounted-for job-work input is netted at
+the order's expected return date within the run's warehouse scope. A missing
+feed produces an explicit warning and an upper-bound suggestion, just like
+unavailable purchase-order or production feeds.
 
 Rounding: every quantity is ``Decimal`` and is quantised with
 :func:`~src.core.types.to_quantity` as it is produced, so a plan's printed lines
@@ -156,6 +155,11 @@ from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal, localcontext
 from typing import Any, Protocol
 
+from src.core.demand_provenance import (
+    MAX_ROOT_DEMAND_REFS,
+    DemandReference,
+    RootDemandProvenance,
+)
 from src.core.errors import BusinessRuleError, ErrorCode
 from src.core.logging import get_logger
 from src.core.types import ZERO, to_quantity
@@ -224,6 +228,8 @@ class DemandLine:
     warehouse_id: uuid.UUID | None = None
     priority: int = DEFAULT_DEMAND_PRIORITY
     notes: str | None = None
+    #: Stable identity of the snapshotted input, including manual demand.
+    demand_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -862,6 +868,35 @@ class DemandBucket:
     level: int | None = None
     sources: list[dict[str, Any]] = field(default_factory=list)
     source_count: int = 0
+    root_refs: dict[DemandReference, None] = field(default_factory=dict, repr=False)
+    root_refs_complete: bool = True
+
+    def add_root_ref(self, ref: DemandReference | None) -> None:
+        """Keep identities independently of the capped contribution listing."""
+        if ref is None:
+            self.root_refs_complete = False
+        elif ref not in self.root_refs:
+            if len(self.root_refs) < MAX_ROOT_DEMAND_REFS:
+                self.root_refs[ref] = None
+            else:
+                self.root_refs_complete = False
+
+    def inherit_root_refs(self, parent: DemandBucket) -> None:
+        """Carry causal roots, without inventing per-demand quantity allocation."""
+        for ref in parent.root_refs:
+            self.add_root_ref(ref)
+        self.root_refs_complete = self.root_refs_complete and parent.root_refs_complete
+
+    def listed_sources(self) -> tuple[dict[str, Any], ...]:
+        """Serialize typed aggregate metadata on the first existing display fact."""
+        sources = [dict(source) for source in self.sources]
+        if sources:
+            provenance = RootDemandProvenance(
+                root_demand_refs=list(self.root_refs),
+                root_demand_refs_complete=self.root_refs_complete,
+            )
+            sources[0].update(provenance.model_dump(mode="json"))
+        return tuple(sources)
 
     def add_source(self, entry: dict[str, Any]) -> None:
         """Record one contribution, keeping the listing bounded.
@@ -906,6 +941,17 @@ def merge_demand(demands: Sequence[DemandLine]) -> dict[uuid.UUID, DemandBucket]
         bucket.direct = to_quantity(bucket.direct + line.quantity)
         bucket.note_date(line.required_date)
         bucket.note_level(0)
+        if line.source is MrpDemandSource.SALES_ORDER and line.source_id is not None:
+            root_ref = DemandReference(
+                demand_type="SALES_ORDER",
+                demand_id=line.source_id,
+                demand_line_id=line.source_line_id,
+            )
+        elif line.source is MrpDemandSource.MANUAL and line.demand_id is not None:
+            root_ref = DemandReference(demand_type="MRP_DEMAND", demand_id=line.demand_id)
+        else:
+            root_ref = None
+        bucket.add_root_ref(root_ref)
         bucket.add_source(
             {
                 "source": str(line.source),
@@ -1517,7 +1563,7 @@ async def plan(
                     as_of=as_of,
                 ),
                 source_demand_count=entry.bucket.source_count,
-                source_demands=tuple(entry.bucket.sources),
+                source_demands=entry.bucket.listed_sources(),
                 late_incoming_quantity=entry.split.late_incoming,
                 late_in_production_quantity=entry.split.late_in_production,
                 late_job_work_quantity=entry.split.late_job_work,
@@ -1566,6 +1612,10 @@ async def plan(
                     child.dependent = to_quantity(child.dependent + quantity)
                     child.note_date(component_date)
                     child.note_level(level + 1)
+                    # ASSUMPTION: aggregate netting does not choose which root
+                    # stock covered. Keep every causal root rather than
+                    # assigning component quantities to sales lines.
+                    child.inherit_root_refs(entry.bucket)
                     child.add_source(
                         {
                             "source": "BOM",

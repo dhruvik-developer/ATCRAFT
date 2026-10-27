@@ -59,6 +59,13 @@ def _request(item_id: uuid.UUID, *, warehouse_ids: list[uuid.UUID]) -> Any:
         required_date=date(2026, 10, 1),
         suggested_order_date=date(2026, 9, 10),
         warehouse_ids=warehouse_ids,
+        source_demands=[
+            {
+                "source": "SALES_ORDER",
+                "source_id": str(uuid.uuid4()),
+                "source_line_id": str(uuid.uuid4()),
+            }
+        ],
         notes="Shortage on SO-0007",
     )
 
@@ -116,6 +123,11 @@ async def test_the_hook_raises_a_requisition_sourced_from_the_suggestion(
     assert (line.line_number, line.item_id) == (1, item_id)
     assert line.quantity == Decimal("25.5000")
     assert line.required_date == date(2026, 10, 1)
+    assert line.source_demand_refs[0].model_dump(mode="json") == {
+        "demand_type": "SALES_ORDER",
+        "demand_id": request.source_demands[0]["source_id"],
+        "demand_line_id": request.source_demands[0]["source_line_id"],
+    }
     # Planning carries no principal, so no department or branch is assumed.
     assert captured["scope"] == (None, None)
 
@@ -170,3 +182,23 @@ def test_the_hook_is_exported_under_the_name_planning_resolves() -> None:
     assert module_name == service.__name__
     assert function_name in service.__all__
     assert getattr(service, function_name) is service.create_requisition_from_mrp
+
+
+@pytest.mark.parametrize(
+    "sources",
+    [
+        [],
+        [{"source": "BOM", "via_item_id": str(uuid.uuid4())}],
+        [{"root_demand_refs": [], "root_demand_refs_complete": True}],
+        [{"root_demand_refs": [], "root_demand_refs_complete": False}],
+    ],
+)
+async def test_incomplete_links_refuse_before_any_item_read_or_document_creation(
+    captured: dict[str, Any], sources: list[dict[str, Any]]
+) -> None:
+    request = _request(uuid.uuid4(), warehouse_ids=[])
+    request.source_demands = sources
+    # No item fixtures: reaching a database read would itself fail this test.
+    with pytest.raises(BusinessRuleError, match=r"(?i)(demand|provenance)"):
+        await service.create_requisition_from_mrp(None, _tenant(), request)  # type: ignore[arg-type]
+    assert "payload" not in captured

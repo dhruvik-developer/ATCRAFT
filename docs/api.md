@@ -489,6 +489,24 @@ download; long work runs in a worker rather than holding the HTTP request open.
 
 ---
 
+## Planning demand provenance
+
+MRP requirement and suggestion responses include `demand_provenance`, either
+`null` when no source facts were recorded or an object with
+`root_demand_refs` and `root_demand_refs_complete`. Each reference contains
+`demand_type`, `demand_id` and nullable `demand_line_id`. Sales demand uses
+`SALES_ORDER`; manual planning uses `MRP_DEMAND` and the persisted input-row ID.
+These references survive BOM expansion independently of the capped display
+facts in `source_demands`.
+
+Converting a purchase suggestion requires complete, nonempty demand links,
+with at most fifty distinct references. A refused conversion returns the
+standard 422 business-rule envelope with guidance to rerun the plan, leaving
+the suggestion open and creating no requisition or conversion audit. Legacy
+plans remain readable; incomplete historical links are reported explicitly.
+References describe why a shared requirement exists and do not allocate its
+aggregate quantity to individual sales lines.
+
 ## Endpoint map
 
 ```

@@ -76,6 +76,27 @@ The whole action runs in one transaction, under the same `advisory_xact_lock("po
 - Update §16.
 - `api.md`; handbook (duplicate PO control, amendments).
 
+## Implementation checkpoint - 27 October 2026
+
+The planning foundation is implemented: canonical sales/manual roots survive
+multi-level explosion, independently of capped display contributions; purchase
+conversion persists them in the existing requisition JSONB/GIN structure.
+Incomplete or over-bound provenance refuses conversion atomically, while old
+plans remain readable. Shared component quantities are labelled as aggregate
+in the fulfilment trail. Revision `20261102_0100` indexes the MRP containment
+lookup. No second `source_demand_refs` column or index is needed.
+
+Real duplicate actions, category/provenance matching, amendments and their UI
+remain work. A single PO line can serve several PR lines after a merge: add a
+durable tenant-scoped quantity allocation mapping, backfill legacy scalar
+links without changing counters, and update every release/replacement and
+sales-attribution path. Resolve supplied demand triples inside the tenant and
+validate their line ownership. Preserve line IDs, guard against any GRN history and
+serialize receipt creation with amendments. Reductions below allocated demand
+need explicit allocations. Require a current document version for changes,
+retain separation of duties, and keep pending vendor amendments status-only
+until approved and resent.
+
 ## Tests
 
 **Unit**

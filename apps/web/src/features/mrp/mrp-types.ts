@@ -275,6 +275,8 @@ export interface MrpSuggestionRow {
   converted_at: string | null
   ignored_reason: string | null
   source_demands: MrpSourceDemand[] | null
+  /** Canonical causal identities, separate from the capped contribution listing. */
+  demand_provenance: SchemaOf<'MrpSuggestionRead'>['demand_provenance']
 }
 
 /**

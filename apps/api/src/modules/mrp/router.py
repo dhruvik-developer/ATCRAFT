@@ -387,12 +387,14 @@ async def get_suggestion(
     response_model=ApiResponse[SuggestionConversionResult],
     summary="Convert a suggestion into a document",
     description=(
-        "Raises a purchase requisition or a production order from the suggestion "
+        "Raises a purchase requisition, production order or job-work order from the suggestion "
         "and closes it, in one transaction. Omit `target` to use the default for "
         "the suggestion type; naming a different one is allowed and is recorded in "
         "the audit entry. If the owning module is not deployed, no document is "
         "created: `handled` is false and the typed conversion request is returned "
-        "for the caller to action."
+        "for the caller to action. Purchase conversion requires complete, nonempty demand "
+        "links with at most fifty distinct roots. Incomplete historical links return 422 "
+        "without closing the suggestion or creating a requisition; rerun the plan first."
     ),
     dependencies=[require_permission(Permission.MRP_CONVERT_SUGGESTION)],
 )

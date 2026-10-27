@@ -71,7 +71,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.constants import (
+    CURRENCY_CODE_LENGTH,
+    DEFAULT_CURRENCY,
+    MAX_DEMAND_PROVENANCE_REFS,
+)
 from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
@@ -109,10 +113,9 @@ MAX_PRIORITY = 9
 DEFAULT_PRIORITY = 5
 
 #: How many demand references one requisition line may carry (WP D1 section 1).
-#: A cap rather than unbounded because the list is a provenance reminder on the
-#: duplicate check, not a ledger: a line covering hundreds of demand rows is a
-#: planning aggregate, and the operator needs the count more than every uuid.
-MAX_SOURCE_DEMAND_REFS = 50
+#: Causal references are distinct from quantities allocated to a document line.
+#: Planning refuses conversion when this bound would discard a distinct root.
+MAX_SOURCE_DEMAND_REFS = MAX_DEMAND_PROVENANCE_REFS
 
 #: ISO-4217 alphabetic currency codes.
 

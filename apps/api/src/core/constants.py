@@ -15,6 +15,9 @@ from __future__ import annotations
 # Bound named-unit creation and receipt posting consistently across documents.
 MAX_SERIAL_BULK = 500
 
+# Canonical demand identities carried from planning into one requisition line.
+MAX_DEMAND_PROVENANCE_REFS = 50
+
 #: INR fallback for model/schema defaults and callers that do not resolve a
 #: company currency. Company-aware customer workflows use ``Company.currency``.
 #: The compatibility ``DEFAULT_CURRENCY`` environment setting does not override
@@ -39,6 +42,7 @@ MAX_ITEM_ACCESSORIES = 200
 __all__ = [
     "CURRENCY_CODE_LENGTH",
     "DEFAULT_CURRENCY",
+    "MAX_DEMAND_PROVENANCE_REFS",
     "MAX_ITEM_ACCESSORIES",
     "MAX_REQUEST_ID_LENGTH",
     "MAX_SERIAL_BULK",

@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(rendered, encoding="utf-8")
+    args.output.write_text(rendered, encoding="utf-8", newline="\n")
     paths = len(json.loads(rendered)["paths"])
     schemas = len(json.loads(rendered).get("components", {}).get("schemas", {}))
     print(f"Wrote {args.output} - {paths} endpoints, {schemas} schemas.")

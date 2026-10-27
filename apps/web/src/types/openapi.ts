@@ -4200,7 +4200,7 @@ export interface paths {
         put?: never;
         /**
          * Convert a suggestion into a document
-         * @description Raises a purchase requisition or a production order from the suggestion and closes it, in one transaction. Omit `target` to use the default for the suggestion type; naming a different one is allowed and is recorded in the audit entry. If the owning module is not deployed, no document is created: `handled` is false and the typed conversion request is returned for the caller to action.
+         * @description Raises a purchase requisition, production order or job-work order from the suggestion and closes it, in one transaction. Omit `target` to use the default for the suggestion type; naming a different one is allowed and is recorded in the audit entry. If the owning module is not deployed, no document is created: `handled` is false and the typed conversion request is returned for the caller to action. Purchase conversion requires complete, nonempty demand links with at most fifty distinct roots. Incomplete historical links return 422 without closing the suggestion or creating a requisition; rerun the plan first.
          */
         post: operations["convert_suggestion_api_v1_mrp_suggestions__suggestion_id__convert_post"];
         delete?: never;
@@ -19158,6 +19158,21 @@ export interface components {
             source: components["schemas"]["TrackingEventSource"];
         };
         /**
+         * DemandReference
+         * @description One canonical, open-vocabulary demand identity; never an item identity.
+         */
+        DemandReference: {
+            /**
+             * Demand Id
+             * Format: uuid
+             */
+            demand_id: string;
+            /** Demand Line Id */
+            demand_line_id?: string | null;
+            /** Demand Type */
+            demand_type: string;
+        };
+        /**
          * DemandSummaryRow
          * @description Open demand for one item, aggregated across every open order.
          */
@@ -23876,6 +23891,8 @@ export interface components {
         MrpRequirementRead: {
             /** Available Quantity */
             available_quantity: string;
+            /** @description Legacy incomplete plans remain readable; conversion refuses them. */
+            readonly demand_provenance: components["schemas"]["RootDemandProvenance"] | null;
             /** Dependent Demand Quantity */
             dependent_demand_quantity: string;
             /** Direct Demand Quantity */
@@ -24168,6 +24185,8 @@ export interface components {
             converted_to_id?: string | null;
             /** Converted To Type */
             converted_to_type?: string | null;
+            /** @description Legacy incomplete plans remain readable; conversion refuses them. */
+            readonly demand_provenance: components["schemas"]["RootDemandProvenance"] | null;
             /** Expected Available Date */
             expected_available_date?: string | null;
             /**
@@ -32124,6 +32143,20 @@ export interface components {
             name?: string | null;
             /** Permissions */
             permissions?: string[] | null;
+        };
+        /**
+         * RootDemandProvenance
+         * @description Bounded canonical roots with an explicit completeness claim.
+         *
+         *     New MRP facts store this metadata on their first listed contribution. The
+         *     display listing and the canonical roots have separate bounds: repeated
+         *     contributions can exceed the former without losing any distinct root.
+         */
+        RootDemandProvenance: {
+            /** Root Demand Refs */
+            root_demand_refs: components["schemas"]["DemandReference"][];
+            /** Root Demand Refs Complete */
+            root_demand_refs_complete: boolean;
         };
         /**
          * RosterOperatorRead

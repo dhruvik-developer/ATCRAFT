@@ -1653,3 +1653,132 @@ async def test_a_fifty_part_plan_costs_no_more_queries_than_a_three_part_one(ctx
         f"{len(small_statements)} for the narrow one - a query is scaling with "
         f"the number of nodes"
     )
+
+
+@pytest.mark.asyncio
+async def test_bom_roots_survive_purchase_conversion_and_shared_fulfilment(ctx: Ctx) -> None:
+    from src.modules.procurement.models import PurchaseRequisitionLine
+    from src.modules.sales.fulfilment import _mrp_documents
+
+    first = await add_sales_order(ctx, code="SO/ROOT-A", lines=[(ctx.kit, "10")])
+    second = await add_sales_order(ctx, code="SO/ROOT-B", lines=[(ctx.kit, "5")])
+    expected = {
+        (str(line.sales_order_id), str(line.id))
+        for line in (
+            await ctx.session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.sales_order_id.in_([first.id, second.id])
+                )
+            )
+        ).all()
+    }
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    assert suggestion.source_demands[0]["source"] == "BOM"
+    assert suggestion.source_demands[0]["root_demand_refs_complete"] is True
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+    line = (
+        await ctx.session.scalars(
+            select(PurchaseRequisitionLine).where(
+                PurchaseRequisitionLine.requisition_id == result.created_document_id
+            )
+        )
+    ).one()
+    assert {
+        (ref["demand_id"], ref["demand_line_id"]) for ref in line.source_demand_refs
+    } == expected
+    assert all(ref["demand_type"] == "SALES_ORDER" for ref in line.source_demand_refs)
+    assert line.quantity == suggestion.suggested_quantity
+
+    trail = await _mrp_documents(ctx.session, ctx.tenant, first.id)
+    component = next(document for document in trail if document.id == suggestion.id)
+    assert component.line_id is None, "Shared component supply is not a per-sales-line allocation."
+    assert "aggregate" in component.detail
+    assert await _mrp_documents(ctx.session, ctx.other, first.id) == []
+
+
+@pytest.mark.asyncio
+async def test_manual_snapshot_root_is_retained_on_the_purchase_requisition(ctx: Ctx) -> None:
+    from src.modules.mrp.models import MrpDemand, MrpDemandSource
+    from src.modules.procurement.models import PurchaseRequisitionLine
+
+    run = await run_plan(
+        ctx,
+        manual_demand=[
+            ManualDemandIn(
+                item_id=ctx.screw.id, quantity=D("25"), required_date=today() + timedelta(days=7)
+            )
+        ],
+    )
+    demand = (
+        await ctx.session.scalars(
+            select(MrpDemand).where(
+                MrpDemand.run_id == run.id, MrpDemand.demand_source == MrpDemandSource.MANUAL
+            )
+        )
+    ).one()
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+    line = (
+        await ctx.session.scalars(
+            select(PurchaseRequisitionLine).where(
+                PurchaseRequisitionLine.requisition_id == result.created_document_id
+            )
+        )
+    ).one()
+    assert line.source_demand_refs == [
+        {"demand_type": "MRP_DEMAND", "demand_id": str(demand.id), "demand_line_id": None}
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["legacy-bom", "incomplete", "empty-roots"])
+async def test_unprovable_mrp_conversion_leaves_no_requisition_or_audit(
+    ctx: Ctx, state: str
+) -> None:
+    await add_sales_order(ctx, code="SO/ROOT-GUARD", lines=[(ctx.screw, "100")])
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    suggestion_id = suggestion.id
+    if state == "legacy-bom":
+        suggestion.source_demands = [
+            {"source": "BOM", "via_item_id": str(ctx.kit.id), "quantity": "100"}
+        ]
+    elif state == "incomplete":
+        sources = [dict(fact) for fact in suggestion.source_demands]
+        sources[0]["root_demand_refs_complete"] = False
+        suggestion.source_demands = sources
+    else:
+        suggestion.source_demands = [
+            {"source": "BOM", "root_demand_refs": [], "root_demand_refs_complete": True}
+        ]
+    await ctx.session.flush()
+    before_pr = await ctx.session.scalar(select(func.count()).select_from(PurchaseRequisition))
+    before_audit = await ctx.session.scalar(select(func.count()).select_from(AuditLog))
+
+    with pytest.raises(BusinessRuleError, match=r"(?i)(demand|provenance)"):
+        await service.convert_suggestion(
+            ctx.session, ctx.tenant, suggestion_id, SuggestionConvertRequest()
+        )
+
+    current = (
+        await ctx.session.scalars(
+            select(MrpSuggestion)
+            .where(MrpSuggestion.id == suggestion_id)
+            .execution_options(populate_existing=True)
+        )
+    ).one()
+    assert current.status == MrpSuggestionStatus.OPEN
+    assert current.converted_to_id is None
+    assert (
+        await ctx.session.scalar(select(func.count()).select_from(PurchaseRequisition)) == before_pr
+    )
+    assert await ctx.session.scalar(select(func.count()).select_from(AuditLog)) == before_audit

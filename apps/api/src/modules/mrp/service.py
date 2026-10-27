@@ -657,6 +657,7 @@ async def _snapshot_demand(
             quantity=Decimal(str(row.quantity)),
             required_date=row.required_date,
             source=MrpDemandSource(row.demand_source),
+            demand_id=row.id,
             source_id=row.source_id,
             source_line_id=row.source_line_id,
             source_code=row.source_code,

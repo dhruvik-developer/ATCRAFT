@@ -33,6 +33,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import DEFAULT_CURRENCY
+from src.core.demand_provenance import DemandReference
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -99,7 +100,7 @@ def _validate_line_numbers(numbers: list[int], document: str) -> None:
 # =============================================================================
 
 
-class SourceDemandRef(BaseModel):
+class SourceDemandRef(DemandReference):
     """One demand a requisition line was raised for (WP D1 section 1).
 
     Stored on the line as a JSONB array and carried onto purchase orders at
@@ -108,12 +109,6 @@ class SourceDemandRef(BaseModel):
     packing order tomorrow - and the duplicate matcher only compares triples
     for equality, never resolves them.
     """
-
-    model_config = ConfigDict(extra="forbid")
-
-    demand_type: str = Field(min_length=1, max_length=32)
-    demand_id: uuid.UUID
-    demand_line_id: uuid.UUID | None = None
 
 
 class RequisitionLineIn(BaseModel):

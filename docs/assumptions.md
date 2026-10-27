@@ -3793,3 +3793,19 @@ same policy, including documents raised before the restriction. Trusted system
 contexts use an empty assignment; user-driven operations retain the caller's
 assignment. This clarifies existing assignment semantics without changing the
 database schema.
+
+## §D1-3. Planning provenance records causes, not quantity allocations
+
+Aggregate MRP netting does not decide which originating sales line was covered
+by common stock. Every causal root therefore propagates through the shortfall's
+BOM expansion; repeated branches deduplicate identities without assigning a
+share of component quantity to a sales line. Shared suggestions appear at the
+document level of the fulfilment trail with their aggregate quantity labelled.
+
+The existing fifty-reference requisition bound applies to distinct canonical
+roots, independently of the fifty displayed contributions. An MRP run can
+finish with a larger set, but automatic purchase conversion refuses incomplete
+or empty provenance rather than silently dropping roots. Rerun historical
+plans whose BOM facts lack roots; narrow warehouse/date scope where possible
+when the root bound is exceeded. No roots are guessed from parent item IDs and
+no arbitrary per-root quantity split is invented.

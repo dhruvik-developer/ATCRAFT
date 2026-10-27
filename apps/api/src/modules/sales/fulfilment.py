@@ -108,39 +108,86 @@ def _document(
 async def _mrp_documents(
     session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> list[FulfilmentDocumentRead]:
-    """Suggestions whose source demands include this order, one statement.
+    """Suggestions that name this order directly or through canonical BOM roots.
 
-    ``source_demands`` is JSONB, and containment tests only the keys present on
-    the right-hand side, so one index-backed query finds every suggestion any of
-    whose contributions names this order. Lines are attributed by reading the
-    matching element back out; a suggestion that merged several lines appears
-    once, on the first of them.
+    Shared suggestions retain their aggregate quantity and appear at document
+    level. A root identity is causal provenance, never a quantitative allocation.
     """
+    from src.core.demand_provenance import (
+        LEGACY_MRP_SOURCE_LIST_LIMIT,
+        project_demand_provenance,
+    )
     from src.modules.mrp.models import MrpRun, MrpSuggestion
 
     stmt = (
         select(MrpSuggestion, MrpRun.code)
-        .join(MrpRun, MrpRun.id == MrpSuggestion.run_id)
+        .join(
+            MrpRun,
+            and_(MrpRun.id == MrpSuggestion.run_id, MrpRun.company_id == MrpSuggestion.company_id),
+        )
         .where(
             MrpSuggestion.company_id == tenant.company_id,
-            MrpSuggestion.source_demands.contains([{"source_id": str(order_id)}]),
+            or_(
+                MrpSuggestion.source_demands.contains([{"source_id": str(order_id)}]),
+                MrpSuggestion.source_demands.contains(
+                    [
+                        {
+                            "root_demand_refs": [
+                                {"demand_type": "SALES_ORDER", "demand_id": str(order_id)}
+                            ]
+                        }
+                    ]
+                ),
+            ),
         )
-        .order_by(MrpSuggestion.required_date, MrpSuggestion.item_code)
+        .order_by(MrpSuggestion.required_date, MrpSuggestion.item_code, MrpSuggestion.id)
     )
     documents: list[FulfilmentDocumentRead] = []
-    # Typed tuples retain the mapped model when unpacking joined query results.
     for suggestion, run_code in (await session.execute(stmt)).tuples().all():
         line_id = None
-        for ref in suggestion.source_demands or ():
-            if str(ref.get("source_id", "")).lower() != str(order_id).lower():
+        detail = str(suggestion.suggestion_type)
+        raw_sources = suggestion.source_demands or []
+        sources = [source for source in raw_sources if isinstance(source, dict)]
+        provenance = project_demand_provenance(raw_sources)
+        has_metadata = any(
+            "root_demand_refs" in source or "root_demand_refs_complete" in source
+            for source in sources
+        )
+        legacy_unprovable = not has_metadata and (
+            len(sources) >= LEGACY_MRP_SOURCE_LIST_LIMIT
+            or any("via_item_id" in source or source.get("source") == "BOM" for source in sources)
+        )
+        if len(sources) != len(raw_sources) or legacy_unprovable:
+            detail += " · incomplete demand links; quantity is the aggregate plan"
+        elif has_metadata and provenance is not None:
+            if provenance.root_demand_refs_complete and not any(
+                root.demand_type == "SALES_ORDER" and root.demand_id == order_id
+                for root in provenance.root_demand_refs
+            ):
                 continue
-            raw = ref.get("source_line_id")
-            if raw:
-                try:
-                    line_id = uuid.UUID(str(raw))
-                except ValueError:  # pragma: no cover - written by the engine
-                    line_id = None
-                break
+            if provenance.root_demand_refs_complete and len(provenance.root_demand_refs) == 1:
+                root = provenance.root_demand_refs[0]
+                if root.demand_type == "SALES_ORDER" and root.demand_id == order_id:
+                    line_id = root.demand_line_id
+            else:
+                detail += " · shared demand; quantity is the aggregate plan"
+        else:
+            # Older direct facts predate typed metadata. Keep their single-root
+            # attribution, including rows whose old shape omitted source type.
+            identities = {
+                (str(source.get("source_id", "")).lower(), source.get("source_line_id"))
+                for source in sources
+                if source.get("source_id")
+            }
+            if len(identities) == 1:
+                source_id, raw_line_id = next(iter(identities))
+                if source_id == str(order_id).lower() and raw_line_id:
+                    try:
+                        line_id = uuid.UUID(str(raw_line_id))
+                    except ValueError:
+                        line_id = None
+            elif len(identities) > 1:
+                detail += " · shared demand; quantity is the aggregate plan"
         documents.append(
             _document(
                 kind="MRP_SUGGESTION",
@@ -154,7 +201,7 @@ async def _mrp_documents(
                 document_date=suggestion.required_date,
                 expected_date=suggestion.expected_available_date,
                 line_id=line_id,
-                detail=str(suggestion.suggestion_type),
+                detail=detail,
             )
         )
     return documents

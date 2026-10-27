@@ -316,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.output} matches the contract.")
         return 0
 
-    args.output.write_text(rendered, encoding="utf-8")
+    args.output.write_text(rendered, encoding="utf-8", newline="\n")
     collection = json.loads(rendered)
     requests = sum(len(folder["item"]) for folder in collection["item"])
     print(f"Wrote {args.output} - {requests} requests in {len(collection['item'])} folders.")

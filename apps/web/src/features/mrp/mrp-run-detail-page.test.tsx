@@ -58,6 +58,7 @@ const suggestion: MrpSuggestionRow = {
   converted_at: null,
   ignored_reason: null,
   source_demands: [],
+  demand_provenance: null,
 }
 
 const requirement: MrpRequirementRow = {
@@ -92,6 +93,7 @@ const requirement: MrpRequirementRow = {
   expected_available_date: REQUIRED_DATE,
   source_demand_count: 1,
   source_demands: [],
+  demand_provenance: null,
   late_supply_quantity: '10.0000',
 }
 

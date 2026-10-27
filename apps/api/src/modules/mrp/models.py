@@ -641,6 +641,9 @@ class MrpSuggestion(TenantEntity):
         # One suggestion per item per run. Without it a merged shortage could be
         # proposed twice and bought twice.
         UniqueConstraint("run_id", "item_id", name="uq_mrp_suggestions_run_id_item_id"),
+        # Sales fulfilment resolves both direct facts and canonical BOM roots
+        # with JSONB containment; tenant filtering remains part of every query.
+        Index("ix_mrp_suggestions_source_demands", "source_demands", postgresql_using="gin"),
         # The suggestion list: a run filtered by status and type, urgent first.
         Index(
             "ix_mrp_suggestions_run_status",

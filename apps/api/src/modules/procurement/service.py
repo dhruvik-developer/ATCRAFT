@@ -71,6 +71,7 @@ from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import MovementRequest, TraceabilityService, post_movements
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify
+from src.modules.procurement.demand_provenance import canonical_demand_refs
 from src.modules.procurement.inbound_repository import po_is_late
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
@@ -1004,6 +1005,13 @@ async def create_requisition_from_mrp(
     DRAFT under the planner's own name - the buyer still reviews and submits it,
     exactly as a hand-raised one.
     """
+    demand_refs = canonical_demand_refs(getattr(request, "source_demands", None))
+    if not demand_refs:
+        raise BusinessRuleError(
+            "Planning demand links are missing. Rerun the plan before creating a "
+            "purchase requisition.",
+            details={"field": "source_demands"},
+        )
     items = await _load_items(session, tenant, [request.item_id])
     item = items[request.item_id]
 
@@ -1032,6 +1040,7 @@ async def create_requisition_from_mrp(
                     item_id=request.item_id,
                     quantity=to_quantity(request.quantity),
                     required_date=request.required_date,
+                    source_demand_refs=demand_refs,
                 )
             ],
         ),

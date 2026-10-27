@@ -21754,6 +21754,41 @@
         "title": "DeliveryConfirmation",
         "type": "object"
       },
+      "DemandReference": {
+        "additionalProperties": false,
+        "description": "One canonical, open-vocabulary demand identity; never an item identity.",
+        "properties": {
+          "demand_id": {
+            "format": "uuid",
+            "title": "Demand Id",
+            "type": "string"
+          },
+          "demand_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Demand Line Id"
+          },
+          "demand_type": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Demand Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "demand_type",
+          "demand_id"
+        ],
+        "title": "DemandReference",
+        "type": "object"
+      },
       "DemandSummaryRow": {
         "description": "Open demand for one item, aggregated across every open order.",
         "properties": {
@@ -35627,6 +35662,18 @@
             "title": "Available Quantity",
             "type": "string"
           },
+          "demand_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RootDemandProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Legacy incomplete plans remain readable; conversion refuses them.",
+            "readOnly": true
+          },
           "dependent_demand_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Dependent Demand Quantity",
@@ -35876,6 +35923,7 @@
           "shortage_quantity",
           "earliest_required_date",
           "source_demand_count",
+          "demand_provenance",
           "late_supply_quantity"
         ],
         "title": "MrpRequirementRead",
@@ -36314,6 +36362,18 @@
             ],
             "title": "Converted To Type"
           },
+          "demand_provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RootDemandProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Legacy incomplete plans remain readable; conversion refuses them.",
+            "readOnly": true
+          },
           "expected_available_date": {
             "anyOf": [
               {
@@ -36442,7 +36502,8 @@
           "suggested_order_date",
           "is_late",
           "lead_time_days",
-          "status"
+          "status",
+          "demand_provenance"
         ],
         "title": "MrpSuggestionRead",
         "type": "object"
@@ -55987,6 +56048,30 @@
           }
         },
         "title": "RoleUpdate",
+        "type": "object"
+      },
+      "RootDemandProvenance": {
+        "additionalProperties": false,
+        "description": "Bounded canonical roots with an explicit completeness claim.\n\nNew MRP facts store this metadata on their first listed contribution. The\ndisplay listing and the canonical roots have separate bounds: repeated\ncontributions can exceed the former without losing any distinct root.",
+        "properties": {
+          "root_demand_refs": {
+            "items": {
+              "$ref": "#/components/schemas/DemandReference"
+            },
+            "maxItems": 50,
+            "title": "Root Demand Refs",
+            "type": "array"
+          },
+          "root_demand_refs_complete": {
+            "title": "Root Demand Refs Complete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "root_demand_refs",
+          "root_demand_refs_complete"
+        ],
+        "title": "RootDemandProvenance",
         "type": "object"
       },
       "RosterOperatorRead": {
@@ -125367,7 +125452,7 @@
     },
     "/api/v1/mrp/suggestions/{suggestion_id}/convert": {
       "post": {
-        "description": "Raises a purchase requisition or a production order from the suggestion and closes it, in one transaction. Omit `target` to use the default for the suggestion type; naming a different one is allowed and is recorded in the audit entry. If the owning module is not deployed, no document is created: `handled` is false and the typed conversion request is returned for the caller to action.",
+        "description": "Raises a purchase requisition, production order or job-work order from the suggestion and closes it, in one transaction. Omit `target` to use the default for the suggestion type; naming a different one is allowed and is recorded in the audit entry. If the owning module is not deployed, no document is created: `handled` is false and the typed conversion request is returned for the caller to action. Purchase conversion requires complete, nonempty demand links with at most fifty distinct roots. Incomplete historical links return 422 without closing the suggestion or creating a requisition; rerun the plan first.",
         "operationId": "convert_suggestion_api_v1_mrp_suggestions__suggestion_id__convert_post",
         "parameters": [
           {

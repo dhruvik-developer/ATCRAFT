@@ -1,4 +1,4 @@
-# Local release verification - 26 October 2026
+# Local release verification - 26-27 October 2026
 
 This checkpoint covers the dealer/vendor interfaces, serial job work and QC,
 packing, financial corrections, browser sessions and release hardening. It does
@@ -6,12 +6,12 @@ not close the [remaining full-scope packages](production-scope-20261025.md) or
 approve deployment to a real host. The user kept the DSC/PAdES signer decision
 pending while other work continues.
 
-The shared `b4804d9` checkpoint passed all five CI jobs on both
-[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40378297997)
-and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40378299144):
+The shared `3b27a44` checkpoint passed all five CI jobs on both
+[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40439718125)
+and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40439718155):
 backend quality, backend integration, frontend, production configuration/image
 scans and browser journeys. The develop run recorded 6,338 backend passes with
-81.63% combined statement/branch coverage and 30 browser tests. Accessibility
+81.64% combined statement/branch coverage and 30 browser tests. Accessibility
 checks covered 66 screens in each theme with zero violated rules or render
 failures. The frontend suite passed 1,493 tests across 113 files. These combined
 checks include D5 and transient session recovery.
@@ -84,6 +84,43 @@ through the seven update configurations; CI audits remain enabled.
 The deployment named `dev` now tracks `develop`, so no third Git branch is
 required. The branch mapping passed 36 release/configuration unit cases and
 shell syntax validation.
+
+## Planning demand links - 27 October follow-up
+
+The planning follow-up retains canonical sales/manual demand identities through
+multi-level BOM expansion, independently of the bounded display listing.
+Purchase conversion stores complete references and refuses missing, malformed
+or over-bound history without closing the suggestion, creating a requisition
+or writing conversion audit. Shared component quantities remain labelled as
+aggregate in the sales fulfilment trail. This completes the provenance
+foundation, not the remaining PO duplicate actions or amendment workflow.
+
+Local verification passed all 4,224 backend unit tests, 48 PostgreSQL MRP cases,
+15 fulfilment/conversion HTTP cases and 108 procurement/guard cases. The latest
+cross-module validation changes also passed their nine-case focused rerun.
+Ruff passed with 634 formatted files and mypy passed 280 source files. Frontend
+typing and the two focused MRP regressions passed. The production build retained
+the existing budgets: 203.8 KB initial load against 210 KB, with all 207 bundled
+files passing the credential scan. OpenAPI has 541 paths and 1,160 schemas;
+generated types and all 717 Postman requests match.
+
+Revision `20261102_0100` adds the JSONB GIN lookup index. Its transactional
+build bounds lock acquisition to five seconds; large histories require a
+maintenance window because table writes conflict with the build lock. Index
+round-trip and full fresh-install/downgrade/rebuild tests passed. The canonical
+database was upgraded with every table's row count and the complete saved MRP
+suggestion hash preserved; unfiltered `alembic check` found no drift.
+
+The complete fresh seed CLI regression passed in 164.48 seconds, including
+generated files, all seeded workflow areas and unchanged rows/files/passwords
+on its second invocation. Its temporary database is dropped by the fixture.
+The canonical API readiness checks and UI returned success. The handbook's
+planning rules were updated and the 199-page output was rendered again with
+zero out-of-page text and visual review of the affected pages.
+
+The Git hooks and pushed-revision CI repeat the whole-tree gates; each workflow
+run is evidence for its own commit. The completed checkpoint's CI above does
+not substitute for the workflow of a later source revision.
 
 ## Previously verified application behavior
 

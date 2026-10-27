@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -31,7 +31,14 @@ from src.core.permissions import Permission
 from src.modules.allocation.models import ReservationStatus, StockReservation
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import TransactionType
-from src.modules.mrp.models import MrpRun, MrpSuggestion, MrpSuggestionType
+from src.modules.mrp.models import (
+    MrpRun,
+    MrpRunStatus,
+    MrpSuggestion,
+    MrpSuggestionStatus,
+    MrpSuggestionType,
+)
+from src.modules.procurement.models import PurchaseRequisition
 from src.modules.products.models import ItemGroup
 from src.modules.sales import service as sales
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
@@ -140,6 +147,41 @@ async def test_the_allocation_read_reports_what_the_dispatch_screen_prefills(
     assert _money(line["shortfall_quantity"]) == Decimal("300")
 
 
+async def _mrp_suggestion(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: Order,
+    *,
+    sources: list[Any],
+    expected: date | None = None,
+) -> MrpSuggestion:
+    run = MrpRun(
+        company_id=tenant.company_id,
+        code=f"MRP-{uuid.uuid4().hex}",
+        horizon_days=30,
+        status=MrpRunStatus.COMPLETED,
+    )
+    session.add(run)
+    await session.flush()
+    suggestion = MrpSuggestion(
+        company_id=tenant.company_id,
+        run_id=run.id,
+        item_id=order.item_id,
+        item_code="FULFILMENT-ITEM",
+        suggestion_type=MrpSuggestionType.PURCHASE,
+        required_quantity=Decimal("300"),
+        suggested_quantity=Decimal("300"),
+        shortage_quantity=Decimal("300"),
+        required_date=today() + timedelta(days=7),
+        suggested_order_date=today(),
+        expected_available_date=expected,
+        source_demands=sources,
+    )
+    session.add(suggestion)
+    await session.flush()
+    return suggestion
+
+
 @pytest.mark.parametrize("expected_offset", [None, 4])
 async def test_fulfilment_reads_the_mrp_availability_date_including_legacy_nulls(
     api_client: AsyncClient,
@@ -149,28 +191,16 @@ async def test_fulfilment_reads_the_mrp_availability_date_including_legacy_nulls
     expected_offset: int | None,
 ) -> None:
     """A populated MRP trail must serialize the actual mapped date, not an old field name."""
-    run = MrpRun(company_id=tenant.company_id, code=f"MRP-{uuid.uuid4().hex}", horizon_days=30)
-    session.add(run)
-    await session.flush()
     expected = today() + timedelta(days=expected_offset) if expected_offset is not None else None
-    suggestion = MrpSuggestion(
-        company_id=tenant.company_id,
-        run_id=run.id,
-        item_id=partly_reserved.item_id,
-        item_code="FULFILMENT-ITEM",
-        suggestion_type=MrpSuggestionType.PURCHASE,
-        required_quantity=Decimal("300"),
-        suggested_quantity=Decimal("300"),
-        shortage_quantity=Decimal("300"),
-        required_date=today() + timedelta(days=7),
-        suggested_order_date=today(),
-        expected_available_date=expected,
-        source_demands=[
+    suggestion = await _mrp_suggestion(
+        session,
+        tenant,
+        partly_reserved,
+        expected=expected,
+        sources=[
             {"source_id": str(partly_reserved.id), "source_line_id": str(partly_reserved.line_id)}
         ],
     )
-    session.add(suggestion)
-    await session.flush()
 
     response = await api_client.get(f"/sales/{partly_reserved.id}/fulfilment")
 
@@ -180,6 +210,116 @@ async def test_fulfilment_reads_the_mrp_availability_date_including_legacy_nulls
     assert documents[0]["id"] == str(suggestion.id)
     assert documents[0]["line_id"] == str(partly_reserved.line_id)
     assert documents[0]["expected_date"] == (expected.isoformat() if expected else None)
+
+
+@pytest.mark.parametrize(
+    "kind", ["single-root", "shared-roots", "incomplete", "legacy-capped", "malformed", "mismatch"]
+)
+async def test_fulfilment_keeps_component_roots_and_aggregate_quantities_distinct(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    partly_reserved: Order,
+    kind: str,
+) -> None:
+    root = {
+        "demand_type": "SALES_ORDER",
+        "demand_id": str(partly_reserved.id),
+        "demand_line_id": str(partly_reserved.line_id),
+    }
+    roots = [root]
+    if kind in {"shared-roots", "mismatch"}:
+        roots = [
+            root,
+            {**root, "demand_id": str(uuid.uuid4()), "demand_line_id": str(uuid.uuid4())},
+        ]
+        if kind == "mismatch":
+            roots = roots[1:]
+    sources: list[Any] = [
+        {
+            "source": "BOM",
+            "via_item_id": str(uuid.uuid4()),
+            "root_demand_refs": roots,
+            "root_demand_refs_complete": kind != "incomplete",
+        }
+    ]
+    legacy = {"source_id": str(partly_reserved.id), "source_line_id": str(partly_reserved.line_id)}
+    if kind == "legacy-capped":
+        sources = [legacy] * 50
+    elif kind == "malformed":
+        sources = [legacy, None]
+    elif kind == "mismatch":
+        sources[0].update(legacy)
+    suggestion = await _mrp_suggestion(session, tenant, partly_reserved, sources=sources)
+
+    response = await api_client.get(f"/sales/{partly_reserved.id}/fulfilment")
+
+    assert response.status_code == 200, response.text
+    documents = response.json()["data"]["mrp_suggestions"]
+    if kind == "mismatch":
+        assert documents == [], "Explicit roots take precedence over a conflicting legacy hint."
+        return
+    assert len(documents) == 1
+    assert documents[0]["id"] == str(suggestion.id)
+    assert _money(documents[0]["quantity"]) == Decimal("300")
+    if kind == "single-root":
+        assert documents[0]["line_id"] == str(partly_reserved.line_id)
+    else:
+        assert documents[0]["line_id"] is None
+        assert "aggregate" in documents[0]["detail"]
+
+
+@pytest.mark.parametrize("kind", ["incomplete", "missing", "malformed"])
+async def test_purchase_conversion_returns_a_safe_error_without_closing_the_suggestion(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    partly_reserved: Order,
+    kind: str,
+) -> None:
+    marker = "DO-NOT-EXPOSE-INTERNAL-FACT"
+    sources = (
+        []
+        if kind == "missing"
+        else [
+            {
+                "root_demand_refs": [
+                    {
+                        "demand_type": "SALES_ORDER",
+                        "demand_id": marker if kind == "malformed" else str(partly_reserved.id),
+                        "demand_line_id": str(partly_reserved.line_id),
+                    }
+                ],
+                "root_demand_refs_complete": kind != "incomplete",
+            }
+        ]
+    )
+    suggestion = await _mrp_suggestion(session, tenant, partly_reserved, sources=sources)
+    suggestion_id = suggestion.id
+
+    response = await api_client.post(f"/mrp/suggestions/{suggestion_id}/convert", json={})
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "BUSINESS_RULE_VIOLATION"
+    assert "rerun" in body["error"]["message"].lower()
+    assert marker not in response.text
+    assert "Traceback" not in response.text
+    current = (
+        await session.scalars(
+            select(MrpSuggestion)
+            .where(MrpSuggestion.id == suggestion_id)
+            .execution_options(populate_existing=True)
+        )
+    ).one()
+    assert current.status == MrpSuggestionStatus.OPEN
+    assert current.converted_to_id is None
+    assert not (
+        await session.scalars(
+            select(PurchaseRequisition).where(PurchaseRequisition.source_id == suggestion_id)
+        )
+    ).all()
 
 
 async def test_a_ui_shaped_consignment_consumes_the_reservation_and_moves_the_order(

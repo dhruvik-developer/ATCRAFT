@@ -36,6 +36,7 @@ from pydantic import (
 )
 
 from src.common.codes import clean_text
+from src.core.demand_provenance import RootDemandProvenance, project_demand_provenance
 from src.core.types import to_quantity
 from src.modules.mrp.models import (
     DEFAULT_HORIZON_DAYS,
@@ -305,7 +306,19 @@ class SalesOrderAvailabilityRead(BaseModel):
     lines: list[SalesOrderLineAvailabilityRead] = Field(default_factory=list)
 
 
-class MrpRequirementRead(BaseModel):
+class _MrpDemandProvenanceRead(BaseModel):
+    """Expose canonical identity and completeness separately from display facts."""
+
+    source_demands: list[dict[str, Any]] | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def demand_provenance(self) -> RootDemandProvenance | None:
+        """Legacy incomplete plans remain readable; conversion refuses them."""
+        return project_demand_provenance(self.source_demands)
+
+
+class MrpRequirementRead(_MrpDemandProvenanceRead):
     """One merged requirement, with every figure that went into it.
 
     The netting inputs are all present on purpose: "we are 40 short" cannot be
@@ -398,7 +411,6 @@ class MrpRequirementRead(BaseModel):
     expected_available_date: date | None = None
 
     source_demand_count: int
-    source_demands: list[dict[str, Any]] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -411,7 +423,7 @@ class MrpRequirementRead(BaseModel):
         )
 
 
-class MrpSuggestionRead(BaseModel):
+class MrpSuggestionRead(_MrpDemandProvenanceRead):
     """One suggestion and what has happened to it."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -443,8 +455,6 @@ class MrpSuggestionRead(BaseModel):
     converted_to_id: uuid.UUID | None = None
     converted_at: datetime | None = None
     ignored_reason: str | None = None
-
-    source_demands: list[dict[str, Any]] | None = None
 
 
 class SuggestionFilters(BaseModel):

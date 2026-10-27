@@ -850,6 +850,26 @@ physically land, which for a late suggestion is later than the required date),
 `status` (`OPEN | CONVERTED | IGNORED`), `converted_to_type`,
 `converted_to_id`.
 
+Demand provenance is independent of the display contribution count. New plans
+store validated `root_demand_refs` and `root_demand_refs_complete` on the first
+existing `source_demands` fact. The roots are canonical
+`{demand_type, demand_id, demand_line_id}` triples: sales demand names its order
+and line; manual demand names its persisted `mrp_demands.id` as `MRP_DEMAND`.
+They propagate through every BOM level and deduplicate across branches. A
+parent item ID is never substituted for a demand ID. Both read DTOs expose the
+typed aggregate as `demand_provenance`. Revision `20261102_0100` adds the GIN
+index on `mrp_suggestions.source_demands` for direct and nested-root containment
+lookups without rewriting planning rows. Its transactional build bounds lock
+acquisition to five seconds and needs a maintenance window for large histories.
+
+The displayed contribution list remains capped at fifty. Distinct roots have
+their own fifty-reference bound; exceeding it marks provenance incomplete
+without failing the planning calculation. Purchase conversion requires a
+nonempty, complete set and persists it in the requisition line's existing
+`source_demand_refs`. Incomplete historical BOM facts and possibly truncated
+legacy lists require a new plan. Shared component suggestions remain aggregate
+quantities in the sales fulfilment trail, not per-sales-line allocations.
+
 **Execution rule (§14):** a run whose demand-line count exceeds
 `settings.mrp_sync_threshold_demand_lines` is dispatched to Celery and the API
 returns `202` with a job id. A normal HTTP request is never held open for a

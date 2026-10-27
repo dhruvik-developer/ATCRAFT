@@ -160,3 +160,10 @@ release's fresh CLI regression passed in 186.45 seconds, including generated
 PDFs and an unchanged second invocation. The canonical local database was also
 upgraded and seeded without resetting existing credentials; its unchanged rerun
 registered 351 references across 52 kinds and created no replacement PDFs.
+
+After the planning-provenance follow-up and migration `20261102_0100`, the full
+fresh CLI regression passed again in 164.48 seconds. It verifies an empty
+installation, generated PDFs and preserved rows, file hashes and passwords on
+the second invocation. New planning runs retain their originating demand links
+when creating requisitions; an older plan with incomplete links needs a fresh
+run before automatic purchase conversion.
