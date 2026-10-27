@@ -3865,3 +3865,25 @@ Demand references written to a requisition resolve real tenant-owned sales
 orders/lines or manual MRP demand rows. A sales line must belong to its named
 order. The canonical read schema remains open to historical types, but a new
 write cannot assert an unsupported or fabricated source identity.
+
+## §E10b-1. Customer returns restore their recorded dispatch costs
+
+Customer-return receipt carries the original dispatch's FIFO layers through the
+shared inventory posting engine. A serial uses its own recorded movement. An
+ordinary line with a matching movement anchor uses that line's cost breakdown,
+including a known zero cost. Changing an item's standard cost does not reprice
+goods coming back from a customer.
+
+Older reservation-based dispatch lines may have no movement anchor. Their
+unclaimed movements form a FIFO queue within the same company, dispatch, item
+and batch; partial returns advance that queue by quantities already returned.
+Anchored movements are excluded from this fallback queue. This is an explicit
+cost allocation assumption for fungible units whose individual source movement
+cannot be identified, rather than an invented match to another line's cost.
+
+When an original movement predates the per-layer breakdown, its own recorded
+unit cost covers the missing part, using the same legacy basis as transfers.
+Missing or inconsistent original issue history refuses the receipt atomically;
+it never falls back to today's standard or warehouse cost. Existing ledger rows
+are not rewritten. Correcting a historical misvaluation requires its own
+authorized, audited stock adjustment.

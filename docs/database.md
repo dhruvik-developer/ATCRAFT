@@ -1340,6 +1340,16 @@ sets are disjoint subsets of the line's shipped serials; closing is refused
 until every returned serial is dispositioned. Credit-note quantity for a serial
 line is the count of accepted serials only.
 
+Customer-return receipt restores the original dispatch cost layers, including
+zero-cost goods. The source lookup uses the tenant-scoped dispatch ledger
+reference, so reservation-consumed lines without an anchor remain supported.
+Known ordinary movement anchors and individual serial movements retain their
+own costs. Only unanchored, fungible lines share the remaining dispatch/item/batch
+FIFO queue, advanced by already returned quantities (§E10b-1). Missing source
+history refuses the whole receipt. All ledger, balance, FIFO-layer and audit
+writes still go through `inventory.post_movements` in the receipt transaction;
+no existing stock or financial history is revalued by a code upgrade.
+
 `payment_allocations` names exactly one nullable `vendor_invoice_id` or
 `sales_invoice_id`, with separate partial uniqueness per payment/invoice. A
 receipt only settles the same customer's issued invoices in the same currency.

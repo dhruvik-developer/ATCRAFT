@@ -1734,7 +1734,8 @@
           ],
           "rules": [
             "Cumulative returns cannot exceed the quantity originally dispatched, and returned serials must belong to that dispatch.",
-            "Receipt records a real stock movement at the original dispatch cost; creating a draft does not change stock.",
+            "Receipt records a real stock movement at the original dispatch cost, including goods with a recorded zero cost. Changing today's standard cost does not reprice returned goods; creating a draft does not change stock.",
+            "Partial returns restore the unreturned original cost layers. If the original dispatch cost cannot be verified, receipt stops without changing stock or the return status.",
             "QC-held stock is unavailable until its quality disposition is recorded. A return with pending inspections or undispositioned serials cannot close.",
             "Automatic return credits cover accepted quantities against the original issued sales invoice. Rejected, damaged or scrapped quantities do not earn an automatic return credit.",
             "Stock receipt and a credit note are separate records; neither is evidence that a cash refund has been paid."

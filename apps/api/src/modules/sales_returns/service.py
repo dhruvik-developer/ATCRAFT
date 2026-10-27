@@ -20,7 +20,6 @@ from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
 from src.modules.inventory.models import (
-    InventoryTransaction,
     SerialStatus,
     StockSerial,
     StockState,
@@ -36,6 +35,7 @@ from src.modules.products.models import Item
 from src.modules.quality.models import InspectionResult, QcInspection, QcStage
 from src.modules.quality.schemas import InspectionCreate
 from src.modules.quality.service import create_inspection
+from src.modules.sales_returns.costing import return_cost_plans
 from src.modules.sales_returns.crediting import accepted_return_quantity
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
 from src.modules.sales_returns.repository import SalesReturnRepository
@@ -124,6 +124,7 @@ async def create_return(
                 Dispatch.id == payload.dispatch_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if dispatch is None:
@@ -162,6 +163,7 @@ async def create_return(
                     DispatchLine.id.in_(line_ids),
                 )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -327,6 +329,7 @@ async def transition_return(
                     SalesReturn.id == return_id,
                 )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
         if locked_row is None:
@@ -385,6 +388,7 @@ async def transition_return(
                         Dispatch.id == row.dispatch_id,
                     )
                     .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
             ).scalar_one()
             warehouse_id = row.return_warehouse_id or dispatch.warehouse_id
@@ -397,40 +401,16 @@ async def transition_return(
                             DispatchLine.id.in_([line.dispatch_line_id for line in lines]),
                         )
                         .with_for_update()
+                        .execution_options(populate_existing=True)
                     )
                 )
                 .scalars()
                 .all()
             )
             dispatch_by_id = {line.id: line for line in dispatch_lines}
-            return_serial_ids = [serial_id for line in lines for serial_id in line.serial_ids]
-            serial_costs: dict[uuid.UUID, Decimal] = {}
-            if return_serial_ids:
-                dispatch_serial_rows = list(
-                    (
-                        await session.execute(
-                            select(InventoryTransaction).where(
-                                InventoryTransaction.company_id == tenant.company_id,
-                                InventoryTransaction.reference_type == "dispatch",
-                                InventoryTransaction.reference_id == dispatch.id,
-                                InventoryTransaction.transaction_type == TransactionType.DISPATCH,
-                                InventoryTransaction.serial_id.in_(return_serial_ids),
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                serial_costs = {
-                    transaction.serial_id: Decimal(transaction.unit_cost)
-                    for transaction in dispatch_serial_rows
-                    if transaction.serial_id is not None
-                }
-                if set(serial_costs) != set(return_serial_ids):
-                    raise BusinessRuleError(
-                        "The original dispatch cost for every returned serial could not be "
-                        "verified."
-                    )
+            ordinary_costs, serial_costs = await return_cost_plans(
+                session, tenant, dispatch.id, lines
+            )
             movements: list[MovementRequest] = []
             serial_hold_movements: list[MovementRequest] = []
             for line in lines:
@@ -449,7 +429,7 @@ async def transition_return(
                             reason="Customer sales return received",
                             batch_id=source.batch_id,
                             serial_id=serial_id,
-                            unit_cost=serial_costs[serial_id],
+                            cost_layers=serial_costs[serial_id],
                         )
                         for serial_id in line.serial_ids
                     )
@@ -482,6 +462,7 @@ async def transition_return(
                             reference_code=row.code,
                             reason="Customer sales return received",
                             batch_id=source.batch_id,
+                            cost_layers=ordinary_costs[line.id],
                         )
                     )
             await post_movements(session, tenant, movements)

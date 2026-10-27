@@ -6,16 +6,16 @@ not close the [remaining full-scope packages](production-scope-20261025.md) or
 approve deployment to a real host. The user kept the DSC/PAdES signer decision
 pending while other work continues.
 
-The shared `f779a2e` checkpoint passed all five CI jobs on both
-[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40450868047)
-and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40450868296):
+The shared `a3a6673` checkpoint passed all five CI jobs on both
+[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40520512990)
+and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40520512859):
 backend quality, backend integration, frontend, production configuration/image
-scans and browser journeys. The develop run recorded 6,392 backend passes with
-81.66% combined statement/branch coverage and 30 browser tests. Accessibility
+scans and browser journeys. The develop run recorded 6,600 backend passes with
+81.82% combined statement/branch coverage and 34 browser tests. Accessibility
 checks covered 66 screens in each theme with zero violated rules or render
-failures. The frontend suite passed 1,493 tests across 113 files. These combined
-checks include D5, transient session recovery, planning provenance and strict
-E2E Node/browser typing. The D1 follow-up below has its own verification.
+failures. The frontend suite passed 1,544 tests across 115 files. These combined
+checks include D1, D5, transient session recovery, planning provenance and strict
+E2E Node/browser typing. The D1 section below records its focused verification.
 
 ## Canonical local installation
 
@@ -204,6 +204,34 @@ gates for this follow-up. The earlier `f779a2e` CI result above remains evidence
 for that earlier checkpoint. D2 messaging, D3 courier automation, the remaining
 planning/profitability/serial packages, the deferred D4 signer setup and the real
 deployment gate remain open in the current scope document.
+
+## Customer-return FIFO costing follow-up
+
+The next source review reproduced a stock-valuation error: ten units dispatched
+at a recorded FIFO value of 100 were received back at 990 after standard cost
+changed to 99. The same return of recorded zero-cost goods was also valued at
+990. Customer returns now carry the source dispatch layers through the shared
+inventory engine. Matching ordinary movement anchors and individual serials
+keep their own costs, while unanchored legacy lines use only the remaining
+dispatch/item/batch FIFO queue. Partial returns advance their source counters;
+missing source history refuses receipt atomically. Locked return and dispatch
+reads refresh state before posting. Existing ledger rows are preserved.
+
+All 75 focused checks passed in 226.30 seconds: pure return-cost boundaries,
+real ordinary/serial/legacy returns, invoice/credit regressions, the complete
+inventory FIFO module and the complete fresh-seed rerun. The seed fixture
+verified preserved rows, files and passwords on its second invocation and
+dropped its temporary database. Mypy passed all 289 source files and Ruff
+passed. No migration, response shape, frontend code or runtime configuration
+changed in this correction.
+
+The 199-page handbook was rebuilt with the corrected receipt rules, rendered
+in full with zero out-of-page text, and its changed pages were visually reviewed.
+Its 97 UI images retain their recorded D1 capture time because the interface
+has not changed. The pushed follow-up's hooks and CI provide its whole-tree
+results; the `a3a6673` results above describe the completed D1 checkpoint.
+Actual product profitability remains open: correcting return source values
+does not replace the existing sales-order/standard-cost report calculation.
 
 ## Previously verified application behavior
 

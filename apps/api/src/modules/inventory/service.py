@@ -4971,7 +4971,7 @@ def _declare_lines_empty_if_unloaded(row: Any) -> None:
 # -----------------------------------------------------------------------------
 
 
-def _carried_layers(
+def carried_cost_layers(
     breakdown: dict[uuid.UUID, list[InventoryCostLayerConsumption]],
     transaction_id: uuid.UUID | None,
 ) -> tuple[LayerCost, ...]:
@@ -5435,7 +5435,7 @@ class StockTransferService:
                                     if transaction_row is not None
                                     else Decimal(line.unit_cost)
                                 ),
-                                cost_layers=_carried_layers(carried, transaction_id),
+                                cost_layers=carried_cost_layers(carried, transaction_id),
                                 completes_in_transit=True,
                             )
                         )
@@ -5453,7 +5453,7 @@ class StockTransferService:
                             reference_code=transfer.code,
                             reason=reason or transfer.reason,
                             unit_cost=Decimal(line.unit_cost),
-                            cost_layers=_carried_layers(carried, line.dispatch_transaction_id),
+                            cost_layers=carried_cost_layers(carried, line.dispatch_transaction_id),
                             completes_in_transit=True,
                         )
                     )
@@ -7928,6 +7928,7 @@ __all__ = [
     "TraceabilityService",
     "Valuation",
     "assert_warehouse_scope",
+    "carried_cost_layers",
     "change_stock_state",
     "draws_on_scrap",
     "find_shortfall",
