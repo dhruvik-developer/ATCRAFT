@@ -52,6 +52,7 @@ from src.modules.vendor_portal.schemas import (
     VendorPortalOrderDetail,
     VendorPortalPayment,
     VendorPortalPaymentSummary,
+    VendorPortalPendingAmendmentRead,
     VendorPortalReady,
     VendorPortalReceiptRead,
 )
@@ -127,15 +128,28 @@ async def list_orders(
 
 
 @router.get(
+    "/purchase-orders/pending-amendments",
+    response_model=PaginatedResponse[VendorPortalPendingAmendmentRead],
+    summary="Previously sent orders under revision, without revised terms",
+    dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
+)
+async def pending_amendments(
+    session: DbSession, tenant: Tenant, params: PageDep
+) -> PaginatedResponse[VendorPortalPendingAmendmentRead]:
+    rows, page = await VendorPortalService(session, tenant).pending_amendments(params)
+    return PaginatedResponse[VendorPortalPendingAmendmentRead](data=rows, pagination=page)
+
+
+@router.get(
     "/purchase-orders/{order_id}",
-    response_model=ApiResponse[VendorPortalOrderDetail],
+    response_model=ApiResponse[VendorPortalOrderDetail | VendorPortalPendingAmendmentRead],
     summary="One purchase order: lines, dates, timeline, shipments, files, receipts, bills",
     dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
 )
 async def get_order(
     order_id: uuid.UUID, session: DbSession, tenant: Tenant
-) -> ApiResponse[VendorPortalOrderDetail]:
-    return ApiResponse[VendorPortalOrderDetail].ok(
+) -> ApiResponse[VendorPortalOrderDetail | VendorPortalPendingAmendmentRead]:
+    return ApiResponse[VendorPortalOrderDetail | VendorPortalPendingAmendmentRead].ok(
         await VendorPortalService(session, tenant).order(order_id)
     )
 

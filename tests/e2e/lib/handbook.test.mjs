@@ -96,6 +96,17 @@ test('leaves unrelated lists and unspecified product selection unchanged', () =>
   assert.equal(handbookDetailListRoute('/items/:id', '/items'), '/items')
 })
 
+test('selects the same revision through staff and vendor lists without filtering unrelated records', () => {
+  for (const list of ['/procurement/purchase-orders', '/vendor/orders']) {
+    assert.equal(
+      handbookDetailListRoute(`${list}/:id`, `${list}?page=2&search=old`, 'ITEM', ' PO/2026-27/00021 '),
+      `${list}?q=PO%2F2026-27%2F00021`,
+    )
+  }
+  assert.equal(handbookDetailListRoute('/sales-orders/:id', '/sales-orders', 'ITEM', 'PO'), '/sales-orders')
+  assert.equal(handbookDetailListRoute('/items/:id', '/items', 'ITEM', 'PO'), '/items?q=ITEM')
+})
+
 test('encodes product search characters and resets an obsolete list page', () => {
   assert.equal(
     handbookDetailListRoute('/items/:id', '/items?page=3&search=old', 'A&B /+'),

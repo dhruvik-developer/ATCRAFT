@@ -48,6 +48,8 @@ const pagination = {
 function order(status: VendorOrder['status'] = 'SENT'): VendorOrder {
   return {
     id: ID,
+    pending_amendment: false,
+    amendment_number: 0,
     code: 'PO/2026-27/0007',
     po_date: '2026-09-01',
     status,
@@ -255,6 +257,7 @@ describe('vendor order boundary and navigation', () => {
       user: { vendor_id: VENDOR },
       route: '/vendor/orders?tab=accepted&page=3',
       routes: {
+        'GET /vendor-portal/purchase-orders/pending-amendments': page([]),
         'GET /vendor-portal/purchase-orders': ({ url }) => {
           requests.push(url)
           return page([order().tracking])
@@ -721,5 +724,76 @@ describe('vendor bills, receipts and payments', () => {
     expect(
       await screen.findByText('Buyer’s dispute: Quantity exceeds received goods'),
     ).toBeVisible()
+  })
+})
+
+describe('vendor pending amendment projection', () => {
+  const pending = {
+    id: ID,
+    code: 'PO/2026-27/0007',
+    status: 'PENDING_APPROVAL',
+    amendment_number: 2,
+    last_amended_at: '2026-10-27T12:00:00Z',
+    pending_amendment: true,
+    message:
+      'This order is being revised. Updated terms will be available after approval and resend.',
+  }
+
+  it('renders only revision status and offers no commercial actions until resend', async () => {
+    const view = detail('SENT', rights, {
+      [`GET ${BASE}`]: ok({
+        ...pending,
+        terms: 'UNAPPROVED CONFIDENTIAL TERMS',
+        total_amount: '999999',
+        lines: [{ item_name: 'PRIVATE NEW ITEM' }],
+      }),
+    })
+    expect(await screen.findByText('Amended (rev 2)')).toBeVisible()
+    expect(screen.getByText(pending.message)).toBeVisible()
+    expect(screen.queryByText('UNAPPROVED CONFIDENTIAL TERMS')).toBeNull()
+    expect(screen.queryByText('PRIVATE NEW ITEM')).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: /Accept|Decline|shipment|invoice|PDF|document/i }),
+    ).toBeNull()
+    expect(
+      view.fetch.calls.some(
+        (call) => call.method === 'GET' && /\/(shipments|documents|receipts)$/.test(call.path),
+      ),
+    ).toBe(false)
+    expect(screen.getByRole('button', { name: 'Refresh order' })).toBeVisible()
+  })
+
+  it('keeps pending amendments in their own paginated status-only list', async () => {
+    const seen: { kind: string; page: string | null }[] = []
+    renderScreen(<VendorOrdersPage />, {
+      route: '/vendor/orders?page=3&amendments_page=2',
+      permissions: rights,
+      user: { vendor_id: VENDOR },
+      routes: {
+        'GET /vendor-portal/purchase-orders/pending-amendments': ({ url }) => {
+          seen.push({ kind: 'amendments', page: url.searchParams.get('page') })
+          return page([pending], { page: 2 })
+        },
+        'GET /vendor-portal/purchase-orders': ({ url }) => {
+          seen.push({ kind: 'orders', page: url.searchParams.get('page') })
+          return page([], { page: 3 })
+        },
+      },
+    })
+    expect(await screen.findByText('Amended (rev 2)')).toBeVisible()
+    expect(screen.getByRole('link', { name: pending.code })).toHaveAttribute(
+      'href',
+      `/vendor/orders/${ID}`,
+    )
+    expect(seen).toContainEqual({ kind: 'amendments', page: '2' })
+    expect(seen).toContainEqual({ kind: 'orders', page: '3' })
+    expect(screen.queryByText('Total')).toBeNull()
+  })
+
+  it('shows the revision badge with commercial terms after the revised order is resent', async () => {
+    detail('SENT', rights, { [`GET ${BASE}`]: ok({ ...order(), amendment_number: 2 }) })
+    expect(await screen.findByText('Amended (rev 2)')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Accept' })).toBeVisible()
+    expect(screen.getByText('Deliver during working hours')).toBeVisible()
   })
 })

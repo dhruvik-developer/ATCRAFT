@@ -6,15 +6,16 @@ not close the [remaining full-scope packages](production-scope-20261025.md) or
 approve deployment to a real host. The user kept the DSC/PAdES signer decision
 pending while other work continues.
 
-The shared `3b27a44` checkpoint passed all five CI jobs on both
-[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40439718125)
-and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40439718155):
+The shared `f779a2e` checkpoint passed all five CI jobs on both
+[develop](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40450868047)
+and [main](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40450868296):
 backend quality, backend integration, frontend, production configuration/image
-scans and browser journeys. The develop run recorded 6,338 backend passes with
-81.64% combined statement/branch coverage and 30 browser tests. Accessibility
+scans and browser journeys. The develop run recorded 6,392 backend passes with
+81.66% combined statement/branch coverage and 30 browser tests. Accessibility
 checks covered 66 screens in each theme with zero violated rules or render
 failures. The frontend suite passed 1,493 tests across 113 files. These combined
-checks include D5 and transient session recovery.
+checks include D5, transient session recovery, planning provenance and strict
+E2E Node/browser typing. The D1 follow-up below has its own verification.
 
 ## Canonical local installation
 
@@ -128,6 +129,81 @@ full E2E typecheck passes; the unit-of-measure lookup uses the generated API
 schema, all 30 browser tests are discoverable and the test dependencies have
 zero audit findings. CI checks these types before running the journeys, and
 both `make test-e2e` variants use the same npm pretest check.
+
+## D1 purchase-order actions and amendment verification
+
+The D1 follow-up implements merge, increase, a separate draft requiring duplicate
+approval, and cancellation of explicitly selected outstanding requisition demand.
+Issued orders can be amended before any receipt history exists. Revisions retain
+line identities, agreed taxes and durable source allocations, return to approval,
+and require resend. Complete before/after snapshots are available through paged
+staff history. Previously sent orders expose only a status notice to their scoped
+vendor while revised commercial content remains private. The creator and latest
+amendment author cannot approve their own work except through the existing
+explicit platform-superuser exception.
+
+The complete backend unit suite passed 4,355 tests with two third-party
+deprecation warnings. Local PostgreSQL verification includes a 61-case
+service/HTTP/search/fulfilment and fresh-seed run, six concurrency and revision
+cases, and six migration/tenant cases. The final 47-case run passed after adding
+warehouse-scoped demand
+cancellation and atomic numeric-limit refusals. Twenty pure arithmetic boundary
+cases also pass. These runs overlap; their counts are not summed into a claimed
+whole-suite total. Deterministic receipt/amendment races prove that both locking
+orders serialize and that a draft receipt prevents a subsequent amendment.
+Overflowing derived amounts and merged quantities produce controlled input
+errors without changing the original document or exposing database diagnostics.
+Final review added a passing pooled-counter regression: individually valid
+allocations cannot overflow a requisition's stored ordered quantity. Both numeric
+integration cases and all 15 D1 HTTP cases pass, including preserved counters
+and no partially created documents after refusal.
+
+The canonical database is at `20261104_0100` (revision 35). Revision 34 preserved
+every value in the 140 existing base tables and backfilled two source mappings.
+Revision 35 preserved all 141 table snapshots, including allocation identities,
+while shortening the two new composite foreign-key names. Unfiltered
+`alembic check` reports no drift. Fresh-install, safe rollback and refusal cases
+passed. Both revisions use a five-second lock acquisition bound; large histories
+still require the maintenance window described in the migration. The only local
+application databases remain `atcraft_erp` and `atcraft_erp_test`, with
+`TEST_POSTGRES_DB` unset.
+
+A final six-case migration rerun also covers a concurrent amendment attempting
+to commit after rollback preflight but before its first destructive statement.
+The downgrade now freezes all affected writes before checking retained history;
+the independent writer times out, and the test rolls back the schema changes.
+
+The frontend suite passed 1,543 tests in 115 files. All four new live browser
+journeys passed: actual amendments and saved history at 375, 768 and 1440 pixels,
+plus explicit duplicate approval confirmation. Strict frontend and E2E typing,
+formatting, lint and generated-contract checks passed. The production build
+retained the 203.8 KB initial-load budget result against 210 KB, the 38.0 KB
+largest screen closure against 40 KB, and a clean credential scan of 210 assets.
+OpenAPI contains 545 paths and 1,176 schemas; all 721 Postman requests match.
+Final review added a seventeenth D1 UI case proving that a background refetch
+cannot replace the version attached to already edited lines. The opening order
+snapshot stays fixed until the editor closes; a stale submission receives a
+conflict without discarding the user's edits. All 17 focused cases pass.
+
+The single local seed entrypoint now adds four D1 documents, including a pooled
+order with two retained quantities and a separate order awaiting duplicate
+approval. The complete fresh CLI test verifies that its second invocation leaves
+the document rows, allocations, files and existing passwords unchanged. On the
+canonical installation the additive run created only these four documents and
+registered 357 references across 52 kinds; it replaced no PDFs or passwords.
+
+All 97 handbook views were recaptured with their correctly bound principals and
+zero failures. Staff and vendor captures select the same pending revision through
+normal read-only lists. The rebuilt 199-page guide was rendered in full, with
+zero out-of-page text, and its contact sheets and affected pages were visually
+reviewed. The offline browser/capture helpers passed all 46 tests; their guard
+recognizes 403 non-session API writes and blocks them before dispatch.
+
+The mandatory hooks and the workflow of the pushed D1 commit are the whole-tree
+gates for this follow-up. The earlier `f779a2e` CI result above remains evidence
+for that earlier checkpoint. D2 messaging, D3 courier automation, the remaining
+planning/profitability/serial packages, the deferred D4 signer setup and the real
+deployment gate remain open in the current scope document.
 
 ## Previously verified application behavior
 

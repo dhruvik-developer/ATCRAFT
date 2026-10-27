@@ -69,6 +69,7 @@ from src.modules.vendor_portal.schemas import (
     VendorPortalPayment,
     VendorPortalPaymentAllocation,
     VendorPortalPaymentSummary,
+    VendorPortalPendingAmendmentRead,
     VendorPortalReady,
     VendorPortalReceiptLine,
     VendorPortalReceiptRead,
@@ -139,7 +140,18 @@ class VendorPortalService:
 
     # --- one order ------------------------------------------------------------
 
-    async def order(self, order_id: uuid.UUID) -> VendorPortalOrderDetail:
+    async def pending_amendments(
+        self, params: PageParams
+    ) -> tuple[list[VendorPortalPendingAmendmentRead], OffsetPagination]:
+        rows, page = await self.repo.pending_amendments(params)
+        return [VendorPortalPendingAmendmentRead.model_validate(row) for row in rows], page
+
+    async def order(
+        self, order_id: uuid.UUID
+    ) -> VendorPortalOrderDetail | VendorPortalPendingAmendmentRead:
+        pending = await self.repo.pending_amendment(order_id)
+        if pending is not None:
+            return VendorPortalPendingAmendmentRead.model_validate(pending)
         order = await self.orders.get_or_404(order_id)
         tracking = await inbound_service.tracking_row(self.session, self.tenant, order_id)
         detail = await procurement.get_purchase_order_detail(self.session, self.tenant, order_id)
@@ -176,6 +188,8 @@ class VendorPortalService:
         invoices = await self.repo.invoice_totals(order_id)
         return VendorPortalOrderDetail(
             id=detail.id,
+            amendment_number=detail.amendment_number,
+            last_amended_at=detail.last_amended_at,
             code=detail.code,
             po_date=detail.po_date,
             status=detail.status,

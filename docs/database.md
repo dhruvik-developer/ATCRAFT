@@ -78,7 +78,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `sales` | `sales_orders`, `sales_order_lines`, `sales_settings` |
 | `sales_returns` | `sales_returns`, `sales_return_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
-| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
+| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `purchase_order_source_allocations`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
 | `assembly` | `assembly_orders`, `assembly_order_components` |
 | `job_work` | `job_work_orders`, `job_work_order_lines`, `job_work_challans`, `job_work_challan_lines`, `job_work_receipts`, `job_work_receipt_lines` |
@@ -907,6 +907,8 @@ Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
                         -> GRN_COMPLETED -> INVOICED -> PAID -> CLOSED
                   (SENT -> VENDOR_DECLINED -> SENT or CANCELLED;
                    REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
+                  APPROVED | SENT | ACKNOWLEDGED -> PENDING_APPROVAL through Amend only
+                  (current version required; any GRN history prevents amendment)
 
 Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
@@ -1103,8 +1105,60 @@ buyer's own order naming requisition lines, an edit rewriting such an order's
 lines - takes its locks in one order: requisition headers by id, then
 requisition lines by id, then the `po-duplicate` advisory locks sorted by
 (vendor, warehouse). A conversion takes all of its advisory keys before raising
-its first order. Giving quantity back on cancel or reject locks only the lines,
-never a header, so it cannot close a cycle with that order.
+its first order. Draft replacement, amendment, cancellation and rejection use
+the same header/line/advisory ordering, followed by the refreshed PO header.
+An optimistic version and source-set recheck refuse a changed discovery set.
+Receipt creation locks that same PO header before validating its state or
+lines; a draft or cancelled GRN is already receipt history.
+
+### Purchase-order allocations and revisions (D1)
+
+`purchase_order_source_allocations` links one physical PO line to one or more
+requisition lines, with positive `quantity`, `is_active` and the usual tenant,
+actor and timestamps. Composite foreign keys enforce matching tenant ownership.
+The unique grain is `(company_id, purchase_order_line_id, requisition_line_id)`.
+Indexes support reads by PO line and active source. An inactive row retains
+released provenance; its quantity does not contribute to `ordered_quantity`.
+Scalar `purchase_order_lines.requisition_line_id` is a compatibility projection
+only when one active allocation covers the whole line. Durable mappings are
+authoritative even when all have been released. Existing unmapped imports can
+still use the scalar fallback. Source counters are recomputed from these facts,
+not decremented with a zero clamp. Releasing a PO never reopens cancelled demand.
+
+Revision `20261103_0100` backfills scalar links without changing existing
+counters, marking cancelled/rejected order links inactive. It refuses legacy
+counter or tenant inconsistencies before DDL. The migration holds procurement
+table locks with a five-second acquisition limit; use a maintenance window for
+large histories. Downgrade refuses revisions, duplicate-confirmation evidence
+or allocations that scalar links cannot represent. `20261104_0100` only renames
+the composite foreign keys to explicit names within PostgreSQL's identifier
+bound, preserving their validation and every allocation identity.
+
+PO revision evidence includes `amendment_number`, `last_amended_at`,
+`last_amended_by_id`, `duplicate_confirmed_by_id`, `duplicate_confirmed_at` and
+`duplicate_confirmation_reason`. An amendment retains surviving line IDs and
+their agreed tax rates, records complete before/after terms and allocation
+quantities in immutable audit context, clears acknowledgement/committed dates
+and prior approval/duplicate confirmation, then requires reapproval and resend.
+The original creator and latest amendment author cannot approve their own work
+except for the existing explicit platform-superuser/SUPER_ADMIN exemption.
+Even a free line change forces a header version update. The ordinary Submit
+operation remains draft-only. The content-changed seam is a no-op until the
+deferred D4 signer setup is decided.
+
+Duplicate resolution rechecks candidates inside the transaction. Merge/increase
+requires the current candidate version, compatible header/line commercial
+terms, and no receipt history. Flat line discounts are added when quantities
+are combined; percentage rates remain unchanged. Reducing a line below its
+linked demand requires explicit retained source allocations. Quantities shared
+among several causal MRP roots remain aggregate in the sales trail; physical
+receipt quantities are never divided by an invented ratio.
+
+The buyer reads revision history with the PO view permission through keyset
+pagination. A previously sent PO awaiting reapproval or resend is exposed to
+its scoped vendor only as a separate, paginated status notice (identity, code,
+status, revision and time). Revised prices, terms, lines and actions remain
+private until resend. Ordinary unsent orders remain invisible.
 
 ### Vendor portal and inbound consignments (C1a)
 

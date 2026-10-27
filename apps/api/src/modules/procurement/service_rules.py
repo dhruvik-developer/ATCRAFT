@@ -21,10 +21,11 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
+from src.core.demand_provenance import DemandReference
 from src.core.errors import BusinessRuleError, ErrorCode, ValidationError
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
-from src.core.types import ZERO, to_money, to_quantity
+from src.core.types import ZERO, Money, to_money, to_quantity
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     OVER_RECEIPT_MULTIPLIER,
@@ -227,6 +228,27 @@ PURCHASE_ORDER_LIFECYCLE: StateMachine[PurchaseOrderStatus] = StateMachine(
             PurchaseOrderStatus.PENDING_APPROVAL,
             permission=Permission.PURCHASE_ORDER_UPDATE,
             label="Submit for approval",
+        ),
+        # These edges belong to the amendment service: it preserves line IDs,
+        # checks all GRN history and records a new revision before reopening
+        # approval. Ordinary submission remains limited to DRAFT.
+        Transition(
+            PurchaseOrderStatus.APPROVED,
+            PurchaseOrderStatus.PENDING_APPROVAL,
+            permission=Permission.PURCHASE_ORDER_UPDATE,
+            label="Amend",
+        ),
+        Transition(
+            PurchaseOrderStatus.SENT,
+            PurchaseOrderStatus.PENDING_APPROVAL,
+            permission=Permission.PURCHASE_ORDER_UPDATE,
+            label="Amend",
+        ),
+        Transition(
+            PurchaseOrderStatus.ACKNOWLEDGED,
+            PurchaseOrderStatus.PENDING_APPROVAL,
+            permission=Permission.PURCHASE_ORDER_UPDATE,
+            label="Amend",
         ),
         Transition(
             PurchaseOrderStatus.DRAFT,
@@ -463,6 +485,24 @@ class LineAmounts:
     line_total: Decimal
 
 
+def _stored_money(value: Decimal | int | str) -> Decimal:
+    """Reject derived overflow before rounding or writing a document.
+
+    Individually valid quantities and prices can multiply/sum beyond the
+    shared Money column. That is an input refusal, not a database outage.
+    """
+    value = Decimal(value)
+    precision, scale = Money.precision, Money.scale
+    assert precision is not None and scale is not None
+    bound = Decimal(10) ** (precision - scale)
+    if not value.is_finite() or abs(value) >= bound:
+        raise ValidationError("The calculated amount is too large. Reduce the quantity or price.")
+    rounded = to_money(value)
+    if abs(rounded) >= bound:
+        raise ValidationError("The calculated amount is too large. Reduce the quantity or price.")
+    return rounded
+
+
 def compute_line_amounts(
     *,
     quantity: Decimal,
@@ -483,6 +523,11 @@ def compute_line_amounts(
     agreed. Overstating the split here would put this module's guess on a
     document finance later has to match against the real one.
     """
+    if any(
+        value is not None and not Decimal(value).is_finite()
+        for value in (quantity, unit_price, tax_rate, discount_percentage, discount_amount)
+    ):
+        raise ValidationError("Amounts and quantities must be finite decimal values.")
     if quantity <= 0:
         raise ValidationError("Line quantity must be greater than zero.")
     if unit_price < 0:
@@ -490,14 +535,14 @@ def compute_line_amounts(
     if tax_rate < 0:
         raise ValidationError("Tax rate cannot be negative.")
 
-    gross = to_money(Decimal(quantity) * Decimal(unit_price))
+    gross = _stored_money(Decimal(quantity) * Decimal(unit_price))
 
     if discount_percentage is not None and discount_percentage > 0:
-        discount = to_money(gross * Decimal(discount_percentage) / Decimal(100))
+        discount = _stored_money(gross * Decimal(discount_percentage) / Decimal(100))
     elif discount_amount is not None:
-        discount = to_money(discount_amount)
+        discount = _stored_money(discount_amount)
     else:
-        discount = to_money(ZERO)
+        discount = _stored_money(ZERO)
 
     if discount > gross:
         raise ValidationError(
@@ -506,14 +551,14 @@ def compute_line_amounts(
         )
 
     taxable = gross - discount
-    tax = to_money(taxable * Decimal(tax_rate) / Decimal(100))
+    tax = _stored_money(taxable * Decimal(tax_rate) / Decimal(100))
 
     return LineAmounts(
         gross_amount=gross,
         discount_amount=discount,
         taxable_amount=taxable,
         tax_amount=tax,
-        line_total=taxable + tax,
+        line_total=_stored_money(taxable + tax),
     )
 
 
@@ -535,16 +580,16 @@ def sum_document_totals(
     ``subtotal - discount + tax + freight = total`` - the arithmetic a buyer
     checks by hand against the vendor's proforma.
     """
-    subtotal = to_money(sum((a.gross_amount for a in amounts), ZERO))
-    discount = to_money(sum((a.discount_amount for a in amounts), ZERO))
-    tax = to_money(sum((a.tax_amount for a in amounts), ZERO))
-    freight = to_money(freight_amount if freight_amount is not None else ZERO)
+    subtotal = _stored_money(sum((a.gross_amount for a in amounts), ZERO))
+    discount = _stored_money(sum((a.discount_amount for a in amounts), ZERO))
+    tax = _stored_money(sum((a.tax_amount for a in amounts), ZERO))
+    freight = _stored_money(freight_amount if freight_amount is not None else ZERO)
     return DocumentTotals(
         subtotal=subtotal,
         discount=discount,
         tax_amount=tax,
         freight_amount=freight,
-        total_amount=subtotal - discount + tax + freight,
+        total_amount=_stored_money(subtotal - discount + tax + freight),
     )
 
 
@@ -729,9 +774,16 @@ _NOT_YET_WITH_VENDOR: frozenset[PurchaseOrderStatus] = frozenset(
     }
 )
 
-#: Statuses in which lines can still be edited into the existing document.
+#: Direct edits in the first two states; an approved or vendor-visible order
+#: can absorb demand only through the audited amendment service.
 _MERGEABLE: frozenset[PurchaseOrderStatus] = frozenset(
-    {PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PENDING_APPROVAL}
+    {
+        PurchaseOrderStatus.DRAFT,
+        PurchaseOrderStatus.PENDING_APPROVAL,
+        PurchaseOrderStatus.APPROVED,
+        PurchaseOrderStatus.SENT,
+        PurchaseOrderStatus.ACKNOWLEDGED,
+    }
 )
 
 #: Statuses from which the existing order can still be cancelled outright.
@@ -766,6 +818,9 @@ class DuplicateCandidate:
     match_reasons: tuple[str, ...]
     recommended_action: DuplicateAction
     available_actions: tuple[DuplicateAction, ...]
+    item_category_id: uuid.UUID | None = None
+    has_receipt_history: bool = False
+    purchase_order_version: int = 1
 
     @property
     def open_quantity(self) -> Decimal:
@@ -814,20 +869,25 @@ def same_source_demand(
 
 
 def available_actions_for(
-    *, status: PurchaseOrderStatus, received_quantity: Decimal
+    *,
+    status: PurchaseOrderStatus,
+    received_quantity: Decimal,
+    has_receipt_history: bool = False,
+    same_item: bool = True,
 ) -> tuple[DuplicateAction, ...]:
     """Which of section 16's four actions are actually possible here.
 
     A recommendation the system cannot carry out is worse than none: the buyer
     clicks it, it fails, and next time they ignore the warning entirely.
     """
-    nothing_received = Decimal(received_quantity) <= 0
+    nothing_received = not has_receipt_history and Decimal(received_quantity) <= 0
     actions: list[DuplicateAction] = []
 
-    if status in _MERGEABLE:
+    if nothing_received and status in _MERGEABLE:
         actions.append(DuplicateAction.MERGE_WITH_EXISTING)
     if nothing_received and status in _CANCELLABLE:
-        actions.append(DuplicateAction.INCREASE_EXISTING_QUANTITY)
+        if same_item:
+            actions.append(DuplicateAction.INCREASE_EXISTING_QUANTITY)
         actions.append(DuplicateAction.CANCEL_DUPLICATE)
     # Always available: the buyer may know something the matcher does not, and
     # the approval requirement is what makes that safe.
@@ -857,10 +917,15 @@ def recommend_action(
     """
     if is_same_source and DuplicateAction.CANCEL_DUPLICATE in available:
         return DuplicateAction.CANCEL_DUPLICATE
-    if DuplicateAction.MERGE_WITH_EXISTING in available:
+    if (
+        status in (PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PENDING_APPROVAL)
+        and DuplicateAction.MERGE_WITH_EXISTING in available
+    ):
         return DuplicateAction.MERGE_WITH_EXISTING
     if DuplicateAction.INCREASE_EXISTING_QUANTITY in available:
         return DuplicateAction.INCREASE_EXISTING_QUANTITY
+    if DuplicateAction.MERGE_WITH_EXISTING in available:
+        return DuplicateAction.MERGE_WITH_EXISTING
     return DuplicateAction.CREATE_NEW_WITH_APPROVAL
 
 
@@ -875,6 +940,9 @@ class ProposedLine:
     item_id: uuid.UUID
     required_date: date | None
     requisition_line_id: uuid.UUID | None = None
+    item_category_id: uuid.UUID | None = None
+    source_demand_refs: tuple[Mapping[str, object] | DemandReference, ...] = ()
+    requisition_line_ids: frozenset[uuid.UUID] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -899,6 +967,31 @@ class CandidateInput:
     source_id: uuid.UUID | None
     #: The requisition line the existing order line was raised to satisfy.
     requisition_line_id: uuid.UUID | None = None
+    item_category_id: uuid.UUID | None = None
+    source_demand_refs: tuple[Mapping[str, object] | DemandReference, ...] = ()
+    requisition_line_ids: frozenset[uuid.UUID] = frozenset()
+    has_receipt_history: bool = False
+    purchase_order_version: int = 1
+
+
+def demand_ref_keys(
+    refs: Sequence[Mapping[str, object] | DemandReference],
+) -> frozenset[tuple[str, uuid.UUID, uuid.UUID | None]]:
+    """Canonical triples in a validated PR list, without MRP display inference.
+
+    Historical malformed entries carry no trustworthy identity. Ignore them
+    instead of comparing missing keys (which would make unrelated rows EXACT).
+    Tenant ownership is validated by the writing service, outside this pure
+    matcher. A complete PR list of fifty entries is valid here.
+    """
+    keys: set[tuple[str, uuid.UUID, uuid.UUID | None]] = set()
+    for raw in refs:
+        try:
+            ref = DemandReference.model_validate(raw)
+        except (TypeError, ValueError):
+            continue
+        keys.add((ref.demand_type, ref.demand_id, ref.demand_line_id))
+    return frozenset(keys)
 
 
 def same_requisition_line(
@@ -931,39 +1024,54 @@ def classify_candidate(
     source_id: uuid.UUID | None,
     window_days: int = DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     requisition_line_id: uuid.UUID | None = None,
+    item_category_id: uuid.UUID | None = None,
+    source_demand_refs: Sequence[Mapping[str, object] | DemandReference] = (),
+    requisition_line_ids: Collection[uuid.UUID] = (),
 ) -> DuplicateCandidate | None:
     """Decide whether one open line is a duplicate of the proposed demand.
 
-    Returns ``None`` when it is not. The four hard criteria from master rules
-    section 16 - same vendor, same item, same warehouse, overlapping required
-    date - all have to hold, except that naming the same source demand
-    overrides the date window: two orders raised from one MRP suggestion are
-    duplicates whatever dates were typed on them. Claiming the same pending
-    requisition line is the same kind of signal at line level, and is EXACT
-    for the same reason.
+    Matching source identities for the same item override the date window.
+    A different item in the same procurement category is a weaker, dated
+    POSSIBLE signal; it can be merged but cannot increase another item's line.
     """
     if candidate.vendor_id != vendor_id:
         return None
-    if candidate.item_id != item_id:
-        return None
     if candidate.warehouse_id != warehouse_id:
         return None
+    same_item = candidate.item_id == item_id
+    same_category = item_category_id is not None and candidate.item_category_id == item_category_id
+    in_window = dates_overlap(candidate.required_date, required_date, window_days=window_days)
+    if not same_item and not (same_category and in_window):
+        return None
 
-    is_same_source = same_source_demand(
+    is_same_source = same_item and same_source_demand(
         candidate_source_type=candidate.source_type,
         candidate_source_id=candidate.source_id,
         proposed_source_type=source_type,
         proposed_source_id=source_id,
     )
-    is_same_requisition_line = same_requisition_line(
-        candidate_requisition_line_id=candidate.requisition_line_id,
-        proposed_requisition_line_id=requisition_line_id,
+    candidate_requisitions = candidate.requisition_line_ids | (
+        frozenset({candidate.requisition_line_id}) if candidate.requisition_line_id else frozenset()
     )
-    in_window = dates_overlap(candidate.required_date, required_date, window_days=window_days)
-    if not in_window and not is_same_source and not is_same_requisition_line:
+    proposed_requisitions = set(requisition_line_ids)
+    if requisition_line_id is not None:
+        proposed_requisitions.add(requisition_line_id)
+    is_same_requisition_line = same_item and bool(candidate_requisitions & proposed_requisitions)
+    # ASSUMPTION: a common sales/BOM root can require several different
+    # components. Root overlap is EXACT only for the same SKU, while the
+    # separate category signal still warns about related purchases.
+    is_same_root = same_item and bool(
+        demand_ref_keys(candidate.source_demand_refs) & demand_ref_keys(source_demand_refs)
+    )
+    is_same_demand = is_same_source or is_same_requisition_line or is_same_root
+    if not in_window and not is_same_demand:
         return None
 
-    reasons = ["Same vendor", "Same item", "Same delivery warehouse"]
+    reasons = [
+        "Same vendor",
+        "Same item" if same_item else "Same procurement category",
+        "Same delivery warehouse",
+    ]
     if in_window:
         reasons.append(
             f"Required dates within {window_days} day(s)"
@@ -974,23 +1082,29 @@ def classify_candidate(
         reasons.append(f"Both raised from the same {candidate.source_type.value} demand")
     if is_same_requisition_line:
         reasons.append("Both cover the same pending requisition line")
-    if Decimal(candidate.received_quantity) <= 0:
+    if is_same_root:
+        reasons.append("Both cover the same sales order / BOM demand")
+    has_receipts = candidate.has_receipt_history or Decimal(candidate.received_quantity) > 0
+    if not has_receipts:
         reasons.append("Nothing received against the existing order yet")
 
-    if is_same_source or is_same_requisition_line:
+    if is_same_demand:
         confidence = DuplicateConfidence.EXACT
-    elif candidate.status in _NOT_YET_WITH_VENDOR:
+    elif same_item and candidate.status in _NOT_YET_WITH_VENDOR:
         confidence = DuplicateConfidence.STRONG
     else:
         confidence = DuplicateConfidence.POSSIBLE
 
     available = available_actions_for(
-        status=candidate.status, received_quantity=candidate.received_quantity
+        status=candidate.status,
+        received_quantity=candidate.received_quantity,
+        has_receipt_history=has_receipts,
+        same_item=same_item,
     )
     recommended = recommend_action(
         status=candidate.status,
         received_quantity=candidate.received_quantity,
-        is_same_source=is_same_source or is_same_requisition_line,
+        is_same_source=is_same_demand,
         available=available,
     )
 
@@ -1011,6 +1125,9 @@ def classify_candidate(
         match_reasons=tuple(reasons),
         recommended_action=recommended,
         available_actions=available,
+        item_category_id=candidate.item_category_id,
+        has_receipt_history=has_receipts,
+        purchase_order_version=candidate.purchase_order_version,
     )
 
 
@@ -1033,6 +1150,9 @@ def classify_candidates(
     source_id: uuid.UUID | None,
     window_days: int = DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     requisition_line_id: uuid.UUID | None = None,
+    item_category_id: uuid.UUID | None = None,
+    source_demand_refs: Sequence[Mapping[str, object] | DemandReference] = (),
+    requisition_line_ids: Collection[uuid.UUID] = (),
 ) -> list[DuplicateCandidate]:
     """Classify a set of open lines, strongest match first."""
     matched = [
@@ -1049,6 +1169,9 @@ def classify_candidates(
                 source_id=source_id,
                 window_days=window_days,
                 requisition_line_id=requisition_line_id,
+                item_category_id=item_category_id,
+                source_demand_refs=source_demand_refs,
+                requisition_line_ids=requisition_line_ids,
             )
         )
         is not None
@@ -1073,7 +1196,8 @@ def duplicate_refusal(candidates: list[DuplicateCandidate]) -> BusinessRuleError
     strongest = candidates[0]
     return BusinessRuleError(
         f"This order duplicates {len(candidates)} open purchase order line(s) - "
-        f"{strongest.purchase_order_code} already covers the same item for the same vendor, "
+        f"{strongest.purchase_order_code} already covers the same item or procurement category "
+        "for the same vendor, "
         "warehouse and delivery window. Review the suggested action, or resubmit with "
         "acknowledge_duplicates and a reason if the demand is genuinely additional.",
         code=ErrorCode.DUPLICATE_DOCUMENT,
@@ -1086,7 +1210,10 @@ def duplicate_refusal(candidates: list[DuplicateCandidate]) -> BusinessRuleError
                     "purchase_order_code": c.purchase_order_code,
                     "purchase_order_line_id": str(c.purchase_order_line_id),
                     "item_id": str(c.item_id),
+                    "item_category_id": str(c.item_category_id) if c.item_category_id else None,
                     "status": str(c.status),
+                    "has_receipt_history": c.has_receipt_history,
+                    "purchase_order_version": c.purchase_order_version,
                     "open_quantity": str(c.open_quantity),
                     "required_date": c.required_date.isoformat() if c.required_date else None,
                     "confidence": str(c.confidence),
@@ -1883,6 +2010,7 @@ __all__ = [
     "compute_line_amounts",
     "conversion_delivery_date",
     "dates_overlap",
+    "demand_ref_keys",
     "duplicate_refusal",
     "effective_unit_price",
     "group_conversion_lines",

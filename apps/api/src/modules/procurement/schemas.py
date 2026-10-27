@@ -30,7 +30,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.demand_provenance import DemandReference
@@ -613,6 +613,37 @@ class QuotationComparison(BaseModel):
 # =============================================================================
 
 
+class PurchaseOrderSourceAllocationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requisition_line_id: uuid.UUID
+    quantity: PositiveQuantity
+
+
+class PurchaseOrderSourceAllocationRead(PurchaseOrderSourceAllocationIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    requisition_code: str | None = None
+    requisition_line_number: int | None = None
+    is_active: bool = True
+
+
+def _validate_source_allocations(
+    allocations: list[PurchaseOrderSourceAllocationIn] | None,
+    quantity: Decimal,
+    scalar_source: uuid.UUID | None = None,
+) -> None:
+    if allocations is None:
+        return
+    if scalar_source is not None:
+        raise ValueError("Use source_allocations or requisition_line_id, not both.")
+    identities = [allocation.requisition_line_id for allocation in allocations]
+    if len(set(identities)) != len(identities):
+        raise ValueError("A requisition line can be allocated only once per PO line.")
+    if sum((allocation.quantity for allocation in allocations), Decimal("0")) > quantity:
+        raise ValueError("Source allocations cannot exceed the physical PO line quantity.")
+
+
 class PurchaseOrderLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -630,11 +661,17 @@ class PurchaseOrderLineIn(BaseModel):
     #: it to available stock.
     requires_qc: bool = False
     requisition_line_id: uuid.UUID | None = None
+    source_allocations: list[PurchaseOrderSourceAllocationIn] | None = Field(
+        default=None, max_length=MAX_LINES_PER_DOCUMENT
+    )
     quotation_line_id: uuid.UUID | None = None
     notes: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def _one_discount_form(self) -> PurchaseOrderLineIn:
+        _validate_source_allocations(
+            self.source_allocations, self.quantity, self.requisition_line_id
+        )
         if self.discount_percentage is not None and self.discount is not None:
             raise ValueError(
                 "Give either a discount percentage or a flat discount amount, not both."
@@ -670,6 +707,7 @@ class PurchaseOrderLineRead(BaseModel):
     requires_qc: bool
     status: PurchaseOrderLineStatus
     requisition_line_id: uuid.UUID | None
+    source_allocations: list[PurchaseOrderSourceAllocationRead] = Field(default_factory=list)
     quotation_line_id: uuid.UUID | None
     notes: str | None
 
@@ -778,6 +816,9 @@ class PurchaseOrderSummary(BaseModel):
     ready_packages: int | None = None
     vendor_decline_reason: str | None = None
     version: int
+    amendment_number: int = 0
+    last_amended_at: datetime | None = None
+    last_amended_by_id: uuid.UUID | None = None
     created_at: datetime
 
 
@@ -792,6 +833,10 @@ class PurchaseOrderDetail(PurchaseOrderSummary):
     cancellation_reason: str | None
     duplicate_acknowledged: bool
     duplicate_acknowledgement_reason: str | None
+    duplicate_confirmed_by_id: uuid.UUID | None = None
+    duplicate_confirmed_at: datetime | None = None
+    duplicate_confirmation_reason: str | None = None
+    has_receipt_history: bool = True
     courier_name: str | None
     tracking_reference: str | None
     shipped_at: datetime | None
@@ -924,6 +969,9 @@ class DuplicateCandidateRead(BaseModel):
     match_reasons: list[str]
     recommended_action: str
     available_actions: list[str]
+    item_category_id: uuid.UUID | None = None
+    has_receipt_history: bool = True
+    purchase_order_version: int = 1
 
 
 class DuplicateCheckResult(BaseModel):
@@ -1093,6 +1141,177 @@ class RequisitionConversionResult(BaseModel):
     requires_acknowledgement: bool
     #: ``False`` on a preview, ``True`` once the orders exist.
     converted: bool
+
+
+class PurchaseOrderApprovalRequest(BaseModel):
+    """Only PO approvals carry duplicate confirmation; other approvals stay unchanged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, max_length=1000)
+    confirm_duplicate: bool = False
+
+    @model_validator(mode="after")
+    def _confirmation_reason(self) -> PurchaseOrderApprovalRequest:
+        if self.reason is not None:
+            self.reason = self.reason.strip()
+        if self.confirm_duplicate and len(self.reason or "") < 3:
+            raise ValueError("Confirming duplicate demand requires a meaningful approval reason.")
+        return self
+
+
+class PurchaseOrderAmendLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    line_id: uuid.UUID | None = None
+    line_number: Annotated[int, Field(ge=1, le=100_000)] | None = None
+    item_id: uuid.UUID | None = None
+    quantity: PositiveQuantity
+    unit_price: NonNegativeUnitPrice | None = None
+    uom_id: uuid.UUID | None = None
+    description: str | None = Field(default=None, max_length=500)
+    discount_percentage: DiscountPercentage | None = None
+    discount: NonNegativeMoney | None = None
+    required_date: date | None = None
+    requires_qc: bool | None = None
+    quotation_line_id: uuid.UUID | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    source_allocations: list[PurchaseOrderSourceAllocationIn] | None = Field(
+        default=None, max_length=MAX_LINES_PER_DOCUMENT
+    )
+
+    @field_validator("unit_price", "uom_id", "requires_qc", "item_id", mode="before")
+    @classmethod
+    def _omit_instead_of_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("Omit this field to retain its value; it cannot be null.")
+        return value
+
+    @model_validator(mode="after")
+    def _valid_line(self) -> PurchaseOrderAmendLineIn:
+        if self.line_id is None and (self.item_id is None or self.unit_price is None):
+            raise ValueError("A new amendment line requires item_id and unit_price.")
+        if self.discount is not None and self.discount_percentage is not None:
+            raise ValueError("Give either a discount percentage or a flat discount, not both.")
+        _validate_source_allocations(self.source_allocations, self.quantity)
+        return self
+
+
+class PurchaseOrderAmendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: Annotated[int, Field(ge=1)]
+    reason: Reason
+    lines: list[PurchaseOrderAmendLineIn] = Field(min_length=1, max_length=MAX_LINES_PER_DOCUMENT)
+    expected_delivery_date: date | None = None
+    freight_amount: NonNegativeMoney | None = None
+    terms: str | None = Field(default=None, max_length=4000)
+    delivery_address: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _strip_reason(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _unique_lines(self) -> PurchaseOrderAmendRequest:
+        identities = [line.line_id for line in self.lines if line.line_id is not None]
+        if len(set(identities)) != len(identities):
+            raise ValueError("An existing PO line can be amended only once.")
+        numbers = [line.line_number for line in self.lines if line.line_number is not None]
+        if len(set(numbers)) != len(numbers):
+            raise ValueError("Each amendment line number must be unique.")
+        return self
+
+
+class PurchaseOrderManualDuplicateDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["MANUAL"]
+    purchase_order: PurchaseOrderCreate
+
+
+class PurchaseOrderRequisitionDuplicateDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["REQUISITION"]
+    requisition_ids: list[uuid.UUID] = Field(
+        min_length=1, max_length=MAX_REQUISITIONS_PER_CONVERSION
+    )
+    requisition_line_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_LINES_PER_DOCUMENT)
+    conversion: RequisitionConversionRequest
+
+    @model_validator(mode="after")
+    def _distinct_ids(self) -> PurchaseOrderRequisitionDuplicateDraft:
+        if len(set(self.requisition_ids)) != len(self.requisition_ids):
+            raise ValueError("A requisition can be named only once.")
+        if len(set(self.requisition_line_ids)) != len(self.requisition_line_ids):
+            raise ValueError("A selected requisition line can be named only once.")
+        return self
+
+
+class PurchaseOrderDuplicateResolutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["MERGE", "INCREASE", "CREATE_WITH_APPROVAL", "CANCEL_REQUEST"]
+    candidate_purchase_order_id: uuid.UUID | None = None
+    candidate_line_id: uuid.UUID | None = None
+    expected_candidate_version: Annotated[int, Field(ge=1)] | None = None
+    draft: Annotated[
+        PurchaseOrderManualDuplicateDraft | PurchaseOrderRequisitionDuplicateDraft,
+        Field(discriminator="kind"),
+    ]
+    reason: str = Field(min_length=3, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _strip_reason(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _action_context(self) -> PurchaseOrderDuplicateResolutionRequest:
+        if self.action != "CREATE_WITH_APPROVAL" and len(self.reason) > 255:
+            raise ValueError("This action's reason cannot exceed 255 characters.")
+        if self.action in {"MERGE", "INCREASE"} and (
+            self.candidate_purchase_order_id is None or self.expected_candidate_version is None
+        ):
+            raise ValueError("Changing a candidate requires its ID and current version.")
+        if self.action == "INCREASE" and self.candidate_line_id is None:
+            raise ValueError("Increasing quantity requires the matched candidate line ID.")
+        return self
+
+
+class PurchaseOrderDuplicateResolutionResult(BaseModel):
+    action: Literal["MERGE", "INCREASE", "CREATE_WITH_APPROVAL", "CANCEL_REQUEST"]
+    purchase_orders: list[PurchaseOrderSummary] = Field(default_factory=list)
+    cancelled_requisition_line_ids: list[uuid.UUID] = Field(default_factory=list)
+    discarded: bool = False
+
+
+class PurchaseOrderAmendmentLineRead(PurchaseOrderLineRead):
+    """Frozen line terms at the revision boundary, including source quantities."""
+
+
+class PurchaseOrderAmendmentValues(BaseModel):
+    status: PurchaseOrderStatus
+    expected_delivery_date: date | None
+    freight_amount: Decimal
+    terms: str | None
+    delivery_address: str | None
+    amendment_number: int
+    lines: list[PurchaseOrderAmendmentLineRead]
+
+
+class PurchaseOrderAmendmentRead(BaseModel):
+    id: uuid.UUID
+    amendment_number: int
+    amended_at: datetime
+    amended_by_id: uuid.UUID | None
+    amended_by_name: str | None = None
+    reason: str
+    from_status: PurchaseOrderStatus
+    old_values: PurchaseOrderAmendmentValues
+    new_values: PurchaseOrderAmendmentValues
 
 
 class PurchaseOrderVendorAssignee(BaseModel):

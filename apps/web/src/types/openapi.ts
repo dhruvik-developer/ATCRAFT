@@ -5189,6 +5189,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procurement/purchase-orders/duplicate-resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve duplicate demand atomically
+         * @description Merge or increase a current candidate, request a separate order with approval, or cancel outstanding demand. Permissions depend on the selected action.
+         */
+        post: operations["resolve_purchase_order_duplicate_api_v1_procurement_purchase_orders_duplicate_resolution_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/procurement/purchase-orders/{order_id}": {
         parameters: {
             query?: never;
@@ -5241,6 +5261,43 @@ export interface paths {
          * @description A buyer recording an acceptance the vendor gave by phone or e-mail; the vendor itself accepts through /vendor-portal. Here the buyer may move the planning date.
          */
         post: operations["acknowledge_purchase_order_api_v1_procurement_purchase_orders__order_id__acknowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement/purchase-orders/{order_id}/amend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revise an approved order and require reapproval
+         * @description Requires the current version and no receipt history, including draft or cancelled GRNs. Retains existing line identities and explicit requisition allocations.
+         */
+        post: operations["amend_purchase_order_api_v1_procurement_purchase_orders__order_id__amend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procurement/purchase-orders/{order_id}/amendments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the purchase order's revision history */
+        get: operations["list_purchase_order_amendments_api_v1_procurement_purchase_orders__order_id__amendments_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9529,6 +9586,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vendor-portal/purchase-orders/pending-amendments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Previously sent orders under revision, without revised terms */
+        get: operations["pending_amendments_api_v1_vendor_portal_purchase_orders_pending_amendments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/vendor-portal/purchase-orders/{order_id}": {
         parameters: {
             query?: never;
@@ -12347,6 +12421,21 @@ export interface components {
              */
             success: true;
         };
+        /** ApiResponse[PurchaseOrderDuplicateResolutionResult] */
+        ApiResponse_PurchaseOrderDuplicateResolutionResult_: {
+            data?: components["schemas"]["PurchaseOrderDuplicateResolutionResult"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** ApiResponse[PurchaseOrderSummary] */
         ApiResponse_PurchaseOrderSummary_: {
             data?: components["schemas"]["PurchaseOrderSummary"] | null;
@@ -13237,6 +13326,22 @@ export interface components {
              */
             success: true;
         };
+        /** ApiResponse[Union[VendorPortalOrderDetail, VendorPortalPendingAmendmentRead]] */
+        ApiResponse_Union_VendorPortalOrderDetail__VendorPortalPendingAmendmentRead__: {
+            /** Data */
+            data?: components["schemas"]["VendorPortalOrderDetail"] | components["schemas"]["VendorPortalPendingAmendmentRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** ApiResponse[UnreadCountRead] */
         ApiResponse_UnreadCountRead_: {
             data?: components["schemas"]["UnreadCountRead"] | null;
@@ -13435,21 +13540,6 @@ export interface components {
         /** ApiResponse[VendorPortalOrderActionRead] */
         ApiResponse_VendorPortalOrderActionRead_: {
             data?: components["schemas"]["VendorPortalOrderActionRead"] | null;
-            /**
-             * Message
-             * @default Operation completed successfully
-             */
-            message: string;
-            /**
-             * Success
-             * @default true
-             * @constant
-             */
-            success: true;
-        };
-        /** ApiResponse[VendorPortalOrderDetail] */
-        ApiResponse_VendorPortalOrderDetail_: {
-            data?: components["schemas"]["VendorPortalOrderDetail"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -17294,6 +17384,23 @@ export interface components {
              */
             success: true;
         };
+        /** CursorPaginatedResponse[PurchaseOrderAmendmentRead] */
+        CursorPaginatedResponse_PurchaseOrderAmendmentRead_: {
+            /** Data */
+            data?: components["schemas"]["PurchaseOrderAmendmentRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["CursorPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** CursorPaginatedResponse[PushSubscriptionRead] */
         CursorPaginatedResponse_PushSubscriptionRead_: {
             /** Data */
@@ -19781,6 +19888,13 @@ export interface components {
             /** Confidence */
             confidence: string;
             /**
+             * Has Receipt History
+             * @default true
+             */
+            has_receipt_history: boolean;
+            /** Item Category Id */
+            item_category_id?: string | null;
+            /**
              * Item Id
              * Format: uuid
              */
@@ -19803,6 +19917,11 @@ export interface components {
              * Format: uuid
              */
             purchase_order_line_id: string;
+            /**
+             * Purchase Order Version
+             * @default 1
+             */
+            purchase_order_version: number;
             /** Received Quantity */
             received_quantity: string;
             /** Recommended Action */
@@ -27191,6 +27310,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[VendorPortalPendingAmendmentRead] */
+        PaginatedResponse_VendorPortalPendingAmendmentRead_: {
+            /** Data */
+            data?: components["schemas"]["VendorPortalPendingAmendmentRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[VendorPortalReceiptRead] */
         PaginatedResponse_VendorPortalReceiptRead_: {
             /** Data */
@@ -28905,6 +29041,180 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** PurchaseOrderAmendLineIn */
+        PurchaseOrderAmendLineIn: {
+            /** Description */
+            description?: string | null;
+            /** Discount */
+            discount?: number | string | null;
+            /** Discount Percentage */
+            discount_percentage?: number | string | null;
+            /** Item Id */
+            item_id?: string | null;
+            /** Line Id */
+            line_id?: string | null;
+            /** Line Number */
+            line_number?: number | null;
+            /** Notes */
+            notes?: string | null;
+            /** Quantity */
+            quantity: number | string;
+            /** Quotation Line Id */
+            quotation_line_id?: string | null;
+            /** Required Date */
+            required_date?: string | null;
+            /** Requires Qc */
+            requires_qc?: boolean | null;
+            /** Source Allocations */
+            source_allocations?: components["schemas"]["PurchaseOrderSourceAllocationIn"][] | null;
+            /** Unit Price */
+            unit_price?: number | string | null;
+            /** Uom Id */
+            uom_id?: string | null;
+        };
+        /** PurchaseOrderAmendRequest */
+        PurchaseOrderAmendRequest: {
+            /** Delivery Address */
+            delivery_address?: string | null;
+            /** Expected Delivery Date */
+            expected_delivery_date?: string | null;
+            /** Expected Version */
+            expected_version: number;
+            /** Freight Amount */
+            freight_amount?: number | string | null;
+            /** Lines */
+            lines: components["schemas"]["PurchaseOrderAmendLineIn"][];
+            /** Reason */
+            reason: string;
+            /** Terms */
+            terms?: string | null;
+        };
+        /**
+         * PurchaseOrderAmendmentLineRead
+         * @description Frozen line terms at the revision boundary, including source quantities.
+         */
+        PurchaseOrderAmendmentLineRead: {
+            /** Accepted Quantity */
+            accepted_quantity: string;
+            /** Description */
+            description: string | null;
+            /** Discount */
+            discount: string;
+            /** Discount Percentage */
+            discount_percentage: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Category Id */
+            item_category_id?: string | null;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Line Total */
+            line_total: string;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Purchase Order Id
+             * Format: uuid
+             */
+            purchase_order_id: string;
+            /** Quantity */
+            quantity: string;
+            /** Quotation Line Id */
+            quotation_line_id: string | null;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+            /** Required Date */
+            required_date: string | null;
+            /** Requires Qc */
+            requires_qc: boolean;
+            /** Requisition Line Id */
+            requisition_line_id: string | null;
+            /** Returned Quantity */
+            returned_quantity: string;
+            /** Source Allocations */
+            source_allocations?: components["schemas"]["PurchaseOrderSourceAllocationRead"][];
+            status: components["schemas"]["PurchaseOrderLineStatus"];
+            /** Tax Amount */
+            tax_amount: string;
+            /** Tax Rate */
+            tax_rate: string;
+            /** Unit Price */
+            unit_price: string;
+            /** Uom Code */
+            uom_code?: string | null;
+            /**
+             * Uom Id
+             * Format: uuid
+             */
+            uom_id: string;
+        };
+        /** PurchaseOrderAmendmentRead */
+        PurchaseOrderAmendmentRead: {
+            /**
+             * Amended At
+             * Format: date-time
+             */
+            amended_at: string;
+            /** Amended By Id */
+            amended_by_id: string | null;
+            /** Amended By Name */
+            amended_by_name?: string | null;
+            /** Amendment Number */
+            amendment_number: number;
+            from_status: components["schemas"]["PurchaseOrderStatus"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            new_values: components["schemas"]["PurchaseOrderAmendmentValues"];
+            old_values: components["schemas"]["PurchaseOrderAmendmentValues"];
+            /** Reason */
+            reason: string;
+        };
+        /** PurchaseOrderAmendmentValues */
+        PurchaseOrderAmendmentValues: {
+            /** Amendment Number */
+            amendment_number: number;
+            /** Delivery Address */
+            delivery_address: string | null;
+            /** Expected Delivery Date */
+            expected_delivery_date: string | null;
+            /** Freight Amount */
+            freight_amount: string;
+            /** Lines */
+            lines: components["schemas"]["PurchaseOrderAmendmentLineRead"][];
+            status: components["schemas"]["PurchaseOrderStatus"];
+            /** Terms */
+            terms: string | null;
+        };
+        /**
+         * PurchaseOrderApprovalRequest
+         * @description Only PO approvals carry duplicate confirmation; other approvals stay unchanged.
+         */
+        PurchaseOrderApprovalRequest: {
+            /**
+             * Confirm Duplicate
+             * @default false
+             */
+            confirm_duplicate: boolean;
+            /** Reason */
+            reason?: string | null;
+        };
         /** PurchaseOrderCreate */
         PurchaseOrderCreate: {
             /**
@@ -28968,6 +29278,11 @@ export interface components {
         PurchaseOrderDetail: {
             /** Acknowledged At */
             acknowledged_at: string | null;
+            /**
+             * Amendment Number
+             * @default 0
+             */
+            amendment_number: number;
             /** Approved At */
             approved_at: string | null;
             /** Approved By Id */
@@ -28999,10 +29314,21 @@ export interface components {
             duplicate_acknowledged: boolean;
             /** Duplicate Acknowledgement Reason */
             duplicate_acknowledgement_reason: string | null;
+            /** Duplicate Confirmation Reason */
+            duplicate_confirmation_reason?: string | null;
+            /** Duplicate Confirmed At */
+            duplicate_confirmed_at?: string | null;
+            /** Duplicate Confirmed By Id */
+            duplicate_confirmed_by_id?: string | null;
             /** Expected Delivery Date */
             expected_delivery_date: string | null;
             /** Freight Amount */
             freight_amount: string;
+            /**
+             * Has Receipt History
+             * @default true
+             */
+            has_receipt_history: boolean;
             /**
              * Id
              * Format: uuid
@@ -29014,6 +29340,10 @@ export interface components {
             item_category_id: string | null;
             /** Item Category Name */
             item_category_name?: string | null;
+            /** Last Amended At */
+            last_amended_at?: string | null;
+            /** Last Amended By Id */
+            last_amended_by_id?: string | null;
             /** Lines */
             lines?: components["schemas"]["PurchaseOrderLineRead"][];
             /** Notes */
@@ -29070,6 +29400,41 @@ export interface components {
              */
             warehouse_id: string;
         };
+        /** PurchaseOrderDuplicateResolutionRequest */
+        PurchaseOrderDuplicateResolutionRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "MERGE" | "INCREASE" | "CREATE_WITH_APPROVAL" | "CANCEL_REQUEST";
+            /** Candidate Line Id */
+            candidate_line_id?: string | null;
+            /** Candidate Purchase Order Id */
+            candidate_purchase_order_id?: string | null;
+            /** Draft */
+            draft: components["schemas"]["PurchaseOrderManualDuplicateDraft"] | components["schemas"]["PurchaseOrderRequisitionDuplicateDraft"];
+            /** Expected Candidate Version */
+            expected_candidate_version?: number | null;
+            /** Reason */
+            reason: string;
+        };
+        /** PurchaseOrderDuplicateResolutionResult */
+        PurchaseOrderDuplicateResolutionResult: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "MERGE" | "INCREASE" | "CREATE_WITH_APPROVAL" | "CANCEL_REQUEST";
+            /** Cancelled Requisition Line Ids */
+            cancelled_requisition_line_ids?: string[];
+            /**
+             * Discarded
+             * @default false
+             */
+            discarded: boolean;
+            /** Purchase Orders */
+            purchase_orders?: components["schemas"]["PurchaseOrderSummary"][];
+        };
         /** PurchaseOrderLineIn */
         PurchaseOrderLineIn: {
             /** Description */
@@ -29100,6 +29465,8 @@ export interface components {
             requires_qc: boolean;
             /** Requisition Line Id */
             requisition_line_id?: string | null;
+            /** Source Allocations */
+            source_allocations?: components["schemas"]["PurchaseOrderSourceAllocationIn"][] | null;
             /** Unit Price */
             unit_price: number | string;
             /** Uom Id */
@@ -29158,6 +29525,8 @@ export interface components {
             requisition_line_id: string | null;
             /** Returned Quantity */
             returned_quantity: string;
+            /** Source Allocations */
+            source_allocations?: components["schemas"]["PurchaseOrderSourceAllocationRead"][];
             status: components["schemas"]["PurchaseOrderLineStatus"];
             /** Tax Amount */
             tax_amount: string;
@@ -29183,6 +29552,57 @@ export interface components {
          * @enum {string}
          */
         PurchaseOrderLineStatus: "PENDING" | "PARTIALLY_RECEIVED" | "RECEIVED" | "CLOSED" | "CANCELLED";
+        /** PurchaseOrderManualDuplicateDraft */
+        PurchaseOrderManualDuplicateDraft: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "MANUAL";
+            purchase_order: components["schemas"]["PurchaseOrderCreate"];
+        };
+        /** PurchaseOrderRequisitionDuplicateDraft */
+        PurchaseOrderRequisitionDuplicateDraft: {
+            conversion: components["schemas"]["RequisitionConversionRequest"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "REQUISITION";
+            /** Requisition Ids */
+            requisition_ids: string[];
+            /** Requisition Line Ids */
+            requisition_line_ids: string[];
+        };
+        /** PurchaseOrderSourceAllocationIn */
+        PurchaseOrderSourceAllocationIn: {
+            /** Quantity */
+            quantity: number | string;
+            /**
+             * Requisition Line Id
+             * Format: uuid
+             */
+            requisition_line_id: string;
+        };
+        /** PurchaseOrderSourceAllocationRead */
+        PurchaseOrderSourceAllocationRead: {
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /** Quantity */
+            quantity: string;
+            /** Requisition Code */
+            requisition_code?: string | null;
+            /**
+             * Requisition Line Id
+             * Format: uuid
+             */
+            requisition_line_id: string;
+            /** Requisition Line Number */
+            requisition_line_number?: number | null;
+        };
         /**
          * PurchaseOrderStatus
          * @description Lifecycle of a purchase order (database.md section 7).
@@ -29198,6 +29618,11 @@ export interface components {
         PurchaseOrderSummary: {
             /** Acknowledged At */
             acknowledged_at: string | null;
+            /**
+             * Amendment Number
+             * @default 0
+             */
+            amendment_number: number;
             /** Approved At */
             approved_at: string | null;
             /** Assigned Vendor User Id */
@@ -29228,6 +29653,10 @@ export interface components {
             item_category_id: string | null;
             /** Item Category Name */
             item_category_name?: string | null;
+            /** Last Amended At */
+            last_amended_at?: string | null;
+            /** Last Amended By Id */
+            last_amended_by_id?: string | null;
             /** Payment Terms Days */
             payment_terms_days: number;
             /**
@@ -37525,6 +37954,11 @@ export interface components {
         VendorPortalOrderDetail: {
             /** Acknowledged At */
             acknowledged_at: string | null;
+            /**
+             * Amendment Number
+             * @default 0
+             */
+            amendment_number: number;
             /** Assigned Vendor User Id */
             assigned_vendor_user_id: string | null;
             /** Assigned Vendor User Name */
@@ -37561,10 +37995,18 @@ export interface components {
             item_category_id?: string | null;
             /** Item Category Name */
             item_category_name?: string | null;
+            /** Last Amended At */
+            last_amended_at?: string | null;
             /** Lines */
             lines: components["schemas"]["VendorPortalOrderLine"][];
             /** Payment Terms Days */
             payment_terms_days: number;
+            /**
+             * Pending Amendment
+             * @default false
+             * @constant
+             */
+            pending_amendment: false;
             /**
              * Po Date
              * Format: date
@@ -37747,6 +38189,42 @@ export interface components {
             overdue: string;
             /** Paid This Month */
             paid_this_month: string;
+        };
+        /**
+         * VendorPortalPendingAmendmentRead
+         * @description Status-only notice: revised commercial terms remain private until resend.
+         */
+        VendorPortalPendingAmendmentRead: {
+            /** Amendment Number */
+            amendment_number: number;
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Last Amended At
+             * Format: date-time
+             */
+            last_amended_at: string;
+            /**
+             * Message
+             * @default This order is being revised. Updated terms will be available after approval and resend.
+             */
+            message: string;
+            /**
+             * Pending Amendment
+             * @default true
+             * @constant
+             */
+            pending_amendment: true;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "PENDING_APPROVAL" | "APPROVED";
         };
         /** VendorPortalReady */
         VendorPortalReady: {
@@ -83153,6 +83631,129 @@ export interface operations {
             };
         };
     };
+    resolve_purchase_order_duplicate_api_v1_procurement_purchase_orders_duplicate_resolution_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseOrderDuplicateResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderDuplicateResolutionResult_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_purchase_order_api_v1_procurement_purchase_orders__order_id__get: {
         parameters: {
             query?: never;
@@ -83645,6 +84246,256 @@ export interface operations {
             };
         };
     };
+    amend_purchase_order_api_v1_procurement_purchase_orders__order_id__amend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseOrderAmendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_purchase_order_amendments_api_v1_procurement_purchase_orders__order_id__amendments_get: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from the previous page */
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPaginatedResponse_PurchaseOrderAmendmentRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     approve_purchase_order_api_v1_procurement_purchase_orders__order_id__approve_post: {
         parameters: {
             query?: never;
@@ -83656,7 +84507,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["src__modules__procurement__schemas__ApproveRequest"];
+                "application/json": components["schemas"]["PurchaseOrderApprovalRequest"];
             };
         };
         responses: {
@@ -122443,6 +123294,132 @@ export interface operations {
             };
         };
     };
+    pending_amendments_api_v1_vendor_portal_purchase_orders_pending_amendments_get: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_VendorPortalPendingAmendmentRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_order_api_v1_vendor_portal_purchase_orders__order_id__get: {
         parameters: {
             query?: never;
@@ -122460,7 +123437,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_VendorPortalOrderDetail_"];
+                    "application/json": components["schemas"]["ApiResponse_Union_VendorPortalOrderDetail__VendorPortalPendingAmendmentRead__"];
                 };
             };
             /** @description Malformed request */

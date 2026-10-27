@@ -145,6 +145,8 @@ function candidate(overrides: Partial<DuplicateCandidateRead> = {}): DuplicateCa
     purchase_order_code: 'PO-0099',
     purchase_order_line_id: '01a00000-0000-7000-8000-00000000pol9',
     status: 'DRAFT',
+    has_receipt_history: false,
+    purchase_order_version: 1,
     vendor_id: VENDOR_FAST,
     item_id: '01a00000-0000-7000-8000-0000000item1',
     warehouse_id: WAREHOUSE_ID,
@@ -442,6 +444,8 @@ describe('the duplicate refusal', () => {
           purchase_order_line_id: '01a00000-0000-7000-8000-00000000pol9',
           item_id: '01a00000-0000-7000-8000-0000000item1',
           status: 'DRAFT',
+          has_receipt_history: false,
+          purchase_order_version: 1,
           open_quantity: '100.0000',
           required_date: '2026-11-15',
           confidence: 'EXACT',
@@ -453,55 +457,104 @@ describe('the duplicate refusal', () => {
     },
   )
 
-  it('shows which order already covers it, and no override without approval rights', async () => {
+  it('shows the conflicting order and lets a buyer request separate approval', async () => {
     const { user } = renderDialog({
       [`POST ${PREVIEW_PATH}`]: ok(result()),
       [`POST ${CONVERT_PATH}`]: refusal,
     })
-
     await user.click(await screen.findByRole('button', { name: 'Raise 2 purchase orders' }))
-
     const dialog = await screen.findByRole('dialog', {
       name: 'This requirement may already be on order',
     })
-    expect(within(dialog).getByText(/No purchase order was raised/)).toBeVisible()
+    expect(within(dialog).getByText(/No purchase order was created/)).toBeVisible()
     expect(within(dialog).getByRole('link', { name: /PO-0099/ })).toBeVisible()
-    expect(within(dialog).getByText('You cannot override this yourself')).toBeVisible()
-    expect(within(dialog).queryByRole('button', { name: 'Raise them anyway' })).toBeNull()
+    expect(
+      within(dialog).getByRole('button', { name: 'Create separate PO (needs approval)' }),
+    ).toBeVisible()
   })
 
-  it('resubmits with the acknowledgement and the reason once an approver overrides', async () => {
-    let attempts = 0
-    const { user, fetch, onOpenChange } = renderDialog(
-      {
-        [`POST ${PREVIEW_PATH}`]: ok(result()),
-        [`POST ${CONVERT_PATH}`]: () => {
-          attempts += 1
-          return attempts === 1
-            ? refusal
-            : ok(result({ converted: true, groups: [group({ purchase_order_code: 'PO-0100' })] }))
-        },
-      },
-      { permissions: [...BUYER, P.PURCHASE_ORDER_APPROVE] },
-    )
-
+  it('preserves every selected group and override in the separate-order action', async () => {
+    const actionPath = '/procurement/purchase-orders/duplicate-resolution'
+    const { user, fetch, onOpenChange } = renderDialog({
+      [`POST ${PREVIEW_PATH}`]: ok(result()),
+      [`POST ${CONVERT_PATH}`]: refusal,
+      [`POST ${actionPath}`]: ok({
+        action: 'CREATE_WITH_APPROVAL',
+        purchase_orders: [{ id: 'po-new', code: 'PO-0100', status: 'DRAFT' }],
+        cancelled_requisition_line_ids: [],
+        discarded: false,
+      }),
+    })
     await user.click(await screen.findByRole('button', { name: 'Raise 2 purchase orders' }))
     const dialog = await screen.findByRole('dialog', {
       name: 'This requirement may already be on order',
     })
     await user.type(
-      within(dialog).getByRole('textbox', { name: /why is this order needed as well/i }),
+      within(dialog).getByRole('textbox', { name: 'Reason for this action' }),
       '  Second press line starts in November  ',
     )
-    await user.click(within(dialog).getByRole('button', { name: 'Raise them anyway' }))
-
-    await waitFor(() => expect(callsTo(fetch, 'POST', CONVERT_PATH)).toHaveLength(2))
-    expect(callsTo(fetch, 'POST', CONVERT_PATH)[1]!.body).toEqual({
-      lines: [],
-      acknowledge_duplicates: true,
-      duplicate_acknowledgement_reason: 'Second press line starts in November',
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Create separate PO (needs approval)' }),
+    )
+    await waitFor(() => expect(callsTo(fetch, 'POST', actionPath)).toHaveLength(1))
+    expect(callsTo(fetch, 'POST', CONVERT_PATH)).toHaveLength(1)
+    expect(callsTo(fetch, 'POST', actionPath)[0]!.body).toEqual({
+      action: 'CREATE_WITH_APPROVAL',
+      reason: 'Second press line starts in November',
+      draft: {
+        kind: 'REQUISITION',
+        requisition_ids: [REQUISITION_ID],
+        requisition_line_ids: [LINE_LOCK, LINE_BOX],
+        conversion: { lines: [], acknowledge_duplicates: false },
+      },
     })
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it('merges one named group and keeps the unselected demand in a fresh proposal', async () => {
+    const actionPath = '/procurement/purchase-orders/duplicate-resolution'
+    let merged = false
+    const { user, fetch, onOpenChange } = renderDialog(
+      {
+        [`POST ${PREVIEW_PATH}`]: () =>
+          ok(
+            result({
+              groups: merged
+                ? [BOX_GROUP]
+                : [group({ duplicate_candidates: [candidate()] }), BOX_GROUP],
+            }),
+          ),
+        [`POST ${CONVERT_PATH}`]: refusal,
+        [`POST ${actionPath}`]: () => {
+          merged = true
+          return ok({
+            action: 'MERGE',
+            purchase_orders: [{ id: 'existing-po', code: 'PO-0099', status: 'DRAFT' }],
+            cancelled_requisition_line_ids: [],
+            discarded: false,
+          })
+        },
+      },
+      { permissions: [...BUYER, P.PURCHASE_ORDER_UPDATE] },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Raise 2 purchase orders' }))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'This requirement may already be on order',
+    })
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Reason for this action' }),
+      'Combine only the lock requirement',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Merge into PO-0099' }))
+    await screen.findByRole('button', { name: 'Raise 1 purchase order' })
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(screen.getByText('PK-BOX')).toBeVisible()
+    expect(screen.queryByText('BO-LOCKBODY')).toBeNull()
+    expect(fetch.requestFor('POST', actionPath)).toMatchObject({
+      action: 'MERGE',
+      expected_candidate_version: 1,
+      draft: { kind: 'REQUISITION', requisition_line_ids: [LINE_LOCK] },
+    })
   })
 })
 

@@ -56,6 +56,12 @@ This selection performs no business writes and leaves other detail resolvers
 unchanged. An unavailable selected item fails capture instead of illustrating
 an unrelated record.
 
+Set `HANDBOOK_PURCHASE_ORDER_CODE` to the issued order code of the
+`DM-D1-PO-POOL` example to illustrate the same revision in staff and vendor
+detail views. Both resolvers search their own lists and require the exact code
+in a rendered link. The vendor illustration shows its status-only revision
+notice; it does not reveal pending commercial terms.
+
 Set `HANDBOOK_CATEGORY_CODE=HANDLE-LEVER` to illustrate the populated category
 template too. Capture searches and chooses that category in the template view;
 it does not change checkboxes, values or ordering, or press the save button.

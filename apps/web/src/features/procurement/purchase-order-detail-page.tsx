@@ -31,13 +31,14 @@ import {
   Check,
   CheckCircle2,
   Handshake,
+  Pencil,
   RefreshCw,
   Send,
   ShieldCheck,
   Truck,
   XCircle,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -47,6 +48,7 @@ import {
   EmptyState,
   FieldError,
   PageHeader,
+  PanelLoader,
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -59,6 +61,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Checkbox,
   Label,
   Skeleton,
   Textarea,
@@ -104,6 +107,14 @@ import {
 import { PurchaseOrderSendDialog } from './purchase-order-send-dialog'
 import { PurchaseOrderInboundPanel } from './purchase-order-inbound-panel'
 import { serverFieldMessage } from './server-field-errors'
+import {
+  MAX_DUPLICATE_REASON_LENGTH,
+  invalidatePurchaseOrderChanges,
+  isPoAmendable,
+} from './purchase-order-change-model'
+
+const PurchaseOrderAmendDialog = lazy(() => import('./purchase-order-amend-dialog'))
+const PurchaseOrderAmendmentsPanel = lazy(() => import('./purchase-order-amendments-panel'))
 
 // -------------------------------------------------------------- stepper -----
 
@@ -459,11 +470,14 @@ const COMMAND_COPY: Record<
 
 export default function PurchaseOrderDetailPage() {
   const { poId = '' } = useParams<{ poId: string }>()
-  const { can } = useAuth()
+  const { can, user } = useAuth()
   const queryClient = useQueryClient()
 
   const [command, setCommand] = useState<Command | null>(null)
   const [sending, setSending] = useState(false)
+  const [amending, setAmending] = useState(false)
+  const [confirmDuplicate, setConfirmDuplicate] = useState(false)
+  const [confirmationError, setConfirmationError] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
   // What the API said about the reason, if it refused it. Cleared the moment
@@ -475,6 +489,8 @@ export default function PurchaseOrderDetailPage() {
     setReason('')
     setReasonTouched(false)
     setServerReason(null)
+    setConfirmDuplicate(false)
+    setConfirmationError(null)
   }
 
   const orderQuery = useQuery({
@@ -507,12 +523,12 @@ export default function PurchaseOrderDetailPage() {
     mutationFn: ({ action, reason: text }: { action: Command; reason: string }) =>
       api.post<PurchaseOrderRow>(`/procurement/purchase-orders/${poId}/${action}`, {
         reason: text === '' ? null : text,
+        ...(action === 'approve' ? { confirm_duplicate: confirmDuplicate } : {}),
       }),
     onSuccess: (updated, variables) => {
       // Approving or cancelling changes what MRP treats as incoming supply, so
       // the planning caches go with the procurement ones.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.mrp.all })
+      invalidatePurchaseOrderChanges(queryClient)
       toast.success(
         COMMAND_COPY[variables.action].success,
         `${updated.code} is now ${humanise(updated.status).toLowerCase()}.`,
@@ -521,7 +537,10 @@ export default function PurchaseOrderDetailPage() {
     },
     // The global handler stays quiet on a 422 that names a field, on the
     // understanding that the form shows it. This dialog is the form.
-    onError: (error) => setServerReason(serverFieldMessage(error, 'reason')),
+    onError: (error) => {
+      setServerReason(serverFieldMessage(error, 'reason'))
+      setConfirmationError(serverFieldMessage(error, 'confirm_duplicate'))
+    },
   })
 
   const lineColumns = useMemo<ColumnDef<PurchaseOrderLine, unknown>[]>(
@@ -746,9 +765,14 @@ export default function PurchaseOrderDetailPage() {
 
   const lateDays = daysIfLate(order)
   const copy = command ? COMMAND_COPY[command] : null
+  const duplicateApproval = command === 'approve' && order.duplicate_acknowledged
+  const needsAnotherApprover =
+    !user?.is_superuser && order.last_amended_by_id != null && order.last_amended_by_id === user?.id
+  const reasonRequired = Boolean(copy?.reasonRequired) || duplicateApproval
+  const maxReasonLength = command === 'approve' ? MAX_DUPLICATE_REASON_LENGTH : REASON_MAX_LENGTH
   const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
-  const reasonTooLong = reason.trim().length > REASON_MAX_LENGTH
-  const reasonInvalid = (Boolean(copy?.reasonRequired) && reasonTooShort) || reasonTooLong
+  const reasonTooLong = reason.trim().length > maxReasonLength
+  const reasonInvalid = (reasonRequired && reasonTooShort) || reasonTooLong
 
   return (
     <>
@@ -762,6 +786,9 @@ export default function PurchaseOrderDetailPage() {
         status={
           <span className="flex items-center gap-2">
             <StatusBadge status={order.status} />
+            {(order.amendment_number ?? 0) > 0 && (
+              <Badge variant="secondary">Rev {order.amendment_number}</Badge>
+            )}
             {lateDays !== null && <Badge variant="destructive">{lateDays}d late</Badge>}
           </span>
         }
@@ -776,6 +803,12 @@ export default function PurchaseOrderDetailPage() {
                 Submit for approval
               </Button>
             )}
+            {isPoAmendable(order) && can(P.PURCHASE_ORDER_UPDATE) && (
+              <Button variant="outline" onClick={() => setAmending(true)}>
+                <Pencil />
+                Amend
+              </Button>
+            )}
             {isPoDecidable(order.status) && can(P.PURCHASE_ORDER_REJECT) && (
               <Button
                 variant="outline"
@@ -786,12 +819,14 @@ export default function PurchaseOrderDetailPage() {
                 Reject
               </Button>
             )}
-            {isPoDecidable(order.status) && can(P.PURCHASE_ORDER_APPROVE) && (
-              <Button onClick={() => setCommand('approve')}>
-                <CheckCircle2 />
-                Approve
-              </Button>
-            )}
+            {isPoDecidable(order.status) &&
+              can(P.PURCHASE_ORDER_APPROVE) &&
+              !needsAnotherApprover && (
+                <Button onClick={() => setCommand('approve')}>
+                  <CheckCircle2 />
+                  Approve
+                </Button>
+              )}
             {isPoSendable(order.status) && can(P.PURCHASE_ORDER_SEND) && (
               <Button onClick={() => setSending(true)}>
                 <Send />
@@ -822,6 +857,11 @@ export default function PurchaseOrderDetailPage() {
         <Card>
           <CardContent className="p-4">
             <StatusStepper status={order.status} />
+            {isPoDecidable(order.status) && needsAnotherApprover && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Another approver must approve this revision.
+              </p>
+            )}
             {(PO_TERMINAL_BAD as readonly string[]).includes(order.status) && (
               <p className="mt-3 text-sm text-destructive">
                 This order stopped at {humanise(order.status).toLowerCase()}
@@ -976,6 +1016,11 @@ export default function PurchaseOrderDetailPage() {
 
         <TrackingPanel orderId={order.id} />
         <PurchaseOrderInboundPanel order={order} />
+        {(order.amendment_number ?? 0) > 0 && (
+          <Suspense fallback={<PanelLoader />}>
+            <PurchaseOrderAmendmentsPanel orderId={order.id} currency={order.currency} />
+          </Suspense>
+        )}
       </div>
 
       {sending && (
@@ -987,11 +1032,16 @@ export default function PurchaseOrderDetailPage() {
           }}
         />
       )}
+      {amending && (
+        <Suspense fallback={<PanelLoader />}>
+          <PurchaseOrderAmendDialog order={order} onClose={() => setAmending(false)} />
+        </Suspense>
+      )}
 
       <ConfirmDialog
         open={Boolean(command)}
         onOpenChange={(open) => {
-          if (!open) resetCommand()
+          if (!open && !run.isPending) resetCommand()
         }}
         title={copy ? `${copy.title.replace('this order', order.code)}` : ''}
         description={copy?.description}
@@ -1000,6 +1050,10 @@ export default function PurchaseOrderDetailPage() {
         loading={run.isPending}
         onConfirm={() => {
           if (!command) return
+          if (duplicateApproval && !confirmDuplicate) {
+            setConfirmationError('Confirm that this duplicate demand is required before approving.')
+            return
+          }
           if (reasonInvalid) {
             setReasonTouched(true)
             return
@@ -1007,14 +1061,36 @@ export default function PurchaseOrderDetailPage() {
           run.mutate({ action: command, reason: reason.trim() })
         }}
       >
+        {duplicateApproval && (
+          <div className="space-y-3">
+            <Alert variant="warning">
+              <AlertTitle>This order was raised despite duplicate demand</AlertTitle>
+              <AlertDescription>{order.duplicate_acknowledgement_reason}</AlertDescription>
+            </Alert>
+            <Label className="flex items-start gap-2">
+              <Checkbox
+                checked={confirmDuplicate}
+                disabled={run.isPending}
+                onCheckedChange={(value) => {
+                  setConfirmDuplicate(value === true)
+                  setConfirmationError(null)
+                }}
+                aria-invalid={Boolean(confirmationError)}
+              />
+              I confirm that the duplicate demand is required
+            </Label>
+            <FieldError message={confirmationError ?? undefined} />
+          </div>
+        )}
         <div>
-          <Label htmlFor="po-command-reason" required={copy?.reasonRequired}>
-            {copy?.reasonRequired ? 'Reason' : 'Note'}
+          <Label htmlFor="po-command-reason" required={reasonRequired}>
+            {reasonRequired ? 'Reason' : 'Note'}
           </Label>
           <Textarea
             id="po-command-reason"
             value={reason}
-            maxLength={REASON_MAX_LENGTH}
+            maxLength={maxReasonLength}
+            disabled={run.isPending}
             onChange={(event) => {
               setReason(event.target.value)
               setServerReason(null)
@@ -1022,11 +1098,11 @@ export default function PurchaseOrderDetailPage() {
             className="mt-1.5"
             aria-invalid={(reasonTouched && reasonInvalid) || serverReason !== null}
           />
-          {reasonTouched && copy?.reasonRequired && reasonTooShort && (
+          {reasonTouched && reasonRequired && reasonTooShort && (
             <FieldError message={messages.errors.reasonTooShort} />
           )}
           {reasonTouched && reasonTooLong && (
-            <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+            <FieldError message={`At most ${maxReasonLength} characters`} />
           )}
           {serverReason !== null && <FieldError message={serverReason} />}
         </div>

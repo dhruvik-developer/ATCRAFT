@@ -167,3 +167,20 @@ installation, generated PDFs and preserved rows, file hashes and passwords on
 the second invocation. New planning runs retain their originating demand links
 when creating requisitions; an older plan with incomplete links needs a fresh
 run before automatic purchase conversion.
+
+## Purchase-order revision examples
+
+The same `seed_local` entrypoint now adds four D1 documents through normal
+services, without changing existing examples or passwords. Search the notes
+for `DM-D1-PR-A`, `DM-D1-PR-B`, `DM-D1-PO-POOL` and
+`DM-D1-PO-DUPLICATE`. The pooled order combines quantities 5 and 7, is sent,
+then revised to 10 with explicit allocations of 5 to each source. Revision 1
+waits for reapproval; its packing vendor sees only the revision status notice
+until the buyer approves and resends. The second PO is a separate duplicate
+waiting for the approver's explicit checkbox and reason.
+
+Dates are a year ahead to keep these examples out of the baseline short-term
+planning horizon. All four documents are created atomically. A rerun registers
+existing markers without advancing or rewriting them, preserving operator
+changes. The fresh CLI regression asserts the revision, active allocations,
+pending duplicate and unchanged complete PO rows on its second invocation.

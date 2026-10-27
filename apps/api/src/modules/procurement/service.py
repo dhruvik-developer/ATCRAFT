@@ -43,6 +43,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.common.codes import DocTypes, next_document_number
 from src.common.warehouse_scope import assert_warehouse_scope
@@ -71,7 +72,10 @@ from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import MovementRequest, TraceabilityService, post_movements
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify
+from src.modules.procurement import duplicate_search
+from src.modules.procurement import purchase_order_sources as order_sources
 from src.modules.procurement.demand_provenance import canonical_demand_refs
+from src.modules.procurement.demand_reference_service import validate_source_demand_refs
 from src.modules.procurement.inbound_repository import po_is_late
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
@@ -101,6 +105,10 @@ from src.modules.procurement.models import (
     VendorQuotation,
     VendorQuotationLine,
 )
+from src.modules.procurement.purchase_order_changes_repository import (
+    SourceAllocationRepository,
+    has_receipt_history,
+)
 from src.modules.procurement.repository import (
     BatchLookupRepository,
     CategoryFacts,
@@ -108,7 +116,6 @@ from src.modules.procurement.repository import (
     GoodsReceiptRepository,
     ItemCategoryLookupRepository,
     ItemVendorLinkRepository,
-    OpenOrderLine,
     OrganizationLookupRepository,
     PendingApprovalRepository,
     PurchasableItem,
@@ -152,6 +159,7 @@ from src.modules.procurement.schemas import (
     PurchaseOrderFilters,
     PurchaseOrderLineIn,
     PurchaseOrderLineRead,
+    PurchaseOrderSourceAllocationRead,
     PurchaseOrderSummary,
     PurchaseOrderTracking,
     PurchaseOrderUpdate,
@@ -207,7 +215,6 @@ from src.modules.procurement.service_rules import (
     RFQ_LIFECYCLE,
     VENDOR_PO_RESPOND_PERMISSION,
     AssigneeCandidate,
-    CandidateInput,
     ConversionGroup,
     DuplicateCandidate,
     InspectionOutcome,
@@ -222,7 +229,6 @@ from src.modules.procurement.service_rules import (
     assert_within_over_receipt_tolerance,
     category_lineage,
     choose_vendor_assignee,
-    classify_candidates,
     compute_line_amounts,
     conversion_delivery_date,
     duplicate_refusal,
@@ -591,7 +597,7 @@ async def _assert_suggested_vendors(
     """A vendor a requisition line suggests must be a live vendor of this tenant.
 
     The requisition split reads the suggestion as its second vendor source
-    (docs/assumptions.md §51), and a foreign key to ``vendors.id`` is
+    (docs/assumptions.md Â§51), and a foreign key to ``vendors.id`` is
     satisfied by another company's vendor - so the tenant check is made here,
     once, in one statement. Approval is not required: a suggestion is the
     requester's hint, and the conversion checks the vendor can take orders when
@@ -814,7 +820,7 @@ async def _order_category(
     Each line resolves against the order's vendor exactly as a converted line
     does (:func:`resolve_procurement_category`); the order carries the result
     when every line agrees and NULL when they do not (docs/assumptions.md
-    §50). Two statements whatever the line count.
+    Â§50). Two statements whatever the line count.
     """
     item_categories = [items[item_id].category_id for item_id in item_ids]
     known = sorted({c for c in item_categories if c is not None}, key=str)
@@ -1077,6 +1083,11 @@ async def _create_requisition(
         items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
         _assert_purchasable(items)
         await _assert_suggested_vendors(session, tenant, payload.lines)
+        await validate_source_demand_refs(
+            session,
+            tenant,
+            [ref for line in payload.lines for ref in line.source_demand_refs or ()],
+        )
 
         requisition_date = payload.requisition_date or today()
         if payload.required_date < requisition_date:
@@ -1180,6 +1191,11 @@ async def update_requisition(
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
             await _assert_suggested_vendors(session, tenant, payload.lines)
+            await validate_source_demand_refs(
+                session,
+                tenant,
+                [ref for line in payload.lines for ref in line.source_demand_refs or ()],
+            )
             await line_repo.delete_for_requisition(requisition.id)
             lines = [
                 _apply_requisition_line(
@@ -2284,39 +2300,6 @@ def _overall_recommendation(
 # =============================================================================
 
 
-def _as_candidate_input(row: OpenOrderLine) -> CandidateInput:
-    return CandidateInput(
-        purchase_order_id=row.purchase_order_id,
-        purchase_order_code=row.purchase_order_code,
-        purchase_order_line_id=row.line_id,
-        status=row.status,
-        vendor_id=row.vendor_id,
-        item_id=row.item_id,
-        warehouse_id=row.warehouse_id,
-        ordered_quantity=row.quantity,
-        received_quantity=row.received_quantity,
-        required_date=row.required_date,
-        source_type=row.source_type,
-        source_id=row.source_id,
-        requisition_line_id=row.requisition_line_id,
-    )
-
-
-def _date_envelope(dates: Sequence[date | None]) -> tuple[date | None, date | None]:
-    """The coarse window the SQL narrows on, before per-item matching.
-
-    Widened by the duplicate window on both sides so a candidate that is only
-    just inside one line's window is still fetched.
-    """
-    known = [d for d in dates if d is not None]
-    if not known:
-        return None, None
-    from datetime import timedelta
-
-    span = timedelta(days=DUPLICATE_REQUIRED_DATE_WINDOW_DAYS)
-    return min(known) - span, max(known) + span
-
-
 async def find_duplicate_candidates(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2331,65 +2314,24 @@ async def find_duplicate_candidates(
     window_days: int = DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     requisition_line_id: uuid.UUID | None = None,
 ) -> list[DuplicateCandidate]:
-    """Open purchase orders that may already cover this demand.
-
-    The public single-item contract from master rules section 16. Matches on
-    vendor, item, warehouse, an overlapping required-date window, the source
-    demand reference and the pending requisition line, over orders that are
-    still open. Multi-line callers use :func:`find_duplicates_for_lines`, which
-    asks the same question for a whole document in one statement.
-    """
-    date_from, date_to = _date_envelope([required_date])
-    rows = await PurchaseOrderRepository(session, tenant).open_lines_for_duplicate_check(
-        vendor_id=vendor_id,
-        warehouse_id=warehouse_id,
-        item_ids=[item_id],
-        date_from=date_from,
-        date_to=date_to,
-        source_type=source_type,
-        source_id=source_id,
-        exclude_order_id=exclude_order_id,
-        requisition_line_ids=[requisition_line_id] if requisition_line_id else (),
-    )
-    return classify_candidates(
-        [_as_candidate_input(row) for row in rows],
-        vendor_id=vendor_id,
-        item_id=item_id,
-        warehouse_id=warehouse_id,
-        required_date=required_date,
-        source_type=source_type,
-        source_id=source_id,
-        window_days=window_days,
-        requisition_line_id=requisition_line_id,
-    )
-
-
-def _classify_for_lines(
-    candidates: list[CandidateInput],
-    *,
-    vendor_id: uuid.UUID,
-    warehouse_id: uuid.UUID,
-    lines: Sequence[ProposedLine],
-    source_type: PurchaseSourceType | None,
-    source_id: uuid.UUID | None,
-) -> list[DuplicateCandidate]:
-    """Apply the per-line rules over an already-fetched candidate set."""
-    found: dict[uuid.UUID, DuplicateCandidate] = {}
-    for line in lines:
-        for candidate in classify_candidates(
-            candidates,
+    """Check one SKU using the same enriched search as full documents."""
+    # Preserve the legacy internal probe's empty-result contract. The HTTP
+    # document checker validates missing/foreign references through the strict
+    # multi-line entry point below.
+    try:
+        return await duplicate_search.find_duplicates_for_lines(
+            session,
+            tenant,
             vendor_id=vendor_id,
-            item_id=line.item_id,
             warehouse_id=warehouse_id,
-            required_date=line.required_date,
+            lines=[ProposedLine(item_id, required_date, requisition_line_id)],
             source_type=source_type,
             source_id=source_id,
-            requisition_line_id=line.requisition_line_id,
-        ):
-            # Keyed by order line so two proposed lines for the same item do not
-            # report the same existing line twice.
-            found.setdefault(candidate.purchase_order_line_id, candidate)
-    return list(found.values())
+            exclude_order_id=exclude_order_id,
+            window_days=window_days,
+        )
+    except NotFoundError:
+        return []
 
 
 async def find_duplicates_for_lines(
@@ -2403,35 +2345,16 @@ async def find_duplicates_for_lines(
     source_id: uuid.UUID | None,
     exclude_order_id: uuid.UUID | None = None,
 ) -> list[DuplicateCandidate]:
-    """The whole-document form: one query for every line's items.
-
-    The per-line rules are then applied in memory over the fetched set, so a
-    twenty-line order costs one round trip rather than twenty.
-    """
-    if not lines:
-        return []
-
-    date_from, date_to = _date_envelope([line.required_date for line in lines])
-    rows = await PurchaseOrderRepository(session, tenant).open_lines_for_duplicate_check(
-        vendor_id=vendor_id,
-        warehouse_id=warehouse_id,
-        item_ids=[line.item_id for line in lines],
-        date_from=date_from,
-        date_to=date_to,
-        source_type=source_type,
-        source_id=source_id,
-        exclude_order_id=exclude_order_id,
-        requisition_line_ids=[
-            line.requisition_line_id for line in lines if line.requisition_line_id is not None
-        ],
-    )
-    return _classify_for_lines(
-        [_as_candidate_input(row) for row in rows],
+    """Check all proposed lines in fixed batches at physical PO-line grain."""
+    return await duplicate_search.find_duplicates_for_lines(
+        session,
+        tenant,
         vendor_id=vendor_id,
         warehouse_id=warehouse_id,
         lines=lines,
         source_type=source_type,
         source_id=source_id,
+        exclude_order_id=exclude_order_id,
     )
 
 
@@ -2454,6 +2377,9 @@ def _duplicate_read(candidate: DuplicateCandidate) -> DuplicateCandidateRead:
         match_reasons=list(candidate.match_reasons),
         recommended_action=str(candidate.recommended_action),
         available_actions=[str(a) for a in candidate.available_actions],
+        item_category_id=candidate.item_category_id,
+        has_receipt_history=candidate.has_receipt_history,
+        purchase_order_version=candidate.purchase_order_version,
     )
 
 
@@ -2551,11 +2477,23 @@ def _apply_order_totals(order: PurchaseOrder, amounts: list[LineAmounts], freigh
     order.total_amount = totals.total_amount
 
 
+def _touch_order_content(
+    session: AsyncSession, tenant: TenantContext, order: PurchaseOrder
+) -> None:
+    PurchaseOrderRepository(session, tenant).touch(order)
+    # A free/tax-free line can change with every header total unchanged. Force
+    # an UPDATE even under a frozen clock so its version still protects edits.
+    order.updated_at = utcnow()
+    flag_modified(order, "updated_at")
+
+
 async def create_purchase_order(
     session: AsyncSession,
     tenant: TenantContext,
     principal: Principal,
     payload: PurchaseOrderCreate,
+    *,
+    allow_duplicate_proposal: bool = False,
 ) -> tuple[PurchaseOrder, list[PurchaseOrderLine], list[DuplicateCandidate]]:
     """Raise a DRAFT purchase order, refusing an undeclared duplicate.
 
@@ -2572,49 +2510,9 @@ async def create_purchase_order(
     requisition conversion shares.
     """
     async with transaction(session):
-        vendor = await _load_vendor(session, tenant, payload.vendor_id)
-        _assert_orderable(vendor)
-        await _assert_warehouse(session, tenant, payload.warehouse_id)
-        await _assert_organisation(session, tenant, branch_id=payload.branch_id)
-
-        items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
-        _assert_purchasable(items)
-
-        # The links a client names are checked before anything is written (T3),
-        # and the requisition rows they touch are locked here - headers, then
-        # lines - before the duplicate lock below, the order every path that
-        # moves ordered quantity uses.
-        await _assert_order_source(
-            session,
-            tenant,
-            vendor_id=vendor.id,
-            source_type=payload.source_type,
-            source_id=payload.source_id,
+        vendor, items, item_category_id = await _prepare_purchase_order(
+            session, tenant, principal, payload
         )
-        requisitions, source_lines = await _lock_requisition_sources(
-            session,
-            tenant,
-            [line.requisition_line_id for line in payload.lines if line.requisition_line_id],
-        )
-        _assert_requisition_links(payload.lines, requisitions, source_lines)
-        await _assert_quotation_links(session, tenant, vendor_id=vendor.id, lines=payload.lines)
-
-        item_category_id, lineage = await _order_category(
-            session,
-            tenant,
-            vendor_id=vendor.id,
-            items=items,
-            item_ids=[line.item_id for line in payload.lines],
-        )
-        if payload.assigned_vendor_user_id is not None:
-            await _assert_vendor_assignee(
-                session,
-                tenant,
-                user_id=payload.assigned_vendor_user_id,
-                vendor_id=vendor.id,
-                category_lineage_=lineage,
-            )
-
         return await _create_purchase_order(
             session,
             tenant,
@@ -2623,7 +2521,66 @@ async def create_purchase_order(
             vendor=vendor,
             items=items,
             item_category_id=item_category_id,
+            allow_duplicate_proposal=allow_duplicate_proposal,
         )
+
+
+async def _prepare_purchase_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    payload: PurchaseOrderCreate,
+) -> tuple[Vendor, dict[uuid.UUID, PurchasableItem], uuid.UUID | None]:
+    """Validate and lock a proposed order without creating a document."""
+    vendor = await _load_vendor(session, tenant, payload.vendor_id)
+    _assert_orderable(vendor)
+    await _assert_warehouse(session, tenant, payload.warehouse_id)
+    await _assert_organisation(session, tenant, branch_id=payload.branch_id)
+
+    items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+    _assert_purchasable(items)
+
+    # The links a client names are checked before anything is written (T3),
+    # and the requisition rows they touch are locked here - headers, then
+    # lines - before the duplicate lock below, the order every path that
+    # moves ordered quantity uses.
+    await _assert_order_source(
+        session,
+        tenant,
+        vendor_id=vendor.id,
+        source_type=payload.source_type,
+        source_id=payload.source_id,
+    )
+    requisitions, source_lines = await _lock_requisition_sources(
+        session,
+        tenant,
+        order_sources.source_ids(payload.lines),
+    )
+    _assert_requisition_links(
+        order_sources.flattened_source_lines(payload.lines), requisitions, source_lines
+    )
+    order_sources.assert_source_units(
+        payload.lines, source_lines, {key: item.order_uom_id for key, item in items.items()}
+    )
+    await _assert_quotation_links(session, tenant, vendor_id=vendor.id, lines=payload.lines)
+
+    item_category_id, lineage = await _order_category(
+        session,
+        tenant,
+        vendor_id=vendor.id,
+        items=items,
+        item_ids=[line.item_id for line in payload.lines],
+    )
+    if payload.assigned_vendor_user_id is not None:
+        await _assert_vendor_assignee(
+            session,
+            tenant,
+            user_id=payload.assigned_vendor_user_id,
+            vendor_id=vendor.id,
+            category_lineage_=lineage,
+        )
+
+    return vendor, items, item_category_id
 
 
 async def _create_purchase_order(
@@ -2635,6 +2592,7 @@ async def _create_purchase_order(
     vendor: Vendor,
     items: dict[uuid.UUID, PurchasableItem],
     item_category_id: uuid.UUID | None,
+    allow_duplicate_proposal: bool = False,
 ) -> tuple[PurchaseOrder, list[PurchaseOrderLine], list[DuplicateCandidate]]:
     """The shared body of a buyer's own order and of a requisition conversion.
 
@@ -2673,6 +2631,10 @@ async def _create_purchase_order(
                 item_id=line.item_id,
                 required_date=line.required_date or payload.expected_delivery_date,
                 requisition_line_id=line.requisition_line_id,
+                requisition_line_ids=frozenset(
+                    allocation.requisition_line_id
+                    for allocation in order_sources.allocation_inputs(line)
+                ),
             )
             for line in payload.lines
         ],
@@ -2682,7 +2644,7 @@ async def _create_purchase_order(
     if candidates:
         if not payload.acknowledge_duplicates:
             raise duplicate_refusal(candidates)
-        if not principal.has(Permission.PURCHASE_ORDER_APPROVE):
+        if not allow_duplicate_proposal and not principal.has(Permission.PURCHASE_ORDER_APPROVE):
             raise PermissionDeniedError(str(Permission.PURCHASE_ORDER_APPROVE))
         log.info(
             "procurement.duplicate_acknowledged",
@@ -2739,6 +2701,18 @@ async def _create_purchase_order(
     ]
     await session.flush()
 
+    await order_sources.sync_allocations(
+        session,
+        tenant,
+        lines,
+        {
+            line.id: {
+                allocation.requisition_line_id: allocation.quantity
+                for allocation in order_sources.allocation_inputs(payload_line)
+            }
+            for line, payload_line in zip(lines, payload.lines, strict=True)
+        },
+    )
     await _link_source_documents(session, tenant, order, lines)
 
     await record_audit(
@@ -2775,9 +2749,10 @@ async def _link_source_documents(
     memory. Without this the requisition stays PENDING forever and the next
     buyer re-orders it - the duplicate the previous section exists to prevent.
     """
-    requisition_line_ids = [
-        line.requisition_line_id for line in lines if line.requisition_line_id is not None
-    ]
+    allocations = await order_sources.effective_allocations(session, tenant, lines)
+    requisition_line_ids = sorted(
+        {source_id for selected in allocations.values() for source_id in selected}
+    )
     if requisition_line_ids:
         # Locked, not merely read: ``ordered_quantity`` below is a
         # read-modify-write on a row two orders raised from the same requisition
@@ -2785,19 +2760,7 @@ async def _link_source_documents(
         requisition_lines = await RequisitionLineRepository(session, tenant).lock_many(
             requisition_line_ids
         )
-        by_id = {line.id: line for line in requisition_lines}
-        touched_requisitions: set[uuid.UUID] = set()
-        for order_line in lines:
-            source_line = by_id.get(order_line.requisition_line_id or uuid.UUID(int=0))
-            if source_line is None:
-                continue
-            source_line.ordered_quantity = to_quantity(
-                Decimal(source_line.ordered_quantity) + Decimal(order_line.quantity)
-            )
-            source_line.status = requisition_line_status_for(
-                quantity=source_line.quantity, ordered_quantity=source_line.ordered_quantity
-            )
-            touched_requisitions.add(source_line.requisition_id)
+        touched_requisitions = {line.requisition_id for line in requisition_lines}
         # Written now rather than left to a later flush: the session does not
         # autoflush, and a conversion raising several orders from one
         # requisition must not let the next order's reads miss this one's.
@@ -2834,33 +2797,8 @@ async def _link_source_documents(
 async def _release_source_lines(
     session: AsyncSession, tenant: TenantContext, lines: Sequence[PurchaseOrderLine]
 ) -> None:
-    """Give the requisition its demand back when order lines stop existing.
-
-    ``ordered_quantity`` is what tells the next buyer a requisition line has
-    already been bought. Only ever adding to it means a line whose purchase
-    order was cancelled, rejected or edited away stays marked ORDERED for good:
-    the demand is never re-raised and the shortage is silently dropped - the
-    mirror image of the duplicate :func:`_link_source_documents` exists to
-    prevent. Clamped at zero so a partially released line cannot go negative.
-    """
-    requisition_line_ids = [
-        line.requisition_line_id for line in lines if line.requisition_line_id is not None
-    ]
-    if not requisition_line_ids:
-        return
-
-    source_lines = await RequisitionLineRepository(session, tenant).lock_many(requisition_line_ids)
-    by_id = {line.id: line for line in source_lines}
-    for order_line in lines:
-        source_line = by_id.get(order_line.requisition_line_id or uuid.UUID(int=0))
-        if source_line is None:
-            continue
-        released = Decimal(source_line.ordered_quantity) - Decimal(order_line.quantity)
-        source_line.ordered_quantity = to_quantity(released if released > 0 else ZERO)
-        source_line.status = requisition_line_status_for(
-            quantity=source_line.quantity, ordered_quantity=source_line.ordered_quantity
-        )
-    await session.flush()
+    """Release each durable allocation once and recompute its source counter."""
+    await order_sources.release_allocations(session, tenant, lines)
 
 
 async def update_purchase_order(
@@ -2877,18 +2815,25 @@ async def update_purchase_order(
     so the order is rejected here rather than silently rewritten under the
     approver's signature.
     """
-    repo = PurchaseOrderRepository(session, tenant)
     line_repo = PurchaseOrderLineRepository(session, tenant)
 
     async with transaction(session):
-        order = await repo.lock_for_update(order_id)
-        if order is None:
-            raise NotFoundError("Purchase order", order_id)
+        order = await order_sources.lock_order_sources(
+            session,
+            tenant,
+            order_id,
+            incoming_ids=order_sources.source_ids(payload.lines or ()),
+            warehouse_id=payload.warehouse_id,
+        )
         if PurchaseOrderStatus(order.status) not in EDITABLE_PO_STATUSES:
             raise BusinessRuleError(
                 f"Purchase order {order.code} is {order.status} and can no longer be edited; "
                 "cancel it and raise an amended order.",
                 details={"status": str(order.status)},
+            )
+        if await has_receipt_history(session, tenant, order.id):
+            raise BusinessRuleError(
+                f"{order.code} has receipt history; raise a new purchase order."
             )
 
         before = snapshot(order, ORDER_AUDITED_FIELDS)
@@ -2922,8 +2867,11 @@ async def update_purchase_order(
             amounts = _price_order_lines(payload.lines, items)
 
             outgoing = await line_repo.lock_for_order(order.id)
+            existing_allocations = await order_sources.effective_allocations(
+                session, tenant, outgoing
+            )
             already_linked = frozenset(
-                line.requisition_line_id for line in outgoing if line.requisition_line_id
+                source_id for selected in existing_allocations.values() for source_id in selected
             )
             # Every requisition the edit touches - the lines going and the lines
             # coming - locked headers first, as every other path does.
@@ -2932,11 +2880,17 @@ async def update_purchase_order(
                 tenant,
                 [
                     *already_linked,
-                    *(p.requisition_line_id for p in payload.lines if p.requisition_line_id),
+                    *order_sources.source_ids(payload.lines),
                 ],
             )
             _assert_requisition_links(
-                payload.lines, requisitions, source_lines, already_linked=already_linked
+                order_sources.flattened_source_lines(payload.lines),
+                requisitions,
+                source_lines,
+                already_linked=already_linked,
+            )
+            order_sources.assert_source_units(
+                payload.lines, source_lines, {key: item.order_uom_id for key, item in items.items()}
             )
             await _assert_quotation_links(
                 session, tenant, vendor_id=order.vendor_id, lines=payload.lines
@@ -3015,13 +2969,25 @@ async def update_purchase_order(
             else Decimal(order.freight_amount)
         )
         _apply_order_totals(order, amounts, freight)
-        repo.touch(order)
+        _touch_order_content(session, tenant, order)
         await session.flush()
 
         if payload.lines is not None:
             # Re-attach the replacement lines to whatever they now claim to
             # satisfy, so the requisition's ordered quantity matches the lines
             # that actually exist.
+            await order_sources.sync_allocations(
+                session,
+                tenant,
+                lines,
+                {
+                    line.id: {
+                        allocation.requisition_line_id: allocation.quantity
+                        for allocation in order_sources.allocation_inputs(payload_line)
+                    }
+                    for line, payload_line in zip(lines, payload.lines, strict=True)
+                },
+            )
             await _link_source_documents(session, tenant, order, lines)
 
         await record_audit(
@@ -3051,17 +3017,27 @@ async def transition_purchase_order(
     assigned_vendor_user_id: uuid.UUID | None = None,
     expected_delivery_date: date | None = None,
     vendor_reference: str | None = None,
+    confirm_duplicate: bool = False,
 ) -> PurchaseOrder:
     """Submit, approve, reject, send, acknowledge, cancel or close an order."""
     repo = PurchaseOrderRepository(session, tenant)
 
     async with transaction(session):
-        order = await repo.lock_for_update(order_id)
-        if order is None:
-            raise NotFoundError("Purchase order", order_id)
+        order: PurchaseOrder | None
+        if target in (PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.REJECTED):
+            order = await order_sources.lock_order_sources(session, tenant, order_id)
+        else:
+            order = await repo.lock_for_update(order_id)
+            if order is None:
+                raise NotFoundError("Purchase order", order_id)
+        assert_warehouse_scope(tenant, order.warehouse_id)
         assignee_before = order.assigned_vendor_user_id
 
         if target is PurchaseOrderStatus.PENDING_APPROVAL:
+            if PurchaseOrderStatus(order.status) is not PurchaseOrderStatus.DRAFT:
+                raise BusinessRuleError(
+                    "Only a draft can be submitted. Use Amend to revise an approved order."
+                )
             lines = await PurchaseOrderLineRepository(session, tenant).list_for_order(order.id)
             if not lines:
                 raise BusinessRuleError(
@@ -3071,6 +3047,15 @@ async def transition_purchase_order(
             _assert_orderable(vendor)
         elif target is PurchaseOrderStatus.APPROVED:
             _assert_separate_approver(principal, order.created_by_id)
+            _assert_separate_approver(principal, order.last_amended_by_id)
+            if order.duplicate_acknowledged:
+                if not confirm_duplicate or len(reason.strip()) < 3:
+                    raise BusinessRuleError(
+                        "Confirm the duplicate demand and give an approval reason."
+                    )
+                order.duplicate_confirmed_by_id = principal.user_id
+                order.duplicate_confirmed_at = utcnow()
+                order.duplicate_confirmation_reason = reason.strip()
             order.approved_by_id = principal.user_id
             order.approved_at = utcnow()
         elif target is PurchaseOrderStatus.REJECTED:
@@ -3082,7 +3067,7 @@ async def transition_purchase_order(
             PURCHASE_ORDER_LIFECYCLE.assert_transition(PurchaseOrderStatus(order.status), target)
             if order.status == PurchaseOrderStatus.VENDOR_DECLINED:
                 # ASSUMPTION: a declined order waits for the buyer, who re-sends
-                # or cancels it (docs/assumptions.md §C1-10). A re-send goes back
+                # or cancels it (docs/assumptions.md Â§C1-10). A re-send goes back
                 # to a vendor that may have been suspended since approval.
                 _assert_orderable(await _load_vendor(session, tenant, order.vendor_id))
                 # The refusal is history now (its audit row keeps the reason);
@@ -3328,6 +3313,31 @@ async def describe_purchase_order(
     small reads, and none when the order has neither.
     """
     detail = order_detail(order, lines)
+    detail.has_receipt_history = await has_receipt_history(session, tenant, order.id)
+    allocations = await SourceAllocationRepository(session, tenant).list_for_lines(
+        [line.id for line in lines]
+    )
+    by_line: dict[uuid.UUID, list[PurchaseOrderSourceAllocationRead]] = {}
+    ids = {row.requisition_line_id for row in allocations}
+    ids.update(line.requisition_line_id for line in lines if line.requisition_line_id is not None)
+    labels = await SourceAllocationRepository(session, tenant).labels(sorted(ids))
+    for row in allocations:
+        value = PurchaseOrderSourceAllocationRead.model_validate(row)
+        for name, label in labels.get(row.requisition_line_id, {}).items():
+            setattr(value, name, label)
+        by_line.setdefault(row.purchase_order_line_id, []).append(value)
+    for line, read in zip(lines, detail.lines, strict=True):
+        read.source_allocations = by_line.get(line.id, [])
+        if line.id not in by_line and line.requisition_line_id is not None:
+            read.source_allocations = [
+                PurchaseOrderSourceAllocationRead(
+                    requisition_line_id=line.requisition_line_id,
+                    quantity=line.quantity,
+                    is_active=order.status
+                    not in (PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.REJECTED),
+                    **labels.get(line.requisition_line_id, {}),
+                )
+            ]
     if order.item_category_id is not None:
         categories = await ItemCategoryLookupRepository(session, tenant).load(
             [order.item_category_id]
@@ -3458,7 +3468,7 @@ async def vendor_recipients_for_order(
     """The order's vendor users who hold ``permission`` and can see the order.
 
     ASSUMPTION: a vendor-facing notification reaches only users who could act on
-    it (docs/assumptions.md §C1-11).
+    it (docs/assumptions.md Â§C1-11).
 
     "Can see" is ``PurchaseOrderRepository._scoped``'s rule, restated over the
     same facts: an unrestricted user, a user whose category scope covers the
@@ -3699,7 +3709,7 @@ def _unorderable_item_reasons(item: PurchasableItem | None, item_code: str) -> l
     per line: a requisition approved last month can name an item retired,
     deactivated or unflagged for purchase since. Refusing the whole proposal for
     it would leave the buyer nothing to act on; an unresolved line is shown,
-    with this reason, and can be left out (docs/assumptions.md §51).
+    with this reason, and can be left out (docs/assumptions.md Â§51).
     """
     if item is None:
         return [f"Item {item_code} has been retired and can no longer be ordered."]
@@ -4007,7 +4017,7 @@ def _conversion_order_payload(
         priority=_group_priority(group, payload),
         # ASSUMPTION: a converted order is in the company's currency. Its prices
         # come from a requisition estimate or a last purchase price, and a
-        # requisition carries no currency of its own (docs/assumptions.md §52).
+        # requisition carries no currency of its own (docs/assumptions.md Â§52).
         currency=DEFAULT_CURRENCY,
         delivery_address=payload.delivery_address,
         terms=payload.terms,
@@ -4053,32 +4063,20 @@ async def _conversion_duplicates(
         ]
         for group in plan.groups
     ]
-    every = [line for group_lines in proposed for line in group_lines]
-    date_from, date_to = _date_envelope([line.required_date for line in every])
-    rows = await PurchaseOrderRepository(session, tenant).open_lines_for_conversion_check(
-        vendor_ids=[group.vendor_id for group in plan.groups],
-        warehouse_ids=[group.warehouse_id for group in plan.groups],
-        item_ids=[line.item_id for line in every],
-        date_from=date_from,
-        date_to=date_to,
-        requisition_ids=[requisition.id for requisition in plan.requisitions],
-        requisition_line_ids=[
-            line.requisition_line_id for line in every if line.requisition_line_id is not None
+    return await duplicate_search.find_duplicates_for_groups(
+        session,
+        tenant,
+        [
+            duplicate_search.DuplicateSearchGroup(
+                vendor_id=group.vendor_id,
+                warehouse_id=group.warehouse_id,
+                lines=proposed[index],
+                source_type=PurchaseSourceType.PURCHASE_REQUISITION,
+                source_id=group.source_requisition_id,
+            )
+            for index, group in enumerate(plan.groups)
         ],
-        group_count=len(plan.groups),
     )
-    candidates = [_as_candidate_input(row) for row in rows]
-    return [
-        _classify_for_lines(
-            candidates,
-            vendor_id=group.vendor_id,
-            warehouse_id=group.warehouse_id,
-            lines=proposed[index],
-            source_type=PurchaseSourceType.PURCHASE_REQUISITION,
-            source_id=group.source_requisition_id,
-        )
-        for index, group in enumerate(plan.groups)
-    ]
 
 
 def _conversion_result(
@@ -4192,9 +4190,9 @@ async def convert_requisitions_to_orders(
     APPROVED to CONVERTED.
 
     ASSUMPTION: a line that cannot be resolved refuses the whole conversion and
-    nothing is written (docs/assumptions.md §51), and the orders are raised as
+    nothing is written (docs/assumptions.md Â§51), and the orders are raised as
     DRAFT, going through submit, approve and send like any other
-    (docs/assumptions.md §53).
+    (docs/assumptions.md Â§53).
     """
     async with transaction(session):
         plan = await _plan_conversion(session, tenant, requisition_ids, payload, lock=True)
@@ -4352,7 +4350,9 @@ async def create_goods_receipt(
     order_line_repo = PurchaseOrderLineRepository(session, tenant)
 
     async with transaction(session):
-        order = await order_repo.get(payload.purchase_order_id)
+        # Receipt creation and amendment share this refreshed header lock. A
+        # draft GRN is already history, even before any quantity is posted.
+        order = await order_repo.lock_for_update(payload.purchase_order_id)
         if order is None:
             raise NotFoundError("Purchase order", payload.purchase_order_id)
         assert_warehouse_scope(tenant, order.warehouse_id)
@@ -4445,7 +4445,7 @@ async def create_goods_receipt(
             # of its own and moves stock at the unbinned position, so a lot held
             # in a bin could never be decided ('Only 0 of X is in QC hold').
             # Released stock is put away into its bin afterwards with a bin move
-            # (docs/assumptions.md §E8-7).
+            # (docs/assumptions.md Â§E8-7).
             if requires_qc and payload_line.location_id is not None:
                 raise BusinessRuleError(
                     f"Line {payload_line.line_number}: {item.code} is held for incoming "

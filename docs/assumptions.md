@@ -327,6 +327,12 @@ vendor, an item and a delivery warehouse *and* their required dates fall within
 order, requisition) overrides the date window entirely. A missing date on either
 side counts as overlapping.
 
+Different items in the same resolved procurement category are a dated POSSIBLE
+signal. Canonical demand-root overlap is EXACT only for the same SKU: a shared
+BOM root can legitimately require several different components. Categories are
+resolved from each item's current path and vendor qualifications. Candidate
+search refuses an overfull comparison instead of silently truncating it.
+
 **Why.** A same-day-only rule misses the ordinary case - one shortage ordered
 twice, three days apart - which is what master rules section 16 exists to catch.
 A month-wide window would flag every routine repeat order for a consumable.
@@ -1543,6 +1549,11 @@ A vendor user with a non-empty `allowed_category_ids` additionally sees only
 orders whose `item_category_id` is one of those categories or beneath one, plus
 any order assigned to them by name. An empty list is unrestricted. The scope sits
 in `PurchaseOrderRepository._scoped`, so every read and lock inherits it.
+
+A previously sent order under amendment is the narrow exception: the portal
+can show a status-only notice during reapproval and while awaiting resend.
+This does not expose revised prices, terms, lines, files or actions. The normal
+purchase-order scope is unchanged, and a newly raised unsent order stays hidden.
 
 **Why.** Before it is sent an order is the buyer's working document, with prices
 nobody has approved; showing it to the vendor discloses a negotiating position.
@@ -3809,3 +3820,48 @@ or empty provenance rather than silently dropping roots. Rerun historical
 plans whose BOM facts lack roots; narrow warehouse/date scope where possible
 when the root bound is exceeded. No roots are guessed from parent item IDs and
 no arbitrary per-root quantity split is invented.
+
+## §D1-1. Separate duplicate demand requires an approval-time decision
+
+A buyer with purchase-order create permission can request a separate draft
+through duplicate resolution, giving a meaningful reason. It retains the
+duplicate flag. The approver must explicitly confirm the duplicate and give an
+approval reason; confirmer, time and reason remain evidence. The older direct
+create override still requires purchase-order approval permission. The creator
+and latest amendment author retain the existing separation-of-duties rule and
+its explicit superuser/SUPER_ADMIN exception.
+
+## §D1-2. Amendments preserve agreed terms and reopen approval
+
+Merge/increase combines only compatible vendor, category, warehouse, currency,
+payment terms, delivery terms and line commercial terms. A meaningful incoming
+header value is never silently discarded. Unit conversions and price averaging
+are not implicit. Matched flat discounts are summed; percentage rates remain
+unchanged. Retained lines keep their issued tax-rate snapshots. A different
+procurement category requires a separate PO.
+
+Only APPROVED, SENT and ACKNOWLEDGED orders with no GRN history can be amended;
+draft and cancelled receipts also count as history. The revision clears vendor
+acknowledgement and commitment, requires reapproval and resend, and retains the
+previous sent time in audit. Existing line IDs survive. A decrease below linked
+quantity requires explicit source quantities to retain; removal releases that
+line's demand. Pending approval is outside nettable PO supply, so an amended
+order drops out of MRP supply until reapproved. No signed-PDF provider is chosen
+by this implementation; the user's D4 decision remains pending.
+
+## §D1-4. Cancellation concerns selected outstanding demand
+
+Cancel request affects only explicitly selected outstanding PR lines, using the
+PR-create permission defined for duplicate resolution. It preserves already
+ordered quantities and their history. A line previously cancelled stays
+cancelled when a later PO release changes its ordered counter. Fully exhausted,
+untouched approved headers become CANCELLED with the reason; exhausted
+converted headers become CLOSED through their existing state-machine edge.
+Other headers and unselected lines are unchanged. Closed/cancelled/unapproved
+headers cannot be reopened through this action. Discarding a manual draft
+persists no business document.
+
+Demand references written to a requisition resolve real tenant-owned sales
+orders/lines or manual MRP demand rows. A sales line must belong to its named
+order. The canonical read schema remains open to historical types, but a new
+write cannot assert an unsupported or fabricated source identity.

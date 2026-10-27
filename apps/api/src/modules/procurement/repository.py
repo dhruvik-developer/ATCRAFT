@@ -77,7 +77,6 @@ from src.modules.procurement.models import (
     PurchaseReturn,
     PurchaseReturnLine,
     PurchaseReturnStatus,
-    PurchaseSourceType,
     ReceiptLineQcStatus,
     RequisitionLineStatus,
     RequisitionStatus,
@@ -102,7 +101,7 @@ from src.modules.vendors.models import Vendor, VendorCategory
 from src.modules.warehouses.models import Warehouse
 
 #: The duplicate search returns at most this many open lines per (vendor,
-#: warehouse) it is asked about - see ``open_lines_for_duplicate_check``.
+#: warehouse) it is asked about - see ``DuplicateSearchRepository``.
 DUPLICATE_SCAN_LIMIT = 200
 
 #: The most vendor users one assignee lookup reads. A vendor is a supplier's
@@ -237,27 +236,6 @@ class VendorFacts:
     is_approved: bool
     is_active: bool
     is_archived: bool
-
-
-@dataclass(frozen=True, slots=True)
-class OpenOrderLine:
-    """An open purchase order line, as the duplicate matcher sees it."""
-
-    purchase_order_id: uuid.UUID
-    purchase_order_code: str
-    status: PurchaseOrderStatus
-    vendor_id: uuid.UUID
-    warehouse_id: uuid.UUID
-    source_type: PurchaseSourceType
-    source_id: uuid.UUID | None
-    line_id: uuid.UUID
-    item_id: uuid.UUID
-    quantity: Decimal
-    received_quantity: Decimal
-    #: The line's own date when it has one, otherwise the header's promise.
-    required_date: date | None
-    #: The requisition line the open order line was raised to satisfy.
-    requisition_line_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -798,6 +776,7 @@ class RequisitionLineRepository(BaseRepository[PurchaseRequisitionLine]):
             .where(PurchaseRequisitionLine.id.in_(list(set(line_ids))))
             .order_by(PurchaseRequisitionLine.id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
@@ -1421,7 +1400,12 @@ class PurchaseOrderRepository(BaseRepository[PurchaseOrder]):
         they read first, and both could be accepted - so the header is the
         serialisation point for the whole document.
         """
-        stmt = self._scoped().where(PurchaseOrder.id == order_id).with_for_update()
+        stmt = (
+            self._scoped()
+            .where(PurchaseOrder.id == order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def _filtered(self, filters: PurchaseOrderFilters, *, today: date) -> Select[Any]:
@@ -1479,197 +1463,6 @@ class PurchaseOrderRepository(BaseRepository[PurchaseOrder]):
         return await self.list_page(
             params, stmt=self._filtered(filters, today=today), order_by=order_by
         )
-
-    # --- duplicate detection (master rules section 16) ----------------------
-
-    async def open_lines_for_duplicate_check(
-        self,
-        *,
-        vendor_id: uuid.UUID,
-        warehouse_id: uuid.UUID,
-        item_ids: Sequence[uuid.UUID],
-        date_from: date | None,
-        date_to: date | None,
-        source_type: PurchaseSourceType | None = None,
-        source_id: uuid.UUID | None = None,
-        exclude_order_id: uuid.UUID | None = None,
-        requisition_line_ids: Sequence[uuid.UUID] = (),
-    ) -> list[OpenOrderLine]:
-        """Open order lines that could be covering the same demand.
-
-        Narrowed in SQL to one vendor, one warehouse, the requested items and a
-        coarse date envelope - the predicate ``ix_purchase_orders_open_vendor``
-        and ``ix_purchase_order_lines_open_item`` are built for. A line whose
-        date is unknown, whose order names the same source demand, or which
-        claims one of ``requisition_line_ids``, is kept regardless of the
-        envelope: those are the cases the per-item rules in the service still
-        have to judge, and dropping them here would make the matcher silently
-        miss the strongest signal it has.
-        """
-        same_source: ColumnElement[bool] = literal(False)
-        if source_type is not None and source_id is not None:
-            same_source = and_(
-                PurchaseOrder.source_type == source_type,
-                PurchaseOrder.source_id == source_id,
-            )
-        return await self._open_lines(
-            vendor_ids=[vendor_id],
-            warehouse_ids=[warehouse_id],
-            item_ids=item_ids,
-            date_from=date_from,
-            date_to=date_to,
-            same_source=same_source,
-            requisition_line_ids=requisition_line_ids,
-            exclude_order_id=exclude_order_id,
-            limit=DUPLICATE_SCAN_LIMIT,
-        )
-
-    async def open_lines_for_conversion_check(
-        self,
-        *,
-        vendor_ids: Sequence[uuid.UUID],
-        warehouse_ids: Sequence[uuid.UUID],
-        item_ids: Sequence[uuid.UUID],
-        date_from: date | None,
-        date_to: date | None,
-        requisition_ids: Sequence[uuid.UUID],
-        requisition_line_ids: Sequence[uuid.UUID],
-        group_count: int,
-    ) -> list[OpenOrderLine]:
-        """The duplicate search for every order a conversion proposes, in one statement.
-
-        Over-fetches across the vendor x warehouse cross product and the union
-        of items; the per-order rules in the service then keep only the lines
-        that match that order's own vendor, warehouse and items. The source
-        branch is "raised from one of these requisitions", the header form of
-        the same demand the line branch matches exactly.
-        """
-        same_source: ColumnElement[bool] = literal(False)
-        if requisition_ids:
-            same_source = and_(
-                PurchaseOrder.source_type == PurchaseSourceType.PURCHASE_REQUISITION,
-                PurchaseOrder.source_id.in_(list(dict.fromkeys(requisition_ids))),
-            )
-        return await self._open_lines(
-            vendor_ids=vendor_ids,
-            warehouse_ids=warehouse_ids,
-            item_ids=item_ids,
-            date_from=date_from,
-            date_to=date_to,
-            same_source=same_source,
-            requisition_line_ids=requisition_line_ids,
-            exclude_order_id=None,
-            limit=DUPLICATE_SCAN_LIMIT * max(1, group_count),
-        )
-
-    async def _open_lines(
-        self,
-        *,
-        vendor_ids: Sequence[uuid.UUID],
-        warehouse_ids: Sequence[uuid.UUID],
-        item_ids: Sequence[uuid.UUID],
-        date_from: date | None,
-        date_to: date | None,
-        same_source: ColumnElement[bool],
-        requisition_line_ids: Sequence[uuid.UUID],
-        exclude_order_id: uuid.UUID | None,
-        limit: int,
-    ) -> list[OpenOrderLine]:
-        if not item_ids or not vendor_ids or not warehouse_ids:
-            return []
-
-        required_date = func.coalesce(
-            PurchaseOrderLine.required_date, PurchaseOrder.expected_delivery_date
-        )
-
-        in_window: ColumnElement[bool] = required_date.is_(None)
-        if date_from is not None and date_to is not None:
-            in_window = or_(in_window, required_date.between(date_from, date_to))
-
-        same_requisition_line: ColumnElement[bool] = literal(False)
-        if requisition_line_ids:
-            same_requisition_line = PurchaseOrderLine.requisition_line_id.in_(
-                list(dict.fromkeys(requisition_line_ids))
-            )
-
-        stmt = (
-            select(
-                PurchaseOrder.id.label("purchase_order_id"),
-                PurchaseOrder.code.label("purchase_order_code"),
-                PurchaseOrder.status.label("status"),
-                PurchaseOrder.vendor_id.label("vendor_id"),
-                PurchaseOrder.warehouse_id.label("warehouse_id"),
-                PurchaseOrder.source_type.label("source_type"),
-                PurchaseOrder.source_id.label("source_id"),
-                PurchaseOrderLine.id.label("line_id"),
-                PurchaseOrderLine.item_id.label("item_id"),
-                PurchaseOrderLine.quantity.label("quantity"),
-                PurchaseOrderLine.received_quantity.label("received_quantity"),
-                PurchaseOrderLine.requisition_line_id.label("requisition_line_id"),
-                required_date.label("required_date"),
-            )
-            .select_from(PurchaseOrderLine)
-            # Joined on (id, company_id) so the tenant predicate applies to both
-            # sides and PostgreSQL can use the tenant-leading indexes on each.
-            .join(
-                PurchaseOrder,
-                and_(
-                    PurchaseOrder.id == PurchaseOrderLine.purchase_order_id,
-                    PurchaseOrder.company_id == PurchaseOrderLine.company_id,
-                ),
-            )
-            .where(
-                PurchaseOrderLine.company_id == self.tenant.company_id,
-                _one_of(PurchaseOrder.vendor_id, vendor_ids),
-                _one_of(PurchaseOrder.warehouse_id, warehouse_ids),
-                PurchaseOrder.status.in_(OPEN_PO_STATUSES),
-                PurchaseOrderLine.status.in_(OPEN_PO_LINE_STATUSES),
-                PurchaseOrderLine.item_id.in_(list(dict.fromkeys(item_ids))),
-                or_(in_window, same_source, same_requisition_line),
-            )
-            .order_by(PurchaseOrder.po_date.desc(), PurchaseOrder.id.desc())
-            # An unbounded result set is not acceptable even on an internal
-            # query; a hundred open lines for one vendor and one item is already
-            # a data problem the buyer needs to see rather than page through.
-            .limit(limit)
-        )
-        if exclude_order_id is not None:
-            stmt = stmt.where(PurchaseOrder.id != exclude_order_id)
-
-        rows = (await self.session.execute(stmt)).all()
-        return [
-            OpenOrderLine(
-                purchase_order_id=row.purchase_order_id,
-                purchase_order_code=row.purchase_order_code,
-                status=PurchaseOrderStatus(row.status),
-                vendor_id=row.vendor_id,
-                warehouse_id=row.warehouse_id,
-                source_type=PurchaseSourceType(row.source_type),
-                source_id=row.source_id,
-                line_id=row.line_id,
-                item_id=row.item_id,
-                quantity=Decimal(row.quantity),
-                received_quantity=Decimal(row.received_quantity),
-                required_date=row.required_date,
-                requisition_line_id=row.requisition_line_id,
-            )
-            for row in rows
-        ]
-
-
-def _one_of(column: Any, values: Sequence[uuid.UUID]) -> ColumnElement[bool]:
-    """``column = value`` for one value - the shape the partial index was built for
-    - and ``IN`` for several. Callers never pass an empty list."""
-    distinct = list(dict.fromkeys(values))
-    predicate: ColumnElement[bool] = (
-        column == distinct[0] if len(distinct) == 1 else column.in_(distinct)
-    )
-    return predicate
-
-
-# -----------------------------------------------------------------------------
-# Goods receipt
-# -----------------------------------------------------------------------------
 
 
 class GoodsReceiptLineRepository(BaseRepository[GoodsReceiptLine]):
@@ -2135,7 +1928,6 @@ __all__ = [
     "GoodsReceiptRepository",
     "ItemCategoryLookupRepository",
     "ItemVendorLinkRepository",
-    "OpenOrderLine",
     "OrganizationLookupRepository",
     "PendingApprovalRepository",
     "PurchasableItem",

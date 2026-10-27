@@ -11,6 +11,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Badge,
   Checkbox,
   Input,
   Label,
@@ -24,7 +25,7 @@ import { reportFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { describeError, empty, fileMessages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { queryKeys } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import { VendorActionDialog, VendorShipmentDialog, VendorUploadDialog } from './vendor-actions'
@@ -38,6 +39,8 @@ import {
   type VendorInvoice,
   type VendorInvoiceRow,
   type VendorOrder,
+  type VendorOrderResponse,
+  type VendorPendingAmendment,
   type VendorOrderRow,
   type VendorPayment,
   type VendorPaymentSummary,
@@ -103,12 +106,14 @@ function VendorList<T>({
   card,
   title,
   search = false,
+  paginationLabel = 'List pages',
 }: {
   query: ReturnType<typeof useListQuery<T>>
   columns: ColumnDef<T, unknown>[]
   card: (row: T) => ReactNode
   title: string
   search?: boolean
+  paginationLabel?: string
 }) {
   const desktop = useSyncExternalStore(subscribeViewport, desktopSnapshot, () => false)
   if (desktop)
@@ -161,7 +166,10 @@ function VendorList<T>({
         <EmptyState title={title} description={empty.filtered} />
       )}
       {query.pagination && (
-        <nav aria-label="List pages" className="flex flex-wrap items-center justify-between gap-2">
+        <nav
+          aria-label={paginationLabel}
+          className="flex flex-wrap items-center justify-between gap-2"
+        >
           <Button
             className="min-h-11"
             variant="outline"
@@ -298,6 +306,12 @@ export function VendorOrdersPage() {
     queryKey: queryKeys.vendorPortal.orders,
     filters: { tab, assigned_to_me: params.get('assigned_to_me') === '1' },
   })
+  const amendments = useListQuery<VendorPendingAmendment>({
+    path: '/vendor-portal/purchase-orders/pending-amendments',
+    queryKey: queryKeys.vendorPortal.pendingAmendments,
+    namespace: 'amendments',
+    staleTime: staleTimes.transactional,
+  })
   const columns: ColumnDef<VendorOrderRow, unknown>[] = [
     {
       accessorKey: 'code',
@@ -340,6 +354,63 @@ export function VendorOrdersPage() {
         title="Purchase orders"
         description="Orders shared with your vendor account and categories."
       />
+      {(amendments.data.length > 0 || amendments.isLoading || amendments.error) && (
+        <Section title="Revised orders awaiting resend">
+          <p className="text-sm text-muted-foreground">
+            The buyer is revising these orders. Updated terms become available after approval and
+            resend.
+          </p>
+          <VendorList
+            query={amendments}
+            title="No revised orders awaiting resend"
+            paginationLabel="Revised order pages"
+            columns={[
+              {
+                accessorKey: 'code',
+                header: 'Order',
+                cell: ({ row }) => (
+                  <Link
+                    className="font-medium text-primary underline"
+                    to={`/vendor/orders/${row.original.id}`}
+                  >
+                    {row.original.code}
+                  </Link>
+                ),
+              },
+              {
+                accessorKey: 'amendment_number',
+                header: 'Revision',
+                cell: ({ row }) => `Rev ${row.original.amendment_number}`,
+              },
+              {
+                accessorKey: 'status',
+                header: 'Status',
+                cell: ({ row }) => <StatusBadge status={row.original.status} />,
+              },
+              {
+                accessorKey: 'last_amended_at',
+                header: 'Amended',
+                cell: ({ row }) => formatDateTime(row.original.last_amended_at),
+              },
+            ]}
+            card={(row) => (
+              <>
+                <Link
+                  className="block min-h-11 font-semibold text-primary"
+                  to={`/vendor/orders/${row.id}`}
+                >
+                  {row.code}
+                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="warning">Amended (rev {row.amendment_number})</Badge>
+                  <StatusBadge status={row.status} />
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{row.message}</p>
+              </>
+            )}
+          />
+        </Section>
+      )}
       <div className="mb-4 flex flex-wrap gap-2" aria-label="Order status">
         {orderTabs.map(([value, label]) => (
           <Button
@@ -607,7 +678,7 @@ export function VendorOrderPage() {
   const query = useQuery({
     queryKey: queryKeys.vendorPortal.order(orderId),
     queryFn: ({ signal }) =>
-      api.get<VendorOrder>(`/vendor-portal/purchase-orders/${orderId}`, { signal }),
+      api.get<VendorOrderResponse>(`/vendor-portal/purchase-orders/${orderId}`, { signal }),
     enabled: Boolean(orderId),
   })
   const [action, setAction] = useState<
@@ -622,12 +693,49 @@ export function VendorOrderPage() {
   if (query.error) return <QueryFailure error={query.error} retry={() => void query.refetch()} />
   if (!query.data) return <PanelLoader />
   const order = query.data
+  if (order.pending_amendment)
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          title={order.code}
+          breadcrumbs={[{ label: 'Orders', to: '/vendor/orders' }, { label: order.code }]}
+          status={
+            <span className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={order.status} />
+              <Badge variant="warning">Amended (rev {order.amendment_number})</Badge>
+            </span>
+          }
+        />
+        <Section title="Order being revised">
+          <p className="text-sm">{order.message}</p>
+          <p className="text-sm text-muted-foreground">
+            Amended {formatDateTime(order.last_amended_at)}
+          </p>
+          <Button variant="outline" loading={query.isFetching} onClick={() => void query.refetch()}>
+            Refresh order
+          </Button>
+          <Link
+            className="inline-flex min-h-11 items-center text-sm text-primary underline"
+            to="/vendor/orders"
+          >
+            Back to your orders
+          </Link>
+        </Section>
+      </div>
+    )
   const shipping = canShipOrder(order)
   return (
     <div className="space-y-5">
       <PageHeader
         title={order.code}
-        status={<StatusBadge status={order.status} />}
+        status={
+          <span className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={order.status} />
+            {(order.amendment_number ?? 0) > 0 && (
+              <Badge variant="warning">Amended (rev {order.amendment_number})</Badge>
+            )}
+          </span>
+        }
         breadcrumbs={[{ label: 'Orders', to: '/vendor/orders' }, { label: order.code }]}
         description={order.item_category_name ?? undefined}
       />

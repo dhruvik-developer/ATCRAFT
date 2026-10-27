@@ -47,25 +47,33 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import type { SchemaOf } from '@/types/api'
 
 import { PurchaseOrderDuplicateDialog } from './purchase-order-duplicate-dialog'
+import {
+  MAX_PURCHASE_ORDER_LINES,
+  PURCHASE_PRICE_PATTERN,
+  type DuplicateResolutionDraft,
+} from './purchase-order-change-model'
 import {
   DEFAULT_PRIORITY,
   MAX_PRIORITY,
   MIN_PRIORITY,
   parseDuplicateConflict,
+  normaliseDuplicateCandidates,
   type DuplicateConflict,
   type PurchaseOrderDetail,
 } from './procurement-types'
 
 const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
-const PRICE = /^\d{1,14}(\.\d{1,6})?$/
+const PRICE = PURCHASE_PRICE_PATTERN
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z
@@ -98,7 +106,8 @@ const schema = z
           unit_price: z.string().trim().regex(PRICE, 'Enter a price with up to 6 decimal places'),
         }),
       )
-      .min(1, 'A purchase order needs at least one line'),
+      .min(1, 'A purchase order needs at least one line')
+      .max(MAX_PURCHASE_ORDER_LINES, `At most ${MAX_PURCHASE_ORDER_LINES} lines`),
   })
   // A delivery expected before the order is placed is a data-entry slip that
   // would immediately show up as a delay on the tracking board.
@@ -139,21 +148,20 @@ const orNull = (value: string): string | null => (value.trim() === '' ? null : v
 /**
  * The create payload, exactly as `PurchaseOrderCreate` declares it.
  *
- * `acknowledgement` is the one supported answer to a duplicate refusal: the same
- * order resubmitted with `acknowledge_duplicates` set and the buyer's reason
- * recorded on the document. The API refuses the pair without approval rights,
- * and refuses the flag without a reason.
+ * A refused draft is retained unchanged for the dedicated duplicate-resolution
+ * endpoint. Approval-time confirmation is independent of creating that draft.
  */
-function buildPayload(
-  values: PurchaseOrderFormValues,
-  acknowledgement: string | null,
-): Record<string, unknown> {
+function buildPayload(values: PurchaseOrderFormValues): SchemaOf<'PurchaseOrderCreate'> {
   return {
     vendor_id: values.vendor_id,
     warehouse_id: values.warehouse_id,
     po_date: values.po_date,
     expected_delivery_date: values.expected_delivery_date,
     priority: values.priority,
+    currency: DEFAULT_CURRENCY,
+    freight_amount: '0',
+    source_type: 'MANUAL',
+    acknowledge_duplicates: false,
     // Omitted rather than zeroed: the API falls back to the vendor's agreed
     // terms when this is absent, and zero days is a different statement.
     ...(values.payment_terms_days.trim() === ''
@@ -169,13 +177,8 @@ function buildPayload(
       // Quantities and prices stay strings on the wire; the API parses Decimals.
       quantity: line.quantity.trim(),
       unit_price: line.unit_price.trim(),
+      requires_qc: false,
     })),
-    ...(acknowledgement
-      ? {
-          acknowledge_duplicates: true,
-          duplicate_acknowledgement_reason: acknowledgement,
-        }
-      : {}),
   }
 }
 
@@ -201,6 +204,7 @@ export function PurchaseOrderFormDialog({
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [conflict, setConflict] = useState<DuplicateConflict | null>(null)
+  const [duplicateDraft, setDuplicateDraft] = useState<DuplicateResolutionDraft | null>(null)
 
   const {
     register,
@@ -209,7 +213,6 @@ export function PurchaseOrderFormDialog({
     reset,
     setError,
     watch,
-    getValues,
     formState: { errors },
   } = useForm<PurchaseOrderFormValues>({
     resolver: zodResolver(schema),
@@ -222,21 +225,16 @@ export function PurchaseOrderFormDialog({
     if (open) {
       reset(emptyValues())
       setConflict(null)
+      setDuplicateDraft(null)
     }
   }, [open, reset])
 
   const create = useMutation({
-    mutationFn: async ({
-      values,
-      acknowledgement,
-    }: {
-      values: PurchaseOrderFormValues
-      acknowledgement: string | null
-    }): Promise<CreateOutcome> => {
+    mutationFn: async ({ values }: { values: PurchaseOrderFormValues }): Promise<CreateOutcome> => {
       try {
         const order = await api.post<PurchaseOrderDetail>(
           '/procurement/purchase-orders',
-          buildPayload(values, acknowledgement),
+          buildPayload(values),
         )
         return { kind: 'created', order }
       } catch (error) {
@@ -245,9 +243,10 @@ export function PurchaseOrderFormDialog({
         throw error
       }
     },
-    onSuccess: (outcome) => {
+    onSuccess: (outcome, { values }) => {
       if (outcome.kind === 'duplicate') {
         setConflict(outcome.conflict)
+        setDuplicateDraft({ kind: 'MANUAL', purchase_order: buildPayload(values) })
         return
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
@@ -288,7 +287,7 @@ export function PurchaseOrderFormDialog({
           </DialogHeader>
 
           <form
-            onSubmit={handleSubmit((values) => create.mutate({ values, acknowledgement: null }))}
+            onSubmit={handleSubmit((values) => create.mutate({ values }))}
             className="flex min-h-0 flex-col gap-4"
             noValidate
           >
@@ -434,6 +433,7 @@ export function PurchaseOrderFormDialog({
                     type="button"
                     variant="outline"
                     size="sm"
+                    disabled={fields.length >= MAX_PURCHASE_ORDER_LINES}
                     onClick={() => append({ item_id: '', quantity: '', unit_price: '' })}
                   >
                     <Plus />
@@ -565,16 +565,52 @@ export function PurchaseOrderFormDialog({
         </DialogContent>
       </Dialog>
 
-      {conflict && (
+      {conflict && duplicateDraft && (
         <PurchaseOrderDuplicateDialog
           conflict={conflict}
-          open
+          draft={duplicateDraft}
+          onConflict={setConflict}
           onOpenChange={(next) => !next && setConflict(null)}
-          isResolving={create.isPending}
-          canAcknowledge={can(P.PURCHASE_ORDER_APPROVE)}
-          onAcknowledge={(reason) =>
-            create.mutate({ values: getValues(), acknowledgement: reason })
-          }
+          onResolved={(result) => {
+            setConflict(null)
+            setDuplicateDraft(null)
+            onOpenChange(false)
+            const order = result.purchase_orders?.[0]
+            if (order) navigate(`/procurement/purchase-orders/${order.id}`)
+          }}
+          onRefresh={async () => {
+            if (duplicateDraft.kind !== 'MANUAL') return
+            const draft = duplicateDraft.purchase_order
+            const check = await api.post<SchemaOf<'DuplicateCheckResult'>>(
+              '/procurement/purchase-orders/check-duplicates',
+              {
+                vendor_id: draft.vendor_id,
+                warehouse_id: draft.warehouse_id,
+                expected_delivery_date: draft.expected_delivery_date,
+                source_type: draft.source_type ?? 'MANUAL',
+                source_id: draft.source_id ?? null,
+                lines: draft.lines.map((line) => ({
+                  item_id: line.item_id,
+                  required_date: line.required_date ?? null,
+                  requisition_line_id: line.requisition_line_id ?? null,
+                })),
+              },
+            )
+            const candidates = normaliseDuplicateCandidates(check.candidates)
+            if (!candidates.length) {
+              setConflict(null)
+              toast.success(
+                'Comparison refreshed',
+                'No open matches remain. Review and save your draft.',
+              )
+              return
+            }
+            setConflict({
+              message: 'These open order lines may already cover the requirement.',
+              candidates,
+              candidate_count: candidates.length,
+            })
+          }}
         />
       )}
     </>

@@ -39,6 +39,7 @@ const HANDBOOK = fileURLToPath(new URL('../../../docs/handbook/', import.meta.ur
 const OUT = path.join(HANDBOOK, 'screens')
 const VIEWPORT = { width: 1600, height: 1000 }
 const PREFERRED_ITEM_CODE = process.env.HANDBOOK_ITEM_CODE
+const PREFERRED_ORDER_CODE = process.env.HANDBOOK_PURCHASE_ORDER_CODE
 const VIEW_DELAY_MS = handbookViewDelayMs(process.env.HANDBOOK_VIEW_DELAY_MS)
 const PUBLIC = ['/login', '/forgot-password', '/reset-password']
 const DETAIL_LISTS = {
@@ -283,7 +284,7 @@ if (process.argv.includes('--check')) {
           const key = canonical(route)
           if (!resolved.has(key)) {
             const [listRoute, prefix] = DETAIL_LISTS[key]
-            await navigate(handbookDetailListRoute(screen.route, listRoute, PREFERRED_ITEM_CODE))
+            await navigate(handbookDetailListRoute(screen.route, listRoute, PREFERRED_ITEM_CODE, PREFERRED_ORDER_CODE))
             const links = await page
               .locator(`main a[href^="${prefix}"]`)
               .evaluateAll((links) =>
@@ -291,7 +292,9 @@ if (process.argv.includes('--check')) {
               )
             const itemCode = ['/items/:id', '/dealer/catalog/:id'].includes(key)
               ? PREFERRED_ITEM_CODE
-              : undefined
+              : ['/procurement/purchase-orders/:id', '/vendor/orders/:id'].includes(key)
+                ? PREFERRED_ORDER_CODE
+                : undefined
             resolved.set(key, findHandbookDetailLink(links, prefix, itemCode))
             if (!resolved.get(key) && key === '/procurement/rfqs/:id') {
               // RFQ codes are spans: this verified first-cell row handler only

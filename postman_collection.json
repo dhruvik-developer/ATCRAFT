@@ -14755,7 +14755,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"reason\": \"\"\n}"
+              "raw": "{\n  \"confirm_duplicate\": false,\n  \"reason\": \"\"\n}"
             },
             "description": "The approver may not be the person who raised it unless they hold SUPER_ADMIN.",
             "header": [
@@ -16619,7 +16619,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"description\": {},\n      \"discount\": {},\n      \"discount_percentage\": {},\n      \"notes\": {},\n      \"quotation_line_id\": {},\n      \"required_date\": {},\n      \"requires_qc\": {},\n      \"requisition_line_id\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"acknowledge_duplicates\": false,\n  \"assigned_vendor_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"INR\",\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"notes\": \"\",\n  \"payment_terms_days\": 0,\n  \"po_date\": \"2026-01-01\",\n  \"priority\": 5,\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"terms\": \"\",\n  \"vendor_reference\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"description\": {},\n      \"discount\": {},\n      \"discount_percentage\": {},\n      \"notes\": {},\n      \"quotation_line_id\": {},\n      \"required_date\": {},\n      \"requires_qc\": {},\n      \"requisition_line_id\": {},\n      \"source_allocations\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"acknowledge_duplicates\": false,\n  \"assigned_vendor_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"INR\",\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"notes\": \"\",\n  \"payment_terms_days\": 0,\n  \"po_date\": \"2026-01-01\",\n  \"priority\": 5,\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"terms\": \"\",\n  \"vendor_reference\": \"\"\n}"
             },
             "description": "Runs the duplicate check inside the creating transaction. An order with candidates is refused with DUPLICATE_DOCUMENT unless acknowledge_duplicates is set with a reason by a caller holding purchase_order.approve.",
             "header": [
@@ -16742,6 +16742,49 @@
                 "rfqs"
               ],
               "raw": "{{base_url}}/api/v1/procurement/rfqs"
+            }
+          }
+        },
+        {
+          "name": "Read the purchase order's revision history",
+          "request": {
+            "description": "Read the purchase order's revision history",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "amendments"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/amendments?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -17168,6 +17211,84 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/procurement/pending-approvals?"
+            }
+          }
+        },
+        {
+          "name": "Resolve duplicate demand atomically",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"action\": \"MERGE\",\n  \"draft\": {\n    \"kind\": {},\n    \"purchase_order\": {}\n  },\n  \"reason\": \"\",\n  \"candidate_line_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"candidate_purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_candidate_version\": 0\n}"
+            },
+            "description": "Merge or increase a current candidate, request a separate order with approval, or cancel outstanding demand. Permissions depend on the selected action.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                "duplicate-resolution"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/duplicate-resolution"
+            }
+          }
+        },
+        {
+          "name": "Revise an approved order and require reapproval",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"expected_version\": 0,\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"description\": {},\n      \"discount\": {},\n      \"discount_percentage\": {},\n      \"item_id\": {},\n      \"line_id\": {},\n      \"line_number\": {},\n      \"notes\": {},\n      \"quotation_line_id\": {},\n      \"required_date\": {},\n      \"requires_qc\": {},\n      \"source_allocations\": {},\n      \"unit_price\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"delivery_address\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"terms\": \"\"\n}"
+            },
+            "description": "Requires the current version and no receipt history, including draft or cancelled GRNs. Retains existing line identities and explicit requisition allocations.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "amend"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/amend",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -30895,6 +31016,47 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/vendor-portal/receipts?"
+            }
+          }
+        },
+        {
+          "name": "Previously sent orders under revision, without revised terms",
+          "request": {
+            "description": "Previously sent orders under revision, without revised terms",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                "pending-amendments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/pending-amendments?"
             }
           }
         },

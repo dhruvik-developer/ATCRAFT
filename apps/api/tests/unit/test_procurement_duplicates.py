@@ -237,10 +237,10 @@ def test_an_unsent_order_can_be_merged_into():
     assert DuplicateAction.MERGE_WITH_EXISTING in actions
 
 
-def test_a_sent_order_cannot_be_merged_into():
-    """The vendor already has the document; adding a line to it silently is a lie."""
+def test_a_sent_order_can_be_merged_only_through_a_new_amendment():
+    """The action reopens approval; the vendor must accept the revised document."""
     actions = available_actions_for(status=PurchaseOrderStatus.SENT, received_quantity=Decimal("0"))
-    assert DuplicateAction.MERGE_WITH_EXISTING not in actions
+    assert DuplicateAction.MERGE_WITH_EXISTING in actions
     assert DuplicateAction.INCREASE_EXISTING_QUANTITY in actions
 
 

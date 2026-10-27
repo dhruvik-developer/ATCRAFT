@@ -2361,13 +2361,13 @@
             "An order can only be raised on a vendor that is approved and not suspended. If the supplier you want is refused, get their record approved first on the Vendors screen.",
             "Only items flagged as purchasable and still active can be ordered.",
             "The expected delivery date cannot be earlier than the order date.",
-            "Before an order is saved the system looks for open orders covering the same requirement: same vendor, same item, same delivery warehouse, and a required date within seven days \u2014 or, strongest of all, raised from the same recorded demand. If it finds any, the order is not created; the screen lists them with how sure it is and what to do about each.",
-            "There are four ways out of a duplicate warning: merge the lines into the existing order, increase the quantity already on that order, cancel the existing order, or raise this one anyway. Only the last can be done from the dialog, and only by somebody who can approve purchase orders, with a written reason that stays on the order for anybody who opens it later. The other three are edits to the other document, which opens in a new tab so nothing typed here is lost.",
+            "Duplicate checks compare vendor, SKU, warehouse and a seven-day date window. Shared recorded demand overrides the window for the same SKU; another SKU in the same procurement category is a POSSIBLE match.",
+            "Resolve a warning with Merge, Increase, Create separate PO (needs approval), or Cancel this request. Each needs its own permission and a reason. Cancel affects selected outstanding requisition demand or discards a manual draft. Receipt history prevents merge and increase; different commercial terms require a separate order.",
             "Line totals shown while typing are indicative. Discounts, tax and freight are calculated by the system and the order value is what it comes back with.",
             "The delay flag only appears on an order that is past its expected date and still expecting a delivery.",
             "An order carries the item category it was raised for. An order raised from requisitions is one category by construction; an order whose lines span several categories has none and shows a dash."
           ],
-          "permission": "The right to view purchase orders opens the list. The New purchase order button needs the right to create purchase orders, held by a Purchase Executive and a Purchase Manager. Overriding a duplicate warning additionally needs the right to approve purchase orders, which of the ready-made roles only a Purchase Manager and an administrator carry.",
+          "permission": "Viewing orders needs purchase-order view. Creating a separate order needs purchase-order create; its duplicate is confirmed by an independent approver. Merge and Increase need purchase-order update. Cancelling selected duplicate requisition demand needs requisition create.",
           "notes": "The list carries no received quantities and no percentage complete \u2014 those are on the order's own page. Vendors show as a name plus code resolved from the vendor list; a suspended vendor shows a dash here and is named properly on the order's own page."
         },
         {
@@ -2384,7 +2384,7 @@
             {
               "action": "Approve",
               "how": "Approve, top right",
-              "note": "Only on an order awaiting approval, and never by the person who raised it. A note may be added. Approval is the commitment \u2014 there is no way back from it."
+              "note": "The creator and latest amendment author cannot approve their own work, except for the explicit platform superuser/SUPER_ADMIN exemption. A flagged duplicate requires the confirmation checkbox and a meaningful reason."
             },
             {
               "action": "Reject",
@@ -2419,6 +2419,16 @@
             {
               "action": "Open an item",
               "how": "Click the description on a line"
+            },
+            {
+              "action": "Amend an issued order",
+              "how": "Amend, on an approved, sent or acknowledged order with no receipt history",
+              "note": "Change quantities or prices, add or remove lines and give a reason. Reductions below linked demand need explicit retained requisition quantities. Saving creates a revision requiring approval and resend."
+            },
+            {
+              "action": "Read a revision",
+              "how": "Amendment history, then Show revision details",
+              "note": "Compare saved before/after lines, source quantities, dates and terms. Older revisions load through the page control."
             }
           ],
           "flow": [
@@ -2432,7 +2442,7 @@
           ],
           "rules": [
             "The order can only move the way the lifecycle allows, so only the legal commands are shown. An approved order cannot be approved again, and a received one cannot be cancelled.",
-            "The person who raised an order may not approve or reject it.",
+            "The creator and latest amendment author may not approve a revision, except for the explicit platform superuser/SUPER_ADMIN exemption.",
             "Cancelling is only possible before anything has been received. Once stock has moved against the order, cancelling it would leave the stock records describing a delivery against a document claiming never to have existed. A part-delivered order that will never be completed is short-closed instead \u2014 the undelivered balance stops being expected.",
             "Approving or cancelling an order changes what the planning run treats as material on its way in.",
             "An order raised over a duplicate warning shows that warning and the reason given for it, permanently, on this page.",
@@ -2440,10 +2450,13 @@
             "The order's item category and its vendor assignee are shown on the Order card. The assignee is the vendor user who manages that category; if that person has been switched off or re-scoped since the order was raised, sending it hands it to whoever the system now suggests, or to the person you choose.",
             "The vendor answers a sent order from its own portal: it accepts, optionally committing its own delivery date and reference, or declines with a reason. The vendor's committed date is kept beside the expected delivery date, never in place of it - the planning run keeps using the date the buyer set until a buyer adopts the vendor's.",
             "An order the vendor declined shows Vendor declined, and the notification the buyer receives carries the vendor's reason. Nothing is expected against it any more, but it still holds the quantity it took from its requisition until it is cancelled or sent again, and its vendor cannot be retired while it is open.",
-            "Once a vendor has accepted, each consignment it records - courier or transporter, tracking and LR numbers, boxes, weight, freight - and each lorry receipt or dispatch photo it uploads is announced at once to the order's creator, its approvers and the administrators, as one notification per consignment that updates as the consignment moves."
+            "Once a vendor has accepted, each consignment it records - courier or transporter, tracking and LR numbers, boxes, weight, freight - and each lorry receipt or dispatch photo it uploads is announced at once to the order's creator, its approvers and the administrators, as one notification per consignment that updates as the consignment moves.",
+            "Draft and cancelled goods receipts also prevent amendment. Retained lines keep their identities and agreed tax rates.",
+            "An amendment clears vendor acknowledgement and commitment, and leaves nettable MRP supply while awaiting approval. Approve and resend it for vendor acceptance.",
+            "A previously sent revision is a status notice only for the vendor until approval and resend; revised prices, lines and terms remain private."
           ],
           "permission": "The right to view purchase orders opens the page. Submit and Vendor acknowledged need the right to update purchase orders; Approve, Reject and Cancel each need their own separate right, and of the ready-made roles only a Purchase Manager and an administrator hold them. Sending to the vendor needs the right to send purchase orders.",
-          "notes": "Two things the system supports but no screen currently offers: editing an order that is still a draft or awaiting approval, and short-closing a part-delivered order. If a draft is wrong, cancel it and raise a new one. The courier and consignment details on the tracking panel are read-only here \u2014 they are written by the vendor's own dispatch side. Recording the vendor's acknowledgement does not capture a revised delivery date they may have committed to, even though the system can hold one. The vendor's name is a link to the vendor list; there is no page for a single vendor. The Vendor commitment and consignments card keeps planning and vendor dates separate; Adopt vendor date explicitly changes planning. Numbered shipments support recording, correction and confirmed gate arrival. Typed documents can be attached to a consignment and downloaded with document view; purchase order PDF generation runs as a background job. A vendor-declined reason is shown with guidance to cancel or re-send through an eligible assignee."
+          "notes": "The Vendor commitment and consignments card keeps planning and vendor dates separate. Adopt vendor date explicitly changes planning. Numbered shipments support recording, correction and confirmed gate arrival; typed documents can be attached and downloaded as permissions allow. PO PDF generation is a background job. Short-closing a partially delivered order and ordinary draft replacement remain API operations; Amend covers issued orders with no receipt history."
         },
         {
           "route": "/procurement/inbound-tracking",
@@ -3774,7 +3787,7 @@
           "rules": [
             "Releasing a consignment is the only step that moves stock, and it does everything at once: the promise the sales order was holding is consumed, the goods are posted out of the warehouse, each order line's dispatched quantity is advanced and the order moves to partly dispatched or fully dispatched. Either all of that happens or none of it does - there is no state in which the stock has gone and the order does not know.",
             "The customer's order is answered when the consignment is released, not when it arrives. Releasing it is what reduces what the order still owes. Confirming delivery afterwards records the arrival date, who confirmed it and the receiver's note; it moves nothing in stock and changes nothing on the order.",
-            "A sales order must be fully allocated before a consignment against it can leave. If it is not, the release is refused and names allocation as the missing step.",
+            "Order-linked lines name their sales-order line and fit its live reservation. The reserved portion can ship while another portion remains short.",
             "Shipping more than was ordered is refused rather than trimmed, and the refusal states how much of the line actually remains. A short shipment is normal and leaves the balance open.",
             "A serial-tracked item ships the exact units named on its line. Each one must be in stock, belong to that item, and be held at the warehouse the consignment leaves from.",
             "A consignment can only be cancelled before it leaves. Once it has gone there is nothing to call off, and the record stays.",
@@ -3784,7 +3797,7 @@
             "Anything past its promised delivery date is picked up by an automatic sweep that raises one notification for the company - not one per consignment and not one per hour - and the tracking board is where the full list is read."
           ],
           "permission": "Seeing the dispatch list and the tracking board needs the dispatch view right. Raising a consignment and releasing it need the right to create dispatches - releasing is the act that moves stock, so it is held to the stronger right. Staging, marking in transit, cancelling and adding a tracking event need the right to update dispatches. Confirming a delivery is a right of its own again, because it is the sentence that closes a customer's expectation.",
-          "notes": "Three gaps worth knowing before the deck is assembled. First, the screen offers no way to amend a consignment after it is created and no way to delete one; the only route back is Cancel, and only before it leaves. Second, lines added on this screen are not tied to a particular sales-order line: the consignment names the order, and releasing it does mark the order partly dispatched, but the outstanding quantity on each individual order line is not reduced by a consignment raised here, and the stock comes out of free stock rather than out of what that order had reserved. Third, boxes and weight on the create form are typed by hand - they are not carried across from the packing order's own carton totals, and there is no packing-order or carton field on this form at all; the link between a packed order and a consignment is made from the Packing screen's \"Hand to dispatch\", not from here. Also minor: the delivery confirmation dialog says that anything requiring inspection on arrival moves to QC pending, but in the system that state is reached by recording a tracking event of that kind rather than automatically on confirmation, so do not repeat the claim in the caption. The delay notification points at a \"delayed\" view that is not a page in the application; the board's \"Delayed only\" filter is the equivalent. The dispatch list shows the counterparty as \"Sales order\" or \"Vendor consignment\" rather than a name - the tracking board does show party names, so it is the better screenshot for a client audience. An order-linked line must name its order line and fit the live reservation; a live invoice blocks dispatch cancellation or amendment."
+          "notes": "Order-linked dispatch lines consume the matching live reservation and update that sales-order line on release. A live invoice blocks cancellation or amendment. Packing handover carries the packing/carton link; the standalone create form records consignment figures explicitly. Tracking corrections are later events, preserving the earlier history."
         }
       ]
     },
@@ -5189,7 +5202,8 @@
           ],
           "rules": [
             "Filters stay in the address and reset pagination to the first page.",
-            "Draft buyer orders are not shared with suppliers."
+            "Draft buyer orders are not shared with suppliers.",
+            "Previously sent orders under revision have a separate paginated status notice. Commercial terms and actions return after approval and resend."
           ]
         },
         {
@@ -5233,7 +5247,8 @@
             "Accept and decline are available only on sent orders.",
             "Shipment and readiness actions need an accepted or partially received order and the shipping right.",
             "The invoice right permits invoice uploads; other attachment kinds require the shipping right.",
-            "All downloads are authenticated. Older shipments, documents and receipts remain available through their page controls."
+            "All downloads are authenticated. Older shipments, documents and receipts remain available through their page controls.",
+            "A pending revision shows only its code, status, revision and notice. Revised lines, prices, terms, files, invoice forms and actions remain private until resend."
           ]
         },
         {

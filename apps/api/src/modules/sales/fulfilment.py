@@ -316,23 +316,24 @@ async def _job_work_documents(
 # -----------------------------------------------------------------------------
 
 
-def _ref_line_id(refs: Sequence[dict[str, Any]] | None, order_id: uuid.UUID) -> uuid.UUID | None:
-    for ref in refs or ():
-        if str(ref.get("demand_type", "")).upper() != "SALES_ORDER":
-            continue
-        if str(ref.get("demand_id", "")).lower() != str(order_id).lower():
-            continue
-        raw = ref.get("demand_line_id")
-        if raw:
-            try:
-                return uuid.UUID(str(raw))
-            except ValueError:  # pragma: no cover - written by the planner
-                return None
-    return None
+def _procurement_roots(refs: Any) -> tuple[bool, list[Any]]:
+    """A PR reference list is complete at fifty, unlike legacy MRP display facts."""
+    from src.core.demand_provenance import RootDemandProvenance
+
+    if not refs:
+        return True, []
+    try:
+        provenance = RootDemandProvenance(root_demand_refs=refs, root_demand_refs_complete=True)
+    except (TypeError, ValueError):
+        return False, []
+    return True, provenance.root_demand_refs
 
 
 async def _procurement_documents(
-    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    sales_line_ids: frozenset[uuid.UUID],
 ) -> tuple[list[FulfilmentDocumentRead], list[uuid.UUID]]:
     """Requisitions, their purchase orders and the goods receipts against them.
 
@@ -343,107 +344,173 @@ async def _procurement_documents(
         GoodsReceipt,
         PurchaseOrder,
         PurchaseOrderLine,
+        PurchaseOrderSourceAllocation,
         PurchaseRequisition,
         PurchaseRequisitionLine,
         PurchaseSourceType,
     )
 
-    header = (
+    sourced_lines = (
         await session.execute(
-            select(PurchaseRequisition).where(
+            select(PurchaseRequisitionLine, PurchaseRequisition)
+            .join(
+                PurchaseRequisition,
+                and_(
+                    PurchaseRequisition.id == PurchaseRequisitionLine.requisition_id,
+                    PurchaseRequisition.company_id == PurchaseRequisitionLine.company_id,
+                ),
+            )
+            .where(
                 PurchaseRequisition.company_id == tenant.company_id,
-                PurchaseRequisition.source_type == PurchaseSourceType.SALES_ORDER,
-                PurchaseRequisition.source_id == order_id,
+                or_(
+                    and_(
+                        PurchaseRequisition.source_type == PurchaseSourceType.SALES_ORDER,
+                        PurchaseRequisition.source_id == order_id,
+                    ),
+                    PurchaseRequisitionLine.source_demand_refs.contains(
+                        [{"demand_type": "SALES_ORDER", "demand_id": str(order_id)}]
+                    ),
+                ),
+            )
+            .order_by(
+                PurchaseRequisition.requisition_date,
+                PurchaseRequisition.id,
+                PurchaseRequisitionLine.line_number,
+                PurchaseRequisitionLine.id,
             )
         )
-    ).scalar_one_or_none()
+    ).all()
 
     documents: list[FulfilmentDocumentRead] = []
     requisition_line_ids: list[uuid.UUID] = []
-    line_attribution: dict[uuid.UUID, uuid.UUID] = {}
+    line_attribution: dict[uuid.UUID, uuid.UUID | None] = {}
+    aggregate_sources: set[uuid.UUID] = set()
 
-    if header is not None:
-        lines = list(
-            (
-                await session.execute(
-                    select(PurchaseRequisitionLine).where(
-                        PurchaseRequisitionLine.company_id == tenant.company_id,
-                        PurchaseRequisitionLine.requisition_id == header.id,
-                    )
-                )
-            ).scalars()
+    for line, header in sourced_lines:
+        valid, roots = _procurement_roots(line.source_demand_refs)
+        matching = [
+            root
+            for root in roots
+            if root.demand_type == "SALES_ORDER" and root.demand_id == order_id
+        ]
+        # Explicit canonical roots supersede an older header hint.
+        if valid and roots and not matching:
+            continue
+        line_id = (
+            matching[0].demand_line_id
+            if valid
+            and len(roots) == 1
+            and len(matching) == 1
+            and matching[0].demand_line_id in sales_line_ids
+            else None
         )
-        for line in lines:
-            line_id = _ref_line_id(line.source_demand_refs, order_id)
-            if line_id is not None:
-                line_attribution[line.id] = line_id
-            requisition_line_ids.append(line.id)
-            documents.append(
-                _document(
-                    kind="PURCHASE_REQUISITION",
-                    document_id=header.id,
-                    code=header.code,
-                    status=header.status,
-                    url="/procurement/requisitions",
-                    item_id=line.item_id,
-                    quantity=line.quantity,
-                    secondary_quantity=line.ordered_quantity,
-                    document_date=header.requisition_date,
-                    expected_date=line.required_date,
-                    line_id=line_id,
-                    detail=f"line {line.line_number}: {line.status}",
-                )
+        aggregate = not valid or len(roots) > 1
+        if aggregate:
+            aggregate_sources.add(line.id)
+        line_attribution[line.id] = line_id
+        requisition_line_ids.append(line.id)
+        detail = f"line {line.line_number}: {line.status}"
+        if aggregate:
+            detail += " · shared or incomplete demand links; quantity is the aggregate request"
+        documents.append(
+            _document(
+                kind="PURCHASE_REQUISITION",
+                document_id=header.id,
+                code=header.code,
+                status=header.status,
+                url="/procurement/requisitions",
+                item_id=line.item_id,
+                quantity=line.quantity,
+                secondary_quantity=line.ordered_quantity,
+                document_date=header.requisition_date,
+                expected_date=line.required_date,
+                line_id=line_id,
+                detail=detail,
             )
+        )
 
     po_ids: set[uuid.UUID] = set()
     if requisition_line_ids:
-        po_lines = list(
-            (
-                await session.execute(
-                    select(PurchaseOrderLine).where(
-                        PurchaseOrderLine.company_id == tenant.company_id,
-                        PurchaseOrderLine.requisition_line_id.in_(requisition_line_ids),
-                    )
+        rows = (
+            await session.execute(
+                select(PurchaseOrderLine, PurchaseOrder, PurchaseOrderSourceAllocation)
+                .join(
+                    PurchaseOrder,
+                    and_(
+                        PurchaseOrder.id == PurchaseOrderLine.purchase_order_id,
+                        PurchaseOrder.company_id == PurchaseOrderLine.company_id,
+                    ),
                 )
-            ).scalars()
-        )
-        po_ids = {line.purchase_order_id for line in po_lines}
-        if po_ids:
-            headers = {
-                po.id: po
-                for po in (
-                    await session.execute(
-                        select(PurchaseOrder).where(
-                            PurchaseOrder.company_id == tenant.company_id,
-                            PurchaseOrder.id.in_(po_ids),
-                        )
-                    )
-                ).scalars()
-            }
-            for po_line in po_lines:
-                po = headers.get(po_line.purchase_order_id)
-                if po is None:
-                    continue
-                documents.append(
-                    _document(
-                        kind="PURCHASE_ORDER",
-                        document_id=po.id,
-                        code=po.code,
-                        status=po.status,
-                        url=f"/procurement/purchase-orders/{po.id}",
-                        item_id=po_line.item_id,
-                        quantity=po_line.quantity,
-                        secondary_quantity=po_line.received_quantity,
-                        document_date=po.po_date,
-                        expected_date=po_line.required_date or po.expected_delivery_date,
-                        line_id=(
-                            line_attribution.get(po_line.requisition_line_id)
-                            if po_line.requisition_line_id is not None
-                            else None
+                .outerjoin(
+                    PurchaseOrderSourceAllocation,
+                    and_(
+                        PurchaseOrderSourceAllocation.purchase_order_line_id
+                        == PurchaseOrderLine.id,
+                        PurchaseOrderSourceAllocation.company_id == PurchaseOrderLine.company_id,
+                    ),
+                )
+                .where(
+                    PurchaseOrderLine.company_id == tenant.company_id,
+                    or_(
+                        PurchaseOrderSourceAllocation.requisition_line_id.in_(requisition_line_ids),
+                        and_(
+                            PurchaseOrderSourceAllocation.id.is_(None),
+                            PurchaseOrderLine.requisition_line_id.in_(requisition_line_ids),
                         ),
-                        detail=f"line {po_line.line_number}: {po_line.status}",
-                    )
+                    ),
                 )
+                .order_by(
+                    PurchaseOrder.po_date,
+                    PurchaseOrder.id,
+                    PurchaseOrderLine.line_number,
+                    PurchaseOrderLine.id,
+                    PurchaseOrderSourceAllocation.id,
+                )
+            )
+        ).all()
+        grouped: dict[tuple[uuid.UUID, uuid.UUID | None, bool, bool], dict[str, Any]] = {}
+        for po_line, po, allocation in rows:
+            source_id = (
+                allocation.requisition_line_id if allocation else po_line.requisition_line_id
+            )
+            active = allocation.is_active if allocation else True
+            aggregate = source_id in aggregate_sources
+            key = (po_line.id, line_attribution.get(source_id), active, aggregate)
+            entry = grouped.setdefault(key, {"line": po_line, "order": po, "quantity": ZERO})
+            entry["quantity"] += Decimal(allocation.quantity if allocation else po_line.quantity)
+            po_ids.add(po.id)
+        for (_, line_id, active, aggregate), entry in grouped.items():
+            po_line, po, quantity = entry["line"], entry["order"], entry["quantity"]
+            detail = f"line {po_line.line_number}: {po_line.status}"
+            if not active:
+                detail += " · released source allocation; quantity is historical"
+            elif aggregate:
+                detail += " · shared demand; quantity is the aggregate source allocation"
+            else:
+                detail += " · quantity allocated to this demand"
+            # Receipts are physical PO-line facts. A partial allocation does
+            # not establish how received units were divided among requisitions.
+            received = (
+                po_line.received_quantity if active and quantity == po_line.quantity else None
+            )
+            if received is None:
+                detail += "; receipts are tracked for the full PO line"
+            documents.append(
+                _document(
+                    kind="PURCHASE_ORDER",
+                    document_id=po.id,
+                    code=po.code,
+                    status=po.status,
+                    url=f"/procurement/purchase-orders/{po.id}",
+                    item_id=po_line.item_id,
+                    quantity=quantity,
+                    secondary_quantity=received,
+                    document_date=po.po_date,
+                    expected_date=po_line.required_date or po.expected_delivery_date,
+                    line_id=line_id,
+                    detail=detail,
+                )
+            )
 
     receipts = []
     if po_ids:
@@ -470,7 +537,7 @@ async def _procurement_documents(
             document_date=receipt.receipt_date,
             detail=(
                 f"accepted {receipt.total_accepted_quantity}, "
-                f"rejected {receipt.total_rejected_quantity}"
+                f"rejected {receipt.total_rejected_quantity}; quantities cover the full receipt"
             ),
         )
         for receipt in receipts
@@ -765,7 +832,9 @@ async def order_fulfilment(
     production_documents, work_order_ids = await _production_documents(session, tenant, order.id)
     assembly_documents = await _assembly_documents(session, tenant, order.id)
     job_work_documents = await _job_work_documents(session, tenant, order.id)
-    procurement_documents, receipt_ids = await _procurement_documents(session, tenant, order.id)
+    procurement_documents, receipt_ids = await _procurement_documents(
+        session, tenant, order.id, frozenset(line.id for line in lines)
+    )
     assembly_ids = [document.id for document in assembly_documents]
     job_work_ids = [document.id for document in job_work_documents]
     quality_documents = await _quality_documents(

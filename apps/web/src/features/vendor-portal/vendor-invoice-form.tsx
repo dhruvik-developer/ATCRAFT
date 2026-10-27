@@ -28,7 +28,7 @@ import type { SchemaOf } from '@/types/api'
 import {
   receiptInvoiceLines,
   type VendorDocument,
-  type VendorOrder,
+  type VendorOrderResponse,
   type VendorReceipt,
 } from './vendor-model'
 
@@ -96,11 +96,12 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
   const order = useQuery({
     queryKey: queryKeys.vendorPortal.order(receipt?.purchase_order_id ?? ''),
     queryFn: ({ signal }) =>
-      api.get<VendorOrder>(`/vendor-portal/purchase-orders/${receipt?.purchase_order_id}`, {
+      api.get<VendorOrderResponse>(`/vendor-portal/purchase-orders/${receipt?.purchase_order_id}`, {
         signal,
       }),
     enabled: Boolean(receipt),
   })
+  const issuedOrder = order.data && !order.data.pending_amendment ? order.data : null
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -117,16 +118,17 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
     // Refetching a header must not replace invoice figures somebody is editing.
     if (
       receipt &&
-      order.data?.id === receipt.purchase_order_id &&
+      issuedOrder?.id === receipt.purchase_order_id &&
       seededReceipt.current !== receipt.id
     ) {
-      replace(receiptInvoiceLines(order.data, receipt))
+      replace(receiptInvoiceLines(issuedOrder, receipt))
       seededReceipt.current = receipt.id
     }
-  }, [receipt, order.data, replace])
+  }, [receipt, issuedOrder, replace])
   const mutation = useMutation({
     mutationFn: async (values: Values) => {
-      if (!receipt || !order.data) throw new Error('Choose a goods receipt before submitting')
+      if (!receipt || !issuedOrder)
+        throw new Error('Choose a goods receipt with an issued purchase order before submitting')
       let documentId: string | undefined
       if (attachment) {
         // A bill can fail validation after its file succeeded. Reuse that upload
@@ -159,7 +161,7 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
         vendor_invoice_number: values.vendor_invoice_number,
         invoice_date: values.invoice_date,
         ...(values.due_date ? { due_date: values.due_date } : {}),
-        currency: order.data.currency,
+        currency: issuedOrder.currency,
         round_off_amount: values.round_off_amount,
         notes: values.notes || null,
         lines: values.lines.map((line) => ({
@@ -296,6 +298,11 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             {order.isFetching && receipt && <p role="status">Loading order lines…</p>}
+            {order.data?.pending_amendment && (
+              <p role="alert" className="text-sm text-muted-foreground">
+                {order.data.message}
+              </p>
+            )}
             <div className="space-y-3">
               {fields.map((field, index) => (
                 <fieldset key={field.id} className="rounded-lg border p-4">
@@ -369,7 +376,13 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
             </Button>
             <Button
               type="submit"
-              disabled={!receipt || order.isFetching || fields.length === 0 || mutation.isPending}
+              disabled={
+                !receipt ||
+                !issuedOrder ||
+                order.isFetching ||
+                fields.length === 0 ||
+                mutation.isPending
+              }
             >
               {mutation.isPending ? 'Submitting…' : 'Submit invoice'}
             </Button>

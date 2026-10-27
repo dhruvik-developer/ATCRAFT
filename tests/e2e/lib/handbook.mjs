@@ -31,13 +31,18 @@ export function resolveHandbookDetailRoute(template, detailRoute) {
   return detailRoute.split('?')[0] + (queryIndex >= 0 ? template.slice(queryIndex) : '')
 }
 
-/** Select one populated product for staff/dealer illustrations without changing data. */
-export function handbookDetailListRoute(template, listRoute, itemCode) {
+/** Select populated products or an issued revision through normal read-only lists. */
+export function handbookDetailListRoute(template, listRoute, itemCode, purchaseOrderCode) {
   const shape = handbookRouteShape(template.split('?')[0])
-  if (!itemCode?.trim() || !['/items/:id', '/dealer/catalog/:id'].includes(shape)) return listRoute
+  const wanted = ['/items/:id', '/dealer/catalog/:id'].includes(shape)
+    ? itemCode
+    : ['/procurement/purchase-orders/:id', '/vendor/orders/:id'].includes(shape)
+      ? purchaseOrderCode
+      : undefined
+  if (!wanted?.trim()) return listRoute
   const url = new URL(listRoute, 'http://handbook.invalid')
   // useListQuery reads the browser's q parameter and sends search to the API.
-  url.searchParams.set('q', itemCode.trim())
+  url.searchParams.set('q', wanted.trim())
   url.searchParams.delete('search')
   url.searchParams.delete('page')
   return `${url.pathname}${url.search}`

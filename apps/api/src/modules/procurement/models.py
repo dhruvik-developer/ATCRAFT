@@ -61,6 +61,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -500,6 +501,7 @@ class PurchaseRequisitionLine(TenantEntity):
     source_demand_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_purchase_requisition_lines_company_id_id"),
         UniqueConstraint(
             "requisition_id", "line_number", name="uq_purchase_requisition_lines_line_number"
         ),
@@ -926,6 +928,18 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     duplicate_acknowledgement_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duplicate_confirmed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    duplicate_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duplicate_confirmation_reason: Mapped[str | None] = mapped_column(Text)
+    amendment_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_amended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_amended_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # --- provenance ---------------------------------------------------------
     source_type: Mapped[PurchaseSourceType] = mapped_column(
@@ -1038,6 +1052,15 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
             "NOT duplicate_acknowledged OR duplicate_acknowledgement_reason IS NOT NULL",
             name="duplicate_acknowledgement_carries_a_reason",
         ),
+        CheckConstraint("amendment_number >= 0", name="amendment_number_non_negative"),
+        CheckConstraint(
+            "(amendment_number = 0) = (last_amended_at IS NULL)",
+            name="amendment_evidence_complete",
+        ),
+        CheckConstraint(
+            "(duplicate_confirmed_at IS NULL) = (duplicate_confirmation_reason IS NULL)",
+            name="duplicate_confirmation_evidence_complete",
+        ),
     )
 
 
@@ -1133,6 +1156,7 @@ class PurchaseOrderLine(TenantEntity):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
+        UniqueConstraint("company_id", "id", name="uq_purchase_order_lines_company_id_id"),
         UniqueConstraint(
             "purchase_order_id", "line_number", name="uq_purchase_order_lines_line_number"
         ),
@@ -1186,6 +1210,57 @@ class PurchaseOrderLine(TenantEntity):
 # -----------------------------------------------------------------------------
 # Goods receipt
 # -----------------------------------------------------------------------------
+
+
+class PurchaseOrderSourceAllocation(TenantEntity):
+    """Quantity of one physical PO line committed to one requisition line.
+
+    Inactive rows retain provenance after cancellation or unlinking. There is
+    deliberately no inferred historical release timestamp in the legacy
+    backfill; subsequent changes are recorded in the PO audit trail.
+    """
+
+    __tablename__ = "purchase_order_source_allocations"
+
+    purchase_order_line_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    requisition_line_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "purchase_order_line_id",
+            "requisition_line_id",
+            name="uq_purchase_order_source_allocations_line_source",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "purchase_order_line_id"],
+            ["purchase_order_lines.company_id", "purchase_order_lines.id"],
+            ondelete="CASCADE",
+            name="fk_po_source_allocations_line_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "requisition_line_id"],
+            ["purchase_requisition_lines.company_id", "purchase_requisition_lines.id"],
+            ondelete="RESTRICT",
+            name="fk_po_source_allocations_requisition_tenant",
+        ),
+        Index(
+            "ix_purchase_order_source_allocations_source",
+            "company_id",
+            "requisition_line_id",
+            "is_active",
+        ),
+        Index(
+            "ix_purchase_order_source_allocations_line",
+            "company_id",
+            "purchase_order_line_id",
+        ),
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+    )
 
 
 class GoodsReceipt(TenantEntity):

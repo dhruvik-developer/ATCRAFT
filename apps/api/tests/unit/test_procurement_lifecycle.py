@@ -210,6 +210,39 @@ def test_every_purchase_order_transition_declares_a_permission():
     assert unguarded == []
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        PurchaseOrderStatus.APPROVED,
+        PurchaseOrderStatus.SENT,
+        PurchaseOrderStatus.ACKNOWLEDGED,
+    ],
+)
+def test_an_unreceived_committed_order_can_be_amended_back_to_approval(status):
+    transition = PURCHASE_ORDER_LIFECYCLE.assert_transition(
+        status, PurchaseOrderStatus.PENDING_APPROVAL
+    )
+    assert transition.permission is Permission.PURCHASE_ORDER_UPDATE
+    assert transition.label == "Amend"
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        PurchaseOrderStatus.RECEIVED,
+        PurchaseOrderStatus.QC_PENDING,
+        PurchaseOrderStatus.QC_COMPLETED,
+        PurchaseOrderStatus.GRN_COMPLETED,
+        PurchaseOrderStatus.INVOICED,
+        PurchaseOrderStatus.PAID,
+    ],
+)
+def test_an_order_that_moved_stock_cannot_be_reopened_for_an_amendment(status):
+    with pytest.raises(InvalidStateTransitionError):
+        PURCHASE_ORDER_LIFECYCLE.assert_transition(status, PurchaseOrderStatus.PENDING_APPROVAL)
+
+
 def test_transitions_that_move_stock_or_money_are_marked_irreversible():
     """The UI demands confirmation on these; mislabelling one loses that guard."""
     approve = PURCHASE_ORDER_LIFECYCLE.find(

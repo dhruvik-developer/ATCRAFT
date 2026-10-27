@@ -19,17 +19,33 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 
-from src.core.deps import CurrentUser, DbSession, Tenant, forbid_vendor_users, require_permission
+from src.core.deps import (
+    CurrentUser,
+    DbSession,
+    Tenant,
+    forbid_vendor_users,
+    require_any_permission,
+    require_permission,
+)
 from src.core.messages import success_message
-from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
+from src.core.pagination import (
+    CursorParams,
+    PageParams,
+    SortParams,
+    bind_query_filters,
+    cursor_params,
+    page_params,
+    sort_params,
+)
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
     ApiResponse,
+    CursorPaginatedResponse,
     PaginatedResponse,
 )
-from src.modules.procurement import inbound_service, service
+from src.modules.procurement import inbound_service, purchase_order_changes, service
 from src.modules.procurement.inbound_schemas import (
     DocumentKind,
     InboundDeliveredRequest,
@@ -64,8 +80,13 @@ from src.modules.procurement.schemas import (
     GoodsReceiptSummary,
     PendingApproval,
     PendingApprovalFilters,
+    PurchaseOrderAmendmentRead,
+    PurchaseOrderAmendRequest,
+    PurchaseOrderApprovalRequest,
     PurchaseOrderCreate,
     PurchaseOrderDetail,
+    PurchaseOrderDuplicateResolutionRequest,
+    PurchaseOrderDuplicateResolutionResult,
     PurchaseOrderFilters,
     PurchaseOrderSummary,
     PurchaseOrderTracking,
@@ -977,6 +998,42 @@ async def check_duplicates(
 
 
 @router.post(
+    "/purchase-orders/duplicate-resolution",
+    response_model=ApiResponse[PurchaseOrderDuplicateResolutionResult],
+    summary="Resolve duplicate demand atomically",
+    description=(
+        "Merge or increase a current candidate, request a separate order with approval, "
+        "or cancel outstanding demand. Permissions depend on the selected action."
+    ),
+    dependencies=[
+        require_any_permission(
+            Permission.PURCHASE_ORDER_UPDATE,
+            Permission.PURCHASE_ORDER_CREATE,
+            Permission.PURCHASE_REQUISITION_CREATE,
+        ),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def resolve_purchase_order_duplicate(
+    payload: PurchaseOrderDuplicateResolutionRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[PurchaseOrderDuplicateResolutionResult]:
+    result = await purchase_order_changes.resolve_duplicate(session, tenant, principal, payload)
+    codes = ", ".join(order.code for order in result.purchase_orders)
+    message = {
+        "MERGE": f"Demand merged into {codes}",
+        "INCREASE": f"Purchase quantity increased on {codes}",
+        "CREATE_WITH_APPROVAL": f"Separate purchase order {codes} raised for approval",
+        "CANCEL_REQUEST": "Duplicate request discarded"
+        if result.discarded
+        else "Outstanding duplicate demand cancelled",
+    }[result.action]
+    return ApiResponse[PurchaseOrderDuplicateResolutionResult].ok(result, message)
+
+
+@router.post(
     "/purchase-orders",
     response_model=ApiResponse[PurchaseOrderDetail],
     status_code=status.HTTP_201_CREATED,
@@ -1087,6 +1144,52 @@ async def update_purchase_order(
 
 
 @router.post(
+    "/purchase-orders/{order_id}/amend",
+    response_model=ApiResponse[PurchaseOrderDetail],
+    summary="Revise an approved order and require reapproval",
+    description=(
+        "Requires the current version and no receipt history, including draft or cancelled "
+        "GRNs. Retains existing line identities and explicit requisition allocations."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def amend_purchase_order(
+    order_id: uuid.UUID,
+    payload: PurchaseOrderAmendRequest,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[PurchaseOrderDetail]:
+    order, lines = await purchase_order_changes.amend_purchase_order(
+        session, tenant, order_id, payload
+    )
+    return ApiResponse[PurchaseOrderDetail].ok(
+        await service.describe_purchase_order(session, tenant, order, lines),
+        f"{order.code} revision {order.amendment_number} submitted for approval",
+    )
+
+
+@router.get(
+    "/purchase-orders/{order_id}/amendments",
+    response_model=CursorPaginatedResponse[PurchaseOrderAmendmentRead],
+    summary="Read the purchase order's revision history",
+    dependencies=[require_permission(Permission.PURCHASE_ORDER_VIEW), Depends(forbid_vendor_users)],
+)
+async def list_purchase_order_amendments(
+    order_id: uuid.UUID,
+    session: DbSession,
+    tenant: Tenant,
+    params: Annotated[CursorParams, Depends(cursor_params)],
+) -> CursorPaginatedResponse[PurchaseOrderAmendmentRead]:
+    rows, pagination = await purchase_order_changes.list_amendments(
+        session, tenant, order_id, params
+    )
+    return CursorPaginatedResponse[PurchaseOrderAmendmentRead](data=rows, pagination=pagination)
+
+
+@router.post(
     "/purchase-orders/{order_id}/submit",
     response_model=ApiResponse[PurchaseOrderSummary],
     summary="Submit a purchase order for approval",
@@ -1126,7 +1229,7 @@ async def submit_purchase_order(
 )
 async def approve_purchase_order(
     order_id: uuid.UUID,
-    payload: ApproveRequest,
+    payload: PurchaseOrderApprovalRequest,
     session: DbSession,
     tenant: Tenant,
     principal: CurrentUser,
@@ -1138,6 +1241,7 @@ async def approve_purchase_order(
         order_id,
         PurchaseOrderStatus.APPROVED,
         reason=payload.reason or "Approved",
+        confirm_duplicate=getattr(payload, "confirm_duplicate", False),
     )
     return ApiResponse[PurchaseOrderSummary].ok(
         PurchaseOrderSummary.model_validate(order),

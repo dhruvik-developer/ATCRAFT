@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 717 requests in 31
+Import `postman_collection.json` (Postman v2.1 format, 721 requests in 31
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -607,6 +607,35 @@ return no rows for an explicit empty value. Dealer item detail exposes formatted
 specifications and its own channel-priced OPTIONAL accessories. INCLUDED entries
 are informational: they do not expose a price or add an automatic cart/stock line.
 Price-on-request accessories cannot be added through a fabricated price.
+
+## Purchase-order duplicate resolution and revisions
+
+These staff endpoints retain the response/error envelope and tenant scope.
+Vendor and dealer accounts cannot execute buyer duplicate actions.
+
+| Path | Contract and permission |
+|---|---|
+| `POST /procurement/purchase-orders/duplicate-resolution` | `action`, a discriminated `MANUAL` or `REQUISITION` draft and reason. MERGE/INCREASE require `purchase_order.update`, candidate ID and current `expected_candidate_version`; INCREASE also names the candidate line. CREATE_WITH_APPROVAL requires `purchase_order.create`; CANCEL_REQUEST requires `purchase_requisition.create`. Returns 200 with affected orders or cancelled demand IDs. |
+| `POST /procurement/purchase-orders/{id}/amend` | `purchase_order.update`; `expected_version`, reason and complete desired lines. Retained lines name `line_id`; new lines name item and price. Optional source allocations explicitly retain requisition quantities. Returns the revised detail with a new version and revision number. |
+| `GET /procurement/purchase-orders/{id}/amendments` | `purchase_order.view`; cursor/limit pagination over immutable full revision snapshots. No separate audit-log permission is required. |
+| `POST /procurement/purchase-orders/{id}/approve` | `purchase_order.approve`; flagged duplicates additionally require `confirm_duplicate: true` and a meaningful reason. Records approval-time confirmation evidence and enforces separation of duties. |
+| `GET /vendor-portal/purchase-orders/pending-amendments` | `vendor_portal.access`; paginated, scoped status notices for previously sent amended orders awaiting reapproval/resend. No commercial fields or actions. |
+
+A requisition draft names explicit requisition and line IDs plus the existing
+conversion options. Unselected demand remains available. Merge/increase
+rechecks the comparison under locks, refuses different commercial terms and
+any GRN history, and routes approved/sent/acknowledged candidates through
+amendment. Decreases below allocated quantity require explicit retained source
+allocations. Omit unchanged price, unit, item or QC fields on amendment;
+explicit nulls for these fields return 422. Stale versions return 409, missing
+or foreign sources return 404 and incompatible demand/terms return a controlled
+422. Existing submit remains draft-only.
+
+Vendor detail returns a typed union: normal issued detail, or
+`VendorPortalPendingAmendmentRead` with only identity/code/status/revision/time,
+`pending_amendment: true` and a message. Revised lines, prices, terms, files and
+actions remain private until resend. Normal detail has
+`pending_amendment: false`. New unsent orders remain invisible.
 
 ## Inventory operation documents
 

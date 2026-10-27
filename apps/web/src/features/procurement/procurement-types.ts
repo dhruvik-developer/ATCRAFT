@@ -681,45 +681,6 @@ export const DUPLICATE_ACTIONS = [
 export type DuplicateActionCode = (typeof DUPLICATE_ACTIONS)[number]
 
 /**
- * What each resolution means, and whether this screen can carry it out.
- *
- * Only `CREATE_NEW_WITH_APPROVAL` has an API path: resubmit the same order with
- * `acknowledge_duplicates` and a reason, which the API refuses without
- * `purchase_order.approve`. The other three are edits to the *existing* order
- * and have no create-time endpoint, so they are presented as instructions with
- * a link, not as buttons that would fail.
- */
-export const DUPLICATE_ACTION_COPY: Record<
-  DuplicateActionCode,
-  { label: string; description: string; actionable: boolean }
-> = {
-  MERGE_WITH_EXISTING: {
-    label: 'Merge into the existing order',
-    description:
-      'Open that order and add these lines to it, then abandon this one. It is still a draft or awaiting approval, so it can take them.',
-    actionable: false,
-  },
-  INCREASE_EXISTING_QUANTITY: {
-    label: 'Increase the quantity already on order',
-    description:
-      'Nothing has been received against it yet, so raising its quantity buys the same material on one document instead of two.',
-    actionable: false,
-  },
-  CREATE_NEW_WITH_APPROVAL: {
-    label: 'Raise this order anyway',
-    description:
-      'The demand is genuinely additional. Recorded against the order with your reason, and refused unless you hold purchase order approval.',
-    actionable: true,
-  },
-  CANCEL_DUPLICATE: {
-    label: 'Cancel the existing order',
-    description:
-      'It covers the same demand and nothing has arrived against it. Cancel it on its own screen, then raise this one.',
-    actionable: false,
-  },
-}
-
-/**
  * A purchase order line the API believes already covers what is being raised,
  * returned inside a 409 `DUPLICATE_DOCUMENT`.
  *
@@ -732,8 +693,10 @@ export interface DuplicateCandidate {
   purchase_order_id: string
   purchase_order_code: string
   purchase_order_line_id: string
+  purchase_order_version: number
   item_id: string
   status: string
+  has_receipt_history: boolean
   /** Still expected on that line, so the buyer can judge the overlap. */
   open_quantity: DecimalString | null
   required_date: string | null
@@ -782,15 +745,9 @@ function asConfidence(value: unknown): DuplicateConfidence {
  * the ordinary error path instead of opening an empty dialog the user cannot
  * act on.
  */
-export function parseDuplicateConflict(error: unknown): DuplicateConflict | null {
-  if (!(error instanceof ApiError)) return null
-  if (error.status !== 409 || error.code !== 'DUPLICATE_DOCUMENT') return null
-
-  const details = error.details
-  if (!details) return null
-
-  const rawCandidates = Array.isArray(details.candidates) ? details.candidates : []
-  const candidates = rawCandidates.flatMap((entry): DuplicateCandidate[] => {
+export function normaliseDuplicateCandidates(value: unknown): DuplicateCandidate[] {
+  const rawCandidates: unknown[] = Array.isArray(value) ? value : []
+  return rawCandidates.flatMap((entry): DuplicateCandidate[] => {
     const row = asRecord(entry)
     if (!row) return []
     const id = asString(row.purchase_order_id)
@@ -803,7 +760,13 @@ export function parseDuplicateConflict(error: unknown): DuplicateConflict | null
         purchase_order_code: code,
         purchase_order_line_id: lineId,
         item_id: asString(row.item_id) ?? '',
-        status: asString(row.status) ?? 'DRAFT',
+        status: asString(row.status) ?? '',
+        purchase_order_version:
+          typeof row.purchase_order_version === 'number' &&
+          Number.isSafeInteger(row.purchase_order_version)
+            ? row.purchase_order_version
+            : 0,
+        has_receipt_history: row.has_receipt_history !== false,
         open_quantity: asString(row.open_quantity),
         required_date: asString(row.required_date),
         confidence: asConfidence(row.confidence),
@@ -815,7 +778,14 @@ export function parseDuplicateConflict(error: unknown): DuplicateConflict | null
       },
     ]
   })
+}
 
+export function parseDuplicateConflict(error: unknown): DuplicateConflict | null {
+  if (!(error instanceof ApiError)) return null
+  if (error.status !== 409 || error.code !== 'DUPLICATE_DOCUMENT') return null
+  const details = error.details
+  if (!details) return null
+  const candidates = normaliseDuplicateCandidates(details.candidates)
   if (candidates.length === 0) return null
 
   const count = details.candidate_count

@@ -14,7 +14,8 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import Any, Literal
 
-from sqlalchemy import Select, and_, case, func, select, true
+from sqlalchemy import Select, and_, case, func, or_, select, true
+from sqlalchemy.orm import load_only
 
 from src.core.deps import TenantContext
 from src.core.pagination import PageParams, paginate
@@ -41,6 +42,7 @@ from src.modules.procurement.models import (
     PurchaseOrderLine,
     PurchaseOrderStatus,
 )
+from src.modules.procurement.repository import category_within
 from src.modules.products.models import Item, ItemCategory, UnitOfMeasure
 from src.modules.vendors.models import Transporter, Vendor, VendorCategory
 from src.modules.warehouses.models import Warehouse
@@ -71,6 +73,58 @@ class VendorPortalRepository:
     def __init__(self, session: Any, tenant: TenantContext) -> None:
         self.session, self.tenant = session, tenant
         self.orders = InboundRepository(session, tenant)
+
+    def _pending_amendments(self) -> Select[Any]:
+        stmt = (
+            select(PurchaseOrder)
+            .options(
+                load_only(
+                    PurchaseOrder.id,
+                    PurchaseOrder.code,
+                    PurchaseOrder.status,
+                    PurchaseOrder.amendment_number,
+                    PurchaseOrder.last_amended_at,
+                    raiseload=True,
+                )
+            )
+            .where(
+                PurchaseOrder.company_id == self.tenant.company_id,
+                PurchaseOrder.vendor_id == self.tenant.vendor_id,
+                PurchaseOrder.sent_at.is_not(None),
+                PurchaseOrder.amendment_number > 0,
+                PurchaseOrder.status.in_(
+                    (PurchaseOrderStatus.PENDING_APPROVAL, PurchaseOrderStatus.APPROVED)
+                ),
+            )
+        )
+        if self.tenant.allowed_category_ids:
+            stmt = stmt.where(
+                or_(
+                    category_within(
+                        self.tenant.company_id,
+                        PurchaseOrder.item_category_id,
+                        self.tenant.allowed_category_ids,
+                    ),
+                    PurchaseOrder.assigned_vendor_user_id == self.tenant.user_id,
+                )
+            )
+        return stmt
+
+    async def pending_amendments(
+        self, params: PageParams
+    ) -> tuple[list[PurchaseOrder], OffsetPagination]:
+        return await paginate(
+            self.session,
+            self._pending_amendments().order_by(
+                PurchaseOrder.last_amended_at.desc(), PurchaseOrder.id.desc()
+            ),
+            params,
+        )
+
+    async def pending_amendment(self, order_id: uuid.UUID) -> PurchaseOrder | None:
+        return await self.session.scalar(
+            self._pending_amendments().where(PurchaseOrder.id == order_id)
+        )
 
     async def shipments(
         self, params: PageParams, status: Literal["all", "in_transit", "delivered"]

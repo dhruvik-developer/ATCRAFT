@@ -155,6 +155,7 @@ async def seed(ctx: DemoContext) -> None:
                     order_id,
                     target,
                     reason="Vendor portal demonstration",
+                    confirm_duplicate=bool(order.duplicate_acknowledged),
                 )
         if final == "SENT":
             continue

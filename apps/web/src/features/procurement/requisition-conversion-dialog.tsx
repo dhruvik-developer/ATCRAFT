@@ -68,7 +68,7 @@ import {
 } from '@/lib/format'
 import { describeError, raisedDocuments } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { queryKeys, staleTimes } from '@/lib/query-client'
+import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn, indexById } from '@/lib/utils'
 
@@ -81,6 +81,7 @@ import {
   duplicateConfidence,
   isUrgentPriority,
   parseDuplicateConflict,
+  normaliseDuplicateCandidates,
   requisitionKeys,
   type DuplicateConflict,
   type RequisitionBatchConversionPayload,
@@ -94,10 +95,12 @@ import {
   type RequisitionRef,
   type RequisitionRow,
 } from './procurement-types'
+import { PurchaseOrderDuplicateDialog } from './purchase-order-duplicate-dialog'
 import {
-  PurchaseOrderDuplicateDialog,
-  type DuplicateDialogCopy,
-} from './purchase-order-duplicate-dialog'
+  invalidatePurchaseOrderChanges,
+  type DuplicateResolutionDraft,
+  type DuplicateResolutionScope,
+} from './purchase-order-change-model'
 
 // ------------------------------------------------------------ overrides -----
 
@@ -204,15 +207,8 @@ function previewConversion(
 function convertRequisitions(
   target: RequisitionConversionTarget,
   lines: RequisitionConversionOverride[],
-  acknowledgement: string | null,
 ): Promise<RequisitionConversionResult> {
-  const body: RequisitionConversionPayload = acknowledgement
-    ? {
-        lines,
-        acknowledge_duplicates: true,
-        duplicate_acknowledgement_reason: acknowledgement,
-      }
-    : { lines, acknowledge_duplicates: false }
+  const body: RequisitionConversionPayload = { lines, acknowledge_duplicates: false }
   if (target.kind === 'single') {
     return api.post<RequisitionConversionResult>(
       `/procurement/purchase-requisitions/${target.requisition.id}/convert-to-orders`,
@@ -237,16 +233,6 @@ function convertRequisitions(
 type ConvertOutcome =
   | { kind: 'converted'; result: RequisitionConversionResult }
   | { kind: 'duplicate'; conflict: DuplicateConflict }
-
-const CONVERSION_DUPLICATE_COPY: DuplicateDialogCopy = {
-  notCreated: 'No purchase order was raised - the conversion raises every order or none.',
-  dismissLabel: 'Back to the proposal',
-  confirmLabel: 'Raise them anyway',
-}
-
-/** Whether `key` begins with `prefix`, the way TanStack matches an invalidation. */
-const startsWith = (key: readonly unknown[], prefix: readonly unknown[]): boolean =>
-  prefix.every((part, index) => key[index] === part)
 
 function lineLabel(line: { requisition_code: string; line_number: number }): string {
   return `${line.requisition_code} line ${line.line_number}`
@@ -306,9 +292,9 @@ export default function RequisitionConversionDialog({
   const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
 
   const convert = useMutation({
-    mutationFn: async (acknowledgement: string | null): Promise<ConvertOutcome> => {
+    mutationFn: async (): Promise<ConvertOutcome> => {
       try {
-        const result = await convertRequisitions(target, settledOverrides, acknowledgement)
+        const result = await convertRequisitions(target, settledOverrides)
         return { kind: 'converted', result }
       } catch (error) {
         const duplicate = parseDuplicateConflict(error)
@@ -324,11 +310,7 @@ export default function RequisitionConversionDialog({
       // The requisitions, the order book and planning all changed. The preview
       // being closed is left alone: asked again, it would only describe orders
       // that now exist.
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.procurement.all,
-        predicate: (query) => !startsWith(query.queryKey, requisitionKeys.conversions),
-      })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.mrp.all })
+      invalidatePurchaseOrderChanges(queryClient)
       const codes = outcome.result.groups.flatMap((group) =>
         group.purchase_order_code ? [group.purchase_order_code] : [],
       )
@@ -367,6 +349,38 @@ export default function RequisitionConversionDialog({
   const invalid = Object.values(edits).some((edit) => !edit.exclude && hasInvalidText(edit))
   const overLimit = result ? groups.length > result.max_orders : false
   const lineCount = groups.reduce((sum, group) => sum + group.lines.length, 0)
+  const selectedLineIds = [
+    ...new Set(groups.flatMap((group) => group.lines.map((line) => line.requisition_line_id))),
+  ]
+  const duplicateDraft: DuplicateResolutionDraft = {
+    kind: 'REQUISITION',
+    requisition_ids: requisitionIds,
+    requisition_line_ids: selectedLineIds,
+    conversion: {
+      lines: settledOverrides.filter((override) =>
+        selectedLineIds.includes(override.requisition_line_id),
+      ),
+      acknowledge_duplicates: false,
+    },
+  }
+  const duplicateScopes: DuplicateResolutionScope[] = groups.map((group) => ({
+    id: `${group.vendor_id}:${group.item_category_id ?? ''}:${group.warehouse_id}`,
+    title: `${group.vendor_name} - ${group.item_category_name ?? 'Purchase proposal'}`,
+    draft: {
+      ...duplicateDraft,
+      requisition_line_ids: group.lines.map((line) => line.requisition_line_id),
+      conversion: {
+        lines: settledOverrides.filter((override) =>
+          group.lines.some((line) => line.requisition_line_id === override.requisition_line_id),
+        ),
+        acknowledge_duplicates: false,
+      },
+    },
+    candidateLineIds: group.duplicate_candidates.map(
+      (candidate) => candidate.purchase_order_line_id,
+    ),
+    itemIds: group.lines.map((line) => line.item_id),
+  }))
 
   const ready =
     Boolean(result) &&
@@ -542,11 +556,7 @@ export default function RequisitionConversionDialog({
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
-              disabled={!ready}
-              loading={convert.isPending}
-              onClick={() => convert.mutate(null)}
-            >
+            <Button disabled={!ready} loading={convert.isPending} onClick={() => convert.mutate()}>
               {groups.length === 0
                 ? 'Raise purchase orders'
                 : groups.length === 1
@@ -557,17 +567,60 @@ export default function RequisitionConversionDialog({
         </DialogContent>
       </Dialog>
 
-      {conflict && (
+      {conflict && selectedLineIds.length > 0 && (
         <PurchaseOrderDuplicateDialog
           conflict={conflict}
-          open={Boolean(conflict)}
+          draft={duplicateDraft}
+          scopes={duplicateScopes}
+          onConflict={setConflict}
           onOpenChange={(next) => {
             if (!next) setConflict(null)
           }}
-          onAcknowledge={(reason) => convert.mutate(reason)}
-          isResolving={convert.isPending}
-          canAcknowledge={can(P.PURCHASE_ORDER_APPROVE)}
-          copy={CONVERSION_DUPLICATE_COPY}
+          isPreparing={settling || preview.isFetching}
+          onResolved={(_result, request) => {
+            setConflict(null)
+            const actedIds = new Set(
+              request.draft.kind === 'REQUISITION' ? request.draft.requisition_line_ids : [],
+            )
+            const clearedOverrides = Object.keys(edits).some((id) => actedIds.has(id))
+            // Return to the remaining proposal without replaying stale per-line
+            // quantities for demand that has just been partially ordered.
+            void queryClient.invalidateQueries({
+              queryKey: requisitionKeys.conversions,
+              refetchType: 'none',
+            })
+            setEdits((current) =>
+              Object.fromEntries(Object.entries(current).filter(([id]) => !actedIds.has(id))),
+            )
+            setExcludedNames((current) =>
+              Object.fromEntries(Object.entries(current).filter(([id]) => !actedIds.has(id))),
+            )
+            if (selectedLineIds.every((id) => actedIds.has(id))) onOpenChange(false)
+            else if (!clearedOverrides) void preview.refetch()
+          }}
+          onRefresh={async () => {
+            const fresh = await preview.refetch()
+            if (fresh.error) throw fresh.error
+            const unique = new Map(
+              normaliseDuplicateCandidates(
+                fresh.data?.groups.flatMap((group) => group.duplicate_candidates),
+              ).map((candidate) => [candidate.purchase_order_line_id, candidate]),
+            )
+            const candidates = [...unique.values()]
+            if (!candidates.length) {
+              setConflict(null)
+              toast.success(
+                'Comparison refreshed',
+                'No open matches remain. Review the current proposal before raising orders.',
+              )
+              return
+            }
+            setConflict({
+              message: 'These open order lines may already cover the selected demand.',
+              candidates,
+              candidate_count: candidates.length,
+            })
+          }}
         />
       )}
     </>

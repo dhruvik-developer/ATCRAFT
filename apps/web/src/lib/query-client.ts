@@ -133,6 +133,8 @@ export const queryKeys = {
     me: ['vendor-portal', 'me'] as const,
     dashboard: ['vendor-portal', 'dashboard'] as const,
     orders: (params: unknown) => ['vendor-portal', 'orders', params] as const,
+    pendingAmendments: (params: unknown) =>
+      ['vendor-portal', 'pending-amendments', params] as const,
     order: (id: string) => ['vendor-portal', 'orders', id] as const,
     shipments: (params: unknown) => ['vendor-portal', 'shipments', params] as const,
     receipts: (params: unknown) => ['vendor-portal', 'receipts', params] as const,

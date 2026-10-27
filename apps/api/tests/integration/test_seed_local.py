@@ -144,6 +144,27 @@ def test_fresh_local_seed_rerun_preserves_all_rows_and_existing_password(seed_da
         assert before["inventory_transactions"] > 0
         assert before["documents"] > 0
         assert before["report_snapshots"] > 0
+        pooled = connection.execute(
+            "SELECT id,status,amendment_number FROM purchase_orders "
+            "WHERE notes LIKE '[DM-D1-PO-POOL]%'"
+        ).fetchone()
+        assert pooled is not None and pooled[1:] == ("PENDING_APPROVAL", 1)
+        allocations = connection.execute(
+            "SELECT a.quantity FROM purchase_order_source_allocations a "
+            "JOIN purchase_order_lines l ON l.id=a.purchase_order_line_id "
+            "WHERE l.purchase_order_id=%s AND a.is_active ORDER BY a.requisition_line_id",
+            (pooled[0],),
+        ).fetchall()
+        assert allocations == [(5,), (5,)]
+        separate = connection.execute(
+            "SELECT status,duplicate_acknowledged,duplicate_confirmed_at "
+            "FROM purchase_orders WHERE notes LIKE '[DM-D1-PO-DUPLICATE]%'"
+        ).fetchone()
+        assert separate == ("PENDING_APPROVAL", True, None)
+        d1_before = connection.execute(
+            "SELECT to_jsonb(p)::text FROM purchase_orders p "
+            "WHERE notes LIKE '[DM-D1-%' ORDER BY id"
+        ).fetchall()
         for table in (
             "plants",
             "financial_years",
@@ -195,6 +216,13 @@ def test_fresh_local_seed_rerun_preserves_all_rows_and_existing_password(seed_da
     run()
     with psycopg.connect(plain_url) as connection:
         assert _table_counts(connection) == before
+        assert (
+            connection.execute(
+                "SELECT to_jsonb(p)::text FROM purchase_orders p "
+                "WHERE notes LIKE '[DM-D1-%' ORDER BY id"
+            ).fetchall()
+            == d1_before
+        )
         assert (
             connection.execute(
                 "SELECT password_hash, must_change_password FROM users "

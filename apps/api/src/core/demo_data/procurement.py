@@ -1619,6 +1619,7 @@ async def _walk_order(ctx: DemoContext, order: PurchaseOrder, stop: PurchaseOrde
             order.id,
             target,
             reason=_ORDER_REASON[target],
+            confirm_duplicate=bool(order.duplicate_acknowledged),
         )
 
 
@@ -1897,3 +1898,7 @@ async def seed(ctx: DemoContext) -> None:
 
     await seed_vendor_portal(ctx)
     await seed_dealer_portal(ctx)
+
+    from src.core.demo_data.purchase_order_changes import seed as seed_purchase_order_changes
+
+    await seed_purchase_order_changes(ctx)

@@ -3989,6 +3989,33 @@
         "title": "ApiResponse[PurchaseOrderDetail]",
         "type": "object"
       },
+      "ApiResponse_PurchaseOrderDuplicateResolutionResult_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PurchaseOrderDuplicateResolutionResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[PurchaseOrderDuplicateResolutionResult]",
+        "type": "object"
+      },
       "ApiResponse_PurchaseOrderSummary_": {
         "properties": {
           "data": {
@@ -5602,6 +5629,37 @@
         "title": "ApiResponse[Union[ScrapDisposalRead, ScrapDisposalReadWithCost]]",
         "type": "object"
       },
+      "ApiResponse_Union_VendorPortalOrderDetail__VendorPortalPendingAmendmentRead__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorPortalOrderDetail"
+              },
+              {
+                "$ref": "#/components/schemas/VendorPortalPendingAmendmentRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[Union[VendorPortalOrderDetail, VendorPortalPendingAmendmentRead]]",
+        "type": "object"
+      },
       "ApiResponse_UnreadCountRead_": {
         "properties": {
           "data": {
@@ -5978,33 +6036,6 @@
           }
         },
         "title": "ApiResponse[VendorPortalOrderActionRead]",
-        "type": "object"
-      },
-      "ApiResponse_VendorPortalOrderDetail_": {
-        "properties": {
-          "data": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/VendorPortalOrderDetail"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "message": {
-            "default": "Operation completed successfully",
-            "title": "Message",
-            "type": "string"
-          },
-          "success": {
-            "const": true,
-            "default": true,
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "title": "ApiResponse[VendorPortalOrderDetail]",
         "type": "object"
       },
       "ApiResponse_VendorQualitySummary_": {
@@ -16206,6 +16237,33 @@
         "title": "CursorPaginatedResponse[NotificationRead]",
         "type": "object"
       },
+      "CursorPaginatedResponse_PurchaseOrderAmendmentRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderAmendmentRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/CursorPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "CursorPaginatedResponse[PurchaseOrderAmendmentRead]",
+        "type": "object"
+      },
       "CursorPaginatedResponse_PushSubscriptionRead_": {
         "properties": {
           "data": {
@@ -23892,6 +23950,23 @@
             "title": "Confidence",
             "type": "string"
           },
+          "has_receipt_history": {
+            "default": true,
+            "title": "Has Receipt History",
+            "type": "boolean"
+          },
+          "item_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Id"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
@@ -23927,6 +24002,11 @@
             "format": "uuid",
             "title": "Purchase Order Line Id",
             "type": "string"
+          },
+          "purchase_order_version": {
+            "default": 1,
+            "title": "Purchase Order Version",
+            "type": "integer"
           },
           "received_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -41702,6 +41782,33 @@
         "title": "PaginatedResponse[VendorPortalPayment]",
         "type": "object"
       },
+      "PaginatedResponse_VendorPortalPendingAmendmentRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/VendorPortalPendingAmendmentRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[VendorPortalPendingAmendmentRead]",
+        "type": "object"
+      },
       "PaginatedResponse_VendorPortalReceiptRead_": {
         "properties": {
           "data": {
@@ -46593,6 +46700,672 @@
         "title": "PromotionRetire",
         "type": "object"
       },
+      "PurchaseOrderAmendLineIn": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "discount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discount"
+          },
+          "discount_percentage": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,5}|(?=[\\d.]{1,10}0*$)\\d{0,5}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discount Percentage"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id"
+          },
+          "line_number": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Number"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "quotation_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quotation Line Id"
+          },
+          "required_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Date"
+          },
+          "requires_qc": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Qc"
+          },
+          "source_allocations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PurchaseOrderSourceAllocationIn"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Allocations"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,19}0*$)\\d{0,12}\\.\\d{0,6}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          },
+          "uom_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Id"
+          }
+        },
+        "required": [
+          "quantity"
+        ],
+        "title": "PurchaseOrderAmendLineIn",
+        "type": "object"
+      },
+      "PurchaseOrderAmendRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery_address": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Address"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Delivery Date"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "freight_amount": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freight Amount"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderAmendLineIn"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Lines",
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "terms": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms"
+          }
+        },
+        "required": [
+          "expected_version",
+          "reason",
+          "lines"
+        ],
+        "title": "PurchaseOrderAmendRequest",
+        "type": "object"
+      },
+      "PurchaseOrderAmendmentLineRead": {
+        "description": "Frozen line terms at the revision boundary, including source quantities.",
+        "properties": {
+          "accepted_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Accepted Quantity",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "discount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Discount",
+            "type": "string"
+          },
+          "discount_percentage": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Discount Percentage",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Id"
+          },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "line_total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Line Total",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "purchase_order_id": {
+            "format": "uuid",
+            "title": "Purchase Order Id",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "quotation_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quotation Line Id"
+          },
+          "received_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Quantity",
+            "type": "string"
+          },
+          "rejected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rejected Quantity",
+            "type": "string"
+          },
+          "required_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Date"
+          },
+          "requires_qc": {
+            "title": "Requires Qc",
+            "type": "boolean"
+          },
+          "requisition_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requisition Line Id"
+          },
+          "returned_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Returned Quantity",
+            "type": "string"
+          },
+          "source_allocations": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderSourceAllocationRead"
+            },
+            "title": "Source Allocations",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PurchaseOrderLineStatus"
+          },
+          "tax_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Amount",
+            "type": "string"
+          },
+          "tax_rate": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Rate",
+            "type": "string"
+          },
+          "unit_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unit Price",
+            "type": "string"
+          },
+          "uom_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Code"
+          },
+          "uom_id": {
+            "format": "uuid",
+            "title": "Uom Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "purchase_order_id",
+          "line_number",
+          "item_id",
+          "description",
+          "quantity",
+          "uom_id",
+          "unit_price",
+          "discount_percentage",
+          "discount",
+          "tax_rate",
+          "tax_amount",
+          "line_total",
+          "required_date",
+          "received_quantity",
+          "accepted_quantity",
+          "rejected_quantity",
+          "returned_quantity",
+          "requires_qc",
+          "status",
+          "requisition_line_id",
+          "quotation_line_id",
+          "notes"
+        ],
+        "title": "PurchaseOrderAmendmentLineRead",
+        "type": "object"
+      },
+      "PurchaseOrderAmendmentRead": {
+        "properties": {
+          "amended_at": {
+            "format": "date-time",
+            "title": "Amended At",
+            "type": "string"
+          },
+          "amended_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amended By Id"
+          },
+          "amended_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amended By Name"
+          },
+          "amendment_number": {
+            "title": "Amendment Number",
+            "type": "integer"
+          },
+          "from_status": {
+            "$ref": "#/components/schemas/PurchaseOrderStatus"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "new_values": {
+            "$ref": "#/components/schemas/PurchaseOrderAmendmentValues"
+          },
+          "old_values": {
+            "$ref": "#/components/schemas/PurchaseOrderAmendmentValues"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "amendment_number",
+          "amended_at",
+          "amended_by_id",
+          "reason",
+          "from_status",
+          "old_values",
+          "new_values"
+        ],
+        "title": "PurchaseOrderAmendmentRead",
+        "type": "object"
+      },
+      "PurchaseOrderAmendmentValues": {
+        "properties": {
+          "amendment_number": {
+            "title": "Amendment Number",
+            "type": "integer"
+          },
+          "delivery_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Address"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Delivery Date"
+          },
+          "freight_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Freight Amount",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderAmendmentLineRead"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PurchaseOrderStatus"
+          },
+          "terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms"
+          }
+        },
+        "required": [
+          "status",
+          "expected_delivery_date",
+          "freight_amount",
+          "terms",
+          "delivery_address",
+          "amendment_number",
+          "lines"
+        ],
+        "title": "PurchaseOrderAmendmentValues",
+        "type": "object"
+      },
+      "PurchaseOrderApprovalRequest": {
+        "additionalProperties": false,
+        "description": "Only PO approvals carry duplicate confirmation; other approvals stay unchanged.",
+        "properties": {
+          "confirm_duplicate": {
+            "default": false,
+            "title": "Confirm Duplicate",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "PurchaseOrderApprovalRequest",
+        "type": "object"
+      },
       "PurchaseOrderCreate": {
         "additionalProperties": false,
         "properties": {
@@ -46807,6 +47580,11 @@
             ],
             "title": "Acknowledged At"
           },
+          "amendment_number": {
+            "default": 0,
+            "title": "Amendment Number",
+            "type": "integer"
+          },
           "approved_at": {
             "anyOf": [
               {
@@ -46932,6 +47710,41 @@
             ],
             "title": "Duplicate Acknowledgement Reason"
           },
+          "duplicate_confirmation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Confirmation Reason"
+          },
+          "duplicate_confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Confirmed At"
+          },
+          "duplicate_confirmed_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Confirmed By Id"
+          },
           "expected_delivery_date": {
             "anyOf": [
               {
@@ -46948,6 +47761,11 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Freight Amount",
             "type": "string"
+          },
+          "has_receipt_history": {
+            "default": true,
+            "title": "Has Receipt History",
+            "type": "boolean"
           },
           "id": {
             "format": "uuid",
@@ -46987,6 +47805,30 @@
               }
             ],
             "title": "Item Category Name"
+          },
+          "last_amended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Amended At"
+          },
+          "last_amended_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Amended By Id"
           },
           "lines": {
             "items": {
@@ -47223,6 +48065,127 @@
         "title": "PurchaseOrderDetail",
         "type": "object"
       },
+      "PurchaseOrderDuplicateResolutionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "MERGE",
+              "INCREASE",
+              "CREATE_WITH_APPROVAL",
+              "CANCEL_REQUEST"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Line Id"
+          },
+          "candidate_purchase_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Purchase Order Id"
+          },
+          "draft": {
+            "discriminator": {
+              "mapping": {
+                "MANUAL": "#/components/schemas/PurchaseOrderManualDuplicateDraft",
+                "REQUISITION": "#/components/schemas/PurchaseOrderRequisitionDuplicateDraft"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PurchaseOrderManualDuplicateDraft"
+              },
+              {
+                "$ref": "#/components/schemas/PurchaseOrderRequisitionDuplicateDraft"
+              }
+            ],
+            "title": "Draft"
+          },
+          "expected_candidate_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Candidate Version"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "draft",
+          "reason"
+        ],
+        "title": "PurchaseOrderDuplicateResolutionRequest",
+        "type": "object"
+      },
+      "PurchaseOrderDuplicateResolutionResult": {
+        "properties": {
+          "action": {
+            "enum": [
+              "MERGE",
+              "INCREASE",
+              "CREATE_WITH_APPROVAL",
+              "CANCEL_REQUEST"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "cancelled_requisition_line_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Cancelled Requisition Line Ids",
+            "type": "array"
+          },
+          "discarded": {
+            "default": false,
+            "title": "Discarded",
+            "type": "boolean"
+          },
+          "purchase_orders": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderSummary"
+            },
+            "title": "Purchase Orders",
+            "type": "array"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "PurchaseOrderDuplicateResolutionResult",
+        "type": "object"
+      },
       "PurchaseOrderLineIn": {
         "additionalProperties": false,
         "properties": {
@@ -47347,6 +48310,21 @@
               }
             ],
             "title": "Requisition Line Id"
+          },
+          "source_allocations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PurchaseOrderSourceAllocationIn"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Allocations"
           },
           "unit_price": {
             "anyOf": [
@@ -47540,6 +48518,13 @@
             "title": "Returned Quantity",
             "type": "string"
           },
+          "source_allocations": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderSourceAllocationRead"
+            },
+            "title": "Source Allocations",
+            "type": "array"
+          },
           "status": {
             "$ref": "#/components/schemas/PurchaseOrderLineStatus"
           },
@@ -47615,6 +48600,143 @@
         "title": "PurchaseOrderLineStatus",
         "type": "string"
       },
+      "PurchaseOrderManualDuplicateDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "MANUAL",
+            "title": "Kind",
+            "type": "string"
+          },
+          "purchase_order": {
+            "$ref": "#/components/schemas/PurchaseOrderCreate"
+          }
+        },
+        "required": [
+          "kind",
+          "purchase_order"
+        ],
+        "title": "PurchaseOrderManualDuplicateDraft",
+        "type": "object"
+      },
+      "PurchaseOrderRequisitionDuplicateDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "conversion": {
+            "$ref": "#/components/schemas/RequisitionConversionRequest"
+          },
+          "kind": {
+            "const": "REQUISITION",
+            "title": "Kind",
+            "type": "string"
+          },
+          "requisition_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Requisition Ids",
+            "type": "array"
+          },
+          "requisition_line_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Requisition Line Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "requisition_ids",
+          "requisition_line_ids",
+          "conversion"
+        ],
+        "title": "PurchaseOrderRequisitionDuplicateDraft",
+        "type": "object"
+      },
+      "PurchaseOrderSourceAllocationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "requisition_line_id": {
+            "format": "uuid",
+            "title": "Requisition Line Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requisition_line_id",
+          "quantity"
+        ],
+        "title": "PurchaseOrderSourceAllocationIn",
+        "type": "object"
+      },
+      "PurchaseOrderSourceAllocationRead": {
+        "additionalProperties": false,
+        "properties": {
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "requisition_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requisition Code"
+          },
+          "requisition_line_id": {
+            "format": "uuid",
+            "title": "Requisition Line Id",
+            "type": "string"
+          },
+          "requisition_line_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requisition Line Number"
+          }
+        },
+        "required": [
+          "requisition_line_id",
+          "quantity"
+        ],
+        "title": "PurchaseOrderSourceAllocationRead",
+        "type": "object"
+      },
       "PurchaseOrderStatus": {
         "description": "Lifecycle of a purchase order (database.md section 7).\n\n``CANCELLED`` is reachable only before anything has been received. Once\nstock has physically moved against the order, cancelling it would leave the\ninventory ledger describing a receipt against a document claiming never to\nhave existed; a partially received order is short-closed instead.",
         "enum": [
@@ -47651,6 +48773,11 @@
               }
             ],
             "title": "Acknowledged At"
+          },
+          "amendment_number": {
+            "default": 0,
+            "title": "Amendment Number",
+            "type": "integer"
           },
           "approved_at": {
             "anyOf": [
@@ -47749,6 +48876,30 @@
               }
             ],
             "title": "Item Category Name"
+          },
+          "last_amended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Amended At"
+          },
+          "last_amended_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Amended By Id"
           },
           "payment_terms_days": {
             "title": "Payment Terms Days",
@@ -71809,6 +72960,11 @@
             ],
             "title": "Acknowledged At"
           },
+          "amendment_number": {
+            "default": 0,
+            "title": "Amendment Number",
+            "type": "integer"
+          },
           "assigned_vendor_user_id": {
             "anyOf": [
               {
@@ -71930,6 +73086,18 @@
             ],
             "title": "Item Category Name"
           },
+          "last_amended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Amended At"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/VendorPortalOrderLine"
@@ -71940,6 +73108,12 @@
           "payment_terms_days": {
             "title": "Payment Terms Days",
             "type": "integer"
+          },
+          "pending_amendment": {
+            "const": false,
+            "default": false,
+            "title": "Pending Amendment",
+            "type": "boolean"
           },
           "po_date": {
             "format": "date",
@@ -72531,6 +73705,57 @@
           "last_payment_amount"
         ],
         "title": "VendorPortalPaymentSummary",
+        "type": "object"
+      },
+      "VendorPortalPendingAmendmentRead": {
+        "description": "Status-only notice: revised commercial terms remain private until resend.",
+        "properties": {
+          "amendment_number": {
+            "title": "Amendment Number",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_amended_at": {
+            "format": "date-time",
+            "title": "Last Amended At",
+            "type": "string"
+          },
+          "message": {
+            "default": "This order is being revised. Updated terms will be available after approval and resend.",
+            "title": "Message",
+            "type": "string"
+          },
+          "pending_amendment": {
+            "const": true,
+            "default": true,
+            "title": "Pending Amendment",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "PENDING_APPROVAL",
+              "APPROVED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "status",
+          "amendment_number",
+          "last_amended_at"
+        ],
+        "title": "VendorPortalPendingAmendmentRead",
         "type": "object"
       },
       "VendorPortalReady": {
@@ -139114,6 +140339,153 @@
         ]
       }
     },
+    "/api/v1/procurement/purchase-orders/duplicate-resolution": {
+      "post": {
+        "description": "Merge or increase a current candidate, request a separate order with approval, or cancel outstanding demand. Permissions depend on the selected action.",
+        "operationId": "resolve_purchase_order_duplicate_api_v1_procurement_purchase_orders_duplicate_resolution_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseOrderDuplicateResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderDuplicateResolutionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve duplicate demand atomically",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
     "/api/v1/procurement/purchase-orders/{order_id}": {
       "get": {
         "operationId": "get_purchase_order_api_v1_procurement_purchase_orders__order_id__get",
@@ -139726,6 +141098,343 @@
         ]
       }
     },
+    "/api/v1/procurement/purchase-orders/{order_id}/amend": {
+      "post": {
+        "description": "Requires the current version and no receipt history, including draft or cancelled GRNs. Retains existing line identities and explicit requisition allocations.",
+        "operationId": "amend_purchase_order_api_v1_procurement_purchase_orders__order_id__amend_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseOrderAmendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revise an approved order and require reapproval",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
+    "/api/v1/procurement/purchase-orders/{order_id}/amendments": {
+      "get": {
+        "operationId": "list_purchase_order_amendments_api_v1_procurement_purchase_orders__order_id__amendments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque cursor from the previous page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque cursor from the previous page",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorPaginatedResponse_PurchaseOrderAmendmentRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read the purchase order's revision history",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
     "/api/v1/procurement/purchase-orders/{order_id}/approve": {
       "post": {
         "description": "The approver may not be the person who raised it unless they hold SUPER_ADMIN.",
@@ -139746,7 +141455,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/src__modules__procurement__schemas__ApproveRequest"
+                "$ref": "#/components/schemas/PurchaseOrderApprovalRequest"
               }
             }
           },
@@ -199282,6 +200991,184 @@
         ]
       }
     },
+    "/api/v1/vendor-portal/purchase-orders/pending-amendments": {
+      "get": {
+        "operationId": "pending_amendments_api_v1_vendor_portal_purchase_orders_pending_amendments_get",
+        "parameters": [
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_VendorPortalPendingAmendmentRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Previously sent orders under revision, without revised terms",
+        "tags": [
+          "Vendor Portal"
+        ]
+      }
+    },
     "/api/v1/vendor-portal/purchase-orders/{order_id}": {
       "get": {
         "operationId": "get_order_api_v1_vendor_portal_purchase_orders__order_id__get",
@@ -199302,7 +201189,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_VendorPortalOrderDetail_"
+                  "$ref": "#/components/schemas/ApiResponse_Union_VendorPortalOrderDetail__VendorPortalPendingAmendmentRead__"
                 }
               }
             },

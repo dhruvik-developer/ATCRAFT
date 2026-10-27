@@ -80,6 +80,7 @@ function order(overrides: Partial<PurchaseOrderRow> = {}): PurchaseOrderRow {
     id: PO_ID,
     code: 'PO-0001',
     status: 'DRAFT',
+    amendment_number: 0,
     po_date: '2026-09-01',
     expected_delivery_date: '2026-09-30',
     priority: 5,
@@ -427,8 +428,20 @@ describe('what the order form sends', () => {
     expect(body.vendor_reference).toBeNull()
 
     expect(body.lines).toEqual([
-      { line_number: 1, item_id: ITEM_BRASS, quantity: '12.5', unit_price: '340.250000' },
-      { line_number: 2, item_id: ITEM_STEEL, quantity: '4', unit_price: '1200' },
+      {
+        line_number: 1,
+        item_id: ITEM_BRASS,
+        quantity: '12.5',
+        unit_price: '340.250000',
+        requires_qc: false,
+      },
+      {
+        line_number: 2,
+        item_id: ITEM_STEEL,
+        quantity: '4',
+        unit_price: '1200',
+        requires_qc: false,
+      },
     ])
     // Six decimal places on a unit price is the contract's own precision. A
     // float would hand the API 340.25 and lose what the buyer negotiated.
@@ -470,7 +483,7 @@ describe('what the order form sends', () => {
     await waitFor(() => fetch.requestFor('POST', ORDERS_PATH))
     const body = fetch.requestFor('POST', ORDERS_PATH) as { lines: Record<string, unknown>[] }
     expect(body.lines).toEqual([
-      { line_number: 1, item_id: ITEM_STEEL, quantity: '2', unit_price: '20' },
+      { line_number: 1, item_id: ITEM_STEEL, quantity: '2', unit_price: '20', requires_qc: false },
     ])
   })
 
@@ -607,51 +620,55 @@ describe('the duplicate refusal', () => {
     expect(screen.getByText('Same item, same warehouse, within 14 days')).toBeVisible()
   })
 
-  it('does not offer the override to a buyer who cannot approve', async () => {
-    // The API refuses `acknowledge_duplicates` without `purchase_order.approve`,
-    // so offering the button here would only move the refusal one click later.
+  it('allows a buyer to request a separate order with independent approval', async () => {
     const { user, fetch } = renderScreen(<PurchaseOrdersPage />, {
       permissions: duplicatePermissions,
       routes: formRoutes({ [`POST ${ORDERS_PATH}`]: duplicate }),
     })
-
     await raiseADuplicate(user, fetch)
     await stable(() => screen.getByText('PO-0009 already covers 40 of this material'))
-
-    expect(screen.queryByRole('button', { name: 'Raise it anyway' })).not.toBeInTheDocument()
-    expect(screen.getByText(/cannot override this yourself/i)).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Create separate PO (needs approval)' }),
+    ).toBeVisible()
+    expect(screen.queryByRole('button', { name: /merge into/i })).not.toBeInTheDocument()
   })
 
-  it('resubmits with the acknowledgement and the reason once an approver overrides', async () => {
+  it('sends the refused draft and reason to the real separate-order action without approval rights', async () => {
     const bodies: Record<string, unknown>[] = []
+    const resolutions: Record<string, unknown>[] = []
     const { user, fetch } = renderScreen(<PurchaseOrdersPage />, {
-      permissions: [...duplicatePermissions, P.PURCHASE_ORDER_APPROVE],
+      permissions: duplicatePermissions,
       routes: formRoutes({
         [`POST ${ORDERS_PATH}`]: ({ body }) => {
           bodies.push(body as Record<string, unknown>)
-          return bodies.length === 1 ? duplicate : ok({ id: PO_ID, code: 'PO-0010' })
+          return duplicate
+        },
+        [`POST ${ORDERS_PATH}/duplicate-resolution`]: ({ body }) => {
+          resolutions.push(body as Record<string, unknown>)
+          return ok({
+            action: 'CREATE_WITH_APPROVAL',
+            purchase_orders: [order({ code: 'PO-0010' })],
+            cancelled_requisition_line_ids: [],
+            discarded: false,
+          })
         },
       }),
     })
-
     await raiseADuplicate(user, fetch)
     await stable(() => screen.getByText('PO-0009 already covers 40 of this material'))
     await user.type(
-      screen.getByRole('textbox', { name: /why is this order needed as well/i }),
+      screen.getByRole('textbox', { name: 'Reason for this action' }),
       'Second press line commissioned this week',
     )
-    await user.click(screen.getByRole('button', { name: 'Raise it anyway' }))
-
-    await waitFor(() => expect(bodies).toHaveLength(2))
-    // The first attempt carries neither key - a create is not an acknowledgement
-    // until somebody has actually been shown what they are overriding.
-    expect(bodies[0]).not.toHaveProperty('acknowledge_duplicates')
-    expect(bodies[1]).toMatchObject({
-      acknowledge_duplicates: true,
-      duplicate_acknowledgement_reason: 'Second press line commissioned this week',
+    await user.click(screen.getByRole('button', { name: 'Create separate PO (needs approval)' }))
+    await waitFor(() => expect(resolutions).toHaveLength(1))
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toHaveProperty('acknowledge_duplicates', false)
+    expect(resolutions[0]).toEqual({
+      action: 'CREATE_WITH_APPROVAL',
+      reason: 'Second press line commissioned this week',
+      draft: { kind: 'MANUAL', purchase_order: bodies[0] },
     })
-    // And the resubmission is the same order, not a re-keyed one.
-    expect(bodies[1]!.lines).toEqual(bodies[0]!.lines)
   })
 })
 

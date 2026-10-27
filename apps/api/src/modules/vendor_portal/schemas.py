@@ -17,6 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -281,6 +282,22 @@ class VendorPortalReceiptRead(BaseModel):
     inspections: list[VendorPortalInspection]
 
 
+class VendorPortalPendingAmendmentRead(BaseModel):
+    """Status-only notice: revised commercial terms remain private until resend."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    status: Literal["PENDING_APPROVAL", "APPROVED"]
+    amendment_number: int
+    last_amended_at: datetime
+    pending_amendment: Literal[True] = True
+    message: str = (
+        "This order is being revised. Updated terms will be available after approval and resend."
+    )
+
+
 class VendorPortalOrderDetail(BaseModel):
     """One order as its vendor sees it.
 
@@ -290,6 +307,9 @@ class VendorPortalOrderDetail(BaseModel):
     """
 
     id: uuid.UUID
+    pending_amendment: Literal[False] = False
+    amendment_number: int = 0
+    last_amended_at: datetime | None = None
     code: str
     po_date: date
     status: PurchaseOrderStatus

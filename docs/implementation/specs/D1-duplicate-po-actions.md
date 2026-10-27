@@ -9,7 +9,9 @@ Lane B (operations), round 5, step 1. Assumption placeholder prefix: `§D1-n`.
 
 **Priority list.** "Should have: Duplicate PO prevention, **Merge PO option**".
 
-**Today.** Detection exists (`check_duplicates`, `classify_candidate`, the 409 + `acknowledge_duplicates` flow). Merge, increase and cancel are **advisory text only**: there is no endpoint, and PATCH works only on DRAFT and PENDING_APPROVAL.
+**Previous baseline, superseded below.** Detection existed, but merge,
+increase and cancel were advisory only. The implemented checkpoint now includes
+the action API, approval confirmation, revision history and staff/vendor UI.
 
 **Background.** `reports/procurement-vendor-portal.md` E6 (rule-by-rule table) and T9–T11. C0's conversion and C1a's vendor flow are on main. D4 (digital signature) comes after you in this lane; leave a seam for "content changed, so supersede the signature".
 
@@ -86,16 +88,31 @@ plans remain readable. Shared component quantities are labelled as aggregate
 in the fulfilment trail. Revision `20261102_0100` indexes the MRP containment
 lookup. No second `source_demand_refs` column or index is needed.
 
-Real duplicate actions, category/provenance matching, amendments and their UI
-remain work. A single PO line can serve several PR lines after a merge: add a
-durable tenant-scoped quantity allocation mapping, backfill legacy scalar
-links without changing counters, and update every release/replacement and
-sales-attribution path. Resolve supplied demand triples inside the tenant and
-validate their line ownership. Preserve line IDs, guard against any GRN history and
-serialize receipt creation with amendments. Reductions below allocated demand
-need explicit allocations. Require a current document version for changes,
-retain separation of duties, and keep pending vendor amendments status-only
-until approved and resent.
+Real duplicate actions and amendments are now implemented through
+`purchase_order_changes.py` and the staff/vendor screens. A physical PO line
+can serve several PR lines through the durable tenant allocation mapping.
+Revision `20261103_0100` backfills scalar links without changing counters and
+refuses inconsistent history; `20261104_0100` gives composite foreign keys
+explicit names within PostgreSQL's identifier bound. Replacement, amendment,
+cancellation and rejection maintain allocations and derived counters.
+
+Duplicate discovery batches item/vendor category facts, canonical PR roots and
+active allocation links, retains physical quantity grain, reports current
+versions/any-GRN flags and refuses overflow. Unknown dates widen the search.
+Shared roots imply EXACT only for the same SKU. New demand triples resolve
+real tenant-owned documents and validate their line ownership.
+
+Changes require current versions, preserve surviving line IDs and agreed tax
+rates, and serialize with receipt creation. Even draft/cancelled GRNs block
+amendments. Reductions below linked quantity need explicit allocations. Both
+the original creator and amendment author retain separation of duties, and
+flagged duplicates require an approval-time checkbox and reason. Vendor
+revisions remain status-only until approved and resent. The D4 content-change
+seam remains a no-op while the signer decision is pending.
+
+The normal seed now creates pooled demand and an issued revision with two
+explicit retained allocations, plus a separate duplicate waiting for approval.
+Existing markers are registered without advancing or rewriting them.
 
 ## Tests
 
