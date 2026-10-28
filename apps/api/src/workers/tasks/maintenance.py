@@ -64,7 +64,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
-from sqlalchemy import Exists, and_, delete, func, select
+from sqlalchemy import Exists, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
@@ -74,7 +74,11 @@ from src.core.deps import TenantContext, system_tenant
 from src.core.errors import BusinessRuleError
 from src.core.logging import get_logger
 from src.modules.allocation import service as allocation_service
-from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, StockReservation
+from src.modules.allocation.models import (
+    OPEN_RESERVATION_STATUSES,
+    DemandType,
+    StockReservation,
+)
 from src.modules.inventory.models import BatchStatus, StockBatch
 from src.modules.inventory.service import BATCH_EXPIRY_WARN_DAYS, TraceabilityService
 from src.modules.quality import service as quality_service
@@ -247,28 +251,34 @@ async def release_stale_reservations(request_id: str | None = None, **_: Any) ->
 
 
 def _has_short_line() -> Exists:
-    """Correlated on ``sales_orders``: a live line whose open demand its reservation does not cover.
+    """Correlated on ``sales_orders``: a live line whose open demand its reservations do not cover.
 
-    "Covered" reads the reservation's live remaining quantity. A line whose
-    reservation was released, expired or consumed joins nothing and counts as
-    holding none - exactly how ``sales.service`` reads it.
+    "Covered" sums the live remaining quantity of every open reservation the
+    line holds - stock in two bins or two lots is held at each position
+    (docs/assumptions.md §E2-2) - through the ``(company_id, demand_type,
+    demand_id)`` index. A line whose reservations were released, expired or
+    consumed sums to nothing and counts as holding none - exactly how
+    ``sales.service`` reads it.
     """
+    held = (
+        select(func.coalesce(func.sum(StockReservation.remaining_quantity), 0))
+        .where(
+            StockReservation.company_id == SalesOrderLine.company_id,
+            StockReservation.demand_type == DemandType.SALES_ORDER,
+            StockReservation.demand_id == SalesOrderLine.sales_order_id,
+            StockReservation.demand_line_id == SalesOrderLine.id,
+            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+        )
+        .correlate(SalesOrderLine)
+        .scalar_subquery()
+    )
     return (
         select(SalesOrderLine.id)
-        .outerjoin(
-            StockReservation,
-            and_(
-                StockReservation.id == SalesOrderLine.reservation_id,
-                StockReservation.company_id == SalesOrderLine.company_id,
-                StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
-            ),
-        )
         .where(
             SalesOrderLine.company_id == SalesOrder.company_id,
             SalesOrderLine.sales_order_id == SalesOrder.id,
             SalesOrderLine.status != SalesOrderLineStatus.CANCELLED,
-            SalesOrderLine.quantity - SalesOrderLine.dispatched_quantity
-            > func.coalesce(StockReservation.remaining_quantity, 0),
+            SalesOrderLine.quantity - SalesOrderLine.dispatched_quantity > held,
         )
         .exists()
     )

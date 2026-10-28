@@ -74,8 +74,11 @@ def test_the_initial_state_is_draft() -> None:
         # Closing skips the handover, which is what records who took the goods.
         (PackingOrderStatus.PACKED, PackingOrderStatus.CLOSED),
         (PackingOrderStatus.IN_PROGRESS, PackingOrderStatus.CLOSED),
-        # Shipped history remains immutable, including legacy recovery.
-        (PackingOrderStatus.HANDED_OVER, PackingOrderStatus.PACKED),
+        # Handed-over boxes are never reopened, legacy recovery included. The one
+        # way back - to PACKED, when the consignment is cancelled before it
+        # leaves - is pinned by its own test below.
+        (PackingOrderStatus.HANDED_OVER, PackingOrderStatus.IN_PROGRESS),
+        (PackingOrderStatus.HANDED_OVER, PackingOrderStatus.DRAFT),
     ],
 )
 def test_a_skipped_or_reversed_step_is_refused(
@@ -146,6 +149,24 @@ def test_the_dispatch_handover_belongs_to_dispatch_not_packing() -> None:
     handover = FLOW.find(PackingOrderStatus.PACKED, PackingOrderStatus.HANDED_OVER)
     assert handover is not None
     assert handover.permission is Permission.DISPATCH_CREATE
+
+
+def test_only_a_cancelled_consignment_gives_the_boxes_back() -> None:
+    # A consignment cancelled before it left releases its claim: nothing in the
+    # boxes shipped, and HANDED_OVER to a dead consignment would strand them.
+    # Dispatch performs it under the cancel right; a packer is never offered it.
+    release = FLOW.find(PackingOrderStatus.HANDED_OVER, PackingOrderStatus.PACKED)
+    assert release is not None
+    assert release.permission is Permission.DISPATCH_UPDATE
+    assert not release.is_irreversible
+
+    offered_to_a_packer = {
+        transition.target
+        for transition in FLOW.available_actions(
+            PackingOrderStatus.HANDED_OVER, [Permission.PACKING_MANAGE]
+        )
+    }
+    assert offered_to_a_packer == {PackingOrderStatus.CLOSED}
 
 
 def test_a_packer_is_offered_exactly_the_actions_they_can_perform() -> None:

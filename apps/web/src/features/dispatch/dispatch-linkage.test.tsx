@@ -98,6 +98,8 @@ describe('reserved order dispatch linkage', () => {
     await expect
       .poll(() => fetch.requestFor('POST', '/dispatch'))
       .toMatchObject({
+        dispatch_type: 'SALES',
+        customer_id: 'customer',
         sales_order_id: 'order',
         warehouse_id: 'warehouse',
         lines: [
@@ -110,5 +112,8 @@ describe('reserved order dispatch linkage', () => {
           },
         ],
       })
+    // A sales consignment names its customer; nothing on this form addresses a
+    // vendor any more.
+    expect(fetch.requestFor('POST', '/dispatch')).not.toHaveProperty('vendor_id')
   })
 })

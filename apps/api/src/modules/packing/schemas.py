@@ -479,7 +479,7 @@ class CompleteRequest(BaseModel):
 
 
 class DispatchHandoverRequest(BaseModel):
-    """Claim a packed order for a dispatch."""
+    """Load a packed order onto a consignment that is still open for loading."""
 
     model_config = ConfigDict(extra="forbid")
 

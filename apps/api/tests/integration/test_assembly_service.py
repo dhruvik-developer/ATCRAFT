@@ -39,7 +39,9 @@ from src.core.errors import (
 )
 from src.core.models import Base
 from src.core.pagination import PageParams
+from src.modules.allocation import service as allocation
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
+from src.modules.allocation.schemas import ReallocationRequestCreate
 from src.modules.assembly import service
 from src.modules.assembly.models import AssemblyOrder, AssemblyOrderComponent, AssemblyOrderStatus
 from src.modules.assembly.schemas import (
@@ -1256,6 +1258,245 @@ async def test_completion_leaves_no_reservation_behind(ctx) -> None:
     assert all(
         Decimal(row.consumed_quantity) == Decimal(row.required_quantity) for row in components
     )
+
+
+# A component reservation is a promise allocation may close on its own -
+# released from the Reservations screen, expired, or taken by an approved
+# reallocation. Completion and cancellation must still work afterwards; they
+# used to try to release the closed promise a second time and refuse.
+
+
+async def _held_component(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """The first component line's item and the reservation it holds, as plain ids."""
+    first = (await service.list_components(session, tenant, order_id))[0]
+    assert first.reservation_id is not None
+    return first.item_id, first.reservation_id
+
+
+async def _reservation(session: AsyncSession, reservation_id: uuid.UUID) -> StockReservation:
+    stmt = (
+        select(StockReservation)
+        .where(StockReservation.id == reservation_id)
+        .execution_options(populate_existing=True)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def test_completion_after_a_reservation_was_released_elsewhere_consumes_free_stock(
+    ctx,
+) -> None:
+    session, tenant = ctx
+    setup = await lock_set_setup(session, tenant)
+    order = await raise_order(session, tenant, setup, planned="100")
+    order_id = order.id
+    await take_to_in_progress(session, tenant, order)
+    item_id, reservation_id = await _held_component(session, tenant, order_id)
+    # The Reservations screen's Release action, exactly as the route calls it.
+    await allocation.AllocationService(session, tenant).release_reservation(
+        reservation_id, reason="Released from the reservations screen", quantity=None
+    )
+
+    result = await service.complete_assembly(
+        session,
+        tenant,
+        order_id,
+        CompleteRequest(assembled_quantity=Decimal("100"), reason="Night shift"),
+    )
+
+    assert result.order.status == AssemblyOrderStatus.COMPLETED
+    balance = await inv.get_balance(session, tenant, item_id, setup.warehouse_id)
+    assert balance is not None
+    await session.refresh(balance)
+    expected = Decimal("1000") - setup.components[item_id] * 100
+    assert Decimal(balance.on_hand_quantity) == expected
+    assert Decimal(balance.reserved_quantity) == Decimal("0.0000")
+    # Released once, by the screen - never a second time by the completion.
+    reservation = await _reservation(session, reservation_id)
+    assert reservation.status is ReservationStatus.RELEASED
+    assert reservation.release_reason == "Released from the reservations screen"
+    components = await service.list_components(session, tenant, order_id)
+    assert all(row.reservation_id is None for row in components)
+
+
+async def test_completion_cannot_consume_a_component_promised_elsewhere_since(ctx) -> None:
+    """The order lost its promise; it did not gain a right to anyone else's."""
+    session, tenant = ctx
+    setup = await lock_set_setup(session, tenant)
+    order = await raise_order(session, tenant, setup, planned="100")
+    order_id = order.id
+    await take_to_in_progress(session, tenant, order)
+    item_id, reservation_id = await _held_component(session, tenant, order_id)
+    await allocation.release(
+        session,
+        tenant,
+        reservation_id=reservation_id,
+        reason="Released from the reservations screen",
+    )
+    await allocation.reserve(
+        session,
+        tenant,
+        item_id=item_id,
+        warehouse_id=setup.warehouse_id,
+        quantity=Decimal("950"),
+        demand_type=DemandType.PRODUCTION_ORDER,
+        demand_id=uuid.uuid4(),
+        reason="Promised to a production order meanwhile",
+    )
+
+    with pytest.raises(InsufficientStockError):
+        await service.complete_assembly(
+            session,
+            tenant,
+            order_id,
+            CompleteRequest(assembled_quantity=Decimal("100"), reason="Night shift"),
+        )
+
+    still = (
+        await session.execute(
+            select(AssemblyOrder)
+            .where(AssemblyOrder.id == order_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert still.status == AssemblyOrderStatus.IN_PROGRESS
+    balance = await inv.get_balance(session, tenant, item_id, setup.warehouse_id)
+    assert balance is not None
+    await session.refresh(balance)
+    assert Decimal(balance.on_hand_quantity) == Decimal("1000.0000")
+    assert Decimal(balance.reserved_quantity) == Decimal("950.0000")
+
+
+async def test_a_released_order_whose_reservation_was_released_elsewhere_can_be_cancelled(
+    ctx,
+) -> None:
+    session, tenant = ctx
+    setup = await lock_set_setup(session, tenant)
+    order = await raise_order(session, tenant, setup)
+    order_id = order.id
+    await service.approve_order(session, tenant, order_id, reason="Scheduled")
+    await service.release_order(session, tenant, order_id, reason="To the line")
+    _, reservation_id = await _held_component(session, tenant, order_id)
+    await allocation.release(
+        session,
+        tenant,
+        reservation_id=reservation_id,
+        reason="Released from the reservations screen",
+    )
+
+    cancelled = await service.cancel_order(session, tenant, order_id, reason="Customer pulled it")
+
+    assert cancelled.status == AssemblyOrderStatus.CANCELLED
+    for item_id in setup.components:
+        balance = await inv.get_balance(session, tenant, item_id, setup.warehouse_id)
+        assert balance is not None
+        await session.refresh(balance)
+        assert Decimal(balance.reserved_quantity) == Decimal("0.0000")
+    components = await service.list_components(session, tenant, order_id)
+    assert all(row.reservation_id is None for row in components)
+    # Four were still open and given back; the fifth was closed already.
+    audit = (
+        await session.execute(
+            select(AuditLog.new_values).where(
+                AuditLog.entity_id == order_id,
+                AuditLog.action == AuditAction.RESERVATION_CHANGE,
+            )
+        )
+    ).scalar_one()
+    assert audit == {"released_reservations": 4}
+
+
+async def test_a_component_taken_by_a_reallocation_cancels_and_completes_from_new_stock(
+    ctx,
+) -> None:
+    """An approved reallocation empties the donor; the order follows it forward.
+
+    Exactly the kit is in stock, so the reallocation has no free stock to use
+    and takes the orders' reservations. Cancelling then succeeds; completing is
+    refused by the stock engine - the recipient holds the units - and succeeds
+    from replacement stock, never from the units the reallocation gave away.
+    """
+    session, tenant = ctx
+    uom_id = await seed_uom(session, tenant.company_id)
+    warehouse_id = await seed_warehouse(session, tenant.company_id)
+    parent = await seed_item(
+        session, tenant.company_id, uom_id, code=_code("ASM"), assembly_component=False
+    )
+    part = await seed_item(session, tenant.company_id, uom_id, code=_code("HANDLE"))
+    await seed_assembly_bom(
+        session, tenant, parent_item_id=parent, uom_id=uom_id, components={part: Decimal("1")}
+    )
+    await stock_in(session, tenant, part, warehouse_id, "200")
+
+    async def raised() -> uuid.UUID:
+        order, _ = await service.create_order(
+            session,
+            tenant,
+            AssemblyOrderCreate(
+                item_id=parent, planned_quantity=Decimal("100"), warehouse_id=warehouse_id
+            ),
+        )
+        return order.id
+
+    completing_id = await raised()
+    completing = (
+        await session.execute(select(AssemblyOrder).where(AssemblyOrder.id == completing_id))
+    ).scalar_one()
+    await take_to_in_progress(session, tenant, completing)
+    cancelling_id = await raised()
+    await service.approve_order(session, tenant, cancelling_id, reason="Scheduled")
+    await service.release_order(session, tenant, cancelling_id, reason="To the line")
+    approver = await seed_support.seed_user(
+        session, company_id=tenant.company_id, email=f"approver-{uuid.uuid4().hex[:6]}@atcraft.test"
+    )
+    approving = TenantContext(company_id=tenant.company_id, user_id=approver.id)
+    approver_id = approver.id
+
+    for order_id in (completing_id, cancelling_id):
+        _, reservation_id = await _held_component(session, tenant, order_id)
+        request = await allocation.AllocationService(session, tenant).create_reallocation_request(
+            ReallocationRequestCreate(
+                item_id=part,
+                warehouse_id=warehouse_id,
+                quantity=Decimal("100"),
+                to_demand_type=DemandType.PRODUCTION_ORDER,
+                to_demand_id=uuid.uuid4(),
+                priority=1,
+                reason="Line-down production order",
+                from_reservation_id=reservation_id,
+            )
+        )
+        await allocation.reallocate(
+            session, approving, request_id=request.id, approved_by=approver_id
+        )
+        assert (await _reservation(session, reservation_id)).status is ReservationStatus.RELEASED
+
+    cancelled = await service.cancel_order(session, tenant, cancelling_id, reason="Plan changed")
+    assert cancelled.status == AssemblyOrderStatus.CANCELLED
+
+    completion = CompleteRequest(assembled_quantity=Decimal("100"), reason="Night shift")
+    with pytest.raises(InsufficientStockError):
+        await service.complete_assembly(session, tenant, completing_id, completion)
+    still = (
+        await session.execute(
+            select(AssemblyOrder)
+            .where(AssemblyOrder.id == completing_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert still.status == AssemblyOrderStatus.IN_PROGRESS
+
+    await stock_in(session, tenant, part, warehouse_id, "100")
+    result = await service.complete_assembly(session, tenant, completing_id, completion)
+
+    assert result.order.status == AssemblyOrderStatus.COMPLETED
+    balance = await inv.get_balance(session, tenant, part, warehouse_id)
+    assert balance is not None
+    await session.refresh(balance)
+    assert Decimal(balance.on_hand_quantity) == Decimal("200.0000")
+    # Both reallocations' recipients still hold the 100 each they were given.
+    assert Decimal(balance.reserved_quantity) == Decimal("200.0000")
 
 
 async def test_a_batch_tracked_component_is_accepted_and_requires_a_lot(ctx) -> None:

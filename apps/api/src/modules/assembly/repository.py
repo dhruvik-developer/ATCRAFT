@@ -38,6 +38,7 @@ from src.core.clock import today
 from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
+from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, DemandType, StockReservation
 from src.modules.assembly.models import (
     NOT_STARTED_STATUSES,
     OPEN_SUPPLY_STATUSES,
@@ -266,6 +267,33 @@ class AssemblyComponentRepository(BaseRepository[AssemblyOrderComponent]):
             .execution_options(synchronize_session=False)
         )
         return affected_rows(await self.session.execute(stmt))
+
+
+class AssemblyReservationRepository(BaseRepository[StockReservation]):
+    """What an assembly order still holds in the reservation engine.
+
+    Read from the reservations themselves, never inferred from
+    ``assembly_order_components.reservation_id``: allocation can close a
+    reservation on its own - released from the Reservations screen, expired, or
+    taken by an approved reallocation - and nothing tells the component line.
+    Production re-reads its open reservations the same way.
+    """
+
+    model = StockReservation
+
+    async def open_for_order(self, order_id: uuid.UUID) -> list[StockReservation]:
+        """Every reservation the order still holds, in one statement.
+
+        Includes one an approved reallocation granted *to* the order, which no
+        component line points at. Bounded by the component count plus such
+        grants.
+        """
+        stmt = self._scoped().where(
+            StockReservation.demand_type == DemandType.ASSEMBLY_ORDER,
+            StockReservation.demand_id == order_id,
+            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
 
 class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
@@ -690,6 +718,7 @@ __all__ = [
     "AssemblyComponentRepository",
     "AssemblyItem",
     "AssemblyOrderRepository",
+    "AssemblyReservationRepository",
     "BatchAvailability",
     "ComponentAvailabilityRepository",
     "ItemLookupRepository",

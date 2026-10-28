@@ -22843,7 +22843,7 @@
       },
       "DispatchHandoverRequest": {
         "additionalProperties": false,
-        "description": "Claim a packed order for a dispatch.",
+        "description": "Load a packed order onto a consignment that is still open for loading.",
         "properties": {
           "dispatch_id": {
             "format": "uuid",
@@ -44165,10 +44165,46 @@
         "type": "object"
       },
       "ProductProfitabilityRow": {
+        "description": "Posted sales and matched FIFO costs, with explicit provisional gaps.",
         "properties": {
           "cost_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Amount"
+          },
+          "cost_pending": {
+            "default": false,
+            "title": "Cost Pending",
+            "type": "boolean"
+          },
+          "credit_amount": {
+            "default": "0",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Cost Amount",
+            "title": "Credit notes",
+            "type": "string"
+          },
+          "has_provisional_revenue": {
+            "default": false,
+            "title": "Has Provisional Revenue",
+            "type": "boolean"
+          },
+          "invoice_cost_amount": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Matched invoice FIFO cost",
+            "type": "string"
+          },
+          "invoice_revenue_amount": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Invoice revenue",
             "type": "string"
           },
           "item_code": {
@@ -44185,15 +44221,41 @@
             "type": "string"
           },
           "margin_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": "0",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Margin Amount",
-            "type": "string"
+            "title": "Margin Amount"
           },
           "margin_percent": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "0",
+            "title": "Margin Percent"
+          },
+          "provisional_cost_amount": {
             "default": "0",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Margin Percent",
+            "title": "Uninvoiced FIFO cost",
+            "type": "string"
+          },
+          "provisional_revenue_amount": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Uninvoiced revenue estimate",
             "type": "string"
           },
           "quantity_sold": {
@@ -44201,9 +44263,40 @@
             "title": "Quantity Sold",
             "type": "string"
           },
-          "revenue_amount": {
+          "return_cost_amount": {
+            "default": "0",
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Revenue Amount",
+            "title": "Return-credit FIFO reversal",
+            "type": "string"
+          },
+          "revenue_amount": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Amount"
+          },
+          "uninvoiced_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Uninvoiced quantity",
+            "type": "string"
+          },
+          "unmatched_cost_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unmatched FIFO quantity",
+            "type": "string"
+          },
+          "unpriced_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unpriced quantity",
             "type": "string"
           }
         },
@@ -137539,6 +137632,7 @@
     },
     "/api/v1/packing/{order_id}/hand-over": {
       "post": {
+        "description": "Hands the boxes to a SALES consignment of this company that has not left and was not cancelled, for the same customer and - where both name one - the same sales order. The consignment records the packing order, its sealed cartons are matched to the consignment's lines and checked against them, and its boxes and weight follow the cartons. A consignment that does not exist here answers 404.",
         "operationId": "hand_over_api_v1_packing__order_id__hand_over_post",
         "parameters": [
           {
@@ -137689,7 +137783,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Claim a packed order for a dispatch",
+        "summary": "Load a packed order onto a consignment",
         "tags": [
           "Packing"
         ]

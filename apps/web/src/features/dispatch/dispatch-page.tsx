@@ -83,6 +83,7 @@ import {
   isDispatchable,
   isMarkableInTransit,
   isReadyable,
+  isSalesConsignment,
   isSettled,
   type DispatchRow,
   type DispatchTrackingRow,
@@ -627,9 +628,13 @@ function DispatchesTab({
       meta: { align: 'right' },
       cell: ({ row }) => {
         const dispatch = row.original
-        const canEdit = canUpdate && isDispatchCancellable(dispatch.status)
-        const canReady = canUpdate && isReadyable(dispatch.status)
-        const canGo = canCreate && isDispatchable(dispatch.status)
+        // A non-sales plan raised before the API refused them can be cancelled
+        // and tracked, never amended, staged or released: each of those is
+        // refused and names the module that owns the movement.
+        const shippable = isSalesConsignment(dispatch.dispatch_type)
+        const canEdit = shippable && canUpdate && isDispatchCancellable(dispatch.status)
+        const canReady = shippable && canUpdate && isReadyable(dispatch.status)
+        const canGo = shippable && canCreate && isDispatchable(dispatch.status)
         const canTransit = canUpdate && isMarkableInTransit(dispatch.status)
         const canDeliver = canConfirmDelivery && isDeliverable(dispatch.status)
         const canCancel = canUpdate && isDispatchCancellable(dispatch.status)
@@ -801,7 +806,7 @@ function DispatchesTab({
                       path: `/dispatch/${dispatch.id}/cancel`,
                       title: `Cancel ${dispatch.code}?`,
                       description:
-                        'The consignment is abandoned before it leaves. Nothing has moved out, so nothing is returned - but the document stays on the record.',
+                        'The consignment is abandoned before it leaves. Nothing has moved out, so nothing is returned - but the document stays on the record. Packed boxes handed to it go back to the packing dock for another consignment.',
                       confirmLabel: 'Cancel dispatch',
                       successTitle: success.cancelled('Dispatch'),
                       successBody: `${dispatch.code} will not go out.`,

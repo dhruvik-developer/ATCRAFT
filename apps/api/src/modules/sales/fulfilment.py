@@ -823,9 +823,12 @@ async def order_fulfilment(
     order = await SalesOrderRepository(session, tenant).get_or_404(order_id)
     lines = await SalesOrderLineRepository(session, tenant).list_for_order(order.id)
     line_repo = SalesOrderLineRepository(session, tenant)
-    live = await line_repo.live_reservation_quantities(
-        [line.reservation_id for line in lines if line.reservation_id is not None]
-    )
+    # Every open reservation each line holds, summed: a line whose stock sits
+    # in two bins or two lots is held at each (docs/assumptions.md §E2-2).
+    live = {
+        line_id: sum((row.remaining for row in rows), ZERO)
+        for line_id, rows in (await line_repo.open_reservations_by_line(lines)).items()
+    }
     items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
 
     mrp_documents = await _mrp_documents(session, tenant, order.id)
@@ -867,20 +870,12 @@ async def order_fulfilment(
                 item_code=code_of(line),
                 ordered_quantity=Decimal(line.quantity),
                 allocated_quantity=Decimal(line.allocated_quantity),
-                reserved_quantity=(
-                    Decimal(live.get(line.reservation_id, ZERO))
-                    if line.reservation_id is not None
-                    else ZERO
-                ),
+                reserved_quantity=Decimal(live.get(line.id, ZERO)),
                 dispatched_quantity=Decimal(line.dispatched_quantity),
                 shortfall_quantity=max(
                     Decimal(line.quantity)
                     - Decimal(line.dispatched_quantity)
-                    - (
-                        Decimal(live.get(line.reservation_id, ZERO))
-                        if line.reservation_id is not None
-                        else ZERO
-                    ),
+                    - Decimal(live.get(line.id, ZERO)),
                     ZERO,
                 ),
                 status=line.status,

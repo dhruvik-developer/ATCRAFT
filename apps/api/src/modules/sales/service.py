@@ -65,7 +65,7 @@ from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.customers.models import Customer
-from src.modules.customers.service import assert_customer_can_order, get_customer_for_order
+from src.modules.customers.service import assert_within_credit_limit, get_customer_for_order
 from src.modules.products.models import ItemPrice, PriceType
 from src.modules.products.service import ITEM_MASTER_FALLBACK_FIELD, select_price_row
 from src.modules.sales.models import (
@@ -596,9 +596,17 @@ async def release_reallocation_from_line(
     reservation_remaining: Decimal,
     quantity: Decimal,
     reallocation_request_id: uuid.UUID,
+    line_reservation_id: uuid.UUID | None = None,
 ) -> None:
-    """Reduce donor fulfilment by the amount removed from its reservation."""
+    """Reduce donor fulfilment by the amount removed from its reservation.
+
+    ``reservation_remaining`` is what the line's reservations still hold
+    afterwards - all of them, since a line held at several positions has one
+    per position (§E2-2) - and ``line_reservation_id`` the open one the line
+    names afterwards, defaulting to the donor while anything remains.
+    """
     line = target.line
+    previous = line.reservation_id
     before = to_quantity(Decimal(line.allocated_quantity))
     amount = to_quantity(quantity)
     expected_remaining = to_quantity(before - amount)
@@ -613,7 +621,7 @@ async def release_reallocation_from_line(
             },
         )
     line.allocated_quantity = after
-    line.reservation_id = reservation_id if after > ZERO else None
+    line.reservation_id = (line_reservation_id or reservation_id) if after > ZERO else None
     line.status = line_status_for(
         quantity=Decimal(line.quantity),
         allocated_quantity=after,
@@ -629,7 +637,7 @@ async def release_reallocation_from_line(
         entity_code=target.order.code,
         summary="Synchronized donor sales order line after reallocation",
         user_id=tenant.user_id,
-        old_values={"reservation_id": reservation_id, "allocated_quantity": before},
+        old_values={"reservation_id": previous, "allocated_quantity": before},
         new_values={
             "reservation_id": line.reservation_id,
             "allocated_quantity": after,
@@ -707,7 +715,23 @@ class ReservationRef:
 
 
 class AllocationPort(Protocol):
-    """The allocation contract sales depends on (database.md section 4.5)."""
+    """The allocation contract sales depends on (database.md section 4.5).
+
+    ``reserve`` holds stock wherever in the warehouse it sits - a bin, a lot, or
+    the unbinned position - so it answers with every reservation it took, one
+    per position, and may hold less than asked when a concurrent document took
+    stock first. ``reservable`` is the sizing pool read from those same
+    positions, so a line is never sized from stock no reservation could hold.
+    """
+
+    async def reservable(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        item_ids: Sequence[uuid.UUID],
+        warehouse_id: uuid.UUID,
+    ) -> dict[uuid.UUID, Decimal]: ...
 
     async def reserve(
         self,
@@ -723,7 +747,7 @@ class AllocationPort(Protocol):
         priority: int,
         required_date: date,
         reason: str,
-    ) -> ReservationRef: ...
+    ) -> list[ReservationRef]: ...
 
     async def release(
         self,
@@ -777,6 +801,19 @@ class AllocationService:
             ) from exc
         return allocation_models
 
+    async def reservable(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        item_ids: Sequence[uuid.UUID],
+        warehouse_id: uuid.UUID,
+    ) -> dict[uuid.UUID, Decimal]:
+        reservable: dict[uuid.UUID, Decimal] = await self._module().reservable_quantities(
+            session, tenant, item_ids=item_ids, warehouse_id=warehouse_id
+        )
+        return reservable
+
     async def reserve(
         self,
         session: AsyncSession,
@@ -791,9 +828,13 @@ class AllocationService:
         priority: int,
         required_date: date,
         reason: str,
-    ) -> ReservationRef:
+    ) -> list[ReservationRef]:
         vocabulary = self._vocabulary()
-        reservation = await self._module().reserve(
+        # Held where the stock is: a line names no bin or lot, and the stock it
+        # is promised is wherever goods receipts put it (docs/assumptions.md
+        # §E2-2). A lot-less, unbinned reservation of stock that sits in a bin
+        # or a lot is refused by the engine and failed the whole confirmation.
+        reservations = await self._module().reserve_from_stock(
             session,
             tenant,
             item_id=item_id,
@@ -812,7 +853,10 @@ class AllocationService:
             required_date=required_date,
             reason=reason,
         )
-        return ReservationRef(id=reservation.id, quantity=Decimal(reservation.quantity))
+        return [
+            ReservationRef(id=reservation.id, quantity=Decimal(reservation.quantity))
+            for reservation in reservations
+        ]
 
     async def release(
         self,
@@ -1120,21 +1164,24 @@ async def _notify_shortfall_plan(
 async def live_reservations(
     session: AsyncSession, tenant: TenantContext, lines: Sequence[SalesOrderLine]
 ) -> dict[uuid.UUID, Decimal]:
-    """What each line's reservation still holds, keyed by reservation id.
+    """What each line still holds live, keyed by line id.
 
-    One statement for the whole line set. Only open reservations are present,
-    so :func:`live_reserved` reads a closed one as zero.
+    Summed over every open reservation the line holds: stock that sits in two
+    bins or two lots is held by one reservation per position (§E2-2), so the
+    one ``reservation_id`` names is not the whole promise. One statement for the
+    whole line set. Only open reservations count, so :func:`live_reserved`
+    reads a line holding nothing open - or only closed ones - as zero.
     """
-    return await SalesOrderLineRepository(session, tenant).live_reservation_quantities(
-        [line.reservation_id for line in lines if line.reservation_id is not None]
-    )
+    held = await SalesOrderLineRepository(session, tenant).open_reservations_by_line(lines)
+    return {
+        line_id: to_quantity(sum((row.remaining for row in rows), ZERO))
+        for line_id, rows in held.items()
+    }
 
 
 def live_reserved(line: SalesOrderLine, live: Mapping[uuid.UUID, Decimal]) -> Decimal:
-    """One line's live reservation: zero when it holds none, or only a closed one."""
-    if line.reservation_id is None:
-        return ZERO
-    return Decimal(live.get(line.reservation_id, ZERO))
+    """One line's live reservation: zero when it holds none, or only closed ones."""
+    return Decimal(live.get(line.id, ZERO))
 
 
 # -----------------------------------------------------------------------------
@@ -2286,7 +2333,7 @@ async def _update_confirmed(
         # locked customer row and before the item advisory locks - the same
         # order ``confirm_order`` takes. The full prospective total is checked,
         # not the delta, because ``outstanding_amount`` never includes open
-        # orders.
+        # orders; the check adds other open-order exposure and excludes this one.
         # ASSUMPTION: only an *increase* is re-checked. A reduction stays
         # unchecked so a customer now on hold can still shrink its exposure
         # (docs/assumptions.md, credit limit semantics).
@@ -2294,8 +2341,12 @@ async def _update_confirmed(
             existing, changed=changed, is_interstate=order.is_interstate
         )
         if prospective.total_amount > Decimal(order.total_amount):
-            await assert_customer_can_order(
-                session, tenant, order.customer_id, prospective.total_amount, lock=True
+            await _assert_credit_with_open_orders(
+                session,
+                tenant,
+                order.customer_id,
+                prospective.total_amount,
+                exclude_order_id=order.id,
             )
         await _rereserve_changed_lines(session, tenant, order=order, changed=changed, port=port)
 
@@ -2334,9 +2385,10 @@ async def _rereserve_changed_lines(
 ) -> None:
     """Release and retake the reservations of the lines whose quantity moved.
 
-    Release-then-reserve rather than an incremental adjustment, so a line always
-    holds exactly one reservation whose quantity is the whole truth about it.
-    The release happens first and is flushed before availability is read, so the
+    Release-then-reserve rather than an incremental adjustment, so what a line
+    holds is always one fresh reservation pass for its whole open demand - every
+    position it was held at is given back first, however many (§E2-2). The
+    release happens first and is flushed before availability is read, so the
     stock this order was already holding is counted as available to itself -
     otherwise shrinking a line by 10 and growing it by 2 could fail for want of
     stock the order had all along.
@@ -2346,22 +2398,25 @@ async def _rereserve_changed_lines(
         # Sorted, so two orders touching the same items cannot deadlock.
         await advisory_xact_lock(session, "sales_allocation", tenant.company_id, item_id)
 
+    held = await SalesOrderLineRepository(session, tenant).open_reservations_by_line(
+        [line for line, _ in changed]
+    )
     for line, _ in changed:
-        if line.reservation_id is not None:
+        for reservation in held.get(line.id, []):
             await port.release(
                 session,
                 tenant,
-                reservation_id=line.reservation_id,
+                reservation_id=reservation.id,
                 reason=f"Quantity changed on {order.code} line {line.line_number}",
             )
-            line.reservation_id = None
+        line.reservation_id = None
         line.allocated_quantity = to_quantity(ZERO)
     await session.flush()
 
-    available = await AvailabilityRepository(session, tenant).available_by_item(
-        item_ids, order.warehouse_id
+    reservable = await port.reservable(
+        session, tenant, item_ids=item_ids, warehouse_id=order.warehouse_id
     )
-    pool = {item_id: Decimal(available.get(item_id, ZERO)) for item_id in item_ids}
+    pool = {item_id: Decimal(reservable.get(item_id, ZERO)) for item_id in item_ids}
 
     for line, new_quantity in sorted(
         changed, key=lambda pair: (pair[0].item_id, pair[0].line_number)
@@ -2370,7 +2425,7 @@ async def _rereserve_changed_lines(
         demand = new_quantity - Decimal(line.dispatched_quantity)
         take = reservable_quantity(demand, pool[line.item_id])
         if take > 0:
-            reservation = await port.reserve(
+            taken = await port.reserve(
                 session,
                 tenant,
                 item_id=line.item_id,
@@ -2383,8 +2438,10 @@ async def _rereserve_changed_lines(
                 required_date=line.required_date or order.required_date,
                 reason=f"Quantity changed on {order.code} line {line.line_number}",
             )
-            line.reservation_id = reservation.id
-            line.allocated_quantity = take
+            line.reservation_id = taken[0].id if taken else None
+            line.allocated_quantity = to_quantity(
+                sum((reservation.quantity for reservation in taken), ZERO)
+            )
             pool[line.item_id] -= take
         line.status = line_status_for(
             quantity=Decimal(line.quantity),
@@ -2566,59 +2623,62 @@ async def _reserve_available_lines(
     per item drawn down line by line, so two lines for the same item are never
     promised the same units, and lines are served in line order.
 
-    A line keeps exactly one reservation. When it already holds a live one and
-    more stock is free, the old promise is released and one reservation for the
-    whole covered quantity is taken in its place - release-then-reserve, the
-    shape a quantity change takes too - so ``reservation_id`` stays the whole
-    truth about the line. A line whose reservation was released, expired or
-    consumed elsewhere holds nothing (E1a section 4): it is reserved afresh and
-    the closed one is never released again.
+    The pool is what a reservation can actually hold (``port.reservable``), and
+    a shortfall is held where the stock sits - a bin, a lot, the unbinned
+    position - by one reservation per position it takes (§E2-2). A top-up adds
+    reservations for what has become free and leaves the line's existing ones
+    where they are: a promise already held in one lot may be on a packing bench,
+    and moving it to consolidate would strand that work. A line whose
+    reservations were released, expired or consumed elsewhere holds nothing
+    (E1a section 4): it is reserved afresh and the closed ones are never
+    released again. ``reservation_id`` names a reservation the line still holds
+    - its current one while that stays open - or nothing.
     """
     item_ids = sorted({line.item_id for line in lines})
     for item_id in item_ids:
         await advisory_xact_lock(session, "sales_allocation", tenant.company_id, item_id)
 
-    live = await live_reservations(session, tenant, lines)
-    available = await AvailabilityRepository(session, tenant).available_by_item(
-        item_ids, order.warehouse_id
+    held_by_line = await SalesOrderLineRepository(session, tenant).open_reservations_by_line(lines)
+    reservable = await port.reservable(
+        session, tenant, item_ids=item_ids, warehouse_id=order.warehouse_id
     )
-    pool = {item_id: Decimal(available.get(item_id, ZERO)) for item_id in item_ids}
+    pool = {item_id: Decimal(reservable.get(item_id, ZERO)) for item_id in item_ids}
 
     shortfalls: dict[int, str] = {}
     reserved_now: dict[int, str] = {}
     for line in sorted(lines, key=lambda row: row.line_number):
         if SalesOrderLineStatus(line.status) is SalesOrderLineStatus.CANCELLED:
             continue
-        held = live_reserved(line, live)
+        holding = held_by_line.get(line.id, [])
+        held = to_quantity(sum((row.remaining for row in holding), ZERO))
+        holding_ids = [row.id for row in holding]
         demand = Decimal(line.quantity) - Decimal(line.dispatched_quantity)
         take = reservable_quantity(max(demand - held, ZERO), pool[line.item_id])
         if take > 0:
-            line_reason = f"{purpose} of {order.code} line {line.line_number}"
-            if held > 0 and line.reservation_id is not None:
-                await port.release(
-                    session, tenant, reservation_id=line.reservation_id, reason=line_reason
-                )
-            reservation = await port.reserve(
+            taken = await port.reserve(
                 session,
                 tenant,
                 item_id=line.item_id,
                 warehouse_id=order.warehouse_id,
-                quantity=to_quantity(held + take),
+                quantity=take,
                 demand_id=order.id,
                 demand_line_id=line.id,
                 demand_code=order.code,
                 priority=order.priority,
                 required_date=line.required_date or order.required_date,
-                reason=line_reason,
+                reason=f"{purpose} of {order.code} line {line.line_number}",
             )
-            line.reservation_id = reservation.id
-            held += take
+            got = to_quantity(sum((reservation.quantity for reservation in taken), ZERO))
+            holding_ids.extend(reservation.id for reservation in taken)
+            held = to_quantity(held + got)
             pool[line.item_id] -= take
-            reserved_now[line.line_number] = str(to_quantity(take))
-        elif held == 0:
-            # A closed reservation is no reservation: forget it, so neither a
-            # consignment nor a later release ever reaches for it again.
-            line.reservation_id = None
+            if got > 0:
+                reserved_now[line.line_number] = str(got)
+        if line.reservation_id not in holding_ids:
+            # A closed reservation is no reservation: name one the line still
+            # holds, or none, so neither a consignment nor a later release ever
+            # reaches for it again.
+            line.reservation_id = holding_ids[0] if holding_ids else None
         line.allocated_quantity = to_quantity(held)
         line.status = line_status_for(
             quantity=Decimal(line.quantity),
@@ -2789,8 +2849,8 @@ async def confirm_order(
 
         # Locks the customer row: the headroom read here is consumed by this
         # order, and reading it unlocked is the classic credit double-spend.
-        assessment = await assert_customer_can_order(
-            session, tenant, order.customer_id, Decimal(order.total_amount), lock=True
+        assessment = await _assert_credit_with_open_orders(
+            session, tenant, order.customer_id, Decimal(order.total_amount)
         )
 
         shortfalls = (
@@ -2864,6 +2924,22 @@ async def confirm_order(
     )
 
 
+async def _assert_credit_with_open_orders(
+    session: AsyncSession,
+    tenant: TenantContext,
+    customer_id: uuid.UUID,
+    order_value: Decimal,
+    *,
+    exclude_order_id: uuid.UUID | None = None,
+) -> Any:
+    """Check receivables plus open-order exposure under the customer's row lock."""
+    customer = await get_customer_for_order(session, tenant, customer_id, lock=True)
+    open_exposure = await SalesOrderRepository(session, tenant).uninvoiced_open_exposure(
+        customer_id, exclude_order_id=exclude_order_id
+    )
+    return assert_within_credit_limit(customer, to_money(order_value + open_exposure))
+
+
 async def cancel_order(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2896,17 +2972,21 @@ async def cancel_order(
         )
 
         lines = await line_repo.list_for_order(order.id)
+        # Every position each line is held at (§E2-2), read in one statement;
+        # a reservation closed elsewhere is not among them and is never
+        # released twice.
+        held = await line_repo.open_reservations_by_line(lines)
         released = 0
         for line in sorted(lines, key=lambda row: (row.item_id, row.line_number)):
-            if line.reservation_id is not None:
+            for reservation in held.get(line.id, []):
                 await port.release(
                     session,
                     tenant,
-                    reservation_id=line.reservation_id,
+                    reservation_id=reservation.id,
                     reason=f"{order.code} cancelled: {reason}",
                 )
-                line.reservation_id = None
                 released += 1
+            line.reservation_id = None
             line.allocated_quantity = to_quantity(ZERO)
             line.status = SalesOrderLineStatus.CANCELLED
 

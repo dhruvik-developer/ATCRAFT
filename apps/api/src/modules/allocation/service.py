@@ -104,6 +104,8 @@ from src.modules.allocation.models import (
 from src.modules.allocation.repository import (
     CANDIDATE_POOL_LIMIT,
     ReallocationRequestRepository,
+    ReservablePosition,
+    ReservableStockRepository,
     ReservationFacts,
     StockReservationRepository,
 )
@@ -120,7 +122,12 @@ from src.modules.allocation.schemas import (
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.inventory.models import InventoryBalance, TransactionType
-from src.modules.inventory.repository import BalanceGrain, InventoryRepository, ItemFacts
+from src.modules.inventory.repository import (
+    BalanceGrain,
+    InventoryRepository,
+    ItemFacts,
+    StockSerialRepository,
+)
 from src.modules.inventory.service import (
     MovementEngine,
     MovementRequest,
@@ -472,6 +479,93 @@ def plan_consume(
     )
 
 
+#: One position a reservation is planned at, and how much it holds there.
+_Draw = tuple[ReservablePosition, Decimal]
+
+
+def _lot_order(position: ReservablePosition) -> tuple[Any, ...]:
+    """The movement engine's FEFO order: expiry ascending with undated last, then
+    receipt date, then the lot's id (``InventoryRepository.fefo_candidates``)."""
+    return (
+        position.expires_on is None,
+        position.expires_on or date.max,
+        position.received_on is None,
+        position.received_on or date.max,
+        position.batch_id.bytes if position.batch_id is not None else b"",
+    )
+
+
+def _bin_order(position: ReservablePosition) -> tuple[Any, ...]:
+    """The unbinned position first, then bins by code, then by id."""
+    return (
+        position.location_id is not None,
+        position.location_code or "",
+        position.location_id.bytes if position.location_id is not None else b"",
+    )
+
+
+def _spread(positions: Sequence[ReservablePosition], quantity: Decimal) -> list[_Draw]:
+    """Take ``quantity`` from one lot's positions: one position if any can cover it."""
+    whole = next((position for position in positions if position.available >= quantity), None)
+    if whole is not None:
+        return [(whole, quantity)]
+    draws: list[_Draw] = []
+    outstanding = quantity
+    for position in positions:
+        take = to_quantity(min(position.available, outstanding))
+        draws.append((position, take))
+        outstanding = to_quantity(outstanding - take)
+        if outstanding <= ZERO:
+            break
+    return draws
+
+
+def plan_positions(positions: Sequence[ReservablePosition], quantity: Decimal) -> list[_Draw]:
+    """Which positions a reservation for ``quantity`` is held at, and how much at each.
+
+    Pure: the candidates were read already, so the choice is unit-testable and
+    no ordering rule can grow a query. Returns less than ``quantity`` when the
+    positions hold less - a shortfall is the caller's to report, not an error.
+
+    ASSUMPTION (docs/assumptions.md §E2-2): a demand is held in as few
+    positions as possible, chosen in a fixed order. Lots are taken in the
+    movement engine's FEFO order, and the first lot that can cover the whole
+    quantity is used on its own - the same lot the engine would pick for an
+    issue naming none (§E8b-1), which keeps one line in one lot and so on one
+    dispatch line. Within a lot, or across the warehouse for an untracked item,
+    the first position that can cover the quantity is used: the unbinned
+    position first, then bins by code. Only when no single lot (or position)
+    can cover it is the quantity split, in that same order - a reservation,
+    unlike a ledger row, can be held at several positions, and refusing stock
+    that is plainly in the warehouse because it sits on two shelves is what
+    this exists to stop.
+    """
+    outstanding = to_quantity(quantity)
+    if outstanding <= ZERO:
+        return []
+    lots: dict[uuid.UUID | None, list[ReservablePosition]] = {}
+    for position in sorted(
+        (candidate for candidate in positions if candidate.available > ZERO),
+        key=lambda candidate: (_lot_order(candidate), _bin_order(candidate)),
+    ):
+        lots.setdefault(position.batch_id, []).append(position)
+    totals = {
+        lot: to_quantity(sum((position.available for position in rows), ZERO))
+        for lot, rows in lots.items()
+    }
+    covering = [rows for lot, rows in lots.items() if totals[lot] >= outstanding]
+    chosen = covering[:1] or list(lots.values())
+
+    draws: list[_Draw] = []
+    for rows in chosen:
+        take = to_quantity(min(outstanding, totals[rows[0].batch_id]))
+        draws.extend(_spread(rows, take))
+        outstanding = to_quantity(outstanding - take)
+        if outstanding <= ZERO:
+            break
+    return draws
+
+
 # -----------------------------------------------------------------------------
 # Pure reallocation ranking - unit tested without a database
 # -----------------------------------------------------------------------------
@@ -752,6 +846,7 @@ class ReservationEngine:
         self.reservations = StockReservationRepository(session, tenant)
         self.requests = ReallocationRequestRepository(session, tenant)
         self.inventory = InventoryRepository(session, tenant)
+        self.positions = ReservableStockRepository(session, tenant)
         # The movement engine is used for its lock, not for posting: this is the
         # identical primitive post_movement takes, which is what makes a
         # reservation and an issue contend for the same row.
@@ -900,6 +995,7 @@ class ReservationEngine:
         summary: str,
         action: AuditAction = AuditAction.RESERVATION_CHANGE,
         context: dict[str, Any] | None = None,
+        flush: bool = True,
     ) -> None:
         await record_audit(
             self.session,
@@ -912,6 +1008,7 @@ class ReservationEngine:
             entity_code=reservation.demand_code,
             summary=summary,
             user_id=self.tenant.user_id,
+            flush=flush,
             context={
                 "item_id": reservation.item_id,
                 "warehouse_id": reservation.warehouse_id,
@@ -1028,6 +1125,142 @@ async def reserve(
             },
         )
     return reservation
+
+
+async def reservable_quantities(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item_ids: Sequence[uuid.UUID],
+    warehouse_id: uuid.UUID,
+) -> dict[uuid.UUID, Decimal]:
+    """What :func:`reserve_from_stock` could still hold per item at one warehouse.
+
+    The sizing pool for a caller that reserves wherever the stock is. Read from
+    the very positions :func:`reserve_from_stock` draws on, so a caller never
+    sizes a promise from stock it cannot hold - an expired lot's available
+    quantity, say, which :func:`available_to_promise` rightly still counts.
+    Never cached (section 34). Items holding nothing reservable are absent.
+    """
+    positions = await ReservableStockRepository(session, tenant).positions(
+        item_ids, warehouse_id, as_of=today()
+    )
+    return {
+        item_id: to_quantity(sum((position.available for position in rows), ZERO))
+        for item_id, rows in positions.items()
+    }
+
+
+async def reserve_from_stock(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item_id: uuid.UUID,
+    warehouse_id: uuid.UUID,
+    quantity: Decimal,
+    demand_type: DemandType,
+    demand_id: uuid.UUID,
+    reason: str,
+    demand_line_id: uuid.UUID | None = None,
+    demand_code: str | None = None,
+    reservation_type: ReservationType = ReservationType.HARD,
+    priority: int = DEFAULT_RESERVATION_PRIORITY,
+    required_date: date | None = None,
+    expires_at: datetime | None = None,
+) -> list[StockReservation]:
+    """Hold up to ``quantity`` of an item at a warehouse, at the positions where it sits.
+
+    :func:`reserve` pins a promise to the one position its caller names, and a
+    caller that names none holds the unbinned, lot-less position - where stock
+    received into a bin or a lot never is. This reads the positions that do
+    hold reservable stock, chooses them with :func:`plan_positions`, locks
+    them all in one ordered acquisition (the movement engine's primitive),
+    re-reads each under its lock and holds what is still promisable there: one
+    reservation per position, each with its own audit row, and no ledger row.
+
+    Returns the reservations made, which may hold less than ``quantity`` - or be
+    empty - when the positions hold less, including when a concurrent document
+    took stock between the read and the lock. That is a shortfall for the
+    caller to report, never an error: the stock engine's lock is the arbiter.
+    """
+    engine = ReservationEngine(session, tenant)
+    amount = to_quantity(quantity)
+    if amount <= ZERO:
+        raise BusinessRuleError(
+            "A reservation must be for a positive quantity.", details={"requested": str(amount)}
+        )
+
+    async with transaction(session):
+        item, warehouse_code = await engine.resolve_position(item_id, warehouse_id)
+        candidates = await engine.positions.positions([item_id], warehouse_id, as_of=today())
+        plan = plan_positions(candidates.get(item_id, []), amount)
+        if not plan:
+            return []
+        grains = [
+            BalanceGrain(
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                location_id=position.location_id,
+                batch_id=position.batch_id,
+            )
+            for position, _ in plan
+        ]
+        locked = await engine.movements.lock(grains)
+
+        held: list[tuple[StockReservation, InventoryBalance, Decimal]] = []
+        for grain, (_, planned) in zip(grains, plan, strict=True):
+            balance = locked[grain]
+            take = to_quantity(min(planned, engine.promisable(balance)))
+            if take <= ZERO:
+                continue
+            before = engine.apply_reserve(balance, take, item=item, warehouse_code=warehouse_code)
+            reservation = StockReservation(
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                location_id=grain.location_id,
+                batch_id=grain.batch_id,
+                demand_type=demand_type,
+                demand_id=demand_id,
+                demand_line_id=demand_line_id,
+                demand_code=demand_code,
+                reservation_type=reservation_type,
+                quantity=take,
+                consumed_quantity=ZERO,
+                released_quantity=ZERO,
+                status=ReservationStatus.ACTIVE,
+                priority=priority,
+                required_date=required_date,
+                expires_at=expires_at,
+                reason=reason,
+            )
+            engine.reservations.add(reservation)
+            held.append((reservation, balance, before))
+        if not held:
+            return []
+        # One flush for the reservations and one for their audit rows, however
+        # many positions the promise is spread over.
+        await session.flush()
+        for reservation, balance, before in held:
+            await engine.audit_reservation(
+                reservation,
+                summary=(
+                    f"Reserved {reservation.quantity} {item.code} at {warehouse_code} for "
+                    f"{demand_type} {demand_code or demand_id} ({reason})"
+                ),
+                context={
+                    "item_code": item.code,
+                    "warehouse_code": warehouse_code,
+                    "location_id": reservation.location_id,
+                    "batch_id": reservation.batch_id,
+                    "balance_reserved_after": balance.reserved_quantity,
+                    "promisable_before": before,
+                    "promisable_after": to_quantity(before - reservation.quantity),
+                    "reason": reason,
+                },
+                flush=False,
+            )
+        await session.flush()
+    return [reservation for reservation, _, _ in held]
 
 
 async def release(
@@ -1282,6 +1515,155 @@ async def consume(
     return reservation
 
 
+async def consume_demand_line(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    demand_type: DemandType,
+    demand_id: uuid.UUID,
+    demand_line_id: uuid.UUID,
+    quantity: Decimal,
+    reference_type: str,
+    reference_id: uuid.UUID | None,
+    reference_code: str | None,
+    transaction_type: TransactionType | None = None,
+    occurred_at: datetime | None = None,
+    batch_id: uuid.UUID | None = None,
+    serial_ids: Sequence[uuid.UUID] = (),
+) -> list[StockReservation]:
+    """Draw ``quantity`` down across every open reservation one demand line holds.
+
+    A line held at several positions (:func:`reserve_from_stock`) leaves from
+    them as one movement per position - each through :func:`consume`, so each
+    keeps the release-before-movement order, its locks and its audit rows. The
+    open reservations are read in one statement; the oldest is drawn first.
+
+    ``batch_id`` is the lot the document names. Only reservations held in that
+    lot are drawn, so the ledger moves the lot the document says left; a line
+    reserved across two lots therefore leaves one lot per document line
+    (docs/assumptions.md §E8b-1). ``serial_ids`` name the units: each is drawn
+    from a reservation at the exact position its serial record holds it, because
+    a movement at one bin for a unit on another would move the wrong quantity.
+
+    Refuses, naming the numbers, when the matching reservations hold less than
+    is asked for; nothing is consumed then.
+    """
+    engine = ReservationEngine(session, tenant)
+    amount = to_quantity(quantity)
+    units = list(serial_ids)
+    if amount <= ZERO:
+        raise BusinessRuleError(
+            "A consumption must be for a positive quantity.",
+            details={"requested": str(amount)},
+        )
+    if units and (len(set(units)) != len(units) or amount != to_quantity(Decimal(len(units)))):
+        raise BusinessRuleError(
+            f"{len(units)} serial(s) were named for a consumption of {amount}; "
+            "a serial-tracked drawdown names exactly one distinct unit per unit consumed.",
+            code=ErrorCode.SERIAL_REQUIRED,
+            details={"requested": str(amount), "serials": len(units)},
+        )
+
+    async with transaction(session):
+        held = await engine.reservations.open_for_demand_line(
+            demand_type, demand_id, demand_line_id
+        )
+        if batch_id is not None:
+            held = [reservation for reservation in held if reservation.batch_id == batch_id]
+        remaining = {
+            reservation.id: remaining_of(
+                reservation.quantity, reservation.consumed_quantity, reservation.released_quantity
+            )
+            for reservation in held
+        }
+        draws: dict[uuid.UUID, tuple[Decimal, list[uuid.UUID]]] = {}
+        if units:
+            serials = await StockSerialRepository(session, tenant).by_ids(units)
+            for unit in units:
+                serial = serials.get(unit)
+                if serial is None:
+                    raise NotFoundError("Stock serial", unit)
+                target = next(
+                    (
+                        reservation
+                        for reservation in held
+                        if (reservation.location_id, reservation.batch_id)
+                        == (serial.location_id, serial.batch_id)
+                        and remaining[reservation.id] >= Decimal("1")
+                    ),
+                    None,
+                )
+                if target is None:
+                    raise BusinessRuleError(
+                        f"Serial {serial.serial_number} is not where this line's reserved stock "
+                        "is held, so it cannot leave against the reservation. Choose a unit "
+                        "from the reserved position.",
+                        details={"serial_id": str(unit), "demand_line_id": str(demand_line_id)},
+                    )
+                remaining[target.id] = to_quantity(remaining[target.id] - Decimal("1"))
+                taken, named = draws.get(target.id, (ZERO, []))
+                draws[target.id] = (to_quantity(taken + Decimal("1")), [*named, unit])
+        else:
+            outstanding = amount
+            for reservation in held:
+                take = to_quantity(min(remaining[reservation.id], outstanding))
+                if take <= ZERO:
+                    continue
+                draws[reservation.id] = (take, [])
+                outstanding = to_quantity(outstanding - take)
+                if outstanding <= ZERO:
+                    break
+            if outstanding > ZERO:
+                reserved = to_quantity(sum(remaining.values(), ZERO))
+                raise BusinessRuleError(
+                    f"Only {reserved} of the {amount} asked for is reserved for this line"
+                    + (" in the lot named" if batch_id is not None else "")
+                    + ". Ship what the reservation holds"
+                    + (", one lot per consignment line" if batch_id is not None else "")
+                    + ", or allocate more stock first.",
+                    code=ErrorCode.INSUFFICIENT_AVAILABLE_STOCK,
+                    details={
+                        "requested": str(amount),
+                        "reserved": str(reserved),
+                        "batch_id": str(batch_id) if batch_id is not None else None,
+                        "demand_line_id": str(demand_line_id),
+                    },
+                )
+
+        positions = {
+            reservation.id: BalanceGrain(
+                item_id=reservation.item_id,
+                warehouse_id=reservation.warehouse_id,
+                location_id=reservation.location_id,
+                batch_id=reservation.batch_id,
+            ).sort_key
+            for reservation in held
+        }
+        consumed: list[StockReservation] = []
+        # One call per reservation drawn: each is its own locked row, and the
+        # set is bounded by the positions the line is held at. Taken in balance
+        # order, so two consignments drawing on the same positions lock them in
+        # the same sequence.
+        for reservation_id, (take, named) in sorted(
+            draws.items(), key=lambda draw: (positions[draw[0]], draw[0])
+        ):
+            consumed.append(
+                await consume(
+                    session,
+                    tenant,
+                    reservation_id=reservation_id,
+                    quantity=take,
+                    reference_type=reference_type,
+                    reference_id=reference_id,
+                    reference_code=reference_code,
+                    transaction_type=transaction_type,
+                    occurred_at=occurred_at,
+                    serial_ids=named,
+                )
+            )
+    return consumed
+
+
 async def available_to_promise(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1491,85 +1873,95 @@ async def reallocate(
         balance = await engine.lock_balance(grain)
         recipient_line = recipient_target.line if recipient_target is not None else None
 
-        reservation_ids = [request.from_reservation_id]
-        if donor_target is not None:
-            donor_reservation_id = donor_target.line.reservation_id
-            if donor_reservation_id is None:
-                raise BusinessRuleError(
-                    "The donor sales-order line has no linked reservation.",
-                    details={"sales_order_line_id": str(donor_target.line.id)},
-                )
-            reservation_ids.append(donor_reservation_id)
-        if recipient_line is not None and recipient_line.reservation_id is not None:
-            reservation_ids.append(recipient_line.reservation_id)
-        locked_reservations = await engine.reservations.lock_reservations(reservation_ids)
+        # A sales line held at several positions has one reservation per
+        # position (``reserve_from_stock``), so its allocated quantity is
+        # checked against all of them rather than the one its pointer names.
+        # Read here, then locked with the donor in one primary-key ordered
+        # acquisition, after the balance as everywhere in this module.
+        donor_line_rows = (
+            await engine.reservations.open_for_demand_line(
+                DemandType.SALES_ORDER, donor_target.line.sales_order_id, donor_target.line.id
+            )
+            if donor_target is not None
+            else []
+        )
+        recipient_line_rows = (
+            await engine.reservations.open_for_demand_line(
+                DemandType.SALES_ORDER, recipient_line.sales_order_id, recipient_line.id
+            )
+            if recipient_line is not None
+            else []
+        )
+        locked_reservations = await engine.reservations.lock_reservations(
+            [
+                request.from_reservation_id,
+                *(row.id for row in donor_line_rows),
+                *(row.id for row in recipient_line_rows),
+            ]
+        )
         donor = locked_reservations.get(request.from_reservation_id)
         if donor is None:
             raise NotFoundError("Stock reservation", request.from_reservation_id)
 
+        def still_open(rows: Sequence[StockReservation]) -> list[StockReservation]:
+            locked = (locked_reservations.get(row.id) for row in rows)
+            return [
+                row for row in locked if row is not None and row.status in OPEN_RESERVATION_STATUSES
+            ]
+
+        def held_by(rows: Sequence[StockReservation]) -> Decimal:
+            return to_quantity(
+                sum(
+                    (
+                        remaining_of(row.quantity, row.consumed_quantity, row.released_quantity)
+                        for row in rows
+                    ),
+                    ZERO,
+                )
+            )
+
+        donor_line_open = still_open(donor_line_rows)
+        recipient_line_open = still_open(recipient_line_rows)
+        donor_line_held = held_by(donor_line_open)
+
         amount = to_quantity(request.quantity)
         if donor_target is not None:
             donor_line = donor_target.line
-            donor_remaining = remaining_of(
-                donor.quantity, donor.consumed_quantity, donor.released_quantity
-            )
-            if (
-                donor_line.reservation_id != donor.id
-                or to_quantity(donor_line.allocated_quantity) != donor_remaining
-            ):
+            if to_quantity(donor_line.allocated_quantity) != donor_line_held:
                 raise BusinessRuleError(
                     "The donor sales-order line and reservation disagree about allocated quantity.",
                     details={
                         "sales_order_line_id": str(donor_line.id),
                         "line_allocated": str(donor_line.allocated_quantity),
-                        "reservation_remaining": str(donor_remaining),
+                        "reservation_remaining": str(donor_line_held),
                     },
                 )
-        if (
-            recipient_line is not None
-            and recipient_line.reservation_id is None
-            and to_quantity(recipient_line.allocated_quantity) != ZERO
-        ):
-            raise BusinessRuleError(
-                "The recipient sales-order line has allocated quantity but no reservation.",
-                details={"sales_order_line_id": str(recipient_line.id)},
-            )
-        existing_recipient = (
-            locked_reservations.get(recipient_line.reservation_id)
-            if recipient_line is not None and recipient_line.reservation_id is not None
-            else None
-        )
-        if recipient_line is not None and recipient_line.reservation_id is not None:
-            if existing_recipient is None:
-                raise NotFoundError("Stock reservation", recipient_line.reservation_id)
-            if existing_recipient.id == donor.id:
+        existing_recipient: StockReservation | None = None
+        if recipient_line is not None:
+            if any(row.id == donor.id for row in recipient_line_open):
                 raise BusinessRuleError("The donor cannot also be the recipient reservation.")
-            if (
-                existing_recipient.demand_type is not DemandType.SALES_ORDER
-                or existing_recipient.demand_id != request.to_demand_id
-                or existing_recipient.demand_line_id != recipient_line.id
-                or existing_recipient.item_id != request.item_id
-                or existing_recipient.warehouse_id != request.warehouse_id
-                or existing_recipient.status not in OPEN_RESERVATION_STATUSES
-            ):
-                raise BusinessRuleError(
-                    "The sales-order line's current reservation does not match this demand.",
-                    details={"sales_order_line_id": str(recipient_line.id)},
-                )
-            existing_remaining = remaining_of(
-                existing_recipient.quantity,
-                existing_recipient.consumed_quantity,
-                existing_recipient.released_quantity,
-            )
-            if existing_remaining != to_quantity(recipient_line.allocated_quantity):
+            recipient_line_held = held_by(recipient_line_open)
+            if recipient_line_held != to_quantity(recipient_line.allocated_quantity):
                 raise BusinessRuleError(
                     "The sales-order line and its reservation disagree about allocated quantity.",
                     details={
                         "sales_order_line_id": str(recipient_line.id),
                         "line_allocated": str(recipient_line.allocated_quantity),
-                        "reservation_remaining": str(existing_remaining),
+                        "reservation_remaining": str(recipient_line_held),
                     },
                 )
+            # The grant joins a reservation the line already holds only at the
+            # donor's own position; anywhere else it is a reservation of its
+            # own, or the balance it raises would not be the one it names.
+            existing_recipient = next(
+                (
+                    row
+                    for row in recipient_line_open
+                    if (row.item_id, row.warehouse_id, row.location_id, row.batch_id)
+                    == (donor.item_id, donor.warehouse_id, donor.location_id, donor.batch_id)
+                ),
+                None,
+            )
 
         plan = plan_release(
             quantity=donor.quantity,
@@ -1598,14 +1990,25 @@ async def reallocate(
         if donor_target is not None:
             from src.modules.sales.service import release_reallocation_from_line
 
+            # The line keeps naming a reservation it still holds: its current
+            # one while that stays open, else the next it holds elsewhere.
+            still_held = [
+                row.id
+                for row in donor_line_open
+                if row.id != donor.id or plan.remaining_after > ZERO
+            ]
+            pointer = donor_target.line.reservation_id
             await release_reallocation_from_line(
                 session,
                 tenant,
                 donor_target,
                 reservation_id=donor.id,
-                reservation_remaining=plan.remaining_after,
+                reservation_remaining=to_quantity(donor_line_held - plan.applied_quantity),
                 quantity=plan.applied_quantity,
                 reallocation_request_id=request.id,
+                line_reservation_id=(
+                    pointer if pointer in still_held else next(iter(still_held), None)
+                ),
             )
 
         # ASSUMPTION: the granted reservation is HARD, and inherits the
@@ -2615,14 +3018,18 @@ __all__ = [
     "available_to_promise",
     "candidate_eligibility",
     "consume",
+    "consume_demand_line",
     "expire_stale_reservations",
     "plan_consume",
+    "plan_positions",
     "plan_release",
     "rank_candidates",
     "reallocate",
     "release",
     "remaining_of",
+    "reservable_quantities",
     "reserve",
+    "reserve_from_stock",
     "score_candidate",
     "suggest_reallocation",
 ]

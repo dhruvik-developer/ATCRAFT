@@ -65,7 +65,6 @@ import type {
   SalesOrderRow,
 } from '@/features/sales/sales-types'
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
-import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -87,11 +86,11 @@ import { asId } from '@/lib/utils'
 
 import { BatchSelect, SerialPicker } from './stock-pickers'
 import {
-  DISPATCH_TYPES,
   FREIGHT_PAID_BY,
   MANUAL_EVENT_STATUSES,
   MONEY_INPUT,
   QUANTITY_INPUT,
+  RAISED_DISPATCH_TYPE,
   WEIGHT_INPUT,
   dispatchKeys,
   itemFactsQuery,
@@ -102,10 +101,6 @@ import {
   type DispatchTrackingEvent,
   type ItemFacts,
 } from './dispatch-types'
-
-/** Which counterparty a type needs, mirroring `_counterparty_matches_type`. */
-const CUSTOMER_TYPES = new Set(['SALES'])
-const VENDOR_TYPES = new Set(['JOB_WORK', 'PURCHASE_RETURN'])
 
 const MOBILE = /^$|^[0-9+\- ]{7,15}$/
 const BOXES = /^$|^\d{1,6}$/
@@ -538,9 +533,7 @@ function OrderLines({
 
 const createSchema = z
   .object({
-    dispatch_type: z.enum(DISPATCH_TYPES),
     customer_id: z.string().nullable(),
-    vendor_id: z.string().nullable(),
     warehouse_id: z.string().min(1, validation.choose('the warehouse this leaves from')),
     sales_order_id: z.string(),
 
@@ -565,19 +558,11 @@ const createSchema = z
     notes: z.string().trim().max(2000, 'At most 2000 characters'),
   })
   .superRefine((values, ctx) => {
-    if (CUSTOMER_TYPES.has(values.dispatch_type) && !values.customer_id) {
+    if (!values.customer_id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['customer_id'],
         message: 'A sales consignment must name the customer it is going to',
-      })
-    }
-
-    if (VENDOR_TYPES.has(values.dispatch_type) && !values.vendor_id) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['vendor_id'],
-        message: 'Choose the vendor this is going to',
       })
     }
 
@@ -608,9 +593,7 @@ type CreateFormValues = z.infer<typeof createSchema>
 
 function emptyCreate(): CreateFormValues {
   return {
-    dispatch_type: 'SALES',
     customer_id: null,
-    vendor_id: null,
     warehouse_id: '',
     sales_order_id: SELECT_NONE,
     dispatch_date: toDateInput(new Date()),
@@ -640,11 +623,16 @@ interface DraftLine {
 /**
  * Raise a consignment.
  *
- * `order` opens the dialog from a sales order's own page: the type, customer,
- * order and warehouse are then fixed to that order, and only its lines are
- * offered. The same happens when an order is chosen in the dialog - a
- * consignment against an order ships that order's reserved lines and nothing
- * else (the server refuses anything else; this keeps the form from offering it).
+ * Always a sales consignment: releasing one posts `DISPATCH`, goods that stopped
+ * being ours, so a stock transfer, a job-work issue or a purchase return is
+ * booked in its own module and the API refuses those types here. The form does
+ * not offer them.
+ *
+ * `order` opens the dialog from a sales order's own page: the customer, order
+ * and warehouse are then fixed to that order, and only its lines are offered.
+ * The same happens when an order is chosen in the dialog - a consignment against
+ * an order ships that order's reserved lines and nothing else (the server
+ * refuses anything else; this keeps the form from offering it).
  */
 export function CreateDispatchDialog({
   open,
@@ -699,12 +687,9 @@ export function CreateDispatchDialog({
     }
   }, [open, order, reset])
 
-  const dispatchType = watch('dispatch_type')
   const warehouseId = watch('warehouse_id')
   const salesOrderId = watch('sales_order_id')
-  const needsCustomer = CUSTOMER_TYPES.has(dispatchType)
-  const needsVendor = VENDOR_TYPES.has(dispatchType)
-  const againstOrder = needsCustomer && salesOrderId !== SELECT_NONE
+  const againstOrder = salesOrderId !== SELECT_NONE
 
   // The same read, under the same key, as the order page's allocation panel.
   const allocation = useQuery({
@@ -750,14 +735,10 @@ export function CreateDispatchDialog({
   const create = useMutation({
     mutationFn: (values: CreateFormValues) =>
       api.post<DispatchDetail>('/dispatch', {
-        dispatch_type: values.dispatch_type,
+        dispatch_type: RAISED_DISPATCH_TYPE,
         warehouse_id: values.warehouse_id,
-        customer_id: needsCustomer ? values.customer_id : null,
-        vendor_id: needsVendor ? values.vendor_id : null,
-        // Only a SALES consignment may name a sales order; the API refuses the
-        // pairing outright on any other type.
-        sales_order_id:
-          needsCustomer && values.sales_order_id !== SELECT_NONE ? values.sales_order_id : null,
+        customer_id: values.customer_id,
+        sales_order_id: againstOrder ? values.sales_order_id : null,
         dispatch_date: values.dispatch_date,
         expected_delivery_date: orNull(values.expected_delivery_date),
         transporter_id: asId(values.transporter_id),
@@ -823,97 +804,49 @@ export function CreateDispatchDialog({
           <DialogBody className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
-                <Label htmlFor="dispatch-type" required>
-                  Dispatch type
-                </Label>
-                <Controller
-                  control={control}
-                  name="dispatch_type"
-                  render={({ field }) => (
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      disabled={Boolean(order)}
-                    >
-                      <SelectTrigger
-                        id="dispatch-type"
-                        className="mt-1.5"
-                        aria-label="Dispatch type"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DISPATCH_TYPES.map((type) => (
-                          <SelectItem key={type} value={type}>
-                            {humanise(type)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-                <FieldError message={errors.dispatch_type?.message} />
+                <p className="text-sm font-medium">Dispatch type</p>
+                <p className="mt-1.5 text-sm">Sales consignment</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Stock transfers, job-work issues and purchase returns are raised in Inventory, Job
+                  Work and Procurement, which move the stock as what it is.
+                </p>
               </div>
 
-              {needsCustomer && (
-                <div>
-                  <Controller
-                    control={control}
-                    name="customer_id"
-                    render={({ field }) => (
-                      <CustomerPicker
-                        id="dispatch-customer"
-                        label="Customer"
-                        value={field.value}
-                        onChange={(next) => {
-                          field.onChange(next)
-                          // Another customer's order cannot travel on this lorry.
-                          setValue('sales_order_id', SELECT_NONE)
-                        }}
-                        invalid={Boolean(errors.customer_id)}
-                        placeholder="Choose a customer"
-                        disabled={Boolean(order)}
-                      />
-                    )}
-                  />
-                  <FieldError message={errors.customer_id?.message} />
-                </div>
-              )}
-
-              {needsVendor && (
-                <div>
-                  <Controller
-                    control={control}
-                    name="vendor_id"
-                    render={({ field }) => (
-                      <VendorPicker
-                        id="dispatch-vendor"
-                        label="Vendor"
-                        value={field.value}
-                        onChange={field.onChange}
-                        invalid={Boolean(errors.vendor_id)}
-                        placeholder="Choose a vendor"
-                      />
-                    )}
-                  />
-                  <FieldError message={errors.vendor_id?.message} />
-                </div>
-              )}
-
-              {needsCustomer && (
+              <div>
                 <Controller
                   control={control}
-                  name="sales_order_id"
+                  name="customer_id"
                   render={({ field }) => (
-                    <SalesOrderSelect
-                      customerId={watch('customer_id')}
+                    <CustomerPicker
+                      id="dispatch-customer"
+                      label="Customer"
                       value={field.value}
-                      onChange={field.onChange}
+                      onChange={(next) => {
+                        field.onChange(next)
+                        // Another customer's order cannot travel on this lorry.
+                        setValue('sales_order_id', SELECT_NONE)
+                      }}
+                      invalid={Boolean(errors.customer_id)}
+                      placeholder="Choose a customer"
                       disabled={Boolean(order)}
                     />
                   )}
                 />
-              )}
+                <FieldError message={errors.customer_id?.message} />
+              </div>
+
+              <Controller
+                control={control}
+                name="sales_order_id"
+                render={({ field }) => (
+                  <SalesOrderSelect
+                    customerId={watch('customer_id')}
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={Boolean(order)}
+                  />
+                )}
+              />
 
               {can(P.WAREHOUSE_VIEW) ? (
                 <div>

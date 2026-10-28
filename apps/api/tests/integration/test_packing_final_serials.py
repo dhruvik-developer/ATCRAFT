@@ -31,6 +31,7 @@ from src.modules.products.models import Item, ItemGroup
 from src.modules.quality import service as quality
 from src.modules.quality.models import InspectionStatus, QcInspection
 from src.modules.quality.schemas import DecideRequest, InspectionCreate
+from tests.dispatch_support import consignment_line, raise_consignment
 from tests.seed_support import seed_customer, seed_item, seed_uom, seed_warehouse
 
 pytestmark = pytest.mark.integration
@@ -173,6 +174,17 @@ async def seal(k, carton_id):
     )
 
 
+async def consignment_for(k, serial_ids):
+    """An open consignment for the packed units - what a hand-over loads them onto."""
+    return await raise_consignment(
+        k.session,
+        k.tenant,
+        customer_id=k.customer_id,
+        warehouse_id=k.warehouse_id,
+        lines=[consignment_line(k.item_id, len(serial_ids), serial_ids=serial_ids)],
+    )
+
+
 async def test_start_requires_named_units_and_rolls_back_draft(kit):
     k = kit
     with pytest.raises(BusinessRuleError, match="Select every serial"):
@@ -246,7 +258,7 @@ async def test_accepted_named_units_can_be_sealed_completed_and_handed_over(kit)
         k.session, k.tenant, k.order_id, CompleteRequest(reason="All inspected units packed")
     )
     assert result.order.status == PackingOrderStatus.PACKED
-    dispatch_id = uuid.uuid4()
+    dispatch_id = await consignment_for(k, k.ids[:2])
     order = await packing.hand_over_to_dispatch(
         k.session,
         k.tenant,
@@ -300,10 +312,14 @@ async def test_completion_and_handover_recheck_stored_carton_membership(kit, gat
     await decide(k, inspection_id, k.ids[:2])
     carton_id = (await carton(k)).id
     await seal(k, carton_id)
+    dispatch_id = None
     if gate == "hand over":
         await packing.complete_packing(
             k.session, k.tenant, k.order_id, CompleteRequest(reason="Accepted units completed")
         )
+        # A real consignment, open for loading: the FINAL-QC gate is what has to
+        # refuse here, not a missing dispatch.
+        dispatch_id = await consignment_for(k, k.ids[:2])
     # Model a historic/imported inconsistent carton, bypassing the write service.
     await k.session.execute(
         update(CartonContent)
@@ -311,7 +327,7 @@ async def test_completion_and_handover_recheck_stored_carton_membership(kit, gat
         .values(serial_ids=[k.ids[0], k.ids[2]])
     )
     with pytest.raises(BusinessRuleError, match="selected FINAL-QC serials"):
-        if gate == "complete":
+        if dispatch_id is None:
             await packing.complete_packing(
                 k.session, k.tenant, k.order_id, CompleteRequest(reason="Complete imported carton")
             )
@@ -320,7 +336,7 @@ async def test_completion_and_handover_recheck_stored_carton_membership(kit, gat
                 k.session,
                 k.tenant,
                 k.order_id,
-                dispatch_id=uuid.uuid4(),
+                dispatch_id=dispatch_id,
                 reason="Claim imported carton",
             )
 

@@ -243,13 +243,17 @@ def test_a_cancelled_line_is_never_short():
 
 def test_a_line_without_a_reservation_or_with_a_closed_one_holds_nothing():
     holder = _line("10", "0")
+    holder.id = uuid.uuid4()
     holder.reservation_id = None
     assert live_reserved(holder, {}) == Decimal("0")
 
     holder.reservation_id = uuid.uuid4()
     # Closed reservations are absent from the live map - read as zero.
     assert live_reserved(holder, {}) == Decimal("0")
-    assert live_reserved(holder, {holder.reservation_id: Decimal("7")}) == Decimal("7")
+    # The map is keyed by line and already sums every position the line is
+    # held at (docs/assumptions.md §E2-2), so the pointer plays no part.
+    assert live_reserved(holder, {holder.id: Decimal("7")}) == Decimal("7")
+    assert live_reserved(holder, {holder.reservation_id: Decimal("7")}) == Decimal("0")
 
 
 # -----------------------------------------------------------------------------

@@ -31,10 +31,11 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -77,7 +78,7 @@ from src.modules.inventory.models import (
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.organization.models import Company
 from src.modules.packing import service as packing
-from src.modules.packing.models import PackingOrder
+from src.modules.packing.models import PackingOrder, PackingOrderStatus
 from src.modules.packing.schemas import (
     CartonContentIn,
     CartonCreate,
@@ -98,6 +99,7 @@ from src.modules.sales.models import (
 )
 from src.modules.users.models import Role, User
 from src.modules.warehouses.models import Warehouse, WarehouseType
+from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
@@ -1527,3 +1529,541 @@ async def test_a_draft_consignment_can_be_deleted_and_a_prepared_one_cannot(ctx:
     await service.mark_ready(ctx.session, ctx.tenant, prepared.id, reason="Loaded")
     with pytest.raises(BusinessRuleError):
         await service.delete_draft_dispatch(ctx.session, ctx.tenant, prepared.id, reason="Too late")
+
+
+# -----------------------------------------------------------------------------
+# Dispatch ships sales consignments only
+# -----------------------------------------------------------------------------
+#
+# The defect these close: a TRANSFER, JOB_WORK or PURCHASE_RETURN consignment was
+# released through the same DISPATCH outflow as a sale, so a transfer never
+# arrived anywhere, job-work material left the books instead of moving to the
+# vendor pool, and a purchase return raised no return or debit note - the goods
+# were simply written off. Each of those movements belongs to another module.
+
+#: The module each refusal sends the operator to.
+OWNING_MODULE: dict[DispatchType, str] = {
+    DispatchType.TRANSFER: "Inventory",
+    DispatchType.JOB_WORK: "Job Work",
+    DispatchType.PURCHASE_RETURN: "Procurement",
+}
+
+
+async def approved_vendor(ctx: Ctx) -> uuid.UUID:
+    vendor = await seed_support.seed_vendor(
+        ctx.session, company_id=ctx.company_id, is_approved=True, approved_at=utcnow()
+    )
+    return vendor.id
+
+
+async def legacy_plan(
+    ctx: Ctx,
+    bench: Bench,
+    dispatch_type: DispatchType,
+    *,
+    vendor_id: uuid.UUID | None,
+    status: DispatchStatus,
+) -> uuid.UUID:
+    """A non-sales plan raised before the module refused them.
+
+    Written through the ORM exactly as the old create path left it - one free
+    stock line, no order - because no service path can raise one any more and
+    the rows already in a live database still have to be handled.
+    """
+    plan = Dispatch(
+        company_id=ctx.company_id,
+        code=f"DSP-LEGACY-{uuid.uuid4().hex[:8].upper()}",
+        dispatch_type=dispatch_type,
+        vendor_id=None if dispatch_type is DispatchType.TRANSFER else vendor_id,
+        warehouse_id=bench.warehouse.id,
+        status=status,
+        dispatch_date=TODAY,
+        created_by_id=ctx.tenant.user_id,
+    )
+    ctx.session.add(plan)
+    await ctx.session.flush()
+    ctx.session.add(
+        DispatchLine(
+            company_id=ctx.company_id,
+            dispatch_id=plan.id,
+            line_number=1,
+            item_id=bench.item.id,
+            quantity=Decimal("25"),
+        )
+    )
+    await ctx.session.flush()
+    return plan.id
+
+
+async def ledger_rows_for(ctx: Ctx, dispatch_id: uuid.UUID) -> int:
+    return int(
+        await ctx.session.scalar(
+            select(func.count())
+            .select_from(InventoryTransaction)
+            .where(
+                InventoryTransaction.company_id == ctx.company_id,
+                InventoryTransaction.reference_type == service.MOVEMENT_REFERENCE_DISPATCH,
+                InventoryTransaction.reference_id == dispatch_id,
+            )
+        )
+        or 0
+    )
+
+
+@pytest.mark.parametrize("dispatch_type", list(OWNING_MODULE))
+async def test_a_non_sales_consignment_cannot_be_raised(
+    ctx: Ctx, dispatch_type: DispatchType
+) -> None:
+    bench = await seed_bench(ctx, ordered="40", on_hand="100")
+    vendor_id = await approved_vendor(ctx)
+    payload = DispatchCreate(
+        dispatch_type=dispatch_type,
+        warehouse_id=bench.warehouse.id,
+        dispatch_date=TODAY,
+        vendor_id=None if dispatch_type is DispatchType.TRANSFER else vendor_id,
+        lines=[DispatchLineIn(item_id=bench.item.id, quantity=Decimal("25"))],
+    )
+
+    with pytest.raises(BusinessRuleError, match=OWNING_MODULE[dispatch_type]) as excinfo:
+        await service.create_dispatch(ctx.session, ctx.tenant, payload)
+
+    assert excinfo.value.details["dispatch_type"] == dispatch_type.value
+    raised = await ctx.session.scalar(
+        select(func.count()).select_from(Dispatch).where(Dispatch.company_id == ctx.company_id)
+    )
+    assert raised == 0
+
+
+@pytest.mark.parametrize("dispatch_type", list(OWNING_MODULE))
+async def test_a_non_sales_plan_already_raised_cannot_leave_and_writes_nothing_off(
+    ctx: Ctx, dispatch_type: DispatchType
+) -> None:
+    bench = await seed_bench(ctx, ordered="40", on_hand="100")
+    plan_id = await legacy_plan(
+        ctx,
+        bench,
+        dispatch_type,
+        vendor_id=await approved_vendor(ctx),
+        status=DispatchStatus.READY_FOR_DISPATCH,
+    )
+
+    with pytest.raises(BusinessRuleError, match=OWNING_MODULE[dispatch_type]):
+        await service.dispatch_consignment(
+            ctx.session, ctx.tenant, plan_id, DispatchRequest(reason="Leaves the gate")
+        )
+
+    # Before the fix this posted a 25-unit DISPATCH outflow: on hand fell to 75
+    # and the goods left the books whatever the type said they were doing.
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == Decimal("100.0000")
+    assert await ledger_rows_for(ctx, plan_id) == 0
+    unchanged = await service.get_dispatch_detail(ctx.session, ctx.tenant, plan_id)
+    assert unchanged.status is DispatchStatus.READY_FOR_DISPATCH
+
+    # The way out stays open: the plan is cancelled, not stranded.
+    cancelled = await service.cancel_dispatch(
+        ctx.session, ctx.tenant, plan_id, reason="Raised in the wrong module"
+    )
+    assert cancelled.status is DispatchStatus.CANCELLED
+
+
+async def test_a_non_sales_plan_can_only_be_cancelled_or_deleted(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx, ordered="40", on_hand="100")
+    plan_id = await legacy_plan(
+        ctx, bench, DispatchType.TRANSFER, vendor_id=None, status=DispatchStatus.NOT_DISPATCHED
+    )
+
+    with pytest.raises(BusinessRuleError, match="Inventory"):
+        await service.mark_ready(ctx.session, ctx.tenant, plan_id, reason="Staged at the gate")
+    with pytest.raises(BusinessRuleError, match="Inventory"):
+        await service.update_dispatch(
+            ctx.session, ctx.tenant, plan_id, DispatchUpdate(courier_name="Blue Dart")
+        )
+
+    await service.delete_draft_dispatch(
+        ctx.session, ctx.tenant, plan_id, reason="Raised in the wrong module"
+    )
+    with pytest.raises(NotFoundError):
+        await service.get_dispatch_detail(ctx.session, ctx.tenant, plan_id)
+
+
+@pytest.mark.parametrize("target", [DispatchStatus.DISPATCHED, DispatchStatus.CANCELLED])
+async def test_a_tracking_event_cannot_stand_in_for_the_release_or_the_cancellation(
+    ctx: Ctx, target: DispatchStatus
+) -> None:
+    # Releasing is the only action that moves stock and cancelling is the one
+    # that gives packed boxes back; an event that jumped to either status would
+    # do neither, and a READY consignment would read as gone with its stock
+    # still on the shelf.
+    bench = await seed_bench(ctx)
+    detail = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("10"))
+    dispatch_id = detail.id
+    await service.mark_ready(ctx.session, ctx.tenant, dispatch_id, reason="Loaded")
+
+    with pytest.raises(BusinessRuleError, match="tracking event"):
+        await service.add_tracking_event(
+            ctx.session,
+            ctx.tenant,
+            dispatch_id,
+            TrackingEventIn(event_status=target, remark="Courier feed"),
+        )
+
+    unchanged = await service.get_dispatch_detail(ctx.session, ctx.tenant, dispatch_id)
+    assert unchanged.status is DispatchStatus.READY_FOR_DISPATCH
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("100.0000")
+    assert await ledger_rows_for(ctx, dispatch_id) == 0
+
+
+# -----------------------------------------------------------------------------
+# The packing hand-over: validated, linked and reconciled
+# -----------------------------------------------------------------------------
+#
+# The defect these close: ``POST /packing/{id}/hand-over`` stored whatever
+# dispatch id it was given - another company's, a cancelled one's, one that did
+# not exist - and set only the packing side of the link. The consignment never
+# learned which boxes it carried, so its cartons were never checked against its
+# lines and its boxes and weight stayed whatever somebody typed.
+
+
+async def packing_state(ctx: Ctx, packing_id: uuid.UUID) -> PackingOrder:
+    """The packing order as the database holds it, not as the identity map saw it."""
+    return (
+        await ctx.session.execute(
+            select(PackingOrder)
+            .where(PackingOrder.id == packing_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+
+async def assert_still_on_the_dock(ctx: Ctx, packing_id: uuid.UUID) -> None:
+    order = await packing_state(ctx, packing_id)
+    assert order.status == PackingOrderStatus.PACKED
+    assert order.dispatch_id is None
+    assert order.handed_over_at is None
+
+
+async def second_order(ctx: Ctx, bench: Bench, *, quantity: str) -> tuple[uuid.UUID, uuid.UUID]:
+    """Another allocated order for the same customer, item and warehouse."""
+    order = SalesOrder(
+        company_id=ctx.company_id,
+        code=f"SO-{uuid.uuid4().hex[:8].upper()}",
+        customer_id=bench.customer.id,
+        order_date=TODAY,
+        required_date=TODAY + timedelta(days=7),
+        warehouse_id=bench.warehouse.id,
+        status=SalesOrderStatus.ALLOCATED,
+    )
+    ctx.session.add(order)
+    await ctx.session.flush()
+    line = SalesOrderLine(
+        company_id=ctx.company_id,
+        sales_order_id=order.id,
+        line_number=1,
+        item_id=bench.item.id,
+        quantity=Decimal(quantity),
+        uom_id=bench.uom.id,
+        unit_price=Decimal("100"),
+        allocated_quantity=Decimal(quantity),
+        status=SalesOrderLineStatus.ALLOCATED,
+    )
+    ctx.session.add(line)
+    await ctx.session.flush()
+    reservation = await allocation.reserve(
+        ctx.session,
+        ctx.tenant,
+        item_id=bench.item.id,
+        warehouse_id=bench.warehouse.id,
+        quantity=Decimal(quantity),
+        demand_type=DemandType.SALES_ORDER,
+        demand_id=order.id,
+        demand_line_id=line.id,
+        demand_code=order.code,
+        reason="Second order for the hand-over regressions",
+    )
+    line.reservation_id = reservation.id
+    await ctx.session.flush()
+    return order.id, line.id
+
+
+async def test_a_hand_over_to_a_consignment_that_does_not_exist_is_refused(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+
+    with pytest.raises(NotFoundError, match="Dispatch"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=uuid.uuid4(), reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+
+
+async def test_a_hand_over_to_another_companys_consignment_is_refused(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+    # A foreign key to a UUID is not a tenant check: this row points at our
+    # customer and warehouse and the database is perfectly happy with it.
+    foreign = Dispatch(
+        company_id=ctx.other_tenant.company_id,
+        code=f"DSP-FOREIGN-{uuid.uuid4().hex[:8].upper()}",
+        dispatch_type=DispatchType.SALES,
+        customer_id=bench.customer.id,
+        warehouse_id=bench.warehouse.id,
+        status=DispatchStatus.NOT_DISPATCHED,
+        dispatch_date=TODAY,
+    )
+    ctx.session.add(foreign)
+    await ctx.session.flush()
+    foreign_id = foreign.id
+
+    with pytest.raises(NotFoundError, match="Dispatch"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=foreign_id, reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+
+
+@pytest.mark.parametrize("state", ["dispatched", "cancelled"])
+async def test_a_hand_over_to_a_consignment_that_left_or_was_cancelled_is_refused(
+    ctx: Ctx, state: str
+) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+    if state == "dispatched":
+        dispatch_id = (await send(ctx, bench, "10")).dispatch.id
+    else:
+        dispatch_id = (
+            await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+        ).id
+        await service.cancel_dispatch(
+            ctx.session, ctx.tenant, dispatch_id, reason="Customer postponed"
+        )
+
+    with pytest.raises(BusinessRuleError, match="open for loading"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=dispatch_id, reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+
+
+async def test_a_hand_over_to_another_customers_consignment_is_refused(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    elsewhere = await seed_bench(ctx)
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+    dispatch_id = (
+        await service.create_dispatch(ctx.session, ctx.tenant, elsewhere.payload("10"))
+    ).id
+
+    with pytest.raises(BusinessRuleError, match="different customer"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=dispatch_id, reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+
+
+async def test_a_hand_over_to_a_consignment_for_another_sales_order_is_refused(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx, ordered="40", on_hand="100")
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+    other_order_id, other_line_id = await second_order(ctx, bench, quantity="10")
+    dispatch_id = (
+        await service.create_dispatch(
+            ctx.session,
+            ctx.tenant,
+            bench.payload(
+                "10",
+                sales_order_id=other_order_id,
+                lines=[
+                    DispatchLineIn(
+                        item_id=bench.item.id,
+                        quantity=Decimal("10"),
+                        sales_order_line_id=other_line_id,
+                    )
+                ],
+            ),
+        )
+    ).id
+
+    with pytest.raises(BusinessRuleError, match="different sales order"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=dispatch_id, reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+
+
+async def test_a_hand_over_links_the_boxes_and_reconciles_them_against_the_lines(
+    ctx: Ctx,
+) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, carton_id = await packed_carton(
+        ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)]
+    )
+    # Raised the way the dispatch screen raises one: no packing order, no
+    # cartons, and boxes and weight typed by hand before anybody counted them.
+    dispatch_id = (
+        await service.create_dispatch(
+            ctx.session,
+            ctx.tenant,
+            bench.payload("40", total_boxes=9, total_weight_kg=Decimal("99")),
+        )
+    ).id
+
+    await packing.hand_over_to_dispatch(
+        ctx.session, ctx.tenant, packing_id, dispatch_id=dispatch_id, reason="On the 4pm truck"
+    )
+
+    loaded = await service.get_dispatch_detail(ctx.session, ctx.tenant, dispatch_id)
+    packed = await packing_state(ctx, packing_id)
+    assert packed.status == PackingOrderStatus.HANDED_OVER
+    assert packed.dispatch_id == dispatch_id
+    # Both halves of the link, not just the packing side.
+    assert loaded.packing_order_id == packing_id
+    assert loaded.lines[0].carton_ids == [carton_id]
+    # Boxes and weight follow the cartons the consignment now carries.
+    assert loaded.total_boxes == packed.total_cartons == 1
+    assert loaded.total_weight_kg == packed.total_gross_weight
+
+    audited = (
+        await ctx.session.execute(
+            select(AuditLog).where(
+                AuditLog.company_id == ctx.company_id,
+                AuditLog.entity_type == service.AUDIT_DISPATCH,
+                AuditLog.entity_id == dispatch_id,
+                AuditLog.summary.like("Loaded packing order %"),
+            )
+        )
+    ).scalar_one()
+    assert audited.context["reason"] == "On the 4pm truck"
+    assert audited.new_values["packing_order_id"] == str(packing_id)
+
+    # One step further: the consignment leaves, the cartons are checked again at
+    # the gate, and the order's reservation is what moves.
+    await service.mark_ready(ctx.session, ctx.tenant, dispatch_id, reason="Loaded")
+    result = await service.dispatch_consignment(
+        ctx.session, ctx.tenant, dispatch_id, DispatchRequest(reason="Leaves the gate")
+    )
+    assert result.dispatch.status is DispatchStatus.DISPATCHED
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("60.0000")
+
+
+async def test_a_hand_over_refuses_boxes_that_disagree_with_the_consignment(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+    dispatch_id = (await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("30"))).id
+
+    with pytest.raises(BusinessRuleError, match="quantity does not match"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=dispatch_id, reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+    unchanged = await service.get_dispatch_detail(ctx.session, ctx.tenant, dispatch_id)
+    assert unchanged.packing_order_id is None
+    assert unchanged.lines[0].carton_ids == []
+
+
+async def test_a_hand_over_refuses_packed_goods_the_consignment_does_not_carry(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    second, second_line = await carton_sales_line(ctx, bench)
+    packing_id, _ = await packed_carton(
+        ctx,
+        bench,
+        [(bench.item.id, Decimal("40"), bench.line.id), (second.id, Decimal("5"), second_line.id)],
+    )
+    # Only the first item is on the lorry; the other half of the mixed box
+    # would leave unrecorded if the claim went through.
+    dispatch_id = (await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))).id
+
+    with pytest.raises(BusinessRuleError, match="no line"):
+        await packing.hand_over_to_dispatch(
+            ctx.session, ctx.tenant, packing_id, dispatch_id=dispatch_id, reason="Load it"
+        )
+
+    await assert_still_on_the_dock(ctx, packing_id)
+
+
+async def test_a_consignment_naming_its_packing_order_but_no_cartons_is_reconciled(
+    ctx: Ctx,
+) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, carton_id = await packed_carton(
+        ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)]
+    )
+
+    with pytest.raises(BusinessRuleError, match="quantity does not match"):
+        await service.create_dispatch(
+            ctx.session, ctx.tenant, bench.payload("30", packing_order_id=packing_id)
+        )
+    await assert_still_on_the_dock(ctx, packing_id)
+
+    detail = await service.create_dispatch(
+        ctx.session, ctx.tenant, bench.payload("40", packing_order_id=packing_id)
+    )
+    assert detail.lines[0].carton_ids == [carton_id]
+
+
+async def test_cancelling_a_consignment_gives_its_packed_order_back(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, carton_id = await packed_carton(
+        ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)]
+    )
+    first_id = (await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))).id
+    await packing.hand_over_to_dispatch(
+        ctx.session, ctx.tenant, packing_id, dispatch_id=first_id, reason="Truck A"
+    )
+
+    await service.cancel_dispatch(ctx.session, ctx.tenant, first_id, reason="Truck A broke down")
+
+    # Nothing left the building, so the boxes are packed goods again and back
+    # on the feed - not HANDED_OVER to a consignment that will never move.
+    await assert_still_on_the_dock(ctx, packing_id)
+    feed = await packing.ready_for_dispatch(ctx.session, ctx.tenant)
+    assert any(row.packing_order_id == packing_id for row in feed)
+    released = (
+        await ctx.session.execute(
+            select(AuditLog).where(
+                AuditLog.company_id == ctx.company_id,
+                AuditLog.entity_id == packing_id,
+                AuditLog.old_values["status"].astext == PackingOrderStatus.HANDED_OVER.value,
+                AuditLog.new_values["status"].astext == PackingOrderStatus.PACKED.value,
+            )
+        )
+    ).scalar_one()
+    assert "Truck A broke down" in released.context["reason"]
+
+    # One step further: another consignment takes the same boxes.
+    second_id = (await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))).id
+    await packing.hand_over_to_dispatch(
+        ctx.session, ctx.tenant, packing_id, dispatch_id=second_id, reason="Truck B"
+    )
+    retaken = await packing_state(ctx, packing_id)
+    assert retaken.status == PackingOrderStatus.HANDED_OVER
+    assert retaken.dispatch_id == second_id
+    loaded = await service.get_dispatch_detail(ctx.session, ctx.tenant, second_id)
+    assert loaded.lines[0].carton_ids == [carton_id]
+
+
+async def test_cancelling_releases_a_packing_order_claimed_only_on_the_packing_side(
+    ctx: Ctx,
+) -> None:
+    # The shape every screen-made hand-over left before the link was two-sided:
+    # the packing order names the consignment, the consignment names nothing.
+    bench = await seed_bench(ctx)
+    packing_id, _ = await packed_carton(ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)])
+    dispatch_id = (await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))).id
+    await ctx.session.execute(
+        update(PackingOrder)
+        .where(PackingOrder.id == packing_id)
+        .values(
+            status=PackingOrderStatus.HANDED_OVER, dispatch_id=dispatch_id, handed_over_at=utcnow()
+        )
+    )
+
+    await service.cancel_dispatch(ctx.session, ctx.tenant, dispatch_id, reason="Order on hold")
+
+    await assert_still_on_the_dock(ctx, packing_id)

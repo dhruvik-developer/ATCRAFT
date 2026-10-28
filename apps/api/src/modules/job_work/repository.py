@@ -41,6 +41,7 @@ from src.core.clock import today, utcnow
 from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
+from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, DemandType, StockReservation
 from src.modules.inventory.models import InventoryBalance
 from src.modules.job_work.models import (
     MATERIAL_AT_VENDOR_STATUSES,
@@ -257,6 +258,32 @@ class JobWorkOrderLineRepository(BaseRepository[JobWorkOrderLine]):
             .execution_options(synchronize_session=False)
         )
         return affected_rows(await self.session.execute(stmt))
+
+
+class JobWorkReservationRepository(BaseRepository[StockReservation]):
+    """What a job-work order still holds in the reservation engine.
+
+    Read from the reservations themselves, never inferred from
+    ``job_work_order_lines.reservation_id``: allocation can close a reservation
+    on its own - released from the Reservations screen, expired, or taken by an
+    approved reallocation - and nothing tells the line. Production re-reads its
+    open reservations the same way.
+    """
+
+    model = StockReservation
+
+    async def open_for_order(self, order_id: uuid.UUID) -> list[StockReservation]:
+        """Every reservation the order still holds, in one statement.
+
+        Includes one an approved reallocation granted *to* the order, which no
+        line points at. Bounded by the order's lines plus such grants.
+        """
+        stmt = self._scoped().where(
+            StockReservation.demand_type == DemandType.JOB_WORK_ORDER,
+            StockReservation.demand_id == order_id,
+            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
 
 class JobWorkChallanRepository(BaseRepository[JobWorkChallan]):
@@ -975,6 +1002,7 @@ __all__ = [
     "JobWorkOrderRepository",
     "JobWorkReceiptLineRepository",
     "JobWorkReceiptRepository",
+    "JobWorkReservationRepository",
     "TransporterLookupRepository",
     "VendorFacts",
     "VendorLookupRepository",

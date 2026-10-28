@@ -13744,48 +13744,6 @@
           }
         },
         {
-          "name": "Claim a packed order for a dispatch",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reason\": \"\"\n}"
-            },
-            "description": "Claim a packed order for a dispatch",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "packing",
-                ":order_id",
-                "hand-over"
-              ],
-              "raw": "{{base_url}}/api/v1/packing/{order_id}/hand-over",
-              "variable": [
-                {
-                  "description": "order_id of the record",
-                  "key": "order_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
           "name": "Close a handed-over packing order",
           "request": {
             "body": {
@@ -14086,6 +14044,48 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/packing?"
+            }
+          }
+        },
+        {
+          "name": "Load a packed order onto a consignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reason\": \"\"\n}"
+            },
+            "description": "Hands the boxes to a SALES consignment of this company that has not left and was not cancelled, for the same customer and - where both name one - the same sales order. The consignment records the packing order, its sealed cartons are matched to the consignment's lines and checked against them, and its boxes and weight follow the cartons. A consignment that does not exist here answers 404.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                ":order_id",
+                "hand-over"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/{order_id}/hand-over",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },

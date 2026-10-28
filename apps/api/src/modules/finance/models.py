@@ -1238,6 +1238,62 @@ class CreditNoteLine(TenantEntity):
     )
 
 
+class CreditNoteCostAllocation(ImmutableLedgerEntity):
+    """Frozen returned FIFO pieces reversed by one return-credit line.
+
+    Ranges are half-open within the receipt movement. Cancelling a credit
+    releases its ranges for reuse; it never changes another credit's evidence.
+    """
+
+    __tablename__ = "credit_note_cost_allocations"
+
+    credit_note_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "credit_note_lines.id",
+            ondelete="RESTRICT",
+            name="fk_credit_cost_allocations_credit_line",
+        ),
+        nullable=False,
+    )
+    sales_return_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "sales_return_lines.id",
+            ondelete="RESTRICT",
+            name="fk_credit_cost_allocations_return_line",
+        ),
+        nullable=False,
+    )
+    receipt_transaction_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "inventory_transactions.id",
+            ondelete="RESTRICT",
+            name="fk_credit_cost_allocations_receipt_txn",
+        ),
+        nullable=False,
+    )
+    source_quantity_offset: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    cost_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "credit_note_line_id",
+            "receipt_transaction_id",
+            "source_quantity_offset",
+            name="uq_credit_cost_allocation_piece",
+        ),
+        Index("ix_credit_cost_allocations_line", "company_id", "credit_note_line_id"),
+        Index("ix_credit_cost_allocations_return", "company_id", "sales_return_line_id"),
+        Index("ix_credit_cost_allocations_receipt", "company_id", "receipt_transaction_id"),
+        CheckConstraint("source_quantity_offset >= 0", name="source_offset_non_negative"),
+        CheckConstraint("quantity > 0", name="allocated_quantity_positive"),
+        CheckConstraint("cost_amount >= 0", name="allocated_cost_non_negative"),
+    )
+
+
 class Payment(TenantEntity, OptimisticLockMixin):
     """Money paid to a vendor or received from a customer.
 
@@ -1432,6 +1488,7 @@ __all__ = [
     "PRICE_VARIANCE_TOLERANCE",
     "QUANTITY_VARIANCE_TOLERANCE",
     "CreditNote",
+    "CreditNoteCostAllocation",
     "CreditNoteLine",
     "CreditNoteReason",
     "CreditNoteStatus",

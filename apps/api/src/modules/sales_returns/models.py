@@ -92,6 +92,17 @@ class SalesReturnLine(TenantEntity):
     qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("qc_inspections.id", ondelete="SET NULL"), nullable=True
     )
+    # Ordinary returns can share item/batch grains; only the posting result
+    # identifies which receipt's FIFO pieces belong to this document line.
+    receipt_transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID,
+        ForeignKey(
+            "inventory_transactions.id",
+            ondelete="RESTRICT",
+            name="fk_sales_return_lines_receipt_transaction",
+        ),
+        nullable=True,
+    )
     item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
     )
@@ -120,6 +131,7 @@ class SalesReturnLine(TenantEntity):
             "sales_return_id", "dispatch_line_id", name="uq_sales_return_lines_dispatch"
         ),
         Index("ix_sales_return_lines_return", "company_id", "sales_return_id"),
+        Index("uq_sales_return_lines_receipt", "company_id", "receipt_transaction_id", unique=True),
         CheckConstraint("quantity > 0", name="sales_return_line_quantity_positive"),
         CheckConstraint(
             "cardinality(serial_ids) <= quantity",

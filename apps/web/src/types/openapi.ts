@@ -4965,7 +4965,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Claim a packed order for a dispatch */
+        /**
+         * Load a packed order onto a consignment
+         * @description Hands the boxes to a SALES consignment of this company that has not left and was not cancelled, for the same customer and - where both name one - the same sales order. The consignment records the packing order, its sealed cartons are matched to the consignment's lines and checked against them, and its boxes and weight follow the cartons. A consignment that does not exist here answers 404.
+         */
         post: operations["hand_over_api_v1_packing__order_id__hand_over_post"];
         delete?: never;
         options?: never;
@@ -19537,7 +19540,7 @@ export interface components {
         };
         /**
          * DispatchHandoverRequest
-         * @description Claim a packed order for a dispatch.
+         * @description Load a packed order onto a consignment that is still open for loading.
          */
         DispatchHandoverRequest: {
             /**
@@ -28216,10 +28219,38 @@ export interface components {
             /** Valid To */
             valid_to?: string | null;
         };
-        /** ProductProfitabilityRow */
+        /**
+         * ProductProfitabilityRow
+         * @description Posted sales and matched FIFO costs, with explicit provisional gaps.
+         */
         ProductProfitabilityRow: {
             /** Cost Amount */
-            cost_amount: string;
+            cost_amount: string | null;
+            /**
+             * Cost Pending
+             * @default false
+             */
+            cost_pending: boolean;
+            /**
+             * Credit notes
+             * @default 0
+             */
+            credit_amount: string;
+            /**
+             * Has Provisional Revenue
+             * @default false
+             */
+            has_provisional_revenue: boolean;
+            /**
+             * Matched invoice FIFO cost
+             * @default 0
+             */
+            invoice_cost_amount: string;
+            /**
+             * Invoice revenue
+             * @default 0
+             */
+            invoice_revenue_amount: string;
             /** Item Code */
             item_code: string;
             /**
@@ -28233,16 +28264,46 @@ export interface components {
              * Margin Amount
              * @default 0
              */
-            margin_amount: string;
+            margin_amount: string | null;
             /**
              * Margin Percent
              * @default 0
              */
-            margin_percent: string;
+            margin_percent: string | null;
+            /**
+             * Uninvoiced FIFO cost
+             * @default 0
+             */
+            provisional_cost_amount: string;
+            /**
+             * Uninvoiced revenue estimate
+             * @default 0
+             */
+            provisional_revenue_amount: string;
             /** Quantity Sold */
             quantity_sold: string;
+            /**
+             * Return-credit FIFO reversal
+             * @default 0
+             */
+            return_cost_amount: string;
             /** Revenue Amount */
-            revenue_amount: string;
+            revenue_amount: string | null;
+            /**
+             * Uninvoiced quantity
+             * @default 0
+             */
+            uninvoiced_quantity: string;
+            /**
+             * Unmatched FIFO quantity
+             * @default 0
+             */
+            unmatched_cost_quantity: string;
+            /**
+             * Unpriced quantity
+             * @default 0
+             */
+            unpriced_quantity: string;
         };
         /**
          * ProductionCapacityDay

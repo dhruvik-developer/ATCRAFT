@@ -204,6 +204,18 @@ class FakeAllocation:
         self.reserve_calls: list[dict[str, object]] = []
         self.release_calls: list[uuid.UUID] = []
 
+    async def reservable(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        item_ids: list[uuid.UUID],
+        warehouse_id: uuid.UUID,
+    ) -> dict[uuid.UUID, Decimal]:
+        return await service.AllocationService().reservable(
+            session, tenant, item_ids=item_ids, warehouse_id=warehouse_id
+        )
+
     async def reserve(
         self,
         session: AsyncSession,
@@ -218,7 +230,7 @@ class FakeAllocation:
         priority: int,
         required_date: date,
         reason: str,
-    ) -> service.ReservationRef:
+    ) -> list[service.ReservationRef]:
         self.reserve_calls.append(
             {
                 "item_id": item_id,
@@ -231,7 +243,7 @@ class FakeAllocation:
                 "required_date": required_date,
             }
         )
-        reservation = await service.AllocationService().reserve(
+        taken = await service.AllocationService().reserve(
             session,
             tenant,
             item_id=item_id,
@@ -244,9 +256,9 @@ class FakeAllocation:
             required_date=required_date,
             reason=reason,
         )
-        reservation_id = reservation.id
-        self.held[reservation_id] = (item_id, warehouse_id, Decimal(quantity))
-        return service.ReservationRef(id=reservation_id, quantity=Decimal(quantity))
+        for reservation in taken:
+            self.held[reservation.id] = (item_id, warehouse_id, Decimal(reservation.quantity))
+        return taken
 
     async def release(
         self,
@@ -876,6 +888,31 @@ async def test_confirmation_is_refused_past_the_credit_limit(ctx: Ctx):
     assert await available_of(ctx, item, warehouse) == Decimal("500.0000")
 
 
+async def test_confirmation_counts_other_uninvoiced_orders_in_credit_exposure(ctx: Ctx):
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx, credit_limit="8000")
+    item = await seed_item(ctx, uom, sale_price="100")
+    await seed_stock(ctx, item, warehouse, "100")
+    await _confirmed_order_of_forty(ctx, customer, warehouse, item)
+    second = await make_draft(ctx, customer, warehouse, [line(item, "40")])
+    reserve_calls_before = len(ctx.allocation.reserve_calls)
+
+    with pytest.raises(BusinessRuleError, match="credit limit"):
+        await service.confirm_order(
+            ctx.session,
+            ctx.tenant,
+            ctx.principal,
+            second.id,
+            reason="Confirmed",
+            allocation=ctx.allocation,
+        )
+
+    assert second.status is SalesOrderStatus.DRAFT
+    assert len(ctx.allocation.reserve_calls) == reserve_calls_before
+    assert await available_of(ctx, item, warehouse) == Decimal("60.0000")
+
+
 async def test_a_draft_may_be_raised_for_a_customer_that_could_not_confirm(ctx: Ctx):
     """Credit is consumed at confirmation, not at quotation time."""
     uom = await seed_uom(ctx)
@@ -1074,6 +1111,32 @@ async def test_raising_a_confirmed_quantity_past_the_credit_limit_is_refused(ctx
     assert len(ctx.allocation.reserve_calls) == reserve_calls_before
     assert await _stored_total(ctx, order_id) == Decimal("4720.00")
     assert await available_of(ctx, item, warehouse) == Decimal("60.0000")
+
+
+async def test_growing_an_order_counts_other_uninvoiced_order_exposure(ctx: Ctx):
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx, credit_limit="10000")
+    item = await seed_item(ctx, uom, sale_price="100")
+    await seed_stock(ctx, item, warehouse, "100")
+    order_id = await _confirmed_order_of_forty(ctx, customer, warehouse, item)
+    other_order_id = await _confirmed_order_of_forty(ctx, customer, warehouse, item)
+    reserve_calls_before = len(ctx.allocation.reserve_calls)
+
+    with pytest.raises(BusinessRuleError, match="credit limit"):
+        await service.update_order(
+            ctx.session,
+            ctx.tenant,
+            ctx.principal,
+            order_id,
+            SalesOrderUpdate(lines=[line(item, "50")]),
+            allocation=ctx.allocation,
+        )
+
+    assert len(ctx.allocation.reserve_calls) == reserve_calls_before
+    assert await _stored_total(ctx, order_id) == Decimal("4720.00")
+    assert await _stored_total(ctx, other_order_id) == Decimal("4720.00")
+    assert await available_of(ctx, item, warehouse) == Decimal("20.0000")
 
 
 async def test_a_customer_put_on_hold_after_confirmation_cannot_grow_the_order(ctx: Ctx):

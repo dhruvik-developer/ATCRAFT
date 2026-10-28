@@ -33,7 +33,8 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, ValidationError
 from src.core.ids import SYSTEM_ACTOR_ID
 from src.modules.allocation import service as allocation
-from src.modules.allocation.models import ReservationStatus, StockReservation
+from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
+from src.modules.allocation.schemas import ReallocationRequestCreate
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.customers.models import Customer
 from src.modules.dispatch import service as dispatch_service
@@ -56,10 +57,11 @@ from src.modules.inventory.models import (
     InventoryBalance,
     InventoryTransaction,
     SerialStatus,
+    StockBatch,
     StockSerial,
     TransactionType,
 )
-from src.modules.inventory.schemas import StockSerialCreate
+from src.modules.inventory.schemas import StockBatchCreate, StockSerialCreate
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure
 from src.modules.quality import service as quality_service
 from src.modules.quality.schemas import DecideRequest
@@ -73,7 +75,12 @@ from src.modules.sales_returns.schemas import (
     SalesReturnLineIn,
     SalesReturnUnits,
 )
-from src.modules.warehouses.models import Warehouse, WarehouseType
+from src.modules.warehouses.models import (
+    StorageLocation,
+    StorageLocationType,
+    Warehouse,
+    WarehouseType,
+)
 from src.workers.tasks import maintenance
 from tests import seed_support
 
@@ -414,11 +421,14 @@ async def _top_up_audit(b: Bench, order_id: uuid.UUID) -> list[AuditLog]:
 async def test_k02_a_partly_reserved_line_is_topped_up_by_the_system_actor(
     bench: Bench,
 ) -> None:
-    """The release-and-re-reserve path, run as the scheduler runs it.
+    """The top-up, run as the scheduler runs it.
 
-    120 of 500 reserved at confirmation; 380 arrive. The line's one reservation
-    is released and retaken for the whole 500 - the path that wrote the nil
-    actor into ``released_by_id`` and failed on its foreign key.
+    120 of 500 reserved at confirmation; 380 arrive. The top-up adds a
+    reservation for the 380 and leaves the 120 held where it is - a promise
+    already held at a position may be on a packing bench, so it is never moved
+    merely to consolidate (docs/assumptions.md §E2-2). Made by the system: no
+    person's name on the new reservation, and no foreign-key violation from the
+    nil actor.
     """
     b = bench
     await receive(b, "120")
@@ -430,16 +440,16 @@ async def test_k02_a_partly_reserved_line_is_topped_up_by_the_system_actor(
     view = await sales.allocate_order(b.session, system, order.id, reason="Scheduled top-up")
 
     assert view.fully_allocated is True
+    assert view.lines[0].reserved_quantity == Decimal("500.0000")
     assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.ALLOCATED
-    released = await fresh(b, StockReservation, first_reservation)
-    assert released.status is ReservationStatus.RELEASED
-    assert released.released_by_id is None
+    kept = await fresh(b, StockReservation, first_reservation)
+    assert kept.status is ReservationStatus.ACTIVE
+    assert kept.quantity == Decimal("120.0000")
     current = await fresh(b, SalesOrderLine, line.id)
-    assert current.reservation_id != first_reservation
+    assert current.reservation_id == first_reservation
     assert current.allocated_quantity == Decimal("500.0000")
-    assert (await fresh(b, StockReservation, current.reservation_id)).quantity == Decimal(
-        "500.0000"
-    )
+    added = [row for row in await line_reservations(b, line.id) if row.id != first_reservation]
+    assert [(row.quantity, row.created_by_id) for row in added] == [(Decimal("380.0000"), None)]
     stock = await balance(b)
     assert stock.reserved_quantity == Decimal("500.0000")
 
@@ -619,6 +629,503 @@ async def test_cancelling_an_order_whose_reservation_was_already_closed_still_su
     assert cancelled.status == SalesOrderStatus.CANCELLED
     # Nothing was released twice: the balance holds no reservation either way.
     assert (await balance(b)).reserved_quantity == Decimal("0.0000")
+
+
+# -----------------------------------------------------------------------------
+# Stock that sits in a bin or a lot is reserved where it is
+# -----------------------------------------------------------------------------
+
+
+async def make_bin(b: Bench, code: str) -> StorageLocation:
+    row = StorageLocation(
+        company_id=b.tenant.company_id,
+        warehouse_id=b.warehouse.id,
+        code=_code(code),
+        name=f"Rack {code}",
+        location_type=StorageLocationType.BIN,
+    )
+    b.session.add(row)
+    await b.session.flush()
+    return row
+
+
+async def lot_tracked_item(b: Bench) -> Item:
+    return await seed_support.seed_item(
+        b.session,
+        company_id=b.tenant.company_id,
+        code=_code("HINGE"),
+        base_uom_id=b.uom.id,
+        item_group=ItemGroup.FINISHED_GOOD,
+        can_sell=True,
+        sale_price=Decimal("100"),
+        gst_rate=Decimal("18"),
+        is_batch_tracked=True,
+    )
+
+
+async def make_lot(b: Bench, item: Item, *, expires_in_days: int | None = None) -> uuid.UUID:
+    lot = await inventory.TraceabilityService(b.session, b.tenant).create_batch(
+        StockBatchCreate(
+            item_id=item.id,
+            batch_number=_code("LOT"),
+            expires_on=None if expires_in_days is None else today() + timedelta(expires_in_days),
+        )
+    )
+    return lot.id
+
+
+async def receive_at(
+    b: Bench,
+    quantity: str,
+    *,
+    item: Item | None = None,
+    location_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+) -> None:
+    """A goods receipt booked into a bin, a lot, or both - as the GRN dialog does."""
+    await inventory.post_movement(
+        b.session,
+        b.tenant,
+        item_id=(item or b.item).id,
+        warehouse_id=b.warehouse.id,
+        quantity=Decimal(quantity),
+        transaction_type=TransactionType.PURCHASE_RECEIPT,
+        reference_type="goods_receipt",
+        reference_id=uuid.uuid4(),
+        reference_code=_code("GRN"),
+        reason="Goods received against a purchase order",
+        unit_cost=Decimal("60"),
+        location_id=location_id,
+        batch_id=batch_id,
+    )
+
+
+async def position(
+    b: Bench,
+    *,
+    item: Item | None = None,
+    location_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+) -> InventoryBalance:
+    stmt = (
+        select(InventoryBalance)
+        .where(
+            InventoryBalance.company_id == b.tenant.company_id,
+            InventoryBalance.item_id == (item or b.item).id,
+            InventoryBalance.warehouse_id == b.warehouse.id,
+            InventoryBalance.location_id.is_(None)
+            if location_id is None
+            else InventoryBalance.location_id == location_id,
+            InventoryBalance.batch_id.is_(None)
+            if batch_id is None
+            else InventoryBalance.batch_id == batch_id,
+        )
+        .execution_options(populate_existing=True)
+    )
+    return (await b.session.execute(stmt)).scalar_one()
+
+
+async def line_reservations(b: Bench, line_id: uuid.UUID) -> list[StockReservation]:
+    stmt = (
+        select(StockReservation)
+        .where(
+            StockReservation.company_id == b.tenant.company_id,
+            StockReservation.demand_line_id == line_id,
+        )
+        .order_by(StockReservation.created_at, StockReservation.id)
+        .execution_options(populate_existing=True)
+    )
+    return list((await b.session.execute(stmt)).scalars().all())
+
+
+def lot_payload(
+    b: Bench, order: SalesOrder, line: SalesOrderLine, quantity: str, lot_id: uuid.UUID
+) -> DispatchCreate:
+    """The screen's payload for a lot-tracked line: the lot picker fills ``batch_id``."""
+    payload = ui_payload(b, order, [(line, quantity, [])])
+    payload.lines[0].batch_id = lot_id
+    return payload
+
+
+async def test_stock_received_into_a_bin_is_reserved_there_and_ships_from_there(
+    bench: Bench,
+) -> None:
+    b = bench
+    rack = await make_bin(b, "A1")
+    await receive_at(b, "100", location_id=rack.id)
+
+    order, line = await raise_order(b, "100")
+
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.ALLOCATED
+    [reservation] = await line_reservations(b, line.id)
+    assert (reservation.location_id, reservation.batch_id) == (rack.id, None)
+    assert reservation.quantity == Decimal("100.0000")
+    assert (await fresh(b, SalesOrderLine, line.id)).reservation_id == reservation.id
+    assert (await position(b, location_id=rack.id)).reserved_quantity == Decimal("100.0000")
+
+    result = await ship(b, ui_payload(b, order, [(line, "100", [])]))
+
+    assert result.sales_order_status == SalesOrderStatus.DISPATCHED
+    assert result.consumed_reservation_ids == [reservation.id]
+    assert (await fresh(b, StockReservation, reservation.id)).status is ReservationStatus.CONSUMED
+    stock = await position(b, location_id=rack.id)
+    assert stock.on_hand_quantity == Decimal("0.0000")
+    assert stock.reserved_quantity == Decimal("0.0000")
+
+
+async def test_a_lot_tracked_item_is_reserved_from_its_lot_and_ships_that_lot(
+    bench: Bench,
+) -> None:
+    b = bench
+    hinge = await lot_tracked_item(b)
+    lot = await make_lot(b, hinge, expires_in_days=180)
+    await receive_at(b, "100", item=hinge, batch_id=lot)
+
+    order, line = await raise_order(b, "100", item=hinge)
+
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.ALLOCATED
+    [reservation] = await line_reservations(b, line.id)
+    assert (reservation.location_id, reservation.batch_id) == (None, lot)
+    assert reservation.quantity == Decimal("100.0000")
+
+    result = await ship(b, lot_payload(b, order, line, "100", lot))
+
+    assert result.sales_order_status == SalesOrderStatus.DISPATCHED
+    rows = (
+        (
+            await b.session.execute(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.reference_id == result.dispatch.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # The ledger says the lot the document says.
+    assert [(row.batch_id, row.quantity) for row in rows] == [(lot, Decimal("-100.0000"))]
+    stock = await position(b, item=hinge, batch_id=lot)
+    assert stock.on_hand_quantity == Decimal("0.0000")
+    assert stock.reserved_quantity == Decimal("0.0000")
+
+
+async def two_bins(b: Bench, first: str = "60", second: str = "50") -> tuple[uuid.UUID, uuid.UUID]:
+    """Stock received into two bins, ``A1`` before ``B7`` in bin order."""
+    near = await make_bin(b, "A1")
+    far = await make_bin(b, "B7")
+    await receive_at(b, first, location_id=near.id)
+    await receive_at(b, second, location_id=far.id)
+    return near.id, far.id
+
+
+async def test_a_line_no_one_bin_can_cover_is_held_across_bins_and_ships_from_each(
+    bench: Bench,
+) -> None:
+    b = bench
+    near, far = await two_bins(b)
+
+    order, line = await raise_order(b, "100")
+
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.ALLOCATED
+    held = await line_reservations(b, line.id)
+    # No bin holds 100: bins are taken in bin order, the first giving all it has.
+    assert [(row.location_id, row.quantity) for row in held] == [
+        (near, Decimal("60.0000")),
+        (far, Decimal("40.0000")),
+    ]
+    view = await sales.allocation_status(b.session, b.tenant, order.id)
+    assert view.lines[0].reserved_quantity == Decimal("100.0000")
+    assert view.lines[0].dispatchable_quantity == Decimal("100.0000")
+
+    result = await ship(b, ui_payload(b, order, [(line, "100", [])]))
+
+    assert result.sales_order_status == SalesOrderStatus.DISPATCHED
+    assert result.consumed_reservation_ids == [row.id for row in held]
+    for row in held:
+        assert (await fresh(b, StockReservation, row.id)).status is ReservationStatus.CONSUMED
+    emptied = await position(b, location_id=near)
+    assert (emptied.on_hand_quantity, emptied.reserved_quantity) == (Decimal("0"), Decimal("0"))
+    rest = await position(b, location_id=far)
+    assert (rest.on_hand_quantity, rest.reserved_quantity) == (Decimal("10"), Decimal("0"))
+    assert (await fresh(b, SalesOrderLine, line.id)).allocated_quantity == Decimal("0.0000")
+
+
+async def test_one_bin_that_covers_the_line_is_preferred_to_splitting(bench: Bench) -> None:
+    b = bench
+    _, far = await two_bins(b, first="5", second="100")
+
+    _, line = await raise_order(b, "50")
+
+    held = await line_reservations(b, line.id)
+    assert [(row.location_id, row.quantity) for row in held] == [(far, Decimal("50.0000"))]
+
+
+async def test_lots_are_held_fefo_and_each_lot_leaves_on_its_own_consignment(
+    bench: Bench,
+) -> None:
+    b = bench
+    hinge = await lot_tracked_item(b)
+    early = await make_lot(b, hinge, expires_in_days=30)
+    late = await make_lot(b, hinge, expires_in_days=200)
+    await receive_at(b, "30", item=hinge, batch_id=early)
+    await receive_at(b, "100", item=hinge, batch_id=late)
+
+    # Only the later lot can cover 50 whole - the lot the engine's own FEFO
+    # pick would choose - so the line is held there and stays in one lot.
+    first_order, first_line = await raise_order(b, "50", item=hinge)
+    held = await line_reservations(b, first_line.id)
+    assert [(row.batch_id, row.quantity) for row in held] == [(late, Decimal("50.0000"))]
+
+    # No lot can cover 70: earliest expiry first.
+    order, line = await raise_order(b, "70", item=hinge)
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.ALLOCATED
+    held = await line_reservations(b, line.id)
+    assert [(row.batch_id, row.quantity) for row in held] == [
+        (early, Decimal("30.0000")),
+        (late, Decimal("40.0000")),
+    ]
+
+    # One dispatch line moves one lot, so each lot leaves on its own consignment.
+    await ship(b, lot_payload(b, order, line, "30", early))
+    final = await ship(b, lot_payload(b, order, line, "40", late))
+    assert final.sales_order_status == SalesOrderStatus.DISPATCHED
+    assert (await position(b, item=hinge, batch_id=early)).on_hand_quantity == Decimal("0")
+    stock = await position(b, item=hinge, batch_id=late)
+    # 100 received, 40 shipped; the first order's 50 is still held there.
+    assert (stock.on_hand_quantity, stock.reserved_quantity) == (Decimal("60"), Decimal("50"))
+
+    # A consignment naming a lot the line is not held in cannot take its stock.
+    with pytest.raises(BusinessRuleError, match="in the lot named"):
+        await ship(b, lot_payload(b, first_order, first_line, "50", early))
+
+
+async def test_an_expired_lot_is_neither_counted_nor_promised(bench: Bench) -> None:
+    b = bench
+    hinge = await lot_tracked_item(b)
+    lot = await make_lot(b, hinge, expires_in_days=10)
+    await receive_at(b, "100", item=hinge, batch_id=lot)
+    batch = await fresh(b, StockBatch, lot)
+    batch.expires_on = today() - timedelta(days=1)
+    await b.session.flush()
+
+    order, line = await raise_order(b, "40", item=hinge)
+
+    # A shortage, not a refusal: the expired lot cannot be dispatched, so it is
+    # not stock the order can be promised.
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.CONFIRMED
+    assert await line_reservations(b, line.id) == []
+    view = await sales.allocation_status(b.session, b.tenant, order.id)
+    assert view.lines[0].shortfall_quantity == Decimal("40.0000")
+
+
+async def test_the_scheduled_top_up_holds_binned_receipts_and_reads_a_split_line_as_covered(
+    bench: Bench, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bench
+    order, line = await raise_order(b, "100")
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.CONFIRMED
+    near, far = await two_bins(b)
+    assert order.id in await maintenance._short_orders(b.session, b.tenant.company_id)
+    monkeypatch.setattr(maintenance, "session_scope", _run_in(b.session))
+
+    outcome = await maintenance.top_up_short_orders()
+
+    assert outcome["failed"] == 0
+    assert (await fresh(b, SalesOrder, order.id)).status == SalesOrderStatus.ALLOCATED
+    held = await line_reservations(b, line.id)
+    assert [(row.location_id, row.quantity) for row in held] == [
+        (near, Decimal("60.0000")),
+        (far, Decimal("40.0000")),
+    ]
+    # Covered across both positions, so the next tick does not pick it up again.
+    assert order.id not in await maintenance._short_orders(b.session, b.tenant.company_id)
+
+
+async def test_cancelling_or_resizing_a_split_line_gives_back_every_position(
+    bench: Bench,
+) -> None:
+    b = bench
+    near, far = await two_bins(b)
+    order, line = await raise_order(b, "100")
+    split = await line_reservations(b, line.id)
+
+    # Shrinking re-reserves the whole line: one bin covers 50 now.
+    await sales.update_order(
+        b.session,
+        b.tenant,
+        b.principal,
+        order.id,
+        SalesOrderUpdate(
+            lines=[
+                SalesOrderLineIn(
+                    line_number=1, item_id=b.item.id, quantity=Decimal("50"), uom_id=b.uom.id
+                )
+            ]
+        ),
+    )
+    for row in split:
+        assert (await fresh(b, StockReservation, row.id)).status is ReservationStatus.RELEASED
+    open_now = [
+        row for row in await line_reservations(b, line.id) if row.status is ReservationStatus.ACTIVE
+    ]
+    assert [(row.location_id, row.quantity) for row in open_now] == [(near, Decimal("50.0000"))]
+    assert (await fresh(b, SalesOrderLine, line.id)).reservation_id == open_now[0].id
+
+    await sales.cancel_order(b.session, b.tenant, order.id, reason="Withdrawn")
+
+    assert all(
+        row.status is ReservationStatus.RELEASED for row in await line_reservations(b, line.id)
+    )
+    for location_id in (near, far):
+        assert (await position(b, location_id=location_id)).reserved_quantity == Decimal("0")
+
+
+async def test_a_reallocation_takes_one_position_of_a_split_line_for_an_urgent_order(
+    bench: Bench,
+) -> None:
+    b = bench
+    near, far = await two_bins(b, first="60", second="40")
+    donor_order, donor_line = await raise_order(b, "100", priority=9)
+    urgent, urgent_line = await raise_order(b, "40", priority=1)
+    assert (await fresh(b, SalesOrder, urgent.id)).status == SalesOrderStatus.CONFIRMED
+    donor_far = next(
+        row for row in await line_reservations(b, donor_line.id) if row.location_id == far
+    )
+    approver = await seed_support.seed_user(b.session, company_id=b.tenant.company_id)
+    request = await allocation.AllocationService(b.session, b.tenant).create_reallocation_request(
+        ReallocationRequestCreate(
+            item_id=b.item.id,
+            warehouse_id=b.warehouse.id,
+            quantity=Decimal("40"),
+            to_demand_type=DemandType.SALES_ORDER,
+            to_demand_id=urgent.id,
+            to_demand_line_id=urgent_line.id,
+            to_demand_code=urgent.code,
+            priority=1,
+            reason="Key account, promised for Friday",
+            from_reservation_id=donor_far.id,
+        )
+    )
+
+    await allocation.reallocate(
+        b.session,
+        TenantContext(company_id=b.tenant.company_id, user_id=approver.id),
+        request_id=request.id,
+        approved_by=approver.id,
+    )
+
+    # The donor keeps the bin it was not asked for, and says so.
+    kept = await fresh(b, SalesOrderLine, donor_line.id)
+    assert kept.allocated_quantity == Decimal("60.0000")
+    assert (await fresh(b, StockReservation, kept.reservation_id)).location_id == near
+    assert (await fresh(b, SalesOrder, donor_order.id)).status == SalesOrderStatus.CONFIRMED
+    # The urgent line holds the reallocated stock where it sits, and ships it.
+    granted = await line_reservations(b, urgent_line.id)
+    assert [(row.location_id, row.quantity) for row in granted] == [(far, Decimal("40.0000"))]
+    assert (await fresh(b, SalesOrder, urgent.id)).status == SalesOrderStatus.ALLOCATED
+    result = await ship(b, ui_payload(b, urgent, [(urgent_line, "40", [])]))
+    assert result.consumed_reservation_ids == [granted[0].id]
+    stock = await position(b, location_id=far)
+    assert (stock.on_hand_quantity, stock.reserved_quantity) == (Decimal("0"), Decimal("0"))
+
+
+async def test_serial_units_in_a_bin_leave_against_the_reservation_held_there(
+    bench: Bench,
+) -> None:
+    b = bench
+    lock = await seed_support.seed_item(
+        b.session,
+        company_id=b.tenant.company_id,
+        code=_code("LOCK"),
+        base_uom_id=b.uom.id,
+        item_group=ItemGroup.FINISHED_GOOD,
+        can_sell=True,
+        sale_price=Decimal("4500"),
+        gst_rate=Decimal("18"),
+        is_serial_tracked=True,
+    )
+    near = await make_bin(b, "A1")
+    far = await make_bin(b, "B7")
+    units: list[uuid.UUID] = []
+    for location in (near, near, far):
+        serial = await inventory.TraceabilityService(b.session, b.tenant).create_serial(
+            StockSerialCreate(item_id=lock.id, serial_number=_code("SN"), unit_cost=Decimal("3000"))
+        )
+        await inventory.post_movement(
+            b.session,
+            b.tenant,
+            item_id=lock.id,
+            warehouse_id=b.warehouse.id,
+            quantity=Decimal("1"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPENING",
+            reason="Serialised opening stock in a bin",
+            serial_id=serial.id,
+            location_id=location.id,
+            unit_cost=Decimal("3000"),
+        )
+        units.append(serial.id)
+    order, line = await raise_order(b, "2", item=lock)
+    [held] = await line_reservations(b, line.id)
+    assert (held.location_id, held.quantity) == (near.id, Decimal("2.0000"))
+
+    result = await ship(b, ui_payload(b, order, [(line, "2", [str(u) for u in units[:2]])]))
+
+    assert result.consumed_reservation_ids == [held.id]
+    for unit in units[:2]:
+        assert (await fresh(b, StockSerial, unit)).status is SerialStatus.DISPATCHED
+    stock = await position(b, item=lock, location_id=near.id)
+    assert (stock.on_hand_quantity, stock.reserved_quantity) == (Decimal("0"), Decimal("0"))
+
+
+async def test_a_serial_unit_from_an_unreserved_bin_cannot_leave_against_the_line(
+    bench: Bench,
+) -> None:
+    b = bench
+    lock = await seed_support.seed_item(
+        b.session,
+        company_id=b.tenant.company_id,
+        code=_code("LOCK"),
+        base_uom_id=b.uom.id,
+        item_group=ItemGroup.FINISHED_GOOD,
+        can_sell=True,
+        sale_price=Decimal("4500"),
+        gst_rate=Decimal("18"),
+        is_serial_tracked=True,
+    )
+    near = await make_bin(b, "A1")
+    far = await make_bin(b, "B7")
+    units: list[uuid.UUID] = []
+    for location in (near, far):
+        serial = await inventory.TraceabilityService(b.session, b.tenant).create_serial(
+            StockSerialCreate(item_id=lock.id, serial_number=_code("SN"), unit_cost=Decimal("3000"))
+        )
+        await inventory.post_movement(
+            b.session,
+            b.tenant,
+            item_id=lock.id,
+            warehouse_id=b.warehouse.id,
+            quantity=Decimal("1"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPENING",
+            reason="Serialised opening stock in a bin",
+            serial_id=serial.id,
+            location_id=location.id,
+            unit_cost=Decimal("3000"),
+        )
+        units.append(serial.id)
+    order, line = await raise_order(b, "1", item=lock)
+    [held] = await line_reservations(b, line.id)
+    assert held.location_id == near.id
+
+    # The unit on B7 is not the one the line holds: moving it against the A1
+    # reservation would empty A1's count while the unit stayed on B7.
+    with pytest.raises(BusinessRuleError, match="not where this line's reserved stock"):
+        await ship(b, ui_payload(b, order, [(line, "1", [str(units[1])])]))
 
 
 # -----------------------------------------------------------------------------

@@ -55,6 +55,18 @@ export type DispatchStatus = (typeof DISPATCH_STATUSES)[number]
 export const DISPATCH_TYPES = ['SALES', 'PURCHASE_RETURN', 'JOB_WORK', 'TRANSFER'] as const
 export type DispatchType = (typeof DISPATCH_TYPES)[number]
 
+/**
+ * The one type a consignment is raised as. Releasing posts `DISPATCH` - goods that
+ * stopped being ours - so the API refuses the other three and names the module that
+ * books each movement: a stock transfer in Inventory, a job-work issue in Job Work,
+ * a purchase return in Procurement. `DISPATCH_TYPES` keeps all four so historical
+ * rows and the list filters still read.
+ */
+export const RAISED_DISPATCH_TYPE = 'SALES' satisfies DispatchType
+
+/** A non-sales consignment raised before that rule can only be cancelled here. */
+export const isSalesConsignment = (type: string): boolean => type === RAISED_DISPATCH_TYPE
+
 export const FREIGHT_PAID_BY = ['CONSIGNOR', 'CONSIGNEE'] as const
 export type FreightPaidBy = (typeof FREIGHT_PAID_BY)[number]
 

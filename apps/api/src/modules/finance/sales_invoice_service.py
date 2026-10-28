@@ -276,7 +276,11 @@ async def preview_sales_invoice(
     units = await source.units([line.uom_id for line in order_lines])
     if dispatch.status == DispatchStatus.READY_FOR_DISPATCH:
         from src.modules.dispatch.service import open_dispatch_quantities
-        from src.modules.sales.service import dispatchable_quantity, live_reservations
+        from src.modules.sales.service import (
+            dispatchable_quantity,
+            live_reservations,
+            live_reserved,
+        )
 
         live = await live_reservations(session, tenant, order_lines)
         planned = await open_dispatch_quantities(
@@ -291,7 +295,7 @@ async def preview_sales_invoice(
             cap = dispatchable_quantity(
                 ordered=Decimal(ol.quantity),
                 dispatched=Decimal(ol.dispatched_quantity),
-                reserved=live.get(ol.reservation_id, ZERO) if ol.reservation_id else ZERO,
+                reserved=live_reserved(ol, live),
                 planned=planned.get(ol.id, ZERO),
             )
             if Decimal(dl.quantity) > cap:

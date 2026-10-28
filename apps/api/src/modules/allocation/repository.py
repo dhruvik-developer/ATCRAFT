@@ -32,7 +32,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, nulls_last, select
+from sqlalchemy import Select, and_, func, nulls_last, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -47,6 +47,9 @@ from src.modules.allocation.models import (
     StockReservation,
 )
 from src.modules.allocation.schemas import ReallocationFilters, ReservationFilters
+from src.modules.inventory.models import BatchStatus, InventoryBalance, StockBatch
+from src.modules.products.models import Item
+from src.modules.warehouses.models import StorageLocation
 
 #: How many open reservations the candidate search will rank. Ordered by the
 #: policy's dominant term first, so the cap can only discard rows that already
@@ -102,6 +105,25 @@ class ReservationFacts:
     def unclaimed_quantity(self) -> Decimal:
         """What a new request could still ask this donor for."""
         return max(Decimal("0"), self.remaining_quantity - self.claimed_quantity)
+
+
+@dataclass(frozen=True, slots=True)
+class ReservablePosition:
+    """One stock position a new reservation could be pinned to, and what it holds.
+
+    A projection of ``inventory_balances`` plus the two facts the ordering
+    needs - the lot's expiry and receipt dates, and the bin's code - so the
+    choice of positions is a pure function the unit tests drive without a
+    database.
+    """
+
+    item_id: uuid.UUID
+    location_id: uuid.UUID | None
+    batch_id: uuid.UUID | None
+    available: Decimal
+    expires_on: date | None = None
+    received_on: date | None = None
+    location_code: str | None = None
 
 
 #: The projection behind :class:`ReservationFacts`, written once so the column
@@ -216,6 +238,29 @@ class StockReservationRepository(BaseRepository[StockReservation]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def open_for_demand_line(
+        self, demand_type: DemandType, demand_id: uuid.UUID, demand_line_id: uuid.UUID
+    ) -> list[StockReservation]:
+        """Everything one demand line still holds, oldest promise first.
+
+        A line held at several positions - stock in two bins, or two lots - has
+        one reservation per position. Filtering on the demand as well as the
+        line is what lets the ``(company_id, demand_type, demand_id)`` index
+        answer it; ``demand_line_id`` alone is not indexed. Ordered by the
+        UUIDv7 key, which is creation order.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                StockReservation.demand_type == demand_type,
+                StockReservation.demand_id == demand_id,
+                StockReservation.demand_line_id == demand_line_id,
+                StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+            )
+            .order_by(StockReservation.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def reserved_total(
         self, item_id: uuid.UUID, warehouse_id: uuid.UUID | None = None
     ) -> Decimal:
@@ -312,6 +357,71 @@ class StockReservationRepository(BaseRepository[StockReservation]):
         return [ReservationFacts(*row) for row in rows]
 
 
+class ReservableStockRepository(BaseRepository[InventoryBalance]):
+    """The positions where stock a new reservation could hold actually sits.
+
+    One statement for any number of items. A position qualifies when it has
+    promisable stock and an issue could later be posted from it: an untracked
+    item's lot-less positions, or a lot-tracked item's ACTIVE, unexpired lots -
+    the same lots the movement engine's FEFO pick will consider and the same it
+    refuses to issue otherwise (``BATCH_ISSUE_BLOCKED``). Promising stock that
+    can never be dispatched is how a delivery is missed on the day.
+
+    Never cached (section 34): this is availability.
+    """
+
+    model = InventoryBalance
+
+    async def positions(
+        self, item_ids: Sequence[uuid.UUID], warehouse_id: uuid.UUID, *, as_of: date
+    ) -> dict[uuid.UUID, list[ReservablePosition]]:
+        ids = list(dict.fromkeys(item_ids))
+        if not ids:
+            return {}
+        stmt = (
+            select(
+                InventoryBalance.item_id,
+                InventoryBalance.location_id,
+                InventoryBalance.batch_id,
+                InventoryBalance.available_quantity,
+                StockBatch.expires_on,
+                StockBatch.received_on,
+                StorageLocation.code,
+            )
+            .join(Item, Item.id == InventoryBalance.item_id)
+            .outerjoin(StockBatch, StockBatch.id == InventoryBalance.batch_id)
+            .outerjoin(StorageLocation, StorageLocation.id == InventoryBalance.location_id)
+            .where(
+                InventoryBalance.company_id == self.tenant.company_id,
+                InventoryBalance.warehouse_id == warehouse_id,
+                InventoryBalance.item_id.in_(ids),
+                InventoryBalance.available_quantity > 0,
+                or_(
+                    and_(Item.is_batch_tracked.is_(False), InventoryBalance.batch_id.is_(None)),
+                    and_(
+                        Item.is_batch_tracked.is_(True),
+                        StockBatch.status == BatchStatus.ACTIVE,
+                        or_(StockBatch.expires_on.is_(None), StockBatch.expires_on >= as_of),
+                    ),
+                ),
+            )
+        )
+        grouped: dict[uuid.UUID, list[ReservablePosition]] = {}
+        for row in (await self.session.execute(stmt)).all():
+            grouped.setdefault(row[0], []).append(
+                ReservablePosition(
+                    item_id=row[0],
+                    location_id=row[1],
+                    batch_id=row[2],
+                    available=Decimal(str(row[3])),
+                    expires_on=row[4],
+                    received_on=row[5],
+                    location_code=row[6],
+                )
+            )
+        return grouped
+
+
 class ReallocationRequestRepository(BaseRepository[ReallocationRequest]):
     """Reallocation request reads and the request row lock."""
 
@@ -394,6 +504,8 @@ __all__ = [
     "CANDIDATE_POOL_LIMIT",
     "CLAIMING_REALLOCATION_STATUSES",
     "ReallocationRequestRepository",
+    "ReservablePosition",
+    "ReservableStockRepository",
     "ReservationFacts",
     "StockReservationRepository",
 ]

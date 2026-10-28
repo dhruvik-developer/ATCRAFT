@@ -130,9 +130,14 @@ def trace(monkeypatch: pytest.MonkeyPatch) -> _Trace:
     trace = _Trace()
 
     async def credit_check(
-        session: Any, tenant: Any, customer_id: uuid.UUID, amount: Decimal, *, lock: bool
+        session: Any,
+        tenant: Any,
+        customer_id: uuid.UUID,
+        amount: Decimal,
+        *,
+        exclude_order_id: uuid.UUID | None = None,
     ) -> None:
-        trace.events.append(("credit", (customer_id, amount, lock)))
+        trace.events.append(("credit", (customer_id, amount, exclude_order_id)))
         if amount > D("2000"):
             raise BusinessRuleError("credit limit exceeded")
 
@@ -141,7 +146,7 @@ def trace(monkeypatch: pytest.MonkeyPatch) -> _Trace:
         for line, quantity in changed:
             line.quantity = quantity
 
-    monkeypatch.setattr(service, "assert_customer_can_order", credit_check)
+    monkeypatch.setattr(service, "_assert_credit_with_open_orders", credit_check)
     monkeypatch.setattr(service, "_rereserve_changed_lines", rereserve)
     return trace
 
@@ -180,11 +185,12 @@ async def test_raising_a_quantity_checks_credit_for_the_new_total_before_reservi
     await _update(order, lines, _payload(lines, {1: "15"}))
 
     assert [event for event, _ in trace.events] == ["credit", "reserve"]
-    customer_id, amount, lock = trace.events[0][1]
+    customer_id, amount, excluded_order_id = trace.events[0][1]
     assert customer_id == order.customer_id
-    # The full prospective total, not the delta: outstanding never includes open orders.
+    # The full prospective total, not the delta, and the current order is excluded
+    # from the other-open-order aggregate.
     assert amount == D("1770")
-    assert lock is True
+    assert excluded_order_id == order.id
     assert D(order.total_amount) == D("1770")
 
 

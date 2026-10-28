@@ -107,6 +107,7 @@ from src.modules.routing.models import (
 )
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse, WarehouseType
+from tests.dispatch_support import consignment_line, raise_consignment
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_customer, seed_vendor
 
@@ -790,10 +791,17 @@ async def test_packing_blocks_complete_and_handover_until_accepted(db, tenant, m
     )
     assert completed.order.status == "PACKED"
 
-    handed = await packing_service.hand_over_to_dispatch(
-        db, tenant, order.id, dispatch_id=uuid.uuid4(), reason="Load it"
+    consignment_id = await raise_consignment(
+        db,
+        tenant,
+        customer_id=masters["customer"].id,
+        warehouse_id=masters["warehouse"].id,
+        lines=[consignment_line(masters["final_item"].id, "40")],
     )
-    assert handed.dispatch_id is not None
+    handed = await packing_service.hand_over_to_dispatch(
+        db, tenant, order.id, dispatch_id=consignment_id, reason="Load it"
+    )
+    assert handed.dispatch_id == consignment_id
 
 
 # -----------------------------------------------------------------------------

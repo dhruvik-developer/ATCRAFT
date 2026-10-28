@@ -452,6 +452,24 @@ describe('the lifecycle the row offers', () => {
   )
 
   it(
+    'offers a non-sales plan only its way out',
+    async () => {
+      // Raised before the API refused them: releasing it would post a sale's
+      // DISPATCH and write the goods off, so it is amended, staged and released
+      // nowhere - and cancelled here.
+      await openActions(
+        'READY_FOR_DISPATCH',
+        [P.DISPATCH_VIEW, P.DISPATCH_UPDATE, P.DISPATCH_CREATE],
+        {},
+        { dispatch_type: 'TRANSFER', customer_id: null },
+      )
+
+      expect(menuItems()).toEqual(['Tracking timeline', 'Cancel dispatch'])
+    },
+    POPPER,
+  )
+
+  it(
     'records the actual gate details when a consignment leaves',
     async () => {
       const { user, fetch } = await openActions(
@@ -697,6 +715,17 @@ describe('creating a consignment', () => {
     await user.click(screen.getByRole('button', { name: /^create dispatch$/i, hidden: false }))
 
     expect(await screen.findByText(/must name the customer it is going to/i)).toBeVisible()
+  })
+
+  it('raises sales consignments only, and says where the other movements belong', async () => {
+    // A transfer, a job-work issue or a purchase return released from here was
+    // posted as a sale's DISPATCH - the goods simply left the books.
+    await openCreate()
+
+    expect(screen.queryByRole('combobox', { name: 'Dispatch type' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Vendor')).not.toBeInTheDocument()
+    expect(screen.getByText('Sales consignment')).toBeVisible()
+    expect(screen.getByText(/raised in Inventory, Job\s+Work and Procurement/)).toBeVisible()
   })
 
   it('explains itself rather than failing silently without warehouse access', async () => {

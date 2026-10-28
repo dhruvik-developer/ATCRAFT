@@ -132,6 +132,7 @@ from src.modules.assembly.repository import (
     AssemblyComponentRepository,
     AssemblyItem,
     AssemblyOrderRepository,
+    AssemblyReservationRepository,
     ComponentAvailabilityRepository,
     ItemLookupRepository,
     SerialLookupRepository,
@@ -1931,12 +1932,13 @@ async def _validate_serials(
 async def _release_reservations(
     session: AsyncSession,
     tenant: TenantContext,
+    order: AssemblyOrder,
     components: Sequence[AssemblyOrderComponent],
     *,
     port: AllocationPort,
     reason: str,
 ) -> int:
-    """Hand every held reservation back before the movements are posted.
+    """Hand back everything the order still holds before the movements are posted.
 
     The order matters and is not a style choice. ``reserved_quantity`` has to
     come down before ``on_hand_quantity`` does, or the movement engine would see
@@ -1944,19 +1946,45 @@ async def _release_reservations(
     would correctly refuse it. Both happen inside the completing transaction, so
     no other document can slip into the gap.
 
+    What is held is re-read from the reservations in one statement, never taken
+    from ``component.reservation_id``: allocation closes a reservation on its
+    own - released from the Reservations screen, expired, or taken by an
+    approved reallocation - and asking it to release a closed one again is
+    refused, which left the order unable to complete or be cancelled.
+
+    ASSUMPTION: a reservation closed elsewhere is no reservation, so it is
+    skipped rather than refused, and a reservation an approved reallocation
+    granted *to* this order is given back with the rest - the order needs no
+    held stock once it is completed or cancelled. Completion then consumes free
+    stock like any unreserved movement: the stock engine still refuses it when
+    free stock cannot cover a component, because the order lost its promise, it
+    did not gain a right to stock promised since (docs/assumptions.md §E2-1).
+
     The iteration order is fixed - by item, then line - across every caller, so
     two completions sharing a component cannot take the same balance locks in
     opposite orders.
     """
-    released = 0
-    for component in sorted(components, key=lambda row: (row.item_id, row.line_number)):
-        if component.reservation_id is None:
-            continue
-        await port.release(session, tenant, reservation_id=component.reservation_id, reason=reason)
-        component.reservation_id = None
-        released += 1
+    held = await AssemblyReservationRepository(session, tenant).open_for_order(order.id)
+    line_numbers = {
+        component.reservation_id: component.line_number
+        for component in components
+        if component.reservation_id is not None
+    }
+    for reservation in sorted(
+        held,
+        key=lambda row: (
+            row.item_id,
+            row.id not in line_numbers,
+            line_numbers.get(row.id, 0),
+            row.id,
+        ),
+    ):
+        await port.release(session, tenant, reservation_id=reservation.id, reason=reason)
+    for component in components:
+        if component.reservation_id is not None:
+            component.reservation_id = None
     await session.flush()
-    return released
+    return len(held)
 
 
 async def complete_assembly(
@@ -2093,6 +2121,7 @@ async def complete_assembly(
         released = await _release_reservations(
             session,
             tenant,
+            order,
             components,
             port=port,
             reason=f"{order.code} completed: {payload.reason}"[:255],
@@ -2615,6 +2644,7 @@ async def cancel_order(
         released = await _release_reservations(
             session,
             tenant,
+            order,
             components,
             port=port,
             reason=f"{order.code} cancelled: {reason}"[:255],

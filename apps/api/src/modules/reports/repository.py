@@ -42,8 +42,10 @@ from sqlalchemy import (
     delete,
     exists,
     func,
+    literal,
     or_,
     select,
+    union_all,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -56,14 +58,30 @@ from src.core.deps import TenantContext
 from src.core.ids import new_id
 from src.core.pagination import COUNT_CEILING, PageParams
 from src.core.responses import OffsetPagination
+from src.core.types import ZERO
 from src.modules.customers.models import Customer
 from src.modules.dispatch.models import (
+    DELIVERED_STATUSES,
     IN_FLIGHT_STATUSES,
     Dispatch,
+    DispatchLine,
     DispatchTrackingEvent,
+    DispatchType,
 )
 from src.modules.documents.models import Document, DocumentCategory
-from src.modules.finance.models import COST_CENTRE_ACCOUNT_TYPES, LedgerAccount, LedgerEntry
+from src.modules.finance.models import (
+    COST_CENTRE_ACCOUNT_TYPES,
+    CreditNote,
+    CreditNoteCostAllocation,
+    CreditNoteLine,
+    CreditNoteReason,
+    CreditNoteStatus,
+    LedgerAccount,
+    LedgerEntry,
+    SalesInvoice,
+    SalesInvoiceLine,
+    SalesInvoiceStatus,
+)
 from src.modules.inventory.models import (
     InternalIssue,
     InternalIssueLine,
@@ -1090,40 +1108,382 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
     # --- 9. product profitability ------------------------------------------
 
     def product_profitability(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
-        # Revenue is taken net of discount and *before* tax: GST is collected on
-        # the customer's behalf and is not margin. Using the tax-inclusive line
-        # total would overstate profitability by the whole GST rate.
-        net_line = SalesOrderLine.quantity * SalesOrderLine.unit_price - (
+        """Posted revenue and FIFO cost, with every unknown exposed as unknown.
+
+        Revenue follows the invoice and credit-note *document* dates. Cost is the
+        dispatch movement's frozen FIFO value for the billed quantity, less the
+        immutable pieces a return credit reverses. A dispatch that has left but
+        has no live invoice contributes a provisional estimate from its agreed
+        order price and its own FIFO movement.
+
+        The four branches are unioned before grouping so an item appears once
+        whether it has an invoice, a credit, an uninvoiced dispatch, or several
+        of them. Missing price or missing cost is counted, never replaced with
+        zero: the service turns those quantities into explicit unavailable
+        amounts instead of a margin that looks real.
+        """
+
+        def zero() -> Any:
+            return literal(ZERO, Numeric(18, 4))
+
+        def value_of_billed_quantity(quantity: Any) -> Any:
+            # An invoice line may cover less than the dispatch line when goods
+            # were returned before invoicing. The movement's frozen total still
+            # values the whole dispatch, so take its quantity share.
+            return func.round(
+                InventoryTransaction.total_cost
+                * quantity
+                / func.nullif(DispatchLine.quantity, ZERO),
+                4,
+            )
+
+        dispatch_movement = and_(
+            InventoryTransaction.id == DispatchLine.inventory_transaction_id,
+            InventoryTransaction.company_id == self._company,
+            InventoryTransaction.transaction_type == TransactionType.DISPATCH,
+        )
+        invoice_activity = (
+            select(
+                SalesInvoiceLine.item_id.label("item_id"),
+                SalesInvoiceLine.quantity.label("quantity"),
+                SalesInvoiceLine.taxable_amount.label("invoice_revenue_amount"),
+                zero().label("credit_amount"),
+                zero().label("provisional_revenue_amount"),
+                case(
+                    (
+                        InventoryTransaction.id.is_not(None),
+                        value_of_billed_quantity(SalesInvoiceLine.quantity),
+                    ),
+                    else_=ZERO,
+                ).label("invoice_cost_amount"),
+                zero().label("return_cost_amount"),
+                zero().label("provisional_cost_amount"),
+                zero().label("uninvoiced_quantity"),
+                zero().label("unpriced_quantity"),
+                case(
+                    (InventoryTransaction.id.is_(None), SalesInvoiceLine.quantity),
+                    else_=ZERO,
+                ).label("unmatched_cost_quantity"),
+            )
+            .select_from(SalesInvoiceLine)
+            .join(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.id == SalesInvoiceLine.sales_invoice_id,
+                    SalesInvoice.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .join(
+                DispatchLine,
+                and_(
+                    DispatchLine.id == SalesInvoiceLine.dispatch_line_id,
+                    DispatchLine.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .join(
+                Dispatch,
+                and_(
+                    Dispatch.id == DispatchLine.dispatch_id,
+                    Dispatch.company_id == DispatchLine.company_id,
+                ),
+            )
+            .outerjoin(InventoryTransaction, dispatch_movement)
+            .where(
+                SalesInvoiceLine.company_id == self._company,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date.between(period.date_from, period.date_to),
+                *warehouse_scope(self.tenant, Dispatch.warehouse_id),
+            )
+        )
+        if filters.customer_id:
+            invoice_activity = invoice_activity.where(
+                SalesInvoice.customer_id == filters.customer_id
+            )
+        if filters.warehouse_id:
+            invoice_activity = invoice_activity.where(Dispatch.warehouse_id == filters.warehouse_id)
+
+        credit_activity = (
+            select(
+                CreditNoteLine.item_id.label("item_id"),
+                (-func.coalesce(CreditNoteLine.quantity, ZERO)).label("quantity"),
+                zero().label("invoice_revenue_amount"),
+                CreditNoteLine.taxable_amount.label("credit_amount"),
+                zero().label("provisional_revenue_amount"),
+                zero().label("invoice_cost_amount"),
+                zero().label("return_cost_amount"),
+                zero().label("provisional_cost_amount"),
+                zero().label("uninvoiced_quantity"),
+                zero().label("unpriced_quantity"),
+                zero().label("unmatched_cost_quantity"),
+            )
+            .select_from(CreditNoteLine)
+            .join(
+                CreditNote,
+                and_(
+                    CreditNote.id == CreditNoteLine.credit_note_id,
+                    CreditNote.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.id == CreditNoteLine.sales_invoice_line_id,
+                    SalesInvoiceLine.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .join(
+                DispatchLine,
+                and_(
+                    DispatchLine.id == SalesInvoiceLine.dispatch_line_id,
+                    DispatchLine.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .join(
+                Dispatch,
+                and_(
+                    Dispatch.id == DispatchLine.dispatch_id,
+                    Dispatch.company_id == DispatchLine.company_id,
+                ),
+            )
+            .where(
+                CreditNoteLine.company_id == self._company,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+                CreditNote.note_date.between(period.date_from, period.date_to),
+                *warehouse_scope(self.tenant, Dispatch.warehouse_id),
+            )
+        )
+        if filters.customer_id:
+            credit_activity = credit_activity.where(CreditNote.customer_id == filters.customer_id)
+        if filters.warehouse_id:
+            credit_activity = credit_activity.where(Dispatch.warehouse_id == filters.warehouse_id)
+
+        allocated = (
+            select(
+                CreditNoteCostAllocation.credit_note_line_id.label("line_id"),
+                func.sum(CreditNoteCostAllocation.quantity).label("allocated_quantity"),
+                func.sum(CreditNoteCostAllocation.cost_amount).label("allocated_cost"),
+            )
+            .where(CreditNoteCostAllocation.company_id == self._company)
+            .group_by(CreditNoteCostAllocation.credit_note_line_id)
+            .subquery()
+        )
+        credited_quantity = func.coalesce(CreditNoteLine.quantity, ZERO)
+        return_activity = (
+            select(
+                CreditNoteLine.item_id.label("item_id"),
+                zero().label("quantity"),
+                zero().label("invoice_revenue_amount"),
+                zero().label("credit_amount"),
+                zero().label("provisional_revenue_amount"),
+                zero().label("invoice_cost_amount"),
+                func.coalesce(allocated.c.allocated_cost, ZERO).label("return_cost_amount"),
+                zero().label("provisional_cost_amount"),
+                zero().label("uninvoiced_quantity"),
+                zero().label("unpriced_quantity"),
+                case(
+                    (
+                        func.coalesce(allocated.c.allocated_quantity, ZERO) < credited_quantity,
+                        credited_quantity - func.coalesce(allocated.c.allocated_quantity, ZERO),
+                    ),
+                    else_=ZERO,
+                ).label("unmatched_cost_quantity"),
+            )
+            .select_from(CreditNoteLine)
+            .join(
+                CreditNote,
+                and_(
+                    CreditNote.id == CreditNoteLine.credit_note_id,
+                    CreditNote.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.id == CreditNoteLine.sales_invoice_line_id,
+                    SalesInvoiceLine.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .join(
+                DispatchLine,
+                and_(
+                    DispatchLine.id == SalesInvoiceLine.dispatch_line_id,
+                    DispatchLine.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .join(
+                Dispatch,
+                and_(
+                    Dispatch.id == DispatchLine.dispatch_id,
+                    Dispatch.company_id == DispatchLine.company_id,
+                ),
+            )
+            .outerjoin(allocated, allocated.c.line_id == CreditNoteLine.id)
+            .where(
+                CreditNoteLine.company_id == self._company,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+                CreditNote.reason_type == CreditNoteReason.RETURN,
+                CreditNote.note_date.between(period.date_from, period.date_to),
+                *warehouse_scope(self.tenant, Dispatch.warehouse_id),
+            )
+        )
+        if filters.customer_id:
+            return_activity = return_activity.where(CreditNote.customer_id == filters.customer_id)
+        if filters.warehouse_id:
+            return_activity = return_activity.where(Dispatch.warehouse_id == filters.warehouse_id)
+
+        live_invoice = (
+            select(SalesInvoice.id)
+            .where(
+                SalesInvoice.company_id == self._company,
+                SalesInvoice.dispatch_id == Dispatch.id,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            )
+            .exists()
+        )
+        dispatched_quantity = DispatchLine.quantity - DispatchLine.returned_quantity
+        agreed_price = SalesOrderLine.quantity * SalesOrderLine.unit_price - (
             SalesOrderLine.discount_amount
         )
+        proportional_price = func.round(
+            agreed_price * dispatched_quantity / func.nullif(SalesOrderLine.quantity, ZERO),
+            4,
+        )
+        provisional_activity = (
+            select(
+                DispatchLine.item_id.label("item_id"),
+                dispatched_quantity.label("quantity"),
+                zero().label("invoice_revenue_amount"),
+                zero().label("credit_amount"),
+                case(
+                    (SalesOrderLine.id.is_not(None), proportional_price),
+                    else_=ZERO,
+                ).label("provisional_revenue_amount"),
+                zero().label("invoice_cost_amount"),
+                zero().label("return_cost_amount"),
+                case(
+                    (
+                        InventoryTransaction.id.is_not(None),
+                        value_of_billed_quantity(dispatched_quantity),
+                    ),
+                    else_=ZERO,
+                ).label("provisional_cost_amount"),
+                dispatched_quantity.label("uninvoiced_quantity"),
+                case(
+                    (SalesOrderLine.id.is_(None), dispatched_quantity),
+                    else_=ZERO,
+                ).label("unpriced_quantity"),
+                case(
+                    (InventoryTransaction.id.is_(None), dispatched_quantity),
+                    else_=ZERO,
+                ).label("unmatched_cost_quantity"),
+            )
+            .select_from(DispatchLine)
+            .join(
+                Dispatch,
+                and_(
+                    Dispatch.id == DispatchLine.dispatch_id,
+                    Dispatch.company_id == DispatchLine.company_id,
+                ),
+            )
+            .outerjoin(
+                SalesOrderLine,
+                and_(
+                    SalesOrderLine.id == DispatchLine.sales_order_line_id,
+                    SalesOrderLine.company_id == DispatchLine.company_id,
+                    SalesOrderLine.item_id == DispatchLine.item_id,
+                ),
+            )
+            .outerjoin(InventoryTransaction, dispatch_movement)
+            .where(
+                DispatchLine.company_id == self._company,
+                Dispatch.dispatch_type == DispatchType.SALES,
+                Dispatch.status.in_(IN_FLIGHT_STATUSES + DELIVERED_STATUSES),
+                Dispatch.dispatch_date.between(period.date_from, period.date_to),
+                dispatched_quantity > ZERO,
+                ~live_invoice,
+                *warehouse_scope(self.tenant, Dispatch.warehouse_id),
+            )
+        )
+        if filters.customer_id:
+            provisional_activity = provisional_activity.where(
+                Dispatch.customer_id == filters.customer_id
+            )
+        if filters.warehouse_id:
+            provisional_activity = provisional_activity.where(
+                Dispatch.warehouse_id == filters.warehouse_id
+            )
+
+        activity = union_all(
+            invoice_activity,
+            credit_activity,
+            return_activity,
+            provisional_activity,
+        ).subquery("profitability_activity")
+
+        quantity = func.coalesce(func.sum(activity.c.quantity), ZERO)
+        revenue = func.coalesce(
+            func.sum(
+                activity.c.invoice_revenue_amount
+                - activity.c.credit_amount
+                + activity.c.provisional_revenue_amount
+            ),
+            ZERO,
+        )
+        cost = func.coalesce(
+            func.sum(
+                activity.c.invoice_cost_amount
+                - activity.c.return_cost_amount
+                + activity.c.provisional_cost_amount
+            ),
+            ZERO,
+        )
+        unmatched_cost = func.coalesce(func.sum(activity.c.unmatched_cost_quantity), ZERO)
+        uninvoiced = func.coalesce(func.sum(activity.c.uninvoiced_quantity), ZERO)
+
         stmt = (
             select(
                 Item.id.label("item_id"),
                 Item.code.label("item_code"),
                 Item.name.label("item_name"),
-                func.coalesce(func.sum(SalesOrderLine.quantity), 0).label("quantity_sold"),
-                func.coalesce(func.sum(net_line), 0).label("revenue_amount"),
-                func.coalesce(func.sum(SalesOrderLine.quantity * Item.standard_cost), 0).label(
-                    "cost_amount"
+                quantity.label("quantity_sold"),
+                revenue.label("revenue_amount"),
+                cost.label("cost_amount"),
+                func.coalesce(func.sum(activity.c.invoice_revenue_amount), ZERO).label(
+                    "invoice_revenue_amount"
                 ),
+                func.coalesce(func.sum(activity.c.credit_amount), ZERO).label("credit_amount"),
+                func.coalesce(func.sum(activity.c.provisional_revenue_amount), ZERO).label(
+                    "provisional_revenue_amount"
+                ),
+                func.coalesce(func.sum(activity.c.invoice_cost_amount), ZERO).label(
+                    "invoice_cost_amount"
+                ),
+                func.coalesce(func.sum(activity.c.return_cost_amount), ZERO).label(
+                    "return_cost_amount"
+                ),
+                func.coalesce(func.sum(activity.c.provisional_cost_amount), ZERO).label(
+                    "provisional_cost_amount"
+                ),
+                uninvoiced.label("uninvoiced_quantity"),
+                func.coalesce(func.sum(activity.c.unpriced_quantity), ZERO).label(
+                    "unpriced_quantity"
+                ),
+                unmatched_cost.label("unmatched_cost_quantity"),
+                (unmatched_cost > ZERO).label("cost_pending"),
+                (uninvoiced > ZERO).label("has_provisional_revenue"),
             )
-            .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
-            .join(Item, Item.id == SalesOrderLine.item_id)
-            .where(
-                SalesOrderLine.company_id == self._company,
-                SalesOrder.order_date.between(period.date_from, period.date_to),
-                # A draft is not revenue and a cancelled order is not either.
-                SalesOrder.status.not_in(NON_REVENUE_SALES_STATUSES),
+            .select_from(activity)
+            .join(
+                Item,
+                and_(Item.id == activity.c.item_id, Item.company_id == self._company),
             )
             .group_by(Item.id, Item.code, Item.name)
-            .order_by(func.coalesce(func.sum(net_line), 0).desc(), Item.code.asc())
+            .order_by(revenue.desc(), Item.code.asc())
         )
         if filters.item_id:
             stmt = stmt.where(Item.id == filters.item_id)
         if filters.category_id:
             stmt = stmt.where(Item.category_id == filters.category_id)
-        if filters.customer_id:
-            stmt = stmt.where(SalesOrder.customer_id == filters.customer_id)
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
             stmt = stmt.where(or_(Item.code.ilike(pattern), Item.name.ilike(pattern)))

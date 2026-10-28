@@ -136,6 +136,10 @@ REPORT_MAX_EXPORT_ROWS = 200_000
 #: exports, short enough that "yesterday's numbers" is never a surprise.
 REPORT_SNAPSHOT_TTL_HOURS = 24
 
+#: Omitted on the original calculation so existing version-one request hashes
+#: remain stable. Later calculations must never reuse those cached results.
+REPORT_CALCULATION_VERSION_PARAMETER = "calculation_version"
+
 #: Default age at which stock is called dead. ASSUMPTION: the master rules name
 #: a dead-stock report but fix no threshold, so the conservative industry default
 #: of six months is used and is overridable per request via ``min_days``. It is a
@@ -387,6 +391,7 @@ class ReportDefinition:
     cacheable: bool
     permission: Permission = Permission.REPORT_VIEW
     derive: Deriver | None = None
+    calculation_version: int = 1
 
 
 def _column_kind(annotation: Any) -> str:
@@ -493,9 +498,22 @@ def _derive_vendor_performance(row: dict[str, Any], ctx: ReportContext) -> dict[
 
 
 def _derive_product_profitability(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
-    margin = Decimal(row["revenue_amount"]) - Decimal(row["cost_amount"])
+    if row.get("cost_pending", False):
+        row["cost_amount"] = None
+    if Decimal(row.get("unpriced_quantity", 0)) > 0:
+        row["revenue_amount"] = None
+    revenue = row["revenue_amount"]
+    cost = row["cost_amount"]
+    if revenue is None or cost is None:
+        row["margin_amount"] = None
+        row["margin_percent"] = None
+        return row
+    revenue = Decimal(revenue)
+    margin = revenue - Decimal(cost)
     row["margin_amount"] = margin
-    row["margin_percent"] = percent(margin, row["revenue_amount"])
+    # Credit-only and net-zero periods retain their signed margin, but a
+    # percentage of non-positive net revenue would misstate profitability.
+    row["margin_percent"] = percent(margin, revenue) if revenue > 0 else None
     return row
 
 
@@ -674,13 +692,17 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
     ReportKey.PRODUCT_PROFITABILITY: ReportDefinition(
         key=ReportKey.PRODUCT_PROFITABILITY,
         title="Product profitability",
-        description="Revenue net of discount against standard cost, per item.",
+        description=(
+            "Invoice and credit-note revenue on document dates against FIFO cost matched "
+            "to billed quantities, with uninvoiced dispatch estimates clearly flagged."
+        ),
         row_model=ProductProfitabilityRow,
         build=lambda repo, ctx: repo.product_profitability(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         permission=Permission.ITEM_COST_VIEW,
         derive=_derive_product_profitability,
+        calculation_version=2,
     ),
     ReportKey.FAST_MOVING: ReportDefinition(
         key=ReportKey.FAST_MOVING,
@@ -988,6 +1010,8 @@ def parameters_of(definition: ReportDefinition, ctx: ReportContext) -> dict[str,
         "report_key": str(definition.key),
         "filters": ctx.filters.model_dump(mode="json", exclude_none=True),
     }
+    if definition.calculation_version > 1:
+        parameters[REPORT_CALCULATION_VERSION_PARAMETER] = definition.calculation_version
     if ctx.period is not None:
         parameters["period"] = {
             "date_from": ctx.period.date_from.isoformat(),
@@ -1011,6 +1035,9 @@ def context_from_parameters(
     definition: ReportDefinition, parameters: dict[str, Any], *, now: datetime
 ) -> ReportContext:
     """Rebuild a context from a stored snapshot, for the background worker."""
+    stored_version = parameters.get(REPORT_CALCULATION_VERSION_PARAMETER, 1)
+    if type(stored_version) is not int or stored_version != definition.calculation_version:
+        raise ValidationError("This report's calculation has changed. Run the report again.")
     period = None
     stored = parameters.get("period")
     if stored:
@@ -1040,10 +1067,33 @@ def _shape(
     return shaped
 
 
+def _effective_report_warehouse_ids(tenant: TenantContext) -> list[str]:
+    """Canonical scope shared by inline caches and queued catalogue exports."""
+    if tenant.is_superuser:
+        return []
+    return sorted({str(value) for value in tenant.allowed_warehouse_ids})
+
+
 def _cache_key(
     tenant: TenantContext, definition: ReportDefinition, digest: str, params: PageParams
 ) -> str:
     namespace, _ = CacheNamespace.REPORT
+    if definition.key in REPORT_WAREHOUSE_SCOPED_KEYS:
+        # Permissions can change while Redis entries remain valid. A tenant's
+        # restricted result must never reuse another warehouse scope's rows.
+        scope_digest = parameters_hash(
+            {REPORT_WAREHOUSE_SCOPE_PARAMETER: _effective_report_warehouse_ids(tenant)}
+        )
+        return make_key(
+            namespace,
+            tenant.company_id,
+            str(definition.key),
+            digest,
+            "warehouse-scope",
+            scope_digest,
+            params.page,
+            params.limit,
+        )
     return make_key(
         namespace, tenant.company_id, str(definition.key), digest, params.page, params.limit
     )
@@ -1130,10 +1180,7 @@ async def _queue_report(
 
     parameters = parameters_of(definition, ctx)
     if definition.key in REPORT_WAREHOUSE_SCOPED_KEYS:
-        captured_scope = () if tenant.is_superuser else tenant.allowed_warehouse_ids
-        parameters[REPORT_WAREHOUSE_SCOPE_PARAMETER] = sorted(
-            str(value) for value in set(captured_scope)
-        )
+        parameters[REPORT_WAREHOUSE_SCOPE_PARAMETER] = _effective_report_warehouse_ids(tenant)
     digest = parameters_hash(parameters)
     snapshots = ReportSnapshotRepository(session, tenant)
 
@@ -1329,7 +1376,11 @@ def valuation_warehouse_scope(snapshot: ReportSnapshot) -> tuple[uuid.UUID, ...]
 
 REPORT_WAREHOUSE_SCOPE_PARAMETER = "report_warehouse_ids"
 REPORT_WAREHOUSE_SCOPED_KEYS = frozenset(
-    {ReportKey.STOCK_AVAILABILITY, ReportKey.INVENTORY_VALUATION}
+    {
+        ReportKey.STOCK_AVAILABILITY,
+        ReportKey.INVENTORY_VALUATION,
+        ReportKey.PRODUCT_PROFITABILITY,
+    }
 )
 
 
@@ -1844,6 +1895,7 @@ __all__ = [
     "JOB_STATUS_URL_TEMPLATE",
     "NEVER_MOVED_BUCKET",
     "OVER_AGE_BUCKET",
+    "REPORT_CALCULATION_VERSION_PARAMETER",
     "REPORT_CATALOGUE",
     "REPORT_INLINE_ROW_LIMIT",
     "REPORT_MAX_EXPORT_ROWS",

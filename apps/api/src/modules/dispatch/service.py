@@ -1,6 +1,13 @@
 """Dispatch: sending goods, and knowing where they are afterwards.
 
-Master rules sections 22, 23 and 72. Six decisions govern everything below.
+Master rules sections 22, 23 and 72. Seven decisions govern everything below.
+
+**Dispatch ships sales consignments only.** ``DISPATCH`` says the goods stopped
+being ours, which is true of a sale and false of every other consignment: a
+transfer lands at another of our warehouses, job-work material stays on our books
+at the vendor, and a purchase return raises a debit note. Each of those has a
+module that posts it properly, so this one refuses to raise, amend, stage, load
+or release them - see :func:`assert_sales_consignment`.
 
 **Exactly one action moves stock.** ``dispatch_consignment`` is the only function
 here that touches inventory. It consumes the reservation the sales order was
@@ -79,6 +86,7 @@ from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
 from src.modules.allocation import service as allocation
+from src.modules.allocation.models import DemandType
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.dispatch.models import (
@@ -142,7 +150,7 @@ from src.modules.inventory.service import MovementRequest, post_movements
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify_role
 from src.modules.packing import service as packing
-from src.modules.packing.models import PackingOrderStatus
+from src.modules.packing.models import PackingOrder, PackingOrderStatus
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
 from src.modules.sales.service import (
     SALES_ORDER_LIFECYCLE,
@@ -325,6 +333,87 @@ DISPATCH_LIFECYCLE: StateMachine[DispatchStatus] = StateMachine(
     ),
     terminal=frozenset({DispatchStatus.GRN_COMPLETED, DispatchStatus.CANCELLED}),
 )
+
+#: ASSUMPTION: a tracking event reports what happened on the road and at the far
+#: end (docs/assumptions.md §G1-4). These statuses are reached by our own actions,
+#: each of which does more than move the status - staging checks the lines,
+#: releasing consumes the reservations and posts the stock movements, cancelling
+#: checks the invoice and gives packed boxes back - so an event may restate one
+#: but never move a consignment into it.
+ACTION_ONLY_STATUSES: dict[DispatchStatus, str] = {
+    DispatchStatus.READY_FOR_DISPATCH: "marking it ready",
+    DispatchStatus.DISPATCHED: "releasing it, which moves the stock",
+    DispatchStatus.CANCELLED: "cancelling it",
+}
+
+
+# -----------------------------------------------------------------------------
+# What this module ships
+# -----------------------------------------------------------------------------
+
+#: ASSUMPTION: the dispatch module ships SALES consignments only
+#: (docs/assumptions.md §G1-1). Releasing posts ``DISPATCH`` - goods that stopped
+#: being ours - for every unreserved line, and nothing about a TRANSFER (no
+#: destination warehouse to land in), a JOB_WORK consignment (which must stay on
+#: the books in the job-work pool as ``JOB_WORK_ISSUE``) or a PURCHASE_RETURN
+#: (which must raise the return and its debit note) is true of that: every one of
+#: them wrote the goods off. Each movement has a module that posts it properly.
+#: The enum keeps all four values so historical rows and filters still read, and
+#: a non-sales plan raised before this rule can still be cancelled, or deleted
+#: while it is a draft.
+SHIPPABLE_DISPATCH_TYPES: frozenset[DispatchType] = frozenset({DispatchType.SALES})
+
+#: Where each other kind of consignment is booked instead - named in the refusal
+#: so the operator is sent somewhere, not only stopped.
+NON_SALES_MOVEMENT_OWNERS: dict[DispatchType, str] = {
+    DispatchType.TRANSFER: (
+        "Move stock between our own warehouses with a stock transfer in Inventory "
+        "(Transfers & Adjustments), which receives it at the other warehouse"
+    ),
+    DispatchType.JOB_WORK: (
+        "Send material to a job-work vendor by issuing it against a job-work order in "
+        "Job Work, which keeps it on our books while it is at the vendor"
+    ),
+    DispatchType.PURCHASE_RETURN: (
+        "Return goods to a supplier with a purchase return in Procurement, which raises "
+        "the debit note against the vendor"
+    ),
+}
+
+
+def non_sales_dispatch_message(dispatch_type: DispatchType, *, code: str | None = None) -> str:
+    """Why a non-sales consignment is refused, and where it belongs instead."""
+    kind = str(dispatch_type).replace("_", " ").lower()
+    owner = NON_SALES_MOVEMENT_OWNERS.get(
+        dispatch_type, "Book it in the module that owns that movement"
+    )
+    if code is None:
+        lead = f"Dispatch ships sales consignments only, so a {kind} consignment cannot be raised."
+    else:
+        lead = (
+            f"{code} is a {kind} consignment. Dispatch ships sales consignments only, so it can "
+            "be cancelled but not amended, staged, loaded or released."
+        )
+    return f"{lead} {owner}."
+
+
+def assert_sales_consignment(dispatch_type: DispatchType | str, *, code: str | None = None) -> None:
+    """Refuse anything but a SALES consignment, naming the module that owns it.
+
+    Called by every path that could still move such a consignment towards
+    the gate - raising, amending, staging, loading boxes and releasing - and
+    before any of them reads a line, so a refusal costs one comparison.
+    """
+    kind = DispatchType(dispatch_type)
+    if kind in SHIPPABLE_DISPATCH_TYPES:
+        return
+    raise BusinessRuleError(
+        non_sales_dispatch_message(kind, code=code),
+        details={
+            "dispatch_type": str(kind),
+            "shippable_dispatch_types": sorted(str(t) for t in SHIPPABLE_DISPATCH_TYPES),
+        },
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -802,6 +891,67 @@ def _assert_carton_contents_match(
         )
 
 
+def assign_cartons(
+    lines: Sequence[DispatchLineIn | DispatchLine], contents: Sequence[CartonContentFacts]
+) -> None:
+    """Name on each line the sealed cartons holding its item, lot and demand.
+
+    For a consignment that carries a packing order but names none of its boxes -
+    every consignment raised on the dispatch screen and then handed the boxes
+    from the packing screen. A carton's content is keyed exactly as
+    :func:`_assert_carton_contents_match` keys it, so the assignment it makes is
+    the one that check then verifies: quantities, serials, and every content
+    loaded. A line whose goods were not packed stays loose.
+
+    ASSUMPTION: a consignment that takes a packing order takes all of it
+    (docs/assumptions.md §G1-2) - the claim is on the whole order - so packed
+    goods no line carries are refused here rather than left in the warehouse
+    marked as handed over. Two lines sharing one item, lot and demand cannot
+    be told apart by the boxes and are refused too.
+    """
+    content_key = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID | None]
+    cartons_by_key: dict[content_key, set[uuid.UUID]] = {}
+    numbers: dict[uuid.UUID, int] = {}
+    for content in contents:
+        key = (content.item_id, content.batch_id, content.sales_order_line_id)
+        cartons_by_key.setdefault(key, set()).add(content.carton_id)
+        numbers[content.carton_id] = content.carton_number
+
+    claimed_by: dict[content_key, int] = {}
+    for number, line in enumerate(lines, start=1):
+        key = (line.item_id, line.batch_id, line.sales_order_line_id)
+        cartons = cartons_by_key.get(key)
+        if not cartons:
+            continue
+        if key in claimed_by:
+            raise BusinessRuleError(
+                f"Lines {claimed_by[key]} and {number} carry the same item, lot and order "
+                "line, so the packed cartons cannot be matched to one of them. Combine them "
+                "into one line.",
+                details={"line_numbers": [claimed_by[key], number]},
+            )
+        claimed_by[key] = number
+        line.carton_ids = sorted(cartons, key=str)
+
+    unloaded = sorted(
+        {
+            carton
+            for key, cartons in cartons_by_key.items()
+            if key not in claimed_by
+            for carton in cartons
+        },
+        key=lambda carton: (numbers[carton], str(carton)),
+    )
+    if unloaded:
+        listed = ", ".join(str(numbers[carton]) for carton in unloaded)
+        raise BusinessRuleError(
+            f"Carton(s) {listed} of the packing order hold goods no line of this consignment "
+            "carries, and a consignment takes the whole packing order. Add a line for each "
+            "item, lot and order line that was packed.",
+            details={"carton_ids": [str(carton) for carton in unloaded]},
+        )
+
+
 async def _validate_carton_contents(
     session: AsyncSession,
     tenant: TenantContext,
@@ -809,7 +959,23 @@ async def _validate_carton_contents(
     lines: Sequence[DispatchLineIn | DispatchLine],
     packing_order_id: uuid.UUID | None,
 ) -> None:
+    """Check the boxes a consignment carries against its lines.
+
+    Lines that name cartons are checked against those cartons. A consignment
+    that carries a packing order but names none of its cartons has them matched
+    to its lines first (:func:`assign_cartons`), so it is reconciled too instead
+    of passing with nothing checked - which is how every consignment raised on
+    screen and handed its boxes from the packing screen used to leave.
+    """
     carton_ids = sorted({carton for line in lines for carton in line.carton_ids}, key=str)
+    if not carton_ids and packing_order_id is not None:
+        contents = await CartonLookupRepository(session, tenant).contents_of_order(packing_order_id)
+        if contents:
+            # Nothing sealed means nothing packed yet: the claim refuses an order
+            # that is not PACKED, with the reason, so there is no box to match.
+            assign_cartons(lines, contents)
+            _assert_carton_contents_match(lines, contents)
+        return
     if not carton_ids:
         return
     if packing_order_id is None:
@@ -1193,12 +1359,15 @@ async def _claim_packing_order(
     *,
     dispatch: Dispatch,
     packing_order_id: uuid.UUID,
-) -> None:
+    reason: str | None = None,
+) -> PackingOrder:
     """Take the boxes off the ready-for-dispatch feed and onto this consignment.
 
     Done when the consignment is raised rather than when it leaves: the feed
     exists so two dispatchers cannot both plan around the same boxes, and a claim
-    that waited until loading would not prevent that.
+    that waited until loading would not prevent that. The one claim every path
+    uses - raising a consignment, amending one, and the packing hand-over - so
+    the customer, sales-order and status rules cannot differ between them.
     """
     facts = await PackingOrderLookupRepository(session, tenant).get_facts(packing_order_id)
     if facts is None:
@@ -1231,12 +1400,12 @@ async def _claim_packing_order(
             details={"packing_order_id": str(packing_order_id)},
         )
 
-    await packing.hand_over_to_dispatch(
+    return await packing.record_dispatch_claim(
         session,
         tenant,
         packing_order_id,
         dispatch_id=dispatch.id,
-        reason=f"Loaded onto dispatch {dispatch.code}",
+        reason=reason or f"Loaded onto dispatch {dispatch.code}",
     )
 
 
@@ -1351,6 +1520,7 @@ async def create_dispatch(
     its boxes, which is the one side effect - see :func:`_claim_packing_order`.
     """
     repo = DispatchRepository(session, tenant)
+    assert_sales_consignment(payload.dispatch_type)
 
     async with transaction(session):
         await _validate_header(
@@ -1450,6 +1620,7 @@ async def update_dispatch(
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
         _assert_editable(dispatch)
+        assert_sales_consignment(dispatch.dispatch_type, code=dispatch.code)
         if await repo.has_live_invoice(dispatch.id):
             raise BusinessRuleError(
                 "This dispatch has a live sales invoice. Cancel the invoice first."
@@ -1549,6 +1720,105 @@ async def update_dispatch(
     return dispatch_detail(dispatch, lines)
 
 
+async def load_packing_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    dispatch_id: uuid.UUID,
+    *,
+    packing_order_id: uuid.UUID,
+    reason: str,
+) -> DispatchDetail:
+    """Load a packed order's boxes onto a consignment that has not left: the hand-over.
+
+    The packing screen's "Hand to dispatch" and ``POST /packing/{id}/hand-over``
+    arrive here through packing's dispatch port, because the consignment is the
+    document being loaded. In one transaction:
+
+    * the consignment is read through this module's tenant-scoped repository
+      under its row lock, so another company's, or an id naming nothing, is not
+      found - the hand-over used to store whatever id it was sent;
+    * it must be a SALES consignment still open for loading - not released,
+      delivered or cancelled - with no live invoice frozen on it and no other
+      packing order already on it;
+    * the packing order is claimed through :func:`_claim_packing_order`, the
+      claim the create path uses: the same customer, the same sales order where
+      both name one, PACKED and unclaimed, final QC accepted;
+    * its sealed cartons are matched to the consignment's lines and checked by
+      the create path's own reconciliation (:func:`_validate_carton_contents`);
+    * the consignment records the packing order, and its boxes and weight
+      follow the cartons.
+
+    Lock order: the consignment, then the packing order - the order raising and
+    amending a consignment take them in.
+    """
+    repo = DispatchRepository(session, tenant)
+
+    async with transaction(session):
+        dispatch = await _lock_dispatch(repo, dispatch_id)
+        assert_sales_consignment(dispatch.dispatch_type, code=dispatch.code)
+        status = DispatchStatus(dispatch.status)
+        if status not in EDITABLE_STATUSES:
+            raise BusinessRuleError(
+                f"{dispatch.code} is {str(status).replace('_', ' ').lower()} and no longer open "
+                "for loading; packed boxes can only be handed to a consignment that has not "
+                "left and was not cancelled.",
+                details={"dispatch_id": str(dispatch.id), "status": str(status)},
+            )
+        if await repo.has_live_invoice(dispatch.id):
+            raise BusinessRuleError(
+                "This dispatch has a live sales invoice. Cancel the invoice first."
+            )
+        if dispatch.packing_order_id is not None and dispatch.packing_order_id != packing_order_id:
+            raise BusinessRuleError(
+                f"{dispatch.code} already carries a different packing order; raise a new "
+                "consignment for other boxes.",
+                details={"packing_order_id": str(dispatch.packing_order_id)},
+            )
+        before = snapshot(dispatch, DISPATCH_AUDITED_FIELDS)
+
+        # The claim first: a box for another customer or order, or one nobody
+        # has finished inspecting, is refused for what it is before its contents
+        # are compared with anything.
+        order = await _claim_packing_order(
+            session, tenant, dispatch=dispatch, packing_order_id=packing_order_id, reason=reason
+        )
+        lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
+        await _validate_carton_contents(
+            session, tenant, lines=lines, packing_order_id=packing_order_id
+        )
+
+        dispatch.packing_order_id = packing_order_id
+        # ASSUMPTION: the boxes and weight follow the cartons (docs/assumptions.md
+        # §G1-2). They are what the transporter counts and weighs, and the packing
+        # order froze them at completion; what was typed on the plan was a guess
+        # made before the boxes existed. A consignment that also carries loose
+        # goods is corrected by amending it afterwards.
+        dispatch.total_boxes = order.total_cartons
+        dispatch.total_weight_kg = to_quantity(Decimal(order.total_gross_weight))
+        repo.touch(dispatch)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.DISPATCH_CHANGE,
+            entity_type=AUDIT_DISPATCH,
+            entity_id=dispatch.id,
+            entity_code=dispatch.code,
+            summary=f"Loaded packing order {order.code} onto dispatch {dispatch.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(dispatch, DISPATCH_AUDITED_FIELDS),
+            context={
+                "reason": reason,
+                "packing_order_id": str(order.id),
+                "carton_ids": sorted({str(carton) for line in lines for carton in line.carton_ids}),
+            },
+        )
+
+    return dispatch_detail(dispatch, lines)
+
+
 async def delete_draft_dispatch(
     session: AsyncSession, tenant: TenantContext, dispatch_id: uuid.UUID, *, reason: str
 ) -> None:
@@ -1600,6 +1870,8 @@ async def mark_ready(
 
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
+        # Staged, it could only wait at the gate for a release that refuses it.
+        assert_sales_consignment(dispatch.dispatch_type, code=dispatch.code)
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
         if not lines:
             raise BusinessRuleError(
@@ -1631,6 +1903,13 @@ async def cancel_dispatch(
 
     Refused once anything has shipped: the ledger records goods that left, and a
     document claiming never to have existed would contradict it.
+
+    A packing order the consignment had claimed goes back to PACKED in the same
+    transaction (``packing.release_dispatch_claims``): nothing in its boxes has
+    left, and leaving it HANDED_OVER to a consignment that will never move would
+    strand sealed, paid-for cartons where no other consignment could take them.
+    The consignment keeps its own ``packing_order_id`` as the record of what it
+    had planned to carry.
     """
     repo = DispatchRepository(session, tenant)
 
@@ -1658,6 +1937,12 @@ async def cancel_dispatch(
             location=None,
             remark=reason,
             source=TrackingEventSource.MANUAL,
+        )
+        await packing.release_dispatch_claims(
+            session,
+            tenant,
+            dispatch.id,
+            reason=f"Dispatch {dispatch.code} was cancelled: {reason}",
         )
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
 
@@ -1690,6 +1975,9 @@ async def dispatch_consignment(
         DISPATCH_LIFECYCLE.assert_transition(
             DispatchStatus(dispatch.status), DispatchStatus.DISPATCHED
         )
+        # Before any line is read: a non-sales plan raised before the rule would
+        # otherwise post its lines as DISPATCH - goods written off the books.
+        assert_sales_consignment(dispatch.dispatch_type, code=dispatch.code)
 
         lines = await line_repo.for_dispatch(dispatch.id)
         if not lines:
@@ -1807,30 +2095,35 @@ async def dispatch_consignment(
                 if line.sales_order_line_id is not None
                 else None
             )
-            reservation_id = order_line.reservation_id if order_line is not None else None
-
-            if order_line is not None and reservation_id is not None:
+            if order_line is not None:
                 # Consumes the promise and posts the DISPATCH movement in one
-                # step, in the right order - see allocation.consume's docstring.
-                # A serial-tracked line names its units, and the drawdown posts
+                # step, in the right order - see allocation.consume's docstring -
+                # once per position the order line is held at: stock in two
+                # bins or two lots is reserved at each (docs/assumptions.md
+                # §E2-2). Only reservations in the lot this line names are
+                # drawn, so the ledger moves the lot the document says left, and
+                # a serial-tracked line draws each named unit where it is held,
                 # one movement per unit (module docstring). A call per
                 # reservation is unavoidable: each is a separate row that has to
                 # be locked and drawn down individually, and the set is bounded
-                # by MAX_LINES_PER_DISPATCH.
-                reservation = await allocation.consume(
+                # by MAX_LINES_PER_DISPATCH and the positions a line is held at.
+                reservations = await allocation.consume_demand_line(
                     session,
                     tenant,
-                    reservation_id=reservation_id,
+                    demand_type=DemandType.SALES_ORDER,
+                    demand_id=order_line.sales_order_id,
+                    demand_line_id=order_line.id,
                     quantity=to_quantity(line.quantity),
                     reference_type=MOVEMENT_REFERENCE_DISPATCH,
                     reference_id=dispatch.id,
                     reference_code=dispatch.code,
                     transaction_type=TransactionType.DISPATCH,
                     occurred_at=occurred_at,
+                    batch_id=line.batch_id,
                     serial_ids=list(line.serial_ids) if item.is_serial_tracked else (),
                 )
-                line.reservation_id = reservation.id
-                consumed.append(reservation.id)
+                line.reservation_id = reservations[0].id
+                consumed.extend(reservation.id for reservation in reservations)
                 # What the reservation still holds after this drawdown - the
                 # order line's allocated figure follows the live promise.
                 order_line.allocated_quantity = to_quantity(
@@ -2125,6 +2418,11 @@ async def add_tracking_event(
     A status in the delivered half with no arrival date on the row stamps one
     from the event's own time: the table refuses a delivered consignment that
     cannot say when it arrived, and an integration has no other way to supply it.
+
+    An event never moves a consignment into a status its own action owns
+    (:data:`ACTION_ONLY_STATUSES`): an event jumping READY -> DISPATCHED would
+    mark it gone with no stock moved, and one jumping to CANCELLED would skip
+    the invoice check and leave its packed boxes claimed.
     """
     repo = DispatchRepository(session, tenant)
 
@@ -2133,6 +2431,14 @@ async def add_tracking_event(
         current = DispatchStatus(dispatch.status)
         target = payload.event_status
         event_time = payload.event_time or utcnow()
+
+        if target is not current and target in ACTION_ONLY_STATUSES:
+            raise BusinessRuleError(
+                f"A tracking event cannot move {dispatch.code} to "
+                f"{str(target).replace('_', ' ').lower()}; that happens only by "
+                f"{ACTION_ONLY_STATUSES[target]}.",
+                details={"current_status": str(current), "event_status": str(target)},
+            )
 
         if target is not current:
             arrival = dispatch.actual_delivery_date or max(
@@ -2305,17 +2611,22 @@ async def _raise_delay_alert(
 
 
 __all__ = [
+    "ACTION_ONLY_STATUSES",
     "AUDIT_DISPATCH",
     "AUDIT_SALES_ORDER",
     "DELAY_ALERT_ROLES",
     "DISPATCHABLE_ORDER_STATUSES",
     "DISPATCH_LIFECYCLE",
     "MOVEMENT_REFERENCE_DISPATCH",
+    "NON_SALES_MOVEMENT_OWNERS",
+    "SHIPPABLE_DISPATCH_TYPES",
     "LineBalance",
     "add_tracking_event",
     "arrived_late",
     "assert_delay_explained",
     "assert_order_dispatchable",
+    "assert_sales_consignment",
+    "assign_cartons",
     "build_line_movements",
     "cancel_dispatch",
     "confirm_delivery",
@@ -2331,8 +2642,10 @@ __all__ = [
     "list_delayed",
     "list_dispatches",
     "list_tracking_events",
+    "load_packing_order",
     "mark_in_transit",
     "mark_ready",
+    "non_sales_dispatch_message",
     "open_dispatch_quantities",
     "qc_is_pending",
     "sales_order_status_path",

@@ -28,18 +28,21 @@ somewhere else.
 means strictly no credit — a cash-only customer.
 
 Raising line quantities on a confirmed order re-runs the credit check against
-the full prospective order total — not the delta, because `outstanding_amount`
-never includes open orders — under the locked customer row, and only when the
-total grows. A reduction is never checked, so a customer now on hold can still
-shrink its exposure.
+the full prospective order total under the locked customer row, and only when
+the total grows. Credit exposure also includes the remaining tax-inclusive
+value of other confirmed, allocated and partially dispatched orders, prorated
+by quantities not yet invoiced. Draft orders do not consume credit. The order
+being changed is excluded from that aggregate because its full prospective
+total replaces its existing exposure. A reduction is never checked, so a
+customer now on hold can still shrink its exposure.
 
 **Why.** The two states are genuinely different and a single nullable number has
 to carry both. Treating `0` as "unlimited" would be dangerous by default; a
 customer set up with no limit yet would silently get infinite credit.
 
 **Where.** `src/modules/customers/service.py` — `assert_within_credit_limit`;
-the re-check on a confirmed order is `src/modules/sales/service.py` —
-`_update_confirmed`.
+`src/modules/sales/repository.py` — `SalesOrderRepository.uninvoiced_open_exposure`;
+confirmation and confirmed-order growth in `src/modules/sales/service.py`.
 
 **Impact if wrong.** Orders are blocked or allowed incorrectly at confirmation.
 Low rework cost.

@@ -202,6 +202,7 @@ from src.modules.job_work.repository import (
     JobWorkOrderRepository,
     JobWorkReceiptLineRepository,
     JobWorkReceiptRepository,
+    JobWorkReservationRepository,
     TransporterLookupRepository,
     VendorLookupRepository,
     WarehouseLookupRepository,
@@ -1826,12 +1827,13 @@ async def delete_draft_order(
 async def _release_reservations(
     session: AsyncSession,
     tenant: TenantContext,
+    order: JobWorkOrder,
     lines: Sequence[JobWorkOrderLine],
     *,
     port: AllocationPort,
     reason: str,
 ) -> int:
-    """Hand every held reservation back before any movement is posted.
+    """Hand back everything the order still holds before any movement is posted.
 
     The order matters and is not a style choice. ``reserved_quantity`` has to
     come down before ``on_hand_quantity`` does, or the movement engine would see
@@ -1839,19 +1841,44 @@ async def _release_reservations(
     would correctly refuse it. Both happen inside the issuing transaction, so no
     other document can slip into the gap.
 
+    What is held is re-read from the reservations in one statement, never taken
+    from ``line.reservation_id``: allocation closes a reservation on its own -
+    released from the Reservations screen, expired, or taken by an approved
+    reallocation - and asking it to release a closed one again is refused. That
+    stranded the order, because APPROVED has no exit but issuing and cancelling
+    and both came through here.
+
+    ASSUMPTION: a reservation closed elsewhere is no reservation, so it is
+    skipped rather than refused, and a reservation an approved reallocation
+    granted *to* this order is given back with the rest - the order needs no
+    held stock once it is issued or cancelled. Issuing then draws on free stock
+    like any unreserved movement: the stock engine still refuses the issue when
+    free stock cannot cover a line, because the order lost its promise, it did
+    not gain a right to stock promised since (docs/assumptions.md §E2-1).
+
     The iteration order is fixed - by item, then line - across every caller, so
     two orders sharing an item cannot take the same balance locks in opposite
     orders.
     """
-    released = 0
-    for line in sorted(lines, key=lambda row: (row.item_id, row.line_number)):
-        if line.reservation_id is None:
-            continue
-        await port.release(session, tenant, reservation_id=line.reservation_id, reason=reason)
-        line.reservation_id = None
-        released += 1
+    held = await JobWorkReservationRepository(session, tenant).open_for_order(order.id)
+    line_numbers = {
+        line.reservation_id: line.line_number for line in lines if line.reservation_id is not None
+    }
+    for reservation in sorted(
+        held,
+        key=lambda row: (
+            row.item_id,
+            row.id not in line_numbers,
+            line_numbers.get(row.id, 0),
+            row.id,
+        ),
+    ):
+        await port.release(session, tenant, reservation_id=reservation.id, reason=reason)
+    for line in lines:
+        if line.reservation_id is not None:
+            line.reservation_id = None
     await session.flush()
-    return released
+    return len(held)
 
 
 async def approve_order(
@@ -1958,7 +1985,12 @@ async def cancel_order(
 
         lines = await line_repo.list_for_order(order.id)
         released = await _release_reservations(
-            session, tenant, lines, port=port, reason=f"{order.code} cancelled: {reason}"[:255]
+            session,
+            tenant,
+            order,
+            lines,
+            port=port,
+            reason=f"{order.code} cancelled: {reason}"[:255],
         )
 
         order.cancellation_reason = reason
@@ -2097,7 +2129,12 @@ async def issue_order(
             )
 
         released = await _release_reservations(
-            session, tenant, lines, port=port, reason=f"{order.code} issued: {payload.reason}"[:255]
+            session,
+            tenant,
+            order,
+            lines,
+            port=port,
+            reason=f"{order.code} issued: {payload.reason}"[:255],
         )
 
         movement_reason = f"Job work {order.code} issued to vendor: {payload.reason}"[:255]

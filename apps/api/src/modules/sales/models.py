@@ -382,10 +382,12 @@ class SalesOrderLine(TenantEntity):
         server_default=SalesOrderLineStatus.PENDING.value,
     )
 
-    #: The ``stock_reservations`` row currently held for this line. Bare UUID,
-    #: no foreign key - see the module docstring. Exactly one live reservation
-    #: per line is maintained: a quantity change releases it and takes a new one
-    #: rather than accumulating tranches nothing can later reconcile.
+    #: A ``stock_reservations`` row this line currently holds. Bare UUID, no
+    #: foreign key - see the module docstring. The line's whole promise is every
+    #: open SALES_ORDER reservation whose ``demand_line_id`` is this line: stock
+    #: sitting in two bins or two lots is held by one reservation per position
+    #: (docs/assumptions.md §E2-2), and ``allocated_quantity`` is their sum. A
+    #: quantity change releases them all and reserves afresh.
     reservation_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
     #: The dealer offer this line's discount came from, if any. Bare UUID, no
     #: foreign key: the sales table must not depend on the dealer portal's

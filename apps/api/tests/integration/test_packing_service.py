@@ -64,6 +64,7 @@ from src.modules.packing.schemas import (
 from src.modules.products.models import ItemGroup, ProductionType
 from src.modules.warehouses.models import WarehouseType
 from tests import seed_support
+from tests.dispatch_support import consignment_line, raise_consignment
 from tests.schema_support import report_database_setup_failure
 
 pytestmark = pytest.mark.integration
@@ -734,15 +735,34 @@ async def test_a_packed_order_appears_on_the_dispatch_feed_and_leaves_it_when_cl
     assert offered[0].carton_count == 1
     assert offered[0].total_gross_weight == Decimal("10.5000")
 
-    dispatch_id = uuid.uuid4()
+    order_id = order.id
+    # A consignment that does not exist is refused, not written into a bare
+    # column: before the hand-over read the dispatch, this id was stored as is.
+    with pytest.raises(NotFoundError, match="Dispatch"):
+        await service.hand_over_to_dispatch(
+            session, tenant, order_id, dispatch_id=uuid.uuid4(), reason="On the 4pm truck"
+        )
+    assert [
+        row
+        for row in await service.ready_for_dispatch(session, tenant)
+        if row.packing_order_id == order_id
+    ]
+
+    dispatch_id = await raise_consignment(
+        session,
+        tenant,
+        customer_id=bench.customer_id,
+        warehouse_id=bench.warehouse_id,
+        lines=[consignment_line(bench.goods_item_id, "40")],
+    )
     await service.hand_over_to_dispatch(
-        session, tenant, order.id, dispatch_id=dispatch_id, reason="On the 4pm truck"
+        session, tenant, order_id, dispatch_id=dispatch_id, reason="On the 4pm truck"
     )
 
     assert not [
         row
         for row in await service.ready_for_dispatch(session, tenant)
-        if row.packing_order_id == order.id
+        if row.packing_order_id == order_id
     ]
 
 
@@ -751,26 +771,37 @@ async def test_a_second_dispatch_cannot_take_an_order_another_one_claimed(
 ) -> None:
     session, tenant = ctx
     order = await started_order(session, tenant, bench, quantity="40")
+    order_id = order.id
     carton = await service.add_carton(
-        session, tenant, order.id, bench.carton_payload(quantity="40")
+        session, tenant, order_id, bench.carton_payload(quantity="40")
     )
     await service.seal_carton(
-        session, tenant, order.id, carton.id, SealCartonRequest(reason="Sealed")
+        session, tenant, order_id, carton.id, SealCartonRequest(reason="Sealed")
     )
-    await service.complete_packing(session, tenant, order.id, CompleteRequest(reason="Done"))
+    await service.complete_packing(session, tenant, order_id, CompleteRequest(reason="Done"))
 
-    first = uuid.uuid4()
+    async def consignment() -> uuid.UUID:
+        return await raise_consignment(
+            session,
+            tenant,
+            customer_id=bench.customer_id,
+            warehouse_id=bench.warehouse_id,
+            lines=[consignment_line(bench.goods_item_id, "40")],
+        )
+
+    first = await consignment()
+    second = await consignment()
     await service.hand_over_to_dispatch(
-        session, tenant, order.id, dispatch_id=first, reason="Truck A"
+        session, tenant, order_id, dispatch_id=first, reason="Truck A"
     )
     # The same dispatch asking twice is a retry, not a conflict.
     await service.hand_over_to_dispatch(
-        session, tenant, order.id, dispatch_id=first, reason="Truck A again"
+        session, tenant, order_id, dispatch_id=first, reason="Truck A again"
     )
 
-    with pytest.raises(BusinessRuleError, match="another dispatch"):
+    with pytest.raises(BusinessRuleError, match="already been taken"):
         await service.hand_over_to_dispatch(
-            session, tenant, order.id, dispatch_id=uuid.uuid4(), reason="Truck B"
+            session, tenant, order_id, dispatch_id=second, reason="Truck B"
         )
 
 

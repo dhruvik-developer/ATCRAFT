@@ -214,6 +214,45 @@ def resolve_dispatch_plan_port() -> DispatchPlanningPort:
     return _DispatchPlanningAdapter()
 
 
+class DispatchLoadingPort(Protocol):
+    async def load_packing_order(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        dispatch_id: uuid.UUID,
+        *,
+        packing_order_id: uuid.UUID,
+        reason: str,
+    ) -> None: ...
+
+
+class _DispatchLoadingAdapter:
+    """The consignment side of a hand-over, reached at call time.
+
+    Dispatch imports this module, so the reverse reach is a deferred import -
+    the same seam as :class:`_DispatchPlanningAdapter`.
+    """
+
+    async def load_packing_order(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        dispatch_id: uuid.UUID,
+        *,
+        packing_order_id: uuid.UUID,
+        reason: str,
+    ) -> None:
+        from src.modules.dispatch.service import load_packing_order
+
+        await load_packing_order(
+            session, tenant, dispatch_id, packing_order_id=packing_order_id, reason=reason
+        )
+
+
+def resolve_dispatch_loading_port() -> DispatchLoadingPort:
+    return _DispatchLoadingAdapter()
+
+
 #: Header fields snapshotted around an edit so the audit diff names what moved
 #: rather than reprinting the whole row.
 ORDER_AUDITED_FIELDS = [
@@ -288,6 +327,21 @@ PACKING_ORDER_LIFECYCLE: StateMachine[PackingOrderStatus] = StateMachine(
             permission=Permission.DISPATCH_CREATE,
             label="Hand over to dispatch",
             is_irreversible=True,
+        ),
+        # ASSUMPTION: a consignment cancelled before it left gives its boxes back
+        # (docs/assumptions.md §G1-3). The dispatch machine cancels only from
+        # NOT_DISPATCHED or READY_FOR_DISPATCH, so nothing in the cartons has
+        # shipped: they are packed goods again, and the order returns to the
+        # ready-for-dispatch feed for another consignment to claim instead of
+        # staying HANDED_OVER to one that will never move. Only
+        # ``release_dispatch_claims``, called from inside the dispatch
+        # cancellation, takes this edge; a consignment that has left cannot be
+        # cancelled, so shipped history never reaches it.
+        Transition(
+            PackingOrderStatus.HANDED_OVER,
+            PackingOrderStatus.PACKED,
+            permission=Permission.DISPATCH_UPDATE,
+            label="Released by a cancelled dispatch",
         ),
         Transition(
             PackingOrderStatus.HANDED_OVER,
@@ -2685,13 +2739,46 @@ async def hand_over_to_dispatch(
     dispatch_id: uuid.UUID,
     reason: str,
 ) -> PackingOrder:
-    """Claim a packed order for a dispatch.
+    """Load a packed order onto the consignment taking it - the hand-over a person asks for.
+
+    ``POST /packing/{id}/hand-over`` and the packing screen's "Hand to dispatch"
+    both land here, and the work is the dispatch module's, because the
+    consignment is the document being loaded:
+    :func:`src.modules.dispatch.service.load_packing_order` reads it through its
+    tenant-scoped repository under its row lock, refuses one that does not exist
+    in this company, has left, was cancelled or belongs to another customer or
+    sales order, claims this order through :func:`record_dispatch_claim` exactly
+    as the dispatch create path does, and matches the sealed cartons to the
+    consignment's lines. This used to store whatever id it was given in a bare
+    column and tell the consignment nothing.
+    """
+    await resolve_dispatch_loading_port().load_packing_order(
+        session, tenant, dispatch_id, packing_order_id=order_id, reason=reason
+    )
+    return await PackingOrderRepository(session, tenant).get_or_404(order_id)
+
+
+async def record_dispatch_claim(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    *,
+    dispatch_id: uuid.UUID,
+    reason: str,
+) -> PackingOrder:
+    """Record a consignment's claim on a packed order: the packing side of a hand-over.
 
     The other half of :func:`ready_for_dispatch`, and the reason that feed is
     stable: once a dispatch has taken an order it stops being offered, so two
     dispatchers cannot both plan around the same boxes. Idempotent only for the
     same dispatch - a second, different claim is refused rather than silently
     overwriting the first.
+
+    Only the dispatch module calls this, inside its own transaction and holding
+    the consignment's row lock, after it has read and validated the consignment
+    (``dispatch.service._claim_packing_order``). It does not look the dispatch up
+    itself; a caller that has not is what :func:`hand_over_to_dispatch` exists to
+    prevent.
     """
     repo = PackingOrderRepository(session, tenant)
 
@@ -2725,6 +2812,55 @@ async def hand_over_to_dispatch(
         )
 
     return order
+
+
+async def release_dispatch_claims(
+    session: AsyncSession, tenant: TenantContext, dispatch_id: uuid.UUID, *, reason: str
+) -> list[PackingOrder]:
+    """Give a cancelled consignment's boxes back to the packing dock.
+
+    Called by the dispatch module from inside its cancellation, holding the
+    consignment's row lock - consignment first, then the orders, the same order
+    every hand-over takes them in. Each order still HANDED_OVER to that
+    consignment returns to PACKED through the state machine with its claim
+    cleared, so it is back on :func:`ready_for_dispatch` for another consignment
+    (docs/assumptions.md §G1-3). An order closed by hand in the meantime is left
+    as it is.
+
+    The transitions are asserted and their audit rows added without a round trip
+    each, then written in one flush: the set is the orders loaded onto one lorry,
+    normally one.
+    """
+    repo = PackingOrderRepository(session, tenant)
+
+    async with transaction(session):
+        orders = await repo.lock_handed_over_to(dispatch_id)
+        for order in orders:
+            current = PackingOrderStatus(order.status)
+            PACKING_ORDER_LIFECYCLE.assert_transition(current, PackingOrderStatus.PACKED)
+            order.status = PackingOrderStatus.PACKED
+            order.dispatch_id = None
+            order.handed_over_at = None
+            repo.touch(order)
+            # ``flush=False`` adds the row without a statement; the one flush
+            # below writes the whole set inside this transaction.
+            await record_status_change(
+                session,
+                company_id=tenant.company_id,
+                entity_type=AUDIT_PACKING_ORDER,
+                entity_id=order.id,
+                entity_code=order.code,
+                from_status=str(current),
+                to_status=str(PackingOrderStatus.PACKED),
+                user_id=tenant.user_id,
+                action=AuditAction.DISPATCH_CHANGE,
+                reason=reason,
+                flush=False,
+            )
+        if orders:
+            await session.flush()
+
+    return orders
 
 
 async def reinspect_line(
@@ -3115,6 +3251,7 @@ __all__ = [
     "PACKING_ORDER_LIFECYCLE",
     "AssemblyHandover",
     "AssemblyHandoverPort",
+    "DispatchLoadingPort",
     "LineFacts",
     "PlannedContent",
     "add_carton",
@@ -3147,10 +3284,13 @@ __all__ = [
     "queue_packing_list",
     "ready_for_dispatch",
     "recompute_packed_quantities",
+    "record_dispatch_claim",
     "reinspect_line",
+    "release_dispatch_claims",
     "remove_carton",
     "replace_carton_contents",
     "resolve_assembly_port",
+    "resolve_dispatch_loading_port",
     "resolve_inspection_reader_port",
     "resolve_quality_port",
     "seal_carton",

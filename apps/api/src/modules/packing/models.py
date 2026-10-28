@@ -44,6 +44,10 @@ handover: a PACKED order that no dispatch has claimed is work waiting to be
 shipped. ``dispatch`` is deployed separately from this module and a hard
 reference would make this table uncreatable until it lands. The partial index
 below is built for precisely that predicate; see ``service.ready_for_dispatch``.
+With no constraint behind it, the column is only ever written by the dispatch
+module, after it has read and validated the consignment under its row lock
+(``service.hand_over_to_dispatch``), and is cleared again if that consignment
+is cancelled before it leaves.
 
 **Packing moves no finished-goods stock.** Completing an order does not dispatch
 it (section 22) - the only ledger this module writes is the packing material it

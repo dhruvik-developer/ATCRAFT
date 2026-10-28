@@ -58,25 +58,39 @@ export function ReportJobPanel({
   }
 
   if (phase === 'ready') {
+    const historicalProfitability =
+      job?.report_key === 'PRODUCT_PROFITABILITY' && job.parameters?.calculation_version !== 2
+
     return (
-      <Alert variant="info" className="flex flex-wrap items-start gap-3">
-        <CheckCircle2 className="mt-0.5 shrink-0 text-success" aria-hidden />
-        <div className="min-w-0 flex-1 basis-40">
-          <AlertTitle>{label} is ready</AlertTitle>
-          <AlertDescription>
-            {job ? `${formatNumber(job.row_count)} rows.` : 'The file is ready to download.'}
-          </AlertDescription>
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Button size="sm" onClick={controller.download} loading={controller.isDownloading}>
-            <Download />
-            Download
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={controller.reset} aria-label="Dismiss">
-            <X />
-          </Button>
-        </div>
-      </Alert>
+      <div className="space-y-3">
+        {historicalProfitability && (
+          <Alert variant="warning">
+            <AlertTitle>Historical standard-cost calculation</AlertTitle>
+            <AlertDescription>
+              Run Product profitability again for invoice and credit dates to generate a current
+              actual-cost file.
+            </AlertDescription>
+          </Alert>
+        )}
+        <Alert variant="info" className="flex flex-wrap items-start gap-3">
+          <CheckCircle2 className="mt-0.5 shrink-0 text-success" aria-hidden />
+          <div className="min-w-0 flex-1 basis-40">
+            <AlertTitle>{label} is ready</AlertTitle>
+            <AlertDescription>
+              {job ? `${formatNumber(job.row_count)} rows.` : 'The file is ready to download.'}
+            </AlertDescription>
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Button size="sm" onClick={controller.download} loading={controller.isDownloading}>
+              <Download />
+              Download
+            </Button>
+            <Button variant="ghost" size="icon-sm" onClick={controller.reset} aria-label="Dismiss">
+              <X />
+            </Button>
+          </div>
+        </Alert>
+      </div>
     )
   }
 

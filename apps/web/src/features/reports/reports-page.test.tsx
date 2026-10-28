@@ -9,7 +9,7 @@
  * screen rendered neither a strip nor a table. Both are pinned here.
  */
 
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -246,5 +246,134 @@ describe('production cost filters', () => {
     expect(asked).toHaveLength(1)
     expect(asked[0]!.searchParams.get('work_center_id')).toBe('wc-mill')
     expect(asked[0]!.searchParams.get('cost_centre_id')).toBe('cc-production')
+  })
+})
+
+describe('actual product profitability', () => {
+  const PROFITABILITY: ReportDescriptor = {
+    key: 'PRODUCT_PROFITABILITY',
+    title: 'Product profitability',
+    description: 'Invoice and credit revenue with matched FIFO costs.',
+    requires_period: true,
+    columns: [
+      { name: 'item_id', label: 'Item id', kind: 'id' },
+      { name: 'item_code', label: 'Item', kind: 'text' },
+      { name: 'revenue_amount', label: 'Revenue amount', kind: 'number' },
+      { name: 'cost_amount', label: 'Cost amount', kind: 'number' },
+      { name: 'margin_amount', label: 'Margin amount', kind: 'number' },
+      { name: 'margin_percent', label: 'Margin percent', kind: 'number' },
+    ],
+  }
+  const profitabilityPath = '/reports/product-profitability'
+  const profitabilityRoute =
+    '/reports?report=PRODUCT_PROFITABILITY&run=1&date_from=2026-09-01&date_to=2026-09-30'
+
+  it('explains the date basis and flags provisional, unpriced and unmatched rows', async () => {
+    const { fetch } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW, P.ITEM_COST_VIEW],
+      route: profitabilityRoute,
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([PROFITABILITY]),
+        [`GET ${profitabilityPath}`]: page([
+          {
+            item_id: 'i-pending',
+            item_code: 'PENDING-COST',
+            revenue_amount: '500.00',
+            cost_amount: null,
+            margin_amount: null,
+            margin_percent: null,
+            cost_pending: true,
+            has_provisional_revenue: false,
+            unpriced_quantity: '0',
+          },
+          {
+            item_id: 'i-unpriced',
+            item_code: 'UNPRICED',
+            revenue_amount: null,
+            cost_amount: '0.00',
+            margin_amount: null,
+            margin_percent: null,
+            cost_pending: false,
+            has_provisional_revenue: true,
+            unpriced_quantity: '0.0001',
+          },
+        ]),
+      },
+    })
+
+    expect(await screen.findByText('PENDING-COST')).toBeVisible()
+    expect(screen.getByText('Invoice and credit date basis')).toBeVisible()
+    expect(screen.getByText(/FIFO costs follow the billed quantities/)).toBeVisible()
+    expect(screen.getByText('Some results are provisional or incomplete')).toBeVisible()
+    expect(screen.getByText(/Uninvoiced dispatch amounts are provisional estimates/)).toBeVisible()
+    expect(screen.getByText(/Some billed quantities have no matched FIFO cost yet/)).toBeVisible()
+    expect(screen.getByText(/Some uninvoiced quantities have no agreed price/)).toBeVisible()
+    const pendingRow = within(screen.getByText('PENDING-COST').closest('tr')!)
+    expect(pendingRow.getAllByText('Unavailable')).toHaveLength(3)
+    const unpricedRow = within(screen.getByText('UNPRICED').closest('tr')!)
+    expect(unpricedRow.getAllByText('Unavailable')).toHaveLength(3)
+    expect(unpricedRow.getByText('₹0.00')).toBeVisible()
+    expect(fetch.calls.filter((call) => call.path === profitabilityPath)).toHaveLength(1)
+  })
+
+  it('keeps known zero costs and margins distinct from unavailable values', async () => {
+    renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW, P.ITEM_COST_VIEW],
+      route: profitabilityRoute,
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([PROFITABILITY]),
+        [`GET ${profitabilityPath}`]: page([
+          {
+            item_id: 'i-zero',
+            item_code: 'ZERO-COST',
+            revenue_amount: '0.00',
+            cost_amount: '0.00',
+            margin_amount: '0.00',
+            margin_percent: '0',
+            cost_pending: false,
+            has_provisional_revenue: false,
+            unpriced_quantity: '0.0000',
+          },
+        ]),
+      },
+    })
+
+    const row = within((await screen.findByText('ZERO-COST')).closest('tr')!)
+    expect(row.getAllByText('₹0.00')).toHaveLength(3)
+    expect(row.getByText('0.00%')).toBeVisible()
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText('Some results are provisional or incomplete')).not.toBeInTheDocument()
+  })
+
+  it('does not request profitability when the permission-filtered catalogue excludes it', async () => {
+    const { fetch } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW],
+      route: profitabilityRoute,
+      routes,
+    })
+
+    expect(await screen.findByText('That report is not available')).toBeVisible()
+    expect(screen.queryByText('Invoice and credit date basis')).not.toBeInTheDocument()
+    expect(fetch.calls.some((call) => call.path === profitabilityPath)).toBe(false)
+  })
+
+  it('retains the ordinary missing-value presentation for other reports', async () => {
+    renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW],
+      route: '/reports?report=STOCK_AVAILABILITY&run=1',
+      routes: {
+        ...routes,
+        [`GET ${REPORT_PATH}`]: page([
+          { item_id: 'i-missing', item_code: 'MISSING-STOCK', available_quantity: null },
+        ]),
+      },
+    })
+
+    const row = within((await screen.findByText('MISSING-STOCK')).closest('tr')!)
+    expect(row.getByText('-')).toBeVisible()
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText('Invoice and credit date basis')).not.toBeInTheDocument()
   })
 })

@@ -301,14 +301,29 @@ class VendorPerformanceRow(ReportRowBase):
 
 
 class ProductProfitabilityRow(ReportRowBase):
+    """Posted sales and matched FIFO costs, with explicit provisional gaps."""
+
     item_id: uuid.UUID
     item_code: str
     item_name: str
     quantity_sold: Decimal
-    revenue_amount: Decimal
-    cost_amount: Decimal
-    margin_amount: Decimal = Decimal("0")
-    margin_percent: Decimal = Decimal("0")
+    revenue_amount: Decimal | None
+    cost_amount: Decimal | None
+    margin_amount: Decimal | None = Decimal("0")
+    margin_percent: Decimal | None = Decimal("0")
+    invoice_revenue_amount: Decimal = Field(default=Decimal("0"), title="Invoice revenue")
+    credit_amount: Decimal = Field(default=Decimal("0"), title="Credit notes")
+    provisional_revenue_amount: Decimal = Field(
+        default=Decimal("0"), title="Uninvoiced revenue estimate"
+    )
+    invoice_cost_amount: Decimal = Field(default=Decimal("0"), title="Matched invoice FIFO cost")
+    return_cost_amount: Decimal = Field(default=Decimal("0"), title="Return-credit FIFO reversal")
+    provisional_cost_amount: Decimal = Field(default=Decimal("0"), title="Uninvoiced FIFO cost")
+    uninvoiced_quantity: Decimal = Field(default=Decimal("0"), title="Uninvoiced quantity")
+    unpriced_quantity: Decimal = Field(default=Decimal("0"), title="Unpriced quantity")
+    unmatched_cost_quantity: Decimal = Field(default=Decimal("0"), title="Unmatched FIFO quantity")
+    cost_pending: bool = False
+    has_provisional_revenue: bool = False
 
 
 class ItemMovementRow(ReportRowBase):

@@ -150,6 +150,8 @@ class DispatchCreate(TransportDetails):
     ``POST /{id}/dispatch`` runs.
     """
 
+    #: Only SALES is raised. The other values stay in the vocabulary so historical
+    #: rows and filters still read; the service refuses them by name.
     dispatch_type: DispatchType = DispatchType.SALES
     warehouse_id: uuid.UUID
     dispatch_date: date
@@ -169,16 +171,16 @@ class DispatchCreate(TransportDetails):
 
         The database is still the enforcement point - this only means the caller
         gets a 422 naming the missing field instead of a 500 naming a constraint.
+
+        A non-sales type is left to the service, which refuses it outright and
+        names the module that owns that movement (``assert_sales_consignment``):
+        asking first for a vendor would send the caller to fill in a field on a
+        consignment that cannot be raised at all.
         """
-        if self.dispatch_type is DispatchType.SALES and self.customer_id is None:
+        if self.dispatch_type is not DispatchType.SALES:
+            return self
+        if self.customer_id is None:
             raise ValueError("A SALES dispatch must name the customer it is going to.")
-        if (
-            self.dispatch_type in (DispatchType.PURCHASE_RETURN, DispatchType.JOB_WORK)
-            and self.vendor_id is None
-        ):
-            raise ValueError(f"A {self.dispatch_type} dispatch must name the vendor.")
-        if self.sales_order_id is not None and self.dispatch_type is not DispatchType.SALES:
-            raise ValueError("A sales order can only be dispatched by a SALES dispatch.")
         if (
             self.expected_delivery_date is not None
             and self.expected_delivery_date < self.dispatch_date

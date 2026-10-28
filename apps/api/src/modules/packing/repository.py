@@ -782,6 +782,28 @@ class PackingOrderRepository(BaseRepository[PackingOrder]):
         stmt = self._scoped().where(PackingOrder.id == order_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def lock_handed_over_to(self, dispatch_id: uuid.UUID) -> list[PackingOrder]:
+        """The orders a consignment has claimed, under row locks, in id order.
+
+        Matched on the packing side of the claim, ``dispatch_id``, so an order
+        handed over before the consignment recorded its packing order is found
+        too. Normally one row; never more than the orders handed to one lorry.
+        The ``(company_id, status)`` prefix of the packing bench's status index
+        narrows the read to HANDED_OVER rows before ``dispatch_id`` is compared,
+        and ``populate_existing`` re-reads what the lock now protects.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                PackingOrder.status == PackingOrderStatus.HANDED_OVER,
+                PackingOrder.dispatch_id == dispatch_id,
+            )
+            .order_by(PackingOrder.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     def _filtered(self, filters: PackingOrderFilters) -> Select[Any]:
         stmt = self._scoped()
         if filters.status is not None:

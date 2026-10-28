@@ -20,6 +20,7 @@ from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.customers.schemas import OutstandingAdjustment
 from src.modules.customers.service import apply_outstanding_delta
+from src.modules.finance.credit_cost_service import snapshot_return_credit_costs
 from src.modules.finance.credit_note_repository import CreditNoteRepository
 from src.modules.finance.credit_note_rounding import (
     CreditedLineTotals,
@@ -233,6 +234,12 @@ async def _validate_return_credit(
     ):
         raise BusinessRuleError(
             "The sales return must belong to the selected invoice and customer."
+        )
+    if return_row.received_at is None or return_row.received_at < invoice.issued_at:
+        # Invoice issue already subtracts quantities physically received before
+        # issue. Later QC acceptance must not refund those unbilled goods again.
+        raise BusinessRuleError(
+            "Only goods returned after invoice issue can receive a return credit."
         )
     by_dispatch = {line.dispatch_line_id: line for line in return_lines}
     inspection_ids = {line.qc_inspection_id for line in return_lines if line.qc_inspection_id}
@@ -455,25 +462,26 @@ async def issue_credit_note(
         )
         session.add(row)
         await session.flush()
+        created_lines: list[CreditNoteLine] = []
         for source, quantity, taxable, cgst, sgst, igst, tax in computed:
-            session.add(
-                CreditNoteLine(
-                    company_id=tenant.company_id,
-                    created_by_id=tenant.user_id,
-                    credit_note_id=row.id,
-                    sales_invoice_line_id=source.id,
-                    item_id=source.item_id,
-                    hsn_code=source.hsn_code,
-                    quantity=to_quantity(quantity) if quantity is not None else None,
-                    taxable_amount=taxable,
-                    tax_rate=source.tax_rate,
-                    cgst_amount=cgst,
-                    sgst_amount=sgst,
-                    igst_amount=igst,
-                    tax_amount=tax,
-                    line_total=to_money(taxable + tax),
-                )
+            note_line = CreditNoteLine(
+                company_id=tenant.company_id,
+                created_by_id=tenant.user_id,
+                credit_note_id=row.id,
+                sales_invoice_line_id=source.id,
+                item_id=source.item_id,
+                hsn_code=source.hsn_code,
+                quantity=to_quantity(quantity) if quantity is not None else None,
+                taxable_amount=taxable,
+                tax_rate=source.tax_rate,
+                cgst_amount=cgst,
+                sgst_amount=sgst,
+                igst_amount=igst,
+                tax_amount=tax,
+                line_total=to_money(taxable + tax),
             )
+            session.add(note_line)
+            created_lines.append(note_line)
             source.credited_quantity += quantity or ZERO
             source.credited_amount += taxable
             if return_row is not None:
@@ -482,6 +490,10 @@ async def issue_credit_note(
                 ) + (quantity or ZERO)
         for return_line in return_lines:
             return_line.credited_quantity = return_credited.get(return_line.dispatch_line_id, ZERO)
+        await session.flush()
+        pending_cost_lines = await snapshot_return_credit_costs(
+            session, tenant, row, created_lines, source_lines, return_lines
+        )
         credited_total = await issued_credit_total(session, tenant, invoice.id)
         await transition_sales_invoice(
             session,
@@ -513,7 +525,11 @@ async def issue_credit_note(
             entity_code=row.code,
             summary=f"Issued credit note {row.code}",
             user_id=tenant.user_id,
-            context={"sales_invoice_id": str(invoice.id), "total_amount": str(total)},
+            context={
+                "sales_invoice_id": str(invoice.id),
+                "total_amount": str(total),
+                "cost_pending_line_ids": pending_cost_lines,
+            },
         )
         await session.flush()
     return await get_credit_note(session, tenant, row.id)

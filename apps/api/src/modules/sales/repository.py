@@ -52,6 +52,14 @@ from src.modules.sales.schemas import DemandSummaryFilters, DemandSummaryRow, Sa
 
 
 @dataclass(frozen=True, slots=True)
+class LineReservation:
+    """One open reservation a sales-order line holds, and what it still holds."""
+
+    id: uuid.UUID
+    remaining: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class SellableItem:
     """The item-master facts order entry needs.
 
@@ -471,6 +479,51 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
             for row in (await self.session.execute(stmt)).all()
         }
 
+    async def open_reservations_by_line(
+        self, lines: Sequence[SalesOrderLine]
+    ) -> dict[uuid.UUID, list[LineReservation]]:
+        """Every open reservation each line holds, keyed by line id, oldest first.
+
+        A line whose stock sits in two bins or two lots is held by one
+        reservation per position, so its live reservation is all of them, not
+        the one ``reservation_id`` names. One statement for any number of lines;
+        the order ids put it on the ``(company_id, demand_type, demand_id)``
+        index, since ``demand_line_id`` alone is not indexed. A line holding
+        nothing open is absent.
+        """
+        line_ids = list(dict.fromkeys(line.id for line in lines))
+        if not line_ids:
+            return {}
+        from src.modules.allocation.models import (
+            OPEN_RESERVATION_STATUSES,
+            DemandType,
+            StockReservation,
+        )
+
+        stmt = (
+            select(
+                StockReservation.id,
+                StockReservation.demand_line_id,
+                StockReservation.remaining_quantity,
+            )
+            .where(
+                StockReservation.company_id == self.tenant.company_id,
+                StockReservation.demand_type == DemandType.SALES_ORDER,
+                StockReservation.demand_id.in_(
+                    list(dict.fromkeys(line.sales_order_id for line in lines))
+                ),
+                StockReservation.demand_line_id.in_(line_ids),
+                StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+            )
+            .order_by(StockReservation.id)
+        )
+        grouped: dict[uuid.UUID, list[LineReservation]] = {}
+        for row in (await self.session.execute(stmt)).all():
+            grouped.setdefault(row.demand_line_id, []).append(
+                LineReservation(id=row.id, remaining=Decimal(row.remaining_quantity))
+            )
+        return grouped
+
     async def list_for_orders(
         self, order_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, list[SalesOrderLine]]:
@@ -550,6 +603,40 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         """
         stmt = self._scoped().where(SalesOrder.id == order_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def uninvoiced_open_exposure(
+        self, customer_id: uuid.UUID, *, exclude_order_id: uuid.UUID | None = None
+    ) -> Decimal:
+        """The tax-inclusive value still owed on committed orders not yet invoiced.
+
+        Partial invoice quantities consume the same proportion of the frozen
+        line total; draft orders never enter ``OPEN_DEMAND_STATUSES``.
+        """
+        remaining_quantity = SalesOrderLine.quantity - SalesOrderLine.invoiced_quantity
+        remaining_value = (
+            SalesOrderLine.line_total * remaining_quantity / func.nullif(SalesOrderLine.quantity, 0)
+        )
+        stmt = (
+            select(func.coalesce(func.sum(remaining_value), Decimal("0")))
+            .select_from(SalesOrderLine)
+            .join(
+                SalesOrder,
+                and_(
+                    SalesOrder.id == SalesOrderLine.sales_order_id,
+                    SalesOrder.company_id == SalesOrderLine.company_id,
+                ),
+            )
+            .where(
+                SalesOrder.company_id == self.tenant.company_id,
+                SalesOrder.customer_id == customer_id,
+                SalesOrder.status.in_(OPEN_DEMAND_STATUSES),
+                SalesOrderLine.company_id == self.tenant.company_id,
+                remaining_quantity > 0,
+            )
+        )
+        if exclude_order_id is not None:
+            stmt = stmt.where(SalesOrder.id != exclude_order_id)
+        return Decimal((await self.session.execute(stmt)).scalar_one())
 
     def _filtered(self, filters: SalesOrderFilters) -> Select[Any]:
         stmt = self._scoped()
@@ -731,6 +818,7 @@ class SalesSettingsRepository(BaseRepository[SalesSettings]):
 __all__ = [
     "AvailabilityRepository",
     "ItemLookupRepository",
+    "LineReservation",
     "OrderPartyRepository",
     "PriceListRepository",
     "SalesOrderLineRepository",

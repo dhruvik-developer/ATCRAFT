@@ -30,6 +30,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { differenceInCalendarDays, subDays } from 'date-fns'
+import Decimal from 'decimal.js'
 import { ArrowLeft, FileBarChart, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
@@ -421,6 +422,15 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
 
   const rows = list.data
   const accepted = list.acceptedJob ?? null
+  const isProfitability = definition.key === 'PRODUCT_PROFITABILITY'
+  const hasProvisionalProfitability = rows.some(
+    (row) =>
+      row.cost_pending === true ||
+      row.has_provisional_revenue === true ||
+      (row.unpriced_quantity !== null &&
+        row.unpriced_quantity !== undefined &&
+        new Decimal(String(row.unpriced_quantity)).greaterThan(0)),
+  )
 
   /**
    * Whether the operator closed the job strip for the answer in hand.
@@ -481,8 +491,11 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     // Identifier columns are declared by the API but are UUIDs; they identify a
     // row rather than telling a reader anything, so they key the row instead of
     // filling a column with them.
-    () => definition.columns.filter((column) => column.kind !== 'id').map(toColumn),
-    [definition],
+    () =>
+      definition.columns
+        .filter((column) => column.kind !== 'id')
+        .map((column) => toColumn(column, isProfitability)),
+    [definition, isProfitability],
   )
 
   const idKeys = useMemo(
@@ -568,6 +581,36 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
       </Card>
 
       <ReportJobPanel controller={{ ...job, reset: dismiss }} label={definition.title} />
+
+      {isProfitability && (
+        <Alert variant="info">
+          <AlertTitle>Invoice and credit date basis</AlertTitle>
+          <AlertDescription>
+            Revenue follows invoice and credit-note dates. FIFO costs follow the billed quantities,
+            not the dispatch date, so the dates may not match.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isProfitability && hasProvisionalProfitability && (
+        <Alert variant="warning">
+          <AlertTitle>Some results are provisional or incomplete</AlertTitle>
+          <AlertDescription className="space-y-1">
+            {rows.some((row) => row.has_provisional_revenue === true) && (
+              <p>Uninvoiced dispatch amounts are provisional estimates.</p>
+            )}
+            {rows.some((row) => row.cost_pending === true) && (
+              <p>Some billed quantities have no matched FIFO cost yet.</p>
+            )}
+            {rows.some(
+              (row) =>
+                row.unpriced_quantity !== null &&
+                row.unpriced_quantity !== undefined &&
+                new Decimal(String(row.unpriced_quantity)).greaterThan(0),
+            ) && <p>Some uninvoiced quantities have no agreed price.</p>}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {!hasRun ? (
         <EmptyState
@@ -795,7 +838,7 @@ function numericFormat(name: string): 'money' | 'quantity' | 'percent' | 'plain'
   return 'plain'
 }
 
-function toColumn(column: ReportColumn): ColumnDef<ReportRow, unknown> {
+function toColumn(column: ReportColumn, profitability = false): ColumnDef<ReportRow, unknown> {
   const numeric = column.kind === 'number' || column.kind === 'int'
 
   return {
@@ -806,12 +849,19 @@ function toColumn(column: ReportColumn): ColumnDef<ReportRow, unknown> {
     // a sort the server ignores would silently reorder nothing.
     enableSorting: false,
     meta: { align: numeric ? 'right' : undefined },
-    cell: ({ row }) => renderValue(column, row.original[column.name]),
+    cell: ({ row }) => renderValue(column, row.original[column.name], profitability),
   }
 }
 
-function renderValue(column: ReportColumn, value: ReportRow[string] | undefined) {
+function renderValue(
+  column: ReportColumn,
+  value: ReportRow[string] | undefined,
+  profitability = false,
+) {
   if (value === null || value === undefined || value === '') {
+    if (profitability && column.kind === 'number') {
+      return <span className="text-muted-foreground">Unavailable</span>
+    }
     return <span className="text-muted-foreground">-</span>
   }
 
@@ -825,7 +875,7 @@ function renderValue(column: ReportColumn, value: ReportRow[string] | undefined)
         case 'quantity':
           return formatQuantity(decimal)
         case 'percent':
-          return formatPercent(decimal)
+          return formatPercent(decimal, profitability ? 2 : 1)
         default:
           return formatQuantity(decimal)
       }

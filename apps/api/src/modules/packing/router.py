@@ -369,7 +369,14 @@ async def complete_packing(
 @router.post(
     "/{order_id}/hand-over",
     response_model=ApiResponse[PackingOrderSummary],
-    summary="Claim a packed order for a dispatch",
+    summary="Load a packed order onto a consignment",
+    description=(
+        "Hands the boxes to a SALES consignment of this company that has not left and was "
+        "not cancelled, for the same customer and - where both name one - the same sales "
+        "order. The consignment records the packing order, its sealed cartons are matched "
+        "to the consignment's lines and checked against them, and its boxes and weight "
+        "follow the cartons. A consignment that does not exist here answers 404."
+    ),
     dependencies=[require_permission(Permission.DISPATCH_CREATE)],
 )
 async def hand_over(

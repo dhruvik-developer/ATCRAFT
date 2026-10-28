@@ -412,6 +412,7 @@ async def transition_return(
                 session, tenant, dispatch.id, lines
             )
             movements: list[MovementRequest] = []
+            ordinary_receipt_owners: dict[int, SalesReturnLine] = {}
             serial_hold_movements: list[MovementRequest] = []
             for line in lines:
                 source = dispatch_by_id[line.dispatch_line_id]
@@ -451,6 +452,7 @@ async def transition_return(
                         for serial_id in line.serial_ids
                     )
                 else:
+                    ordinary_receipt_owners[len(movements)] = line
                     movements.append(
                         MovementRequest(
                             item_id=line.item_id,
@@ -465,7 +467,9 @@ async def transition_return(
                             cost_layers=ordinary_costs[line.id],
                         )
                     )
-            await post_movements(session, tenant, movements)
+            receipt_movements = await post_movements(session, tenant, movements)
+            for position, ordinary_line in ordinary_receipt_owners.items():
+                ordinary_line.receipt_transaction_id = receipt_movements[position].id
             if serial_hold_movements:
                 await post_movements(session, tenant, serial_hold_movements)
             for line in lines:
@@ -810,7 +814,9 @@ async def _issue_return_credit_note(
         CreditNote,
         CreditNoteLine,
         CreditNoteReason,
+        SalesInvoice,
         SalesInvoiceLine,
+        SalesInvoiceStatus,
     )
 
     # QC and serial disposition update their rows before this owner callback.
@@ -820,9 +826,19 @@ async def _issue_return_credit_note(
     invoice_lines = list(
         (
             await session.execute(
-                select(SalesInvoiceLine).where(
+                select(SalesInvoiceLine)
+                .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+                .join(SalesReturn, SalesReturn.dispatch_id == SalesInvoice.dispatch_id)
+                .where(
                     SalesInvoiceLine.company_id == tenant.company_id,
                     SalesInvoiceLine.dispatch_line_id.in_(dispatch_line_ids),
+                    SalesInvoice.company_id == tenant.company_id,
+                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                    SalesReturn.company_id == tenant.company_id,
+                    SalesReturn.id == return_id,
+                    # Earlier receipts were already removed from billed
+                    # quantity when this invoice was issued.
+                    SalesReturn.received_at >= SalesInvoice.issued_at,
                 )
             )
         )

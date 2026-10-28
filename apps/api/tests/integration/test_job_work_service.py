@@ -43,13 +43,16 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     ApprovalRequiredError,
     BusinessRuleError,
+    InsufficientStockError,
     InvalidStateTransitionError,
     PermissionDeniedError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
-from src.modules.allocation.models import ReservationStatus, StockReservation
+from src.modules.allocation import service as allocation
+from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
+from src.modules.allocation.schemas import ReallocationRequestCreate
 from src.modules.audit.models import AuditLog
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import (
@@ -798,6 +801,308 @@ async def test_issuing_consumes_the_reservation_before_the_stock_moves(ctx, job:
     # refused the whole transaction.
     assert Decimal(row.reserved_quantity) == 0
     assert Decimal(row.job_work_quantity) == Decimal("100.0000")
+
+
+# A reservation is a promise allocation may close on its own - released from the
+# Reservations screen, expired, or taken by an approved reallocation. The order
+# must still be able to leave APPROVED afterwards: APPROVED has no exit except
+# issuing and cancelling, so a release path that refused a closed reservation
+# stranded the order there for good.
+
+
+async def _approved_order(ctx, job: PvdJob) -> tuple[uuid.UUID, uuid.UUID]:
+    """An approved order holding its reservation, as plain ids.
+
+    Plain ids because several tests below expect a failure inside the service's
+    savepoint, and a rolled-back savepoint expires every ORM object loaded
+    before it (CLAUDE.md, "Traps").
+    """
+    session, tenant = ctx
+    await stock_in(session, tenant, job.raw_item_id, job.warehouse_id, "100")
+    order, _ = await service.create_order(session, tenant, job.payload())
+    order_id = order.id
+    _, lines = await service.approve_order(session, tenant, order_id, reason="Rate agreed")
+    reservation_id = lines[0].reservation_id
+    assert reservation_id is not None
+    return order_id, reservation_id
+
+
+async def _reservation(session: AsyncSession, reservation_id: uuid.UUID) -> StockReservation:
+    stmt = (
+        select(StockReservation)
+        .where(StockReservation.id == reservation_id)
+        .execution_options(populate_existing=True)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+def _issue_request() -> IssueRequest:
+    return IssueRequest(reason="Handed to the vendor's vehicle", vehicle_number="GJ01AB1234")
+
+
+async def test_an_order_whose_reservation_was_released_elsewhere_still_issues(
+    ctx, job: PvdJob
+) -> None:
+    session, tenant = ctx
+    order_id, reservation_id = await _approved_order(ctx, job)
+    # The Reservations screen's Release action, exactly as the route calls it.
+    await allocation.AllocationService(session, tenant).release_reservation(
+        reservation_id, reason="Released from the reservations screen", quantity=None
+    )
+
+    result = await service.issue_order(session, tenant, order_id, _issue_request())
+
+    assert result.order.status == JobWorkOrderStatus.ISSUED
+    assert [line.reservation_id for line in result.order.lines] == [None]
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None
+    assert Decimal(row.job_work_quantity) == Decimal("100.0000")
+    assert Decimal(row.on_hand_quantity) == 0
+    assert Decimal(row.reserved_quantity) == 0
+    # Released once, by the screen - never a second time by the issue.
+    reservation = await _reservation(session, reservation_id)
+    assert reservation.status is ReservationStatus.RELEASED
+    assert reservation.released_quantity == Decimal("100.0000")
+    assert reservation.release_reason == "Released from the reservations screen"
+
+
+async def test_an_order_whose_reservation_was_released_elsewhere_can_be_cancelled(
+    ctx, job: PvdJob
+) -> None:
+    session, tenant = ctx
+    order_id, reservation_id = await _approved_order(ctx, job)
+    await allocation.release(
+        session,
+        tenant,
+        reservation_id=reservation_id,
+        reason="Released from the reservations screen",
+    )
+
+    cancelled = await service.cancel_order(session, tenant, order_id, reason="Vendor declined")
+
+    assert cancelled.status == JobWorkOrderStatus.CANCELLED
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None
+    assert Decimal(row.reserved_quantity) == 0
+    assert Decimal(row.available_quantity) == Decimal("100.0000")
+    # Nothing was released twice, so the cancellation audits no release of its own.
+    released = (
+        await session.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(
+                AuditLog.entity_id == order_id,
+                AuditLog.summary.like("Released % reservation(s) held by %"),
+            )
+        )
+    ).scalar_one()
+    assert released == 0
+
+
+async def test_issuing_after_a_release_elsewhere_cannot_take_stock_promised_since(
+    ctx, job: PvdJob
+) -> None:
+    """The order lost its promise; it did not gain a right to anyone else's."""
+    session, tenant = ctx
+    order_id, reservation_id = await _approved_order(ctx, job)
+    await allocation.release(
+        session,
+        tenant,
+        reservation_id=reservation_id,
+        reason="Released from the reservations screen",
+    )
+    await allocation.reserve(
+        session,
+        tenant,
+        item_id=job.raw_item_id,
+        warehouse_id=job.warehouse_id,
+        quantity=Decimal("70"),
+        demand_type=DemandType.PRODUCTION_ORDER,
+        demand_id=uuid.uuid4(),
+        reason="Promised to a production order meanwhile",
+    )
+
+    with pytest.raises(InsufficientStockError):
+        await service.issue_order(session, tenant, order_id, _issue_request())
+
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None
+    assert Decimal(row.on_hand_quantity) == Decimal("100.0000")
+    assert Decimal(row.reserved_quantity) == Decimal("70.0000")
+    assert Decimal(row.job_work_quantity) == 0
+
+
+async def test_a_reallocation_that_took_the_reservation_leaves_the_order_issuable(
+    ctx, job: PvdJob
+) -> None:
+    """An approved reallocation empties the donor, and the order follows it forward.
+
+    Issuing is refused by the stock engine while the recipient holds the stock,
+    the order stays APPROVED rather than half-issued, and once replacement
+    stock arrives it issues from that - with nothing released twice.
+    """
+    session, tenant = ctx
+    order_id, reservation_id = await _approved_order(ctx, job)
+    approver = await seed_user(
+        session, company_id=tenant.company_id, email=f"approver-{uuid.uuid4().hex[:6]}@atcraft.test"
+    )
+    request = await allocation.AllocationService(session, tenant).create_reallocation_request(
+        ReallocationRequestCreate(
+            item_id=job.raw_item_id,
+            warehouse_id=job.warehouse_id,
+            quantity=Decimal("100"),
+            to_demand_type=DemandType.PRODUCTION_ORDER,
+            to_demand_id=uuid.uuid4(),
+            to_demand_code=_code("MO"),
+            priority=1,
+            reason="Line-down production order",
+            from_reservation_id=reservation_id,
+        )
+    )
+    await allocation.reallocate(
+        session,
+        TenantContext(company_id=tenant.company_id, user_id=approver.id),
+        request_id=request.id,
+        approved_by=approver.id,
+    )
+    assert (await _reservation(session, reservation_id)).status is ReservationStatus.RELEASED
+
+    with pytest.raises(InsufficientStockError):
+        await service.issue_order(session, tenant, order_id, _issue_request())
+    still = (
+        await session.execute(
+            select(JobWorkOrder)
+            .where(JobWorkOrder.id == order_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert still.status == JobWorkOrderStatus.APPROVED
+
+    # Replacement stock arrives: the order issues from it, never from the stock
+    # the reallocation gave away.
+    await stock_in(session, tenant, job.raw_item_id, job.warehouse_id, "100")
+    result = await service.issue_order(session, tenant, order_id, _issue_request())
+    assert result.order.status == JobWorkOrderStatus.ISSUED
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None
+    assert Decimal(row.on_hand_quantity) == Decimal("100.0000")
+    assert Decimal(row.reserved_quantity) == Decimal("100.0000")
+    assert Decimal(row.job_work_quantity) == Decimal("100.0000")
+
+
+async def test_a_reallocated_order_can_be_cancelled(ctx, job: PvdJob) -> None:
+    session, tenant = ctx
+    order_id, reservation_id = await _approved_order(ctx, job)
+    approver = await seed_user(
+        session, company_id=tenant.company_id, email=f"approver-{uuid.uuid4().hex[:6]}@atcraft.test"
+    )
+    request = await allocation.AllocationService(session, tenant).create_reallocation_request(
+        ReallocationRequestCreate(
+            item_id=job.raw_item_id,
+            warehouse_id=job.warehouse_id,
+            quantity=Decimal("100"),
+            to_demand_type=DemandType.PRODUCTION_ORDER,
+            to_demand_id=uuid.uuid4(),
+            priority=1,
+            reason="Line-down production order",
+            from_reservation_id=reservation_id,
+        )
+    )
+    await allocation.reallocate(
+        session,
+        TenantContext(company_id=tenant.company_id, user_id=approver.id),
+        request_id=request.id,
+        approved_by=approver.id,
+    )
+
+    cancelled = await service.cancel_order(session, tenant, order_id, reason="Plan changed")
+
+    assert cancelled.status == JobWorkOrderStatus.CANCELLED
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None
+    # The recipient keeps what it was given; the cancelled order holds nothing.
+    assert Decimal(row.reserved_quantity) == Decimal("100.0000")
+    open_for_order = (
+        await session.execute(
+            select(func.count())
+            .select_from(StockReservation)
+            .where(
+                StockReservation.demand_id == order_id,
+                StockReservation.status.in_(
+                    [ReservationStatus.ACTIVE, ReservationStatus.PARTIALLY_CONSUMED]
+                ),
+            )
+        )
+    ).scalar_one()
+    assert open_for_order == 0
+
+
+async def test_issuing_gives_back_stock_a_reallocation_granted_the_order(ctx, job: PvdJob) -> None:
+    """A grant no line points at is still the order's, and is not left behind.
+
+    Releasing only the lines' own reservations left a reservation an approved
+    reallocation had granted the order standing after the issue - stock hidden
+    from availability, promised to an order that can never draw on it again.
+    """
+    session, tenant = ctx
+    await stock_in(session, tenant, job.raw_item_id, job.warehouse_id, "150")
+    donor = await allocation.reserve(
+        session,
+        tenant,
+        item_id=job.raw_item_id,
+        warehouse_id=job.warehouse_id,
+        quantity=Decimal("50"),
+        demand_type=DemandType.PRODUCTION_ORDER,
+        demand_id=uuid.uuid4(),
+        priority=500,
+        reason="Low-urgency production order",
+    )
+    donor_id = donor.id
+    order, _ = await service.create_order(session, tenant, job.payload())
+    order_id = order.id
+    await service.approve_order(session, tenant, order_id, reason="Rate agreed")
+    approver = await seed_user(
+        session, company_id=tenant.company_id, email=f"approver-{uuid.uuid4().hex[:6]}@atcraft.test"
+    )
+    request = await allocation.AllocationService(session, tenant).create_reallocation_request(
+        ReallocationRequestCreate(
+            item_id=job.raw_item_id,
+            warehouse_id=job.warehouse_id,
+            quantity=Decimal("50"),
+            to_demand_type=DemandType.JOB_WORK_ORDER,
+            to_demand_id=order_id,
+            priority=1,
+            reason="The vendor can take a larger lot this week",
+            from_reservation_id=donor_id,
+        )
+    )
+    await allocation.reallocate(
+        session,
+        TenantContext(company_id=tenant.company_id, user_id=approver.id),
+        request_id=request.id,
+        approved_by=approver.id,
+    )
+
+    await service.issue_order(session, tenant, order_id, _issue_request())
+
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None
+    assert Decimal(row.job_work_quantity) == Decimal("100.0000")
+    assert Decimal(row.on_hand_quantity) == Decimal("50.0000")
+    assert Decimal(row.reserved_quantity) == 0
+    open_for_order = (
+        await session.execute(
+            select(func.count())
+            .select_from(StockReservation)
+            .where(
+                StockReservation.demand_id == order_id,
+                StockReservation.status.in_(
+                    [ReservationStatus.ACTIVE, ReservationStatus.PARTIALLY_CONSUMED]
+                ),
+            )
+        )
+    ).scalar_one()
+    assert open_for_order == 0
 
 
 # -----------------------------------------------------------------------------

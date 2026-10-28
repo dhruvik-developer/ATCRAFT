@@ -336,6 +336,9 @@ class CartonContentFacts:
     sales_order_line_id: uuid.UUID | None
     quantity: Decimal
     serial_ids: tuple[uuid.UUID, ...]
+    #: "Carton 3 of 7" - what a refusal names, because it is what is printed on
+    #: the box the dispatcher is standing next to.
+    carton_number: int = 0
 
 
 class CartonLookupRepository(BaseRepository[Carton]):
@@ -366,9 +369,25 @@ class CartonLookupRepository(BaseRepository[Carton]):
         """Actual sealed contents and demand links, scoped on every joined table."""
         if not carton_ids:
             return []
-        stmt = (
+        return await self._contents(
+            self._contents_stmt(packing_order_id).where(Carton.id.in_(set(carton_ids)))
+        )
+
+    async def contents_of_order(self, packing_order_id: uuid.UUID) -> list[CartonContentFacts]:
+        """Every sealed carton's contents in one packing order, in one statement.
+
+        What a consignment loads when it takes the order without naming its
+        cartons: the boxes are matched to its lines from this. Bounded by the
+        packing module's own ``MAX_CARTONS_PER_ORDER`` and
+        ``MAX_CONTENTS_PER_CARTON``.
+        """
+        return await self._contents(self._contents_stmt(packing_order_id))
+
+    def _contents_stmt(self, packing_order_id: uuid.UUID) -> Select[Any]:
+        return (
             select(
                 CartonContent.carton_id,
+                Carton.carton_number,
                 CartonContent.item_id,
                 CartonContent.batch_id,
                 PackingOrderLine.sales_order_line_id,
@@ -384,10 +403,11 @@ class CartonLookupRepository(BaseRepository[Carton]):
                 Carton.packing_order_id == packing_order_id,
                 PackingOrderLine.packing_order_id == packing_order_id,
                 Carton.is_sealed.is_(True),
-                Carton.id.in_(set(carton_ids)),
             )
             .order_by(Carton.id, CartonContent.id)
         )
+
+    async def _contents(self, stmt: Select[Any]) -> list[CartonContentFacts]:
         rows = (await self.session.execute(stmt)).all()
         return [
             CartonContentFacts(
@@ -397,6 +417,7 @@ class CartonLookupRepository(BaseRepository[Carton]):
                 sales_order_line_id=row.sales_order_line_id,
                 quantity=Decimal(row.quantity),
                 serial_ids=tuple(row.serial_ids),
+                carton_number=row.carton_number,
             )
             for row in rows
         ]
