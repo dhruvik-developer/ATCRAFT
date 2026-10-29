@@ -728,6 +728,43 @@ describe('the lifecycle on the order’s own screen', () => {
     // what identifies the loaded order unambiguously.
     await stable(() => screen.getByRole('heading', { name: 'PO-0001' }))
     expect(screen.queryByRole('button', { name: /cancel order/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Short-close order' })).toBeVisible()
+  })
+
+  it.each([
+    ['GRN_COMPLETED', 'Close order'],
+    ['PAID', 'Close order'],
+  ] as const)('offers %s close only to buyers with the cancel right', async (status, label) => {
+    renderDetail(status, everyRight)
+
+    expect(await stable(() => screen.getByRole('button', { name: label }))).toBeVisible()
+  })
+
+  it('hides Close without the purchase-order cancel right', async () => {
+    renderDetail('GRN_COMPLETED', [P.PURCHASE_ORDER_VIEW])
+
+    await stable(() => screen.getByRole('heading', { name: 'PO-0001' }))
+    expect(screen.queryByRole('button', { name: 'Close order' })).not.toBeInTheDocument()
+  })
+
+  it('short-closes a partially received order with the required reason', async () => {
+    const closePath = `${ORDERS_PATH}/${PO_ID}/close`
+    const { user, fetch } = renderDetail('PARTIALLY_RECEIVED', everyRight, {
+      [`POST ${closePath}`]: ok(order({ status: 'CLOSED' })),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: 'Short-close order' }))
+    expect(await stable(() => screen.getByText('Short-close PO-0001?'))).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Short-close order' }))
+    await stable(() => screen.getByText(/at least three characters/i))
+    expect(fetch.calls.some((call) => call.path === closePath)).toBe(false)
+
+    await user.type(screen.getByRole('textbox', { name: 'Reason' }), 'Vendor confirmed no balance')
+    await user.click(screen.getByRole('button', { name: 'Short-close order' }))
+
+    await waitFor(() => fetch.requestFor('POST', closePath))
+    expect(fetch.requestFor('POST', closePath)).toEqual({ reason: 'Vendor confirmed no balance' })
   })
 
   it('posts the transition with a null reason when no note was recorded', async () => {

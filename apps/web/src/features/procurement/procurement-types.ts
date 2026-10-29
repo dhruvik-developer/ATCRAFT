@@ -454,6 +454,10 @@ export const isPoCancellable = (status: string): boolean =>
     status,
   )
 
+/** Close fully received orders or stop expecting the balance of a partial receipt. */
+export const isPoClosable = (status: string): boolean =>
+  ['PARTIALLY_RECEIVED', 'GRN_COMPLETED', 'PAID'].includes(status)
+
 /**
  * Statuses a goods receipt may legally be posted against.
  *

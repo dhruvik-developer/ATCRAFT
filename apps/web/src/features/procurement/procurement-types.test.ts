@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { isPoCancellable, isPoSendable, poStageIndex, PO_LIFECYCLE } from './procurement-types'
+import {
+  isPoCancellable,
+  isPoClosable,
+  isPoSendable,
+  poStageIndex,
+  PO_LIFECYCLE,
+} from './procurement-types'
 
 describe('a purchase order the vendor declined', () => {
   it('can be sent again or cancelled by the buyer', () => {
@@ -18,5 +24,13 @@ describe('a purchase order the vendor declined', () => {
     expect(isPoSendable('SENT')).toBe(false)
     expect(isPoCancellable('PARTIALLY_RECEIVED')).toBe(false)
     expect(isPoCancellable('ACKNOWLEDGED')).toBe(true)
+  })
+
+  it('closes only partially received, GRN-completed, or paid orders', () => {
+    expect(isPoClosable('PARTIALLY_RECEIVED')).toBe(true)
+    expect(isPoClosable('GRN_COMPLETED')).toBe(true)
+    expect(isPoClosable('PAID')).toBe(true)
+    expect(isPoClosable('INVOICED')).toBe(false)
+    expect(isPoClosable('CANCELLED')).toBe(false)
   })
 })

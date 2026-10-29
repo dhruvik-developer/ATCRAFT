@@ -93,6 +93,7 @@ import {
   PO_TERMINAL_BAD,
   isPoAcknowledgeable,
   isPoCancellable,
+  isPoClosable,
   isPoDecidable,
   isPoSendable,
   isPoSubmittable,
@@ -410,7 +411,7 @@ function TotalsCard({ order }: { order: PurchaseOrderDetail }) {
  * The commands this screen confirms with a note, and how each one is presented.
  * Send is not among them: it chooses the vendor's assignee, in its own dialog.
  */
-type Command = 'submit' | 'approve' | 'reject' | 'acknowledge' | 'cancel'
+type Command = 'submit' | 'approve' | 'reject' | 'acknowledge' | 'cancel' | 'close'
 
 const COMMAND_COPY: Record<
   Command,
@@ -465,6 +466,15 @@ const COMMAND_COPY: Record<
     destructive: true,
     reasonRequired: true,
     success: success.cancelled('Purchase order'),
+  },
+  close: {
+    title: 'Close this order?',
+    description:
+      'Nothing further will be expected against this order. Any quantity already received remains recorded.',
+    confirmLabel: 'Close order',
+    destructive: false,
+    reasonRequired: true,
+    success: success.closed('Purchase order'),
   },
 }
 
@@ -765,6 +775,7 @@ export default function PurchaseOrderDetailPage() {
 
   const lateDays = daysIfLate(order)
   const copy = command ? COMMAND_COPY[command] : null
+  const isShortClose = command === 'close' && order.status === 'PARTIALLY_RECEIVED'
   const duplicateApproval = command === 'approve' && order.duplicate_acknowledged
   const needsAnotherApprover =
     !user?.is_superuser && order.last_amended_by_id != null && order.last_amended_by_id === user?.id
@@ -847,6 +858,12 @@ export default function PurchaseOrderDetailPage() {
               >
                 <Ban />
                 Cancel order
+              </Button>
+            )}
+            {isPoClosable(order.status) && can(P.PURCHASE_ORDER_CANCEL) && (
+              <Button variant="outline" onClick={() => setCommand('close')}>
+                <Check />
+                {order.status === 'PARTIALLY_RECEIVED' ? 'Short-close order' : 'Close order'}
               </Button>
             )}
           </>
@@ -1043,9 +1060,15 @@ export default function PurchaseOrderDetailPage() {
         onOpenChange={(open) => {
           if (!open && !run.isPending) resetCommand()
         }}
-        title={copy ? `${copy.title.replace('this order', order.code)}` : ''}
+        title={
+          copy
+            ? isShortClose
+              ? `Short-close ${order.code}?`
+              : copy.title.replace('this order', order.code)
+            : ''
+        }
         description={copy?.description}
-        confirmLabel={copy?.confirmLabel ?? 'Confirm'}
+        confirmLabel={isShortClose ? 'Short-close order' : (copy?.confirmLabel ?? 'Confirm')}
         destructive={copy?.destructive}
         loading={run.isPending}
         onConfirm={() => {
