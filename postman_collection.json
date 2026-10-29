@@ -17650,7 +17650,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"assigned_vendor_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"\",\n  \"delivery_address\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lines\": [],\n  \"notes\": \"\",\n  \"payment_terms_days\": 0,\n  \"priority\": 0,\n  \"terms\": \"\",\n  \"vendor_reference\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"acknowledge_duplicates\": false,\n  \"assigned_vendor_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"\",\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lines\": [],\n  \"notes\": \"\",\n  \"payment_terms_days\": 0,\n  \"priority\": 0,\n  \"terms\": \"\",\n  \"vendor_reference\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Update a purchase order that is not yet approved",
             "header": [

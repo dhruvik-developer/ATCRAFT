@@ -2990,6 +2990,55 @@ async def update_purchase_order(
             )
             await _link_source_documents(session, tenant, order, lines)
 
+        duplicate_sensitive_update = (
+            payload.lines is not None
+            or payload.warehouse_id is not None
+            or payload.expected_delivery_date is not None
+        )
+        if duplicate_sensitive_update and lines:
+            # This is the same check-then-act boundary as creation. Lock the
+            # resulting vendor/warehouse pair before looking for another open
+            # order, and exclude this PO so its own replacement lines do not
+            # match themselves.
+            await advisory_xact_lock(
+                session,
+                tenant.company_id,
+                "po-duplicate",
+                order.vendor_id,
+                order.warehouse_id,
+            )
+            allocations = await order_sources.effective_allocations(session, tenant, lines)
+            candidates = await find_duplicates_for_lines(
+                session,
+                tenant,
+                vendor_id=order.vendor_id,
+                warehouse_id=order.warehouse_id,
+                lines=[
+                    duplicate_search.ProposedLine(
+                        item_id=line.item_id,
+                        required_date=line.required_date or order.expected_delivery_date,
+                        requisition_line_id=line.requisition_line_id,
+                        requisition_line_ids=frozenset(allocations.get(line.id, {})),
+                    )
+                    for line in lines
+                ],
+                source_type=PurchaseSourceType(order.source_type),
+                source_id=order.source_id,
+                exclude_order_id=order.id,
+            )
+            if candidates:
+                if not payload.acknowledge_duplicates:
+                    raise duplicate_refusal(candidates)
+                if not tenant_principal.has(Permission.PURCHASE_ORDER_APPROVE):
+                    raise PermissionDeniedError(str(Permission.PURCHASE_ORDER_APPROVE))
+                order.duplicate_acknowledged = True
+                order.duplicate_acknowledgement_reason = (
+                    payload.duplicate_acknowledgement_reason or ""
+                ).strip()
+            else:
+                order.duplicate_acknowledged = False
+                order.duplicate_acknowledgement_reason = None
+
         await record_audit(
             session,
             company_id=tenant.company_id,

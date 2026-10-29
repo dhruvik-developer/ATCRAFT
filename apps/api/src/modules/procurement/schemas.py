@@ -769,11 +769,20 @@ class PurchaseOrderUpdate(BaseModel):
     vendor_reference: str | None = Field(default=None, max_length=64)
     assigned_vendor_user_id: uuid.UUID | None = None
     lines: list[PurchaseOrderLineIn] | None = None
+    acknowledge_duplicates: bool = False
+    duplicate_acknowledgement_reason: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def _check_lines(self) -> PurchaseOrderUpdate:
         if self.lines is not None:
             _validate_line_numbers([line.line_number for line in self.lines], "purchase order")
+        if (
+            self.acknowledge_duplicates
+            and not (self.duplicate_acknowledgement_reason or "").strip()
+        ):
+            raise ValueError(
+                "Acknowledging duplicate purchase orders requires a reason to be recorded."
+            )
         return self
 
 

@@ -29827,6 +29827,11 @@ export interface components {
         };
         /** PurchaseOrderUpdate */
         PurchaseOrderUpdate: {
+            /**
+             * Acknowledge Duplicates
+             * @default false
+             */
+            acknowledge_duplicates: boolean;
             /** Assigned Vendor User Id */
             assigned_vendor_user_id?: string | null;
             /** Branch Id */
@@ -29835,6 +29840,8 @@ export interface components {
             currency?: string | null;
             /** Delivery Address */
             delivery_address?: string | null;
+            /** Duplicate Acknowledgement Reason */
+            duplicate_acknowledgement_reason?: string | null;
             /** Expected Delivery Date */
             expected_delivery_date?: string | null;
             /** Freight Amount */

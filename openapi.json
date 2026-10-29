@@ -49331,6 +49331,11 @@
       "PurchaseOrderUpdate": {
         "additionalProperties": false,
         "properties": {
+          "acknowledge_duplicates": {
+            "default": false,
+            "title": "Acknowledge Duplicates",
+            "type": "boolean"
+          },
           "assigned_vendor_user_id": {
             "anyOf": [
               {
@@ -49380,6 +49385,18 @@
               }
             ],
             "title": "Delivery Address"
+          },
+          "duplicate_acknowledgement_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Acknowledgement Reason"
           },
           "expected_delivery_date": {
             "anyOf": [

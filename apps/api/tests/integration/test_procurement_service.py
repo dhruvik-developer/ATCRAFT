@@ -63,6 +63,7 @@ from src.modules.procurement import (
 )
 from src.modules.procurement.models import (
     GoodsReceiptLine,
+    PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderLineStatus,
     PurchaseOrderStatus,
@@ -84,6 +85,7 @@ from src.modules.procurement.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderFilters,
     PurchaseOrderLineIn,
+    PurchaseOrderUpdate,
     PurchaseReturnCreate,
     PurchaseReturnLineIn,
     QuotationCreate,
@@ -1239,6 +1241,89 @@ async def test_an_acknowledged_duplicate_is_created_and_the_reason_is_recorded(
     assert len(candidates) == 1
     assert order.duplicate_acknowledged is True
     assert order.duplicate_acknowledgement_reason
+
+
+async def test_editing_delivery_date_rechecks_duplicates_and_rolls_back_on_refusal(
+    db, tenant, buyer, masters
+):
+    existing_date = today() + timedelta(days=10)
+    edited_date = existing_date + timedelta(days=40)
+    await make_order(db, tenant, buyer, masters, expected_delivery_date=existing_date)
+    order, _, _ = await make_order(db, tenant, buyer, masters, expected_delivery_date=edited_date)
+    order_id = order.id
+
+    with pytest.raises(BusinessRuleError) as failure:
+        await service.update_purchase_order(
+            db,
+            tenant,
+            buyer,
+            order_id,
+            PurchaseOrderUpdate(expected_delivery_date=existing_date),
+        )
+
+    assert failure.value.code is ErrorCode.DUPLICATE_DOCUMENT
+    persisted_date = await db.scalar(
+        select(PurchaseOrder.expected_delivery_date).where(PurchaseOrder.id == order_id)
+    )
+    assert persisted_date == edited_date
+
+
+async def test_editing_a_duplicate_requires_approval_and_records_acknowledgement(
+    db, tenant, buyer, buyer_without_approval, masters
+):
+    existing_date = today() + timedelta(days=10)
+    edited_date = existing_date + timedelta(days=40)
+    await make_order(db, tenant, buyer, masters, expected_delivery_date=existing_date)
+    order, _, _ = await make_order(db, tenant, buyer, masters, expected_delivery_date=edited_date)
+    order_id = order.id
+    update = PurchaseOrderUpdate(
+        expected_delivery_date=existing_date,
+        acknowledge_duplicates=True,
+        duplicate_acknowledgement_reason="Additional supply for a separate production run",
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        await service.update_purchase_order(db, tenant, buyer_without_approval, order_id, update)
+
+    updated, _ = await service.update_purchase_order(db, tenant, buyer, order_id, update)
+
+    assert updated.duplicate_acknowledged is True
+    assert updated.duplicate_acknowledgement_reason == (
+        "Additional supply for a separate production run"
+    )
+
+
+async def test_editing_away_from_a_duplicate_clears_its_acknowledgement(db, tenant, buyer, masters):
+    required = today() + timedelta(days=10)
+    await make_order(db, tenant, buyer, masters, expected_delivery_date=required)
+    order, _, _ = await make_order(
+        db,
+        tenant,
+        buyer,
+        masters,
+        expected_delivery_date=required,
+        acknowledge_duplicates=True,
+    )
+
+    updated, _ = await service.update_purchase_order(
+        db,
+        tenant,
+        buyer,
+        order.id,
+        PurchaseOrderUpdate(
+            lines=[
+                PurchaseOrderLineIn(
+                    line_number=1,
+                    item_id=masters["batched_item"].id,
+                    quantity=Decimal("100"),
+                    unit_price=Decimal("10"),
+                )
+            ]
+        ),
+    )
+
+    assert updated.duplicate_acknowledged is False
+    assert updated.duplicate_acknowledgement_reason is None
 
 
 async def test_acknowledging_a_duplicate_requires_the_approval_permission(
