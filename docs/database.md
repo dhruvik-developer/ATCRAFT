@@ -836,9 +836,22 @@ planning lock and rate policy. Completed runs notify active internal users with
 `mrp.view`.
 
 `mrp_demands`: the demand snapshot the run planned against, one row per source
-line. `expected_available_date` is stamped when the run completes: the date the
-item's merged requirement is expected to be fully covered, after child slippage
-has been rolled up through the demand's BOM provenance.
+line. `demand_source` is `SALES_ORDER`, `MANUAL` or `REORDER`; manual rows have no
+`source_id`, while a reorder row names its tenant-owned item in `source_id`.
+`expected_available_date` is stamped when the run completes: the date the item's
+merged requirement is expected to be fully covered, after child slippage has
+been rolled up through the demand's BOM provenance. Reorder demand is raised
+when scoped available quantity is at or below `items.reorder_level`; its
+replenishment quantity is `reorder_quantity`, or the amount needed to restore
+`reorder_level + safety_stock` when no reorder quantity is set. Purchase
+conversion uses `PurchaseSourceType.REORDER` only when the sole causal root is
+the same item being purchased; BOM-component and mixed-root suggestions retain
+`MRP_SUGGESTION`.
+
+Packing-material demand from open sales orders and packing orders is not yet
+generated. The packing-specification owner (`item_packing_specs`) is not
+implemented; planning must not guess packaging quantities from carton history.
+This work is deferred until E9 supplies that source.
 
 `mrp_requirements`: `run_id`, `item_id`, `gross_requirement`, the direct and
 dependent split, free stock, in-time and late incoming/in-production/assembly/

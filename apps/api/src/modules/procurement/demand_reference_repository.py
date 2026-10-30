@@ -57,3 +57,16 @@ class DemandReferenceRepository:
             )
         )
         return frozenset((await self.session.execute(stmt)).scalars())
+
+    async def items(self, item_ids: Collection[uuid.UUID]) -> frozenset[uuid.UUID]:
+        """Items named by a reorder-point demand reference."""
+        if not item_ids:
+            return frozenset()
+        from src.modules.products.models import Item
+
+        stmt = select(Item.id).where(
+            Item.company_id == self.tenant.company_id,
+            Item.deleted_at.is_(None),
+            Item.id.in_(sorted(set(item_ids))),
+        )
+        return frozenset((await self.session.execute(stmt)).scalars())

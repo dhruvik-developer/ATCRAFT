@@ -60,7 +60,7 @@ import importlib
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -73,12 +73,13 @@ from src.core.deps import TenantContext
 from src.core.logging import get_logger
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
-from src.core.types import to_quantity
+from src.core.types import ZERO, to_quantity
 from src.modules.bom import engine as bom_engine
 from src.modules.bom.models import BomType
 from src.modules.bom.repository import BomLineRepository, BomRepository
 from src.modules.inventory.models import InventoryBalance
 from src.modules.mrp.engine import (
+    DEFAULT_DEMAND_PRIORITY,
     BomComponent,
     BomStructure,
     DemandLine,
@@ -239,6 +240,135 @@ class SalesDemandRepository(BaseRepository[SalesOrderLine]):
             )
             for row in rows
         ]
+
+
+class ReorderDemandRepository(BaseRepository[Item]):
+    """Items at or below their reorder point, as independent planning demand.
+
+    The rule is the item master's own (E3b section 6): an item with
+    ``reorder_level > 0`` whose available quantity is at or below that level
+    needs replenishing. It is a *demand* line rather than a direct suggestion so
+    the engine nets it against the same free stock, dated supply and open
+    suggestions every other demand source uses - a reorder point that ignored a
+    purchase order already on its way would order the same boxes twice.
+
+    Availability is summed over the run's warehouse scope, matching
+    :class:`StockPositionRepository` exactly: on-hand less reserved, QC hold and
+    damaged. The warehouse predicate is in the ``OUTER JOIN`` on purpose. In the
+    ``WHERE`` clause it would turn the join inner and hide every item with no
+    balance row - which is precisely the item that has run out.
+
+    ``quantity`` is the gross requirement that leaves the intended replenishment
+    after the engine's own netting. With a reorder quantity the intent is that
+    quantity; without one it is enough to restore the level plus safety stock.
+    The free stock the engine will deduct is added back here, so the suggestion
+    is the intent rather than the intent minus stock twice. ``respect`` mirrors
+    the run's ``respect_safety_stock`` decision, because whether safety stock is
+    deducted is the same decision in both places.
+    """
+
+    model = Item
+
+    async def open_demand(
+        self,
+        *,
+        as_of: date,
+        warehouse_ids: Sequence[uuid.UUID] | None = None,
+        respect_safety_stock: bool,
+        limit: int = MAX_DEMAND_LINES + 1,
+    ) -> list[DemandLine]:
+        """One grouped statement; the trigger is decided by the database."""
+        warehouse_scope = set(warehouse_ids) if warehouse_ids else None
+        on_hand = func.coalesce(func.sum(InventoryBalance.on_hand_quantity), 0)
+        reserved = func.coalesce(func.sum(InventoryBalance.reserved_quantity), 0)
+        qc_hold = func.coalesce(func.sum(InventoryBalance.qc_hold_quantity), 0)
+        damaged = func.coalesce(func.sum(InventoryBalance.damaged_quantity), 0)
+        available = func.greatest(on_hand - reserved - qc_hold - damaged, 0)
+
+        balance_join = and_(
+            InventoryBalance.company_id == Item.company_id,
+            InventoryBalance.item_id == Item.id,
+        )
+        if warehouse_ids:
+            balance_join = and_(
+                balance_join, InventoryBalance.warehouse_id.in_(list(warehouse_ids))
+            )
+
+        stmt = (
+            select(
+                Item.id,
+                Item.code,
+                Item.lead_time_days,
+                Item.safety_stock,
+                Item.reorder_level,
+                Item.reorder_quantity,
+                Item.default_warehouse_id,
+                available.label("available_quantity"),
+            )
+            .select_from(Item)
+            .outerjoin(InventoryBalance, balance_join)
+            .where(
+                Item.company_id == self.tenant.company_id,
+                Item.deleted_at.is_(None),
+                Item.is_active.is_(True),
+                Item.reorder_level > 0,
+            )
+            .group_by(
+                Item.id,
+                Item.code,
+                Item.lead_time_days,
+                Item.safety_stock,
+                Item.reorder_level,
+                Item.reorder_quantity,
+                Item.default_warehouse_id,
+            )
+            .having(available <= Item.reorder_level)
+            .order_by(Item.code)
+            .limit(limit)
+        )
+
+        rows = (await self.session.execute(stmt)).all()
+        demand: list[DemandLine] = []
+        for row in rows:
+            available_quantity = to_quantity(Decimal(str(row.available_quantity)))
+            safety_stock = to_quantity(Decimal(str(row.safety_stock)))
+            reorder_level = to_quantity(Decimal(str(row.reorder_level)))
+            reorder_quantity = to_quantity(Decimal(str(row.reorder_quantity)))
+            free = max(
+                available_quantity - (safety_stock if respect_safety_stock else ZERO),
+                ZERO,
+            )
+            intent = (
+                reorder_quantity
+                if reorder_quantity > 0
+                else max(reorder_level + safety_stock - available_quantity, ZERO)
+            )
+            quantity = to_quantity(intent + free)
+            if quantity <= 0:
+                continue
+            demand.append(
+                DemandLine(
+                    item_id=row.id,
+                    quantity=quantity,
+                    # The order has to be placed now for stock to land in time;
+                    # the item's own lead time is the earliest it can arrive.
+                    required_date=as_of + timedelta(days=int(row.lead_time_days)),
+                    source=MrpDemandSource.REORDER,
+                    source_id=row.id,
+                    source_code=row.code,
+                    priority=DEFAULT_DEMAND_PRIORITY,
+                    # A scoped run must not attach this demand to a warehouse it
+                    # deliberately excluded. Leave it unassigned in that case;
+                    # planning still nets against the scoped aggregate and the
+                    # purchase conversion chooses a warehouse inside the scope.
+                    warehouse_id=(
+                        row.default_warehouse_id
+                        if warehouse_scope is None or row.default_warehouse_id in warehouse_scope
+                        else None
+                    ),
+                )
+            )
+        return demand
 
 
 class MrpScheduleSettingsRepository(BaseRepository[MrpScheduleSettings]):

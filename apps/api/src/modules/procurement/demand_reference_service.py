@@ -15,8 +15,9 @@ from src.modules.procurement.demand_reference_repository import DemandReferenceR
 # The canonical schema remains open for readable historical/future provenance.
 # Writes may only claim identities whose actual ownership this release resolves.
 # BOM contributions retain SALES_ORDER/MRP_DEMAND roots; an item or BOM UUID is
-# never substituted for a nonexistent BOM-demand document.
-SUPPORTED_DEMAND_REFERENCE_TYPES = frozenset({"SALES_ORDER", "MRP_DEMAND"})
+# never substituted for a nonexistent BOM-demand document. Reorder points are
+# real, tenant-owned rows and are resolved in their own right.
+SUPPORTED_DEMAND_REFERENCE_TYPES = frozenset({"SALES_ORDER", "MRP_DEMAND", "REORDER"})
 
 
 def _canonical_references(
@@ -72,17 +73,24 @@ async def validate_source_demand_refs(
             "A manual planning demand is a single demand row and cannot name a separate line.",
             details={"field": "source_demand_refs.demand_line_id"},
         )
+    if any(ref.demand_type == "REORDER" and ref.demand_line_id is not None for ref in canonical):
+        raise ValidationError(
+            "A reorder point is one demand document and cannot name a line.",
+            details={"field": "source_demand_refs.demand_line_id"},
+        )
 
     sales_refs = tuple(ref for ref in canonical if ref.demand_type == "SALES_ORDER")
     order_ids = {ref.demand_id for ref in sales_refs}
     line_ids = {ref.demand_line_id for ref in sales_refs if ref.demand_line_id is not None}
     mrp_ids = {ref.demand_id for ref in canonical if ref.demand_type == "MRP_DEMAND"}
+    reorder_ids = {ref.demand_id for ref in canonical if ref.demand_type == "REORDER"}
     repo = DemandReferenceRepository(session, tenant)
     # Fixed batched reads per entity type. None of the per-reference checks
     # below performs I/O, even when one document references many sales orders.
     known_orders = await repo.sales_orders(order_ids)
     known_lines = await repo.sales_order_lines(line_ids)
     known_demands = await repo.manual_mrp_demands(mrp_ids)
+    known_items = await repo.items(reorder_ids)
 
     missing_orders = order_ids - known_orders
     if missing_orders:
@@ -93,6 +101,9 @@ async def validate_source_demand_refs(
     missing_demands = mrp_ids - known_demands
     if missing_demands:
         raise NotFoundError("Manual planning demand", _ids(missing_demands))
+    missing_items = reorder_ids - known_items
+    if missing_items:
+        raise NotFoundError("Reorder item", _ids(missing_items))
     if any(
         ref.demand_line_id is not None and known_lines[ref.demand_line_id] != ref.demand_id
         for ref in sales_refs

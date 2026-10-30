@@ -117,13 +117,17 @@ class MrpRunMode(StrEnum):
 class MrpDemandSource(StrEnum):
     """Where one demand line came from.
 
-    Only two, deliberately. Forecast and safety-stock replenishment are separate
-    planning inputs that master rules section 14 does not describe, and inventing
-    them here would let a plan claim a provenance the system cannot substantiate.
+    Every member is a rule the product can point at: an open sales order, a
+    planner's manual line, or the item master's reorder point (E3b section 6).
+    Forecast is deliberately absent - it is a separate planning input master
+    rules section 14 does not describe, and inventing it here would let a plan
+    claim a provenance the system cannot substantiate.
     """
 
     SALES_ORDER = "SALES_ORDER"
     MANUAL = "MANUAL"
+    #: ``source_id`` is the item whose reorder point fired, not a document.
+    REORDER = "REORDER"
 
 
 class MrpSuggestionType(StrEnum):
@@ -325,8 +329,8 @@ class MrpDemand(TenantEntity):
         CheckConstraint(
             f"demand_source IN ({sql_in_list(MrpDemandSource)})", name="demand_source_known"
         ),
-        # A sales-order line must say which order it came from; a manual line
-        # must not pretend it came from one.
+        # Manual demand has no source row; sales-order demand names its order,
+        # and reorder demand names the item whose reorder point fired.
         CheckConstraint(
             "(demand_source = 'MANUAL') = (source_id IS NULL)",
             name="source_id_matches_demand_source",

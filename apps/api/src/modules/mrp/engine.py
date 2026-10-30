@@ -1190,6 +1190,8 @@ def merge_demand(demands: Sequence[DemandLine]) -> dict[uuid.UUID, DemandBucket]
             )
         elif line.source is MrpDemandSource.MANUAL and line.demand_id is not None:
             root_ref = DemandReference(demand_type="MRP_DEMAND", demand_id=line.demand_id)
+        elif line.source is MrpDemandSource.REORDER and line.source_id is not None:
+            root_ref = DemandReference(demand_type="REORDER", demand_id=line.source_id)
         else:
             root_ref = None
         bucket.add_root_ref(root_ref)

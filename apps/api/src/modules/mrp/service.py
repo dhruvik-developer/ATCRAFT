@@ -91,6 +91,7 @@ from src.modules.mrp.repository import (
     MrpRunRepository,
     MrpScheduleSettingsRepository,
     MrpSuggestionRepository,
+    ReorderDemandRepository,
     SalesDemandRepository,
     ScheduledMrpConfiguration,
 )
@@ -432,15 +433,24 @@ async def _collect_demand(
     tenant: TenantContext,
     payload: MrpRunRequest,
     *,
+    as_of: date,
     horizon_end: date,
 ) -> list[engine.DemandLine]:
-    """The order book plus any manual lines, in one statement plus arithmetic.
+    """The order book, reorder points and manual lines.
 
     Read *before* the run row is created so the mode decision - inline or Celery -
     is taken on the real line count rather than on a guess.
     """
+    warehouse_ids = payload.warehouse_ids or None
     demand = await SalesDemandRepository(session, tenant).open_demand(
-        horizon_end=horizon_end, warehouse_ids=payload.warehouse_ids or None
+        horizon_end=horizon_end, warehouse_ids=warehouse_ids
+    )
+    demand.extend(
+        await ReorderDemandRepository(session, tenant).open_demand(
+            as_of=as_of,
+            warehouse_ids=warehouse_ids,
+            respect_safety_stock=payload.respect_safety_stock,
+        )
     )
     demand.extend(_manual_demand_lines(payload))
     if len(demand) > MAX_DEMAND_LINES:
@@ -611,7 +621,9 @@ async def start_run(
     token = await _acquire_planning_lock(tenant.company_id)
     hand_over_lock = False
     try:
-        demand = await _collect_demand(session, tenant, payload, horizon_end=horizon_end)
+        demand = await _collect_demand(
+            session, tenant, payload, as_of=as_of, horizon_end=horizon_end
+        )
         mode = (
             MrpRunMode.ASYNC
             if force_async or len(demand) > settings.mrp_sync_threshold_demand_lines

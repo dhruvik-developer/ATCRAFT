@@ -143,6 +143,42 @@ suggestions where warehouses represent independent plants.
 
 ---
 
+## §E3b-6. Reorder points create demand; packing demand waits for E9
+
+**Confirmed for this delivery.** An active item with `reorder_level > 0` triggers when scoped
+available stock (on hand less reserved, QC-held and damaged quantities) is at or
+below the level. A positive `reorder_quantity` is the intended replenishment
+amount; when it is zero, the target is `reorder_level + safety_stock`. The MRP
+engine nets free stock and dated supply against that target. The item's default
+warehouse is attached only when it belongs to the run's warehouse scope; if it
+does not, the demand remains unassigned so the run cannot plan against an
+excluded warehouse.
+
+Packing-material demand for open sales orders and packing orders is deferred
+until E9 provides `item_packing_specs`. Existing carton records describe
+materials already selected for cartons and are not a per-item packaging recipe;
+they are not used to invent future demand.
+
+**Why.** Reorder replenishment belongs in the same engine as sales and manual
+demand, so it nets against stock and dated supply rather than producing a
+duplicate direct suggestion. A packing quantity without an approved item
+specification would be an invented business rule.
+
+**Where.** `src/modules/mrp/repository.py` collects reorder demand;
+`src/modules/mrp/engine.py` nets it and carries its root provenance;
+`src/modules/procurement/service.py` writes a purchase as
+`PurchaseSourceType.REORDER` only when its sole root is the purchased item
+itself. BOM-component and mixed-root purchases remain `MRP_SUGGESTION`.
+Migration `20261110_0100` allows the persisted `REORDER` demand source. Packing
+demand remains outside MRP until E9.
+
+**Impact if wrong.** If `reorder_quantity` is intended as a target on-hand
+level rather than a replenishment amount, the demand calculation must change
+before relying on the resulting purchase quantities. Until E9 lands, plans do
+not include boxes or other packing materials.
+
+---
+
 ## How to read this
 
 | Field | Meaning |

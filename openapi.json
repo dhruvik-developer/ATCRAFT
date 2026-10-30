@@ -35895,10 +35895,11 @@
         "type": "object"
       },
       "MrpDemandSource": {
-        "description": "Where one demand line came from.\n\nOnly two, deliberately. Forecast and safety-stock replenishment are separate\nplanning inputs that master rules section 14 does not describe, and inventing\nthem here would let a plan claim a provenance the system cannot substantiate.",
+        "description": "Where one demand line came from.\n\nEvery member is a rule the product can point at: an open sales order, a\nplanner's manual line, or the item master's reorder point (E3b section 6).\nForecast is deliberately absent - it is a separate planning input master\nrules section 14 does not describe, and inventing it here would let a plan\nclaim a provenance the system cannot substantiate.",
         "enum": [
           "SALES_ORDER",
-          "MANUAL"
+          "MANUAL",
+          "REORDER"
         ],
         "title": "MrpDemandSource",
         "type": "string"

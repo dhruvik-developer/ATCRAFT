@@ -1021,6 +1021,21 @@ async def create_requisition_from_mrp(
     items = await _load_items(session, tenant, [request.item_id])
     item = items[request.item_id]
 
+    # A suggestion raised purely by an item master reorder point is sourced from
+    # that sweep, not from a plan suggestion: ``PurchaseSourceType.REORDER``
+    # exists for exactly this writer. It is only an item-level replenishment
+    # when the sole root is this same item; a BOM component or mixed suggestion
+    # keeps MRP_SUGGESTION because its causal item is different or ambiguous.
+    source_type = PurchaseSourceType.MRP_SUGGESTION
+    source_id = request.suggestion_id
+    if (
+        len(demand_refs) == 1
+        and demand_refs[0].demand_type == "REORDER"
+        and demand_refs[0].demand_id == request.item_id
+    ):
+        source_type = PurchaseSourceType.REORDER
+        source_id = request.item_id
+
     warehouse_id = (
         request.warehouse_ids[0] if request.warehouse_ids else None
     ) or item.default_warehouse_id
@@ -1037,8 +1052,8 @@ async def create_requisition_from_mrp(
         RequisitionCreate(
             required_date=request.required_date,
             warehouse_id=warehouse_id,
-            source_type=PurchaseSourceType.MRP_SUGGESTION,
-            source_id=request.suggestion_id,
+            source_type=source_type,
+            source_id=source_id,
             notes=request.notes,
             lines=[
                 RequisitionLineIn(

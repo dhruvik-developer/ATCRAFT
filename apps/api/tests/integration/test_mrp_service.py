@@ -57,6 +57,8 @@ from src.modules.inventory.models import (
 )
 from src.modules.mrp import service
 from src.modules.mrp.models import (
+    MrpDemand,
+    MrpDemandSource,
     MrpRequirement,
     MrpRun,
     MrpRunMode,
@@ -812,6 +814,145 @@ async def test_manual_demand_is_planned_beside_the_order_book(ctx: Ctx) -> None:
     assert screw.gross_requirement == D("500.0000")
     # The manual line is the earlier of the two, so it sets the requirement date.
     assert screw.earliest_required_date == today() + timedelta(days=20)
+
+
+@pytest.mark.asyncio
+async def test_reorder_demand_nets_usable_stock_and_converts_with_reorder_source(ctx: Ctx) -> None:
+    from src.modules.procurement.models import PurchaseRequisitionLine, PurchaseSourceType
+
+    ctx.screw.reorder_level = D("15")
+    ctx.screw.reorder_quantity = D("40")
+    ctx.screw.safety_stock = D("10")
+    balance = await add_stock(ctx, ctx.screw, ctx.main_warehouse, on_hand="30", reserved="5")
+    balance.qc_hold_quantity = D("5")
+    balance.damaged_quantity = D("5")
+    await ctx.session.flush()
+
+    run = await run_plan(ctx)
+
+    assert run.demand_line_count == 1
+    demand = (await ctx.session.scalars(select(MrpDemand).where(MrpDemand.run_id == run.id))).one()
+    assert demand.demand_source is MrpDemandSource.REORDER
+    assert demand.source_id == ctx.screw.id
+    assert demand.warehouse_id == ctx.main_warehouse.id
+
+    requirement = await requirement_for(ctx, run.id, ctx.screw)
+    assert requirement is not None
+    assert requirement.gross_requirement == D("45.0000")
+    assert requirement.available_quantity == D("5.0000")
+    assert requirement.shortage_quantity == D("40.0000")
+
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    converted = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+    requisition = await ctx.session.get(PurchaseRequisition, converted.created_document_id)
+    assert requisition is not None
+    assert requisition.source_type == PurchaseSourceType.REORDER.value
+    assert requisition.source_id == ctx.screw.id
+    line = (
+        await ctx.session.scalars(
+            select(PurchaseRequisitionLine).where(
+                PurchaseRequisitionLine.requisition_id == requisition.id
+            )
+        )
+    ).one()
+    assert line.source_demand_refs == [
+        {
+            "demand_type": "REORDER",
+            "demand_id": str(ctx.screw.id),
+            "demand_line_id": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reorder_demand_does_not_target_a_warehouse_outside_run_scope(ctx: Ctx) -> None:
+    ctx.screw.reorder_level = D("10")
+    ctx.screw.reorder_quantity = D("25")
+    # There is stock at the default warehouse, but the run intentionally excludes it.
+    await add_stock(ctx, ctx.screw, ctx.main_warehouse, on_hand="100")
+    await ctx.session.flush()
+
+    run = await run_plan(ctx, warehouse_ids=[ctx.spare_warehouse.id])
+
+    demand = (await ctx.session.scalars(select(MrpDemand).where(MrpDemand.run_id == run.id))).one()
+    assert demand.demand_source is MrpDemandSource.REORDER
+    assert demand.warehouse_id is None
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    assert suggestion.suggested_quantity == D("25.0000")
+
+
+@pytest.mark.asyncio
+async def test_mixed_reorder_and_sales_demand_keeps_the_mrp_purchase_source(ctx: Ctx) -> None:
+    from src.modules.procurement.models import PurchaseSourceType
+
+    ctx.screw.reorder_level = D("10")
+    ctx.screw.reorder_quantity = D("25")
+    await ctx.session.flush()
+    await add_sales_order(ctx, code="SO/REORDER-MIX", lines=[(ctx.screw, "5")])
+
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+
+    converted = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+    requisition = await ctx.session.get(PurchaseRequisition, converted.created_document_id)
+    assert requisition is not None
+    assert requisition.source_type == PurchaseSourceType.MRP_SUGGESTION.value
+    assert requisition.source_id == suggestion.id
+
+
+@pytest.mark.asyncio
+async def test_bom_component_from_reorder_does_not_claim_item_reorder_source(ctx: Ctx) -> None:
+    from src.modules.procurement.models import PurchaseSourceType
+
+    ctx.kit.reorder_level = D("10")
+    ctx.kit.reorder_quantity = D("2")
+    await ctx.session.flush()
+
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    converted = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+    requisition = await ctx.session.get(PurchaseRequisition, converted.created_document_id)
+    assert requisition is not None
+    assert requisition.source_type == PurchaseSourceType.MRP_SUGGESTION.value
+    assert requisition.source_id == suggestion.id
+
+
+@pytest.mark.asyncio
+async def test_reorder_without_quantity_restores_level_plus_safety_stock(ctx: Ctx) -> None:
+    ctx.screw.reorder_level = D("10")
+    ctx.screw.reorder_quantity = D("0")
+    ctx.screw.safety_stock = D("5")
+    await ctx.session.flush()
+    await add_stock(ctx, ctx.screw, ctx.main_warehouse, on_hand="2")
+
+    run = await run_plan(ctx)
+
+    requirement = await requirement_for(ctx, run.id, ctx.screw)
+    assert requirement is not None
+    assert requirement.gross_requirement == D("13.0000")
+    assert requirement.shortage_quantity == D("13.0000")
+
+
+@pytest.mark.asyncio
+async def test_reorder_demand_is_not_triggered_above_reorder_level(ctx: Ctx) -> None:
+    ctx.screw.reorder_level = D("10")
+    await add_stock(ctx, ctx.screw, ctx.main_warehouse, on_hand="11")
+    await ctx.session.flush()
+
+    run = await run_plan(ctx)
+
+    assert run.demand_line_count == 0
+    assert await requirement_for(ctx, run.id, ctx.screw) is None
 
 
 @pytest.mark.asyncio

@@ -24026,12 +24026,14 @@ export interface components {
          * MrpDemandSource
          * @description Where one demand line came from.
          *
-         *     Only two, deliberately. Forecast and safety-stock replenishment are separate
-         *     planning inputs that master rules section 14 does not describe, and inventing
-         *     them here would let a plan claim a provenance the system cannot substantiate.
+         *     Every member is a rule the product can point at: an open sales order, a
+         *     planner's manual line, or the item master's reorder point (E3b section 6).
+         *     Forecast is deliberately absent - it is a separate planning input master
+         *     rules section 14 does not describe, and inventing it here would let a plan
+         *     claim a provenance the system cannot substantiate.
          * @enum {string}
          */
-        MrpDemandSource: "SALES_ORDER" | "MANUAL";
+        MrpDemandSource: "SALES_ORDER" | "MANUAL" | "REORDER";
         /**
          * MrpRequirementRead
          * @description One merged requirement, with every figure that went into it.
