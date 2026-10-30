@@ -257,6 +257,11 @@ def test_the_purchase_hook_exists_in_procurement() -> None:
     assert callable(getattr(importlib.import_module(module_name), function_name))
 
 
+def test_the_reallocation_hook_exists_in_allocation() -> None:
+    module_name, function_name = service.CONVERSION_HOOKS[ConversionTarget.REALLOCATION_REQUEST]
+    assert callable(getattr(importlib.import_module(module_name), function_name))
+
+
 # -----------------------------------------------------------------------------
 # One name per record
 # -----------------------------------------------------------------------------

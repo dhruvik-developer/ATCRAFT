@@ -149,7 +149,7 @@ add up to its printed totals.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal, localcontext
@@ -408,6 +408,7 @@ class Requirement:
     expected_available_date: date | None
     source_demand_count: int
     source_demands: tuple[dict[str, Any], ...]
+    planned_reallocation_quantity: Decimal = ZERO
     #: Inbound supply inside the run's horizon that arrives *after* the date
     #: this requirement needs it, so it was NOT netted. Reported rather than
     #: dropped: a plan that quietly ignores a known inbound order is its own
@@ -444,6 +445,10 @@ class Requirement:
     last_late_in_production_date: date | None = None
     first_late_job_work_date: date | None = None
     last_late_job_work_date: date | None = None
+    #: Warehouse-local residuals after stock, dated supply and transfer netting.
+    #: Kept in memory for line-level reallocation planning; the persisted
+    #: requirement remains an item-level aggregate.
+    warehouse_shortages: dict[uuid.UUID, Decimal] = field(default_factory=dict)
 
     @property
     def first_late_supply_date(self) -> date | None:
@@ -493,6 +498,15 @@ class Suggestion:
     source_demands: tuple[dict[str, Any], ...]
     from_warehouse_id: uuid.UUID | None = None
     to_warehouse_id: uuid.UUID | None = None
+    from_reservation_id: uuid.UUID | None = None
+    from_demand_type: str | None = None
+    from_demand_id: uuid.UUID | None = None
+    from_demand_code: str | None = None
+    to_demand_type: str | None = None
+    to_demand_id: uuid.UUID | None = None
+    to_demand_line_id: uuid.UUID | None = None
+    to_demand_code: str | None = None
+    to_demand_priority: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,6 +518,37 @@ class TransferRoute:
     to_warehouse_id: uuid.UUID
     quantity: Decimal
     required_date: date
+
+
+@dataclass(frozen=True, slots=True)
+class ReallocationTarget:
+    """A directly demanded sales line with an allocated shortfall."""
+
+    item_id: uuid.UUID
+    warehouse_id: uuid.UUID
+    demand_id: uuid.UUID
+    demand_line_id: uuid.UUID
+    demand_code: str
+    quantity: Decimal
+    priority: int
+    required_date: date
+
+
+@dataclass(frozen=True, slots=True)
+class ReallocationRoute:
+    """One ranked donor reservation assigned to one short sales line."""
+
+    target: ReallocationTarget
+    reservation_id: uuid.UUID
+    donor_demand_type: str
+    donor_demand_id: uuid.UUID
+    donor_demand_code: str | None
+    quantity: Decimal
+
+
+ReallocationProvider = Callable[
+    [Sequence[ReallocationTarget]], Awaitable[Sequence[ReallocationRoute]]
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1347,9 +1392,93 @@ class _NettedItem:
     net: Decimal
     split: SupplySplit
     shortage: Decimal
+    warehouse_shortages: dict[uuid.UUID, Decimal]
     structure: BomStructure | None
     suggestion_type: MrpSuggestionType
     explodable: bool
+    planned_reallocation_quantity: Decimal = ZERO
+
+
+def _reallocation_targets(
+    demands: Sequence[DemandLine], netted: Sequence[_NettedItem]
+) -> list[ReallocationTarget]:
+    """Assign each direct-sales shortage once, without splitting BOM aggregates.
+
+    Free stock and in-time supply cover sales lines in priority/date order.
+    Only the uncovered remainder is offered for reallocation; dependent or
+    manual demand has no single recipient reservation target and stays aggregate.
+    """
+    grouped: dict[tuple[uuid.UUID, uuid.UUID], list[DemandLine]] = {}
+    by_item: dict[uuid.UUID, list[DemandLine]] = {}
+    for line in demands:
+        by_item.setdefault(line.item_id, []).append(line)
+        if (
+            line.source is MrpDemandSource.SALES_ORDER
+            and line.source_id is not None
+            and line.source_line_id is not None
+            and line.source_code is not None
+            and line.warehouse_id is not None
+        ):
+            grouped.setdefault((line.item_id, line.warehouse_id), []).append(line)
+
+    targets: list[ReallocationTarget] = []
+    for entry in netted:
+        item_id = entry.item.id
+        item_demands = by_item.get(item_id, [])
+        if (
+            entry.bucket.dependent > 0
+            or entry.bucket.direct != entry.gross
+            or any(line.source is not MrpDemandSource.SALES_ORDER for line in item_demands)
+            or to_quantity(sum((line.quantity for line in item_demands), ZERO))
+            != entry.bucket.direct
+        ):
+            continue
+
+        for warehouse_id, lines in (
+            (warehouse_id, lines)
+            for (group_item_id, warehouse_id), lines in grouped.items()
+            if group_item_id == item_id
+        ):
+            shortage = entry.warehouse_shortages.get(warehouse_id, ZERO)
+            if shortage <= 0:
+                continue
+            demand_quantity = to_quantity(sum((line.quantity for line in lines), ZERO))
+            supply_left = to_quantity(max(demand_quantity - shortage, ZERO))
+            ordered = sorted(
+                lines,
+                key=lambda line: (
+                    line.priority,
+                    line.required_date,
+                    str(line.source_id),
+                    str(line.source_line_id),
+                ),
+            )
+            for line in ordered:
+                if (
+                    line.source_id is None
+                    or line.source_line_id is None
+                    or line.source_code is None
+                    or line.warehouse_id is None
+                ):
+                    continue
+                covered = min(line.quantity, supply_left)
+                supply_left = to_quantity(supply_left - covered)
+                short = to_quantity(line.quantity - covered)
+                if short <= 0:
+                    continue
+                targets.append(
+                    ReallocationTarget(
+                        item_id=item_id,
+                        warehouse_id=warehouse_id,
+                        demand_id=line.source_id,
+                        demand_line_id=line.source_line_id,
+                        demand_code=line.source_code,
+                        quantity=short,
+                        priority=line.priority,
+                        required_date=line.required_date,
+                    )
+                )
+    return targets
 
 
 async def _discover_levels(
@@ -1495,6 +1624,7 @@ async def plan(
     as_of: date,
     horizon_end: date,
     respect_safety_stock: bool = True,
+    reallocation_provider: ReallocationProvider | None = None,
 ) -> MrpPlan:
     """Run the section 14 flow over ``demands`` and return the resulting plan.
 
@@ -1609,6 +1739,7 @@ async def plan(
     #: wrongly, which is the defect this shape removes.
     late_supply: list[tuple[str, SupplySplit]] = []
     transfer_routes: list[TransferRoute] = []
+    reallocation_routes: list[ReallocationRoute] = []
     shortage_by_warehouse: dict[uuid.UUID, dict[uuid.UUID, Decimal]] = {}
     unassigned_shortage: dict[uuid.UUID, Decimal] = {}
     #: item -> the children its shortfall was exploded into, for the expected
@@ -1692,11 +1823,68 @@ async def plan(
                     net=net,
                     split=split,
                     shortage=shortage,
+                    warehouse_shortages=item_shortage_by_warehouse,
                     structure=structure,
                     suggestion_type=suggestion_type,
                     explodable=explodable,
                 )
             )
+
+        reallocation_targets = _reallocation_targets(demands, netted)
+        if reallocation_provider is not None and reallocation_targets:
+            proposed_routes = list(await reallocation_provider(reallocation_targets))
+            targets_by_line = {
+                (target.demand_id, target.demand_line_id): target for target in reallocation_targets
+            }
+            target_totals: dict[tuple[uuid.UUID, uuid.UUID], Decimal] = {}
+            warehouse_totals: dict[tuple[uuid.UUID, uuid.UUID], Decimal] = {}
+            entries_by_item = {entry.item.id: entry for entry in netted}
+            for proposed_route in proposed_routes:
+                target_key = (
+                    proposed_route.target.demand_id,
+                    proposed_route.target.demand_line_id,
+                )
+                target = targets_by_line.get(target_key)
+                if (
+                    target is None
+                    or proposed_route.target != target
+                    or proposed_route.quantity <= 0
+                    or proposed_route.quantity > target.quantity
+                    or proposed_route.target.item_id not in entries_by_item
+                ):
+                    raise BusinessRuleError(
+                        "The allocation reallocation provider returned an invalid route."
+                    )
+                target_totals[target_key] = to_quantity(
+                    target_totals.get(target_key, ZERO) + proposed_route.quantity
+                )
+                warehouse_key = (target.item_id, target.warehouse_id)
+                warehouse_totals[warehouse_key] = to_quantity(
+                    warehouse_totals.get(warehouse_key, ZERO) + proposed_route.quantity
+                )
+            if any(
+                quantity > targets_by_line[key].quantity for key, quantity in target_totals.items()
+            ):
+                raise BusinessRuleError(
+                    "Reallocation suggestions exceed their demand-line shortfall."
+                )
+
+            for (item_id, warehouse_id), quantity in warehouse_totals.items():
+                entry = entries_by_item[item_id]
+                warehouse_shortage = entry.warehouse_shortages.get(warehouse_id, ZERO)
+                if quantity > warehouse_shortage:
+                    raise BusinessRuleError(
+                        "Reallocation suggestions exceed the warehouse shortage."
+                    )
+                entry.warehouse_shortages[warehouse_id] = to_quantity(warehouse_shortage - quantity)
+                entry.shortage = to_quantity(entry.shortage - quantity)
+                entry.planned_reallocation_quantity = to_quantity(
+                    entry.planned_reallocation_quantity + quantity
+                )
+                shortage_by_warehouse[item_id][warehouse_id] = to_quantity(
+                    shortage_by_warehouse[item_id].get(warehouse_id, ZERO) - quantity
+                )
+            reallocation_routes.extend(proposed_routes)
 
         # The routing module answers the whole level in one call. Only items
         # that will be manufactured need it: their shop time is what offsets
@@ -1745,6 +1933,7 @@ async def plan(
                 in_production_quantity=entry.split.in_production,
                 job_work_quantity=entry.split.job_work,
                 net_requirement=entry.net,
+                planned_reallocation_quantity=entry.planned_reallocation_quantity,
                 shortage_quantity=entry.shortage,
                 earliest_required_date=entry.needed_by,
                 expected_available_date=coverage_date(
@@ -1768,6 +1957,7 @@ async def plan(
                 first_late_in_production_date=entry.split.first_late_in_production,
                 first_late_job_work_date=entry.split.first_late_job_work,
                 last_late_job_work_date=entry.split.last_late_job_work,
+                warehouse_shortages=dict(entry.warehouse_shortages),
             )
             # A phantom raises demand for its children but has no row and no
             # suggestion of its own: nothing is ever stocked, bought or built
@@ -1952,6 +2142,51 @@ async def plan(
                 source_demands=route_requirement.source_demands,
                 from_warehouse_id=route.from_warehouse_id,
                 to_warehouse_id=route.to_warehouse_id,
+            )
+        )
+
+    for reallocation_route in reallocation_routes:
+        reallocation_requirement = requirements.get(reallocation_route.target.item_id)
+        if reallocation_requirement is None:
+            continue
+        order_date = order_date_for(reallocation_route.target.required_date, 0)
+        suggestions.append(
+            Suggestion(
+                item_id=reallocation_route.target.item_id,
+                item_code=reallocation_requirement.item_code,
+                suggestion_type=MrpSuggestionType.REALLOCATION,
+                required_quantity=reallocation_route.quantity,
+                suggested_quantity=reallocation_route.quantity,
+                shortage_quantity=reallocation_route.quantity,
+                available_quantity=ZERO,
+                incoming_quantity=ZERO,
+                required_date=reallocation_route.target.required_date,
+                suggested_order_date=order_date,
+                is_late=is_late_order(order_date, as_of),
+                lead_time_days=0,
+                low_level_code=levels[reallocation_route.target.item_id],
+                expected_available_date=expected_availability(order_date, 0, as_of=as_of),
+                source_demands=(
+                    {
+                        "source": "SALES_ORDER",
+                        "source_id": str(reallocation_route.target.demand_id),
+                        "source_line_id": str(reallocation_route.target.demand_line_id),
+                        "code": reallocation_route.target.demand_code,
+                        "quantity": str(reallocation_route.quantity),
+                        "required_date": reallocation_route.target.required_date.isoformat(),
+                    },
+                ),
+                from_warehouse_id=reallocation_route.target.warehouse_id,
+                to_warehouse_id=reallocation_route.target.warehouse_id,
+                from_reservation_id=reallocation_route.reservation_id,
+                from_demand_type=reallocation_route.donor_demand_type,
+                from_demand_id=reallocation_route.donor_demand_id,
+                from_demand_code=reallocation_route.donor_demand_code,
+                to_demand_type="SALES_ORDER",
+                to_demand_id=reallocation_route.target.demand_id,
+                to_demand_line_id=reallocation_route.target.demand_line_id,
+                to_demand_code=reallocation_route.target.demand_code,
+                to_demand_priority=reallocation_route.target.priority,
             )
         )
 

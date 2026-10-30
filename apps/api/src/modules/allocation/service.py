@@ -70,7 +70,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,6 +137,9 @@ from src.modules.inventory.service import (
 from src.modules.inventory.service import get_available as inventory_available
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify
+
+if TYPE_CHECKING:
+    from src.modules.mrp.schemas import ConversionRequest
 
 log = get_logger(__name__)
 
@@ -583,6 +586,21 @@ class ReallocationContext:
 
 
 @dataclass(frozen=True, slots=True)
+class ReallocationBatchTarget:
+    """One demand-line shortfall in a batched planning request."""
+
+    item_id: uuid.UUID
+    warehouse_id: uuid.UUID
+    demand_type: DemandType
+    demand_id: uuid.UUID
+    demand_line_id: uuid.UUID
+    demand_code: str | None
+    quantity: Decimal
+    priority: int
+    required_date: date | None
+
+
+@dataclass(frozen=True, slots=True)
 class ReallocationCandidate:
     """A reservation the request could take from, with its rank and the reasons.
 
@@ -610,6 +628,14 @@ class ReallocationCandidate:
     requires_approval: bool
     score: Decimal
     reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReallocationBatchResult:
+    """One ranked donor and its target line in a batch."""
+
+    target: ReallocationBatchTarget
+    candidate: ReallocationCandidate
 
 
 def _clamp(value: int, low: int, high: int) -> int:
@@ -796,6 +822,78 @@ def rank_candidates(
             )
         )
     return candidates
+
+
+async def suggest_reallocations_batch(
+    session: AsyncSession,
+    tenant: TenantContext,
+    targets: Sequence[ReallocationBatchTarget],
+    *,
+    as_of: date,
+    policy: ReallocationPolicy = DEFAULT_POLICY,
+) -> list[ReallocationBatchResult]:
+    """Rank donors for many MRP shortfalls with one candidate and claims query.
+
+    Donor quantities selected for an earlier target are treated as claimed while
+    ranking later targets, so one reservation cannot be suggested twice beyond
+    its unclaimed quantity in the same run.
+    """
+    ordered_targets = sorted(
+        (target for target in targets if target.quantity > ZERO),
+        key=lambda target: (
+            target.priority,
+            target.required_date or date.max,
+            target.item_id.bytes,
+            target.warehouse_id.bytes,
+            target.demand_id.bytes,
+            target.demand_line_id.bytes,
+        ),
+    )
+    if not ordered_targets:
+        return []
+
+    positions = list(
+        dict.fromkeys((target.item_id, target.warehouse_id) for target in ordered_targets)
+    )
+    priority_ceiling = min(
+        policy.eligible_priority_ceiling(target.priority) for target in ordered_targets
+    )
+    engine = ReservationEngine(session, tenant)
+    pools = await engine.reservations.candidate_pools(
+        positions,
+        worse_than_priority=priority_ceiling,
+        limit=policy.candidate_pool_limit,
+    )
+    reservation_ids = [facts.id for pool in pools.values() for facts in pool]
+    claims = await engine.requests.claimed_quantities(reservation_ids)
+    planned_claims: dict[uuid.UUID, Decimal] = {}
+    results: list[ReallocationBatchResult] = []
+
+    for target in ordered_targets:
+        pool = [
+            facts.with_claim(
+                to_quantity(claims.get(facts.id, ZERO) + planned_claims.get(facts.id, ZERO))
+            )
+            for facts in pools.get((target.item_id, target.warehouse_id), [])
+        ]
+        candidates = rank_candidates(
+            pool,
+            request=ReallocationContext(
+                demand_type=target.demand_type,
+                demand_id=target.demand_id,
+                quantity_needed=target.quantity,
+                priority=target.priority,
+                required_date=target.required_date,
+            ),
+            policy=policy,
+            as_of=as_of,
+        )
+        for candidate in candidates:
+            planned_claims[candidate.reservation_id] = to_quantity(
+                planned_claims.get(candidate.reservation_id, ZERO) + candidate.takeable_quantity
+            )
+            results.append(ReallocationBatchResult(target=target, candidate=candidate))
+    return results
 
 
 # -----------------------------------------------------------------------------
@@ -3001,6 +3099,56 @@ def _recipient_demand_line_id(request: ReallocationRequest) -> uuid.UUID | None:
     return uuid.UUID(raw) if raw else None
 
 
+async def create_reallocation_from_mrp(
+    session: AsyncSession, tenant: TenantContext, request: ConversionRequest
+) -> tuple[uuid.UUID, str]:
+    """Create the pending allocation request represented by an MRP route."""
+    if (
+        request.from_reservation_id is None
+        or request.from_warehouse_id is None
+        or request.to_demand_type is None
+        or request.to_demand_id is None
+        or request.to_demand_line_id is None
+        or request.to_demand_priority is None
+    ):
+        raise BusinessRuleError(
+            "The MRP reallocation suggestion is missing its donor or target details."
+        )
+
+    free_quantity = await available_to_promise(
+        session,
+        tenant,
+        item_id=request.item_id,
+        warehouse_id=request.from_warehouse_id,
+    )
+    created = await AllocationService(session, tenant).create_reallocation_request(
+        ReallocationRequestCreate(
+            item_id=request.item_id,
+            warehouse_id=request.from_warehouse_id,
+            quantity=to_quantity(free_quantity + request.quantity),
+            to_demand_type=DemandType(request.to_demand_type),
+            to_demand_id=request.to_demand_id,
+            to_demand_line_id=request.to_demand_line_id,
+            to_demand_code=request.to_demand_code,
+            priority=request.to_demand_priority,
+            required_date=request.required_date,
+            reason=request.notes or f"MRP reallocation suggestion {request.suggestion_id}",
+            from_reservation_id=request.from_reservation_id,
+        )
+    )
+    if created.quantity != request.quantity:
+        raise BusinessRuleError(
+            "The donor reservation no longer covers the full MRP reallocation suggestion; "
+            "refresh the plan and try again.",
+            details={
+                "suggestion_id": str(request.suggestion_id),
+                "requested_quantity": str(request.quantity),
+                "available_quantity": str(created.quantity),
+            },
+        )
+    return created.id, created.to_demand_code or str(created.id)
+
+
 __all__ = [
     "AUDIT_ENTITY_REALLOCATION",
     "AUDIT_ENTITY_RESERVATION",
@@ -3011,6 +3159,8 @@ __all__ = [
     "RESERVATION_FLOW",
     "AllocationService",
     "DrawdownPlan",
+    "ReallocationBatchResult",
+    "ReallocationBatchTarget",
     "ReallocationCandidate",
     "ReallocationContext",
     "ReallocationPolicy",
@@ -3019,6 +3169,7 @@ __all__ = [
     "candidate_eligibility",
     "consume",
     "consume_demand_line",
+    "create_reallocation_from_mrp",
     "expire_stale_reservations",
     "plan_consume",
     "plan_positions",
@@ -3032,4 +3183,5 @@ __all__ = [
     "reserve_from_stock",
     "score_candidate",
     "suggest_reallocation",
+    "suggest_reallocations_batch",
 ]

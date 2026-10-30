@@ -834,7 +834,9 @@ dependent split, free stock, in-time and late incoming/in-production/job-work
 supply, `shortage_quantity`, provenance in `source_demands` (JSONB), plus
 `low_level_code` (the level the item was netted at) and
 `expected_available_date` (the date coverage completes; when coverage needs the
-plan's own order, the suggestion's achievable arrival). The job-work feed is
+plan's own order, the suggestion's achievable arrival), and
+`planned_reallocation_quantity` (the quantity assigned to PENDING donor routes).
+The job-work feed is
 the good output expected from input already issued and not yet accounted for,
 dated by the order's expected return and restricted to the run's warehouse
 scope. Each late feed stores its own quantity, opening date and closing date;
@@ -842,7 +844,8 @@ scope. Each late feed stores its own quantity, opening date and closing date;
 for any single quantity.
 
 `mrp_suggestions`: `run_id`, `item_id`, `suggestion_type`
-(`MANUFACTURE | PURCHASE | JOB_WORK | TRANSFER`), `required_quantity`,
+(`MANUFACTURE | PURCHASE | JOB_WORK | TRANSFER | REALLOCATION`),
+`required_quantity`,
 `suggested_quantity` (after min-order-qty / multiple rounding),
 `required_date`, `suggested_order_date` (required date − lead time),
 `shortage_quantity`, `available_quantity`, `incoming_quantity`, `source_demands`
@@ -850,18 +853,35 @@ for any single quantity.
 `from_warehouse_id` and `to_warehouse_id`
 (`max(as_of, suggested_order_date) + lead_time_days` - the date the order can
 physically land, which for a late suggestion is later than the required date),
+and nullable reallocation route facts: `from_reservation_id`, `from_demand_type`,
+`from_demand_id`, `from_demand_code`, `to_demand_type`, `to_demand_id`,
+`to_demand_line_id`, `to_demand_code` and `to_demand_priority`. A reallocation
+route stays within one warehouse; it becomes a PENDING allocation request and
+does not move the reservation until the ordinary approval/execution flow does.
 `status` (`OPEN | CONVERTED | IGNORED`), `converted_to_type`,
 `converted_to_id`.
+
+`mrp_requirements.planned_reallocation_quantity` records the quantity assigned
+to those PENDING route suggestions. It explains why the remaining
+`shortage_quantity` can be lower than the shortage implied by free stock and
+dated supply alone; it is not a committed supply quantity and is not included in
+`net_requirement`.
 
 The merged requirement stays unique on `(run_id, item_id)`. Supply suggestions
 are unique on that pair for `PURCHASE`, `MANUFACTURE` and `JOB_WORK`; transfer
 suggestions are unique per `(run_id, item_id, from_warehouse_id, to_warehouse_id)`
-and may coexist with the item's remaining supply suggestion. A transfer suggestion
-creates a DRAFT `stock_transfers` document whose source is the suggestion itself.
-Only in-scope, untracked items are currently offered for automatic conversion;
-batch/serial-tracked items require an operator to name the lot or units and are
-withheld with a plan warning until that selection is available in the conversion
-flow.
+and reallocation suggestions are unique per
+`(run_id, item_id, from_reservation_id, to_demand_id, to_demand_line_id)`;
+both route types may coexist with the item's remaining supply suggestion. A
+transfer suggestion creates a DRAFT `stock_transfers` document whose source is
+the suggestion itself.
+Only direct, fully attributable sales-order demand with a warehouse is eligible
+for an MRP reallocation route; aggregate BOM, mixed-source, manual and unassigned
+demand remain at item level.
+Only in-scope, untracked items are currently offered for automatic transfer
+conversion; batch/serial-tracked items require an operator to name the lot or
+units and are withheld with a plan warning until that selection is available in
+the conversion flow.
 
 Demand provenance is independent of the display contribution count. New plans
 store validated `root_demand_refs` and `root_demand_refs_complete` on the first

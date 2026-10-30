@@ -242,6 +242,25 @@ export function ShortageReportTab({
         ),
       },
       {
+        id: 'planned_reallocation_quantity',
+        header: 'Suggested reallocation',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const quantity = row.original.planned_reallocation_quantity
+          if (!toDecimal(quantity).greaterThan(0)) {
+            return <span className="text-xs text-muted-foreground">&mdash;</span>
+          }
+          return (
+            <span
+              className="tabular-nums"
+              title="Suggested donor quantity; it is not moved until a reallocation request is approved and executed."
+            >
+              {formatQuantity(quantity)}
+            </span>
+          )
+        },
+      },
+      {
         // The column this whole tab exists for.
         id: 'late_supply',
         header: 'Arrives too late',

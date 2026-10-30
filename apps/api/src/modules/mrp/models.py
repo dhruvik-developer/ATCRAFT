@@ -138,6 +138,7 @@ class MrpSuggestionType(StrEnum):
     PURCHASE = "PURCHASE"
     JOB_WORK = "JOB_WORK"
     TRANSFER = "TRANSFER"
+    REALLOCATION = "REALLOCATION"
 
 
 class MrpSuggestionStatus(StrEnum):
@@ -427,6 +428,10 @@ class MrpRequirement(TenantEntity):
     net_requirement: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Quantity assigned to PENDING reallocation suggestions; not yet executed.
+    planned_reallocation_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
     #: What is still missing after every netting stage. Zero means covered.
     shortage_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
@@ -559,6 +564,9 @@ class MrpRequirement(TenantEntity):
         # one before it.
         CheckConstraint("net_requirement <= gross_requirement", name="net_within_gross"),
         CheckConstraint("shortage_quantity <= net_requirement", name="shortage_within_net"),
+        CheckConstraint(
+            "planned_reallocation_quantity >= 0", name="planned_reallocation_non_negative"
+        ),
         CheckConstraint("source_demand_count >= 0", name="source_demand_count_non_negative"),
     )
 
@@ -621,6 +629,15 @@ class MrpSuggestion(TenantEntity):
     to_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
     )
+    from_reservation_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    from_demand_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    from_demand_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    from_demand_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_demand_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    to_demand_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    to_demand_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    to_demand_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    to_demand_priority: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     source_demands: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
@@ -663,6 +680,17 @@ class MrpSuggestion(TenantEntity):
             postgresql_where=text("suggestion_type = 'TRANSFER'"),
             sqlite_where=text("suggestion_type = 'TRANSFER'"),
         ),
+        Index(
+            "uq_mrp_suggestions_reallocation_route",
+            "run_id",
+            "item_id",
+            "from_reservation_id",
+            "to_demand_id",
+            "to_demand_line_id",
+            unique=True,
+            postgresql_where=text("suggestion_type = 'REALLOCATION'"),
+            sqlite_where=text("suggestion_type = 'REALLOCATION'"),
+        ),
         # Sales fulfilment resolves both direct facts and canonical BOM roots
         # with JSONB containment; tenant filtering remains part of every query.
         Index("ix_mrp_suggestions_source_demands", "source_demands", postgresql_using="gin"),
@@ -688,9 +716,26 @@ class MrpSuggestion(TenantEntity):
         ),
         CheckConstraint(
             "(suggestion_type = 'TRANSFER' AND from_warehouse_id IS NOT NULL "
-            "AND to_warehouse_id IS NOT NULL AND from_warehouse_id <> to_warehouse_id) "
-            "OR (suggestion_type <> 'TRANSFER' AND from_warehouse_id IS NULL "
-            "AND to_warehouse_id IS NULL)",
+            "AND to_warehouse_id IS NOT NULL AND from_warehouse_id <> to_warehouse_id "
+            "AND from_reservation_id IS NULL AND from_demand_type IS NULL "
+            "AND from_demand_id IS NULL AND from_demand_code IS NULL "
+            "AND to_demand_type IS NULL AND to_demand_id IS NULL "
+            "AND to_demand_line_id IS NULL AND to_demand_code IS NULL "
+            "AND to_demand_priority IS NULL) "
+            "OR (suggestion_type = 'REALLOCATION' AND from_warehouse_id IS NOT NULL "
+            "AND to_warehouse_id = from_warehouse_id AND from_reservation_id IS NOT NULL "
+            "AND from_demand_type IN ('SALES_ORDER', 'PRODUCTION_ORDER', 'ASSEMBLY_ORDER', "
+            "'JOB_WORK_ORDER', 'SPARE', 'TRANSFER') AND from_demand_id IS NOT NULL "
+            "AND to_demand_type = 'SALES_ORDER' AND to_demand_id IS NOT NULL "
+            "AND to_demand_line_id IS NOT NULL AND to_demand_priority IS NOT NULL "
+            "AND to_demand_priority >= 0) "
+            "OR (suggestion_type NOT IN ('TRANSFER', 'REALLOCATION') "
+            "AND from_warehouse_id IS NULL AND to_warehouse_id IS NULL "
+            "AND from_reservation_id IS NULL AND from_demand_type IS NULL "
+            "AND from_demand_id IS NULL AND from_demand_code IS NULL "
+            "AND to_demand_type IS NULL AND to_demand_id IS NULL "
+            "AND to_demand_line_id IS NULL AND to_demand_code IS NULL "
+            "AND to_demand_priority IS NULL)",
             name="transfer_route_matches_type",
         ),
         CheckConstraint(f"status IN ({sql_in_list(MrpSuggestionStatus)})", name="status_known"),

@@ -16853,6 +16853,14 @@ export interface components {
         ConversionRequest: {
             /** Expected Return Date */
             expected_return_date?: string | null;
+            /** From Demand Code */
+            from_demand_code?: string | null;
+            /** From Demand Id */
+            from_demand_id?: string | null;
+            /** From Demand Type */
+            from_demand_type?: string | null;
+            /** From Reservation Id */
+            from_reservation_id?: string | null;
             /** From Warehouse Id */
             from_warehouse_id?: string | null;
             /** Item Code */
@@ -16893,6 +16901,16 @@ export interface components {
              */
             suggestion_id: string;
             target: components["schemas"]["ConversionTarget"];
+            /** To Demand Code */
+            to_demand_code?: string | null;
+            /** To Demand Id */
+            to_demand_id?: string | null;
+            /** To Demand Line Id */
+            to_demand_line_id?: string | null;
+            /** To Demand Priority */
+            to_demand_priority?: number | null;
+            /** To Demand Type */
+            to_demand_type?: string | null;
             /** To Warehouse Id */
             to_warehouse_id?: string | null;
             /** Vendor Id */
@@ -16935,7 +16953,7 @@ export interface components {
          *     recorded in the audit entry.
          * @enum {string}
          */
-        ConversionTarget: "PURCHASE_REQUISITION" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER" | "STOCK_TRANSFER";
+        ConversionTarget: "PURCHASE_REQUISITION" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER" | "STOCK_TRANSFER" | "REALLOCATION_REQUEST";
         /**
          * CostCentreCreate
          * @description Payload for opening a cost centre.
@@ -24092,6 +24110,11 @@ export interface components {
             net_requirement: string;
             /** On Hand Quantity */
             on_hand_quantity: string;
+            /**
+             * Planned Reallocation Quantity
+             * @default 0
+             */
+            planned_reallocation_quantity: string;
             /** Reserved Quantity */
             reserved_quantity: string;
             /**
@@ -24315,6 +24338,14 @@ export interface components {
             readonly demand_provenance: components["schemas"]["RootDemandProvenance"] | null;
             /** Expected Available Date */
             expected_available_date?: string | null;
+            /** From Demand Code */
+            from_demand_code?: string | null;
+            /** From Demand Id */
+            from_demand_id?: string | null;
+            /** From Demand Type */
+            from_demand_type?: string | null;
+            /** From Reservation Id */
+            from_reservation_id?: string | null;
             /** From Warehouse Id */
             from_warehouse_id?: string | null;
             /**
@@ -24366,6 +24397,16 @@ export interface components {
             /** Suggested Quantity */
             suggested_quantity: string;
             suggestion_type: components["schemas"]["MrpSuggestionType"];
+            /** To Demand Code */
+            to_demand_code?: string | null;
+            /** To Demand Id */
+            to_demand_id?: string | null;
+            /** To Demand Line Id */
+            to_demand_line_id?: string | null;
+            /** To Demand Priority */
+            to_demand_priority?: number | null;
+            /** To Demand Type */
+            to_demand_type?: string | null;
             /** To Warehouse Id */
             to_warehouse_id?: string | null;
         };
@@ -24387,7 +24428,7 @@ export interface components {
          *     supply suggestion may also exist for the item's remaining aggregate shortage.
          * @enum {string}
          */
-        MrpSuggestionType: "MANUFACTURE" | "PURCHASE" | "JOB_WORK" | "TRANSFER";
+        MrpSuggestionType: "MANUFACTURE" | "PURCHASE" | "JOB_WORK" | "TRANSFER" | "REALLOCATION";
         /**
          * NeedsJobWorkRead
          * @description A short line the plan deliberately left alone, because it needs job work.

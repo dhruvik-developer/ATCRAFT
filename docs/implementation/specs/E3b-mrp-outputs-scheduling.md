@@ -21,9 +21,9 @@ Read each of these in `trace/trace.json`. E3a, E2, E4 and E1b are already on mai
 
 ### 2. REALLOCATION suggestions (P06.O5)
 
-- Add `MrpSuggestionType.REALLOCATION`. This needs a CHECK-swap migration, a badge and an update to `database.md` §6.
-- For short demand lines that have a priority and a date, batch-read candidate donors through allocation's ranking (E2 policy) and emit REALLOCATION suggestions: donor reservation, from-demand, to-demand (with line) and quantity. They reduce the shortage before PURCHASE/MANUFACTURE.
-- Conversion calls `allocation.create_reallocation_request`. That request is PENDING, or auto-executes for SOFT donors per policy.
+- Add `MrpSuggestionType.REALLOCATION`, persist the donor reservation and both demand routes, and account for the planned quantity separately from free stock and dated supply.
+- For eligible short sales-order lines, batch-read candidate donors through allocation's ranking (E2 policy) and emit route-level REALLOCATION suggestions. They reduce the shortage before PURCHASE/MANUFACTURE. Aggregate BOM, mixed-source, manual and unassigned demand stays unallocated because it has no safe single sales-line recipient.
+- Conversion calls `allocation.create_reallocation_from_mrp`, which creates the normal PENDING request. SOFT donors are not auto-executed; the existing allocation service does not provide a separate policy execution path, so requests follow the same auditable decision flow.
 
 ### 3. JOB_WORK conversion (P06.O3, P05.P9)
 

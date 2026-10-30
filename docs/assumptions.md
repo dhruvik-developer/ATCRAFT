@@ -46,6 +46,42 @@ Treating them as fungible can defer a transfer that was physically needed; the
 open purchase/production/job-work document and the plan warning remain visible,
 and the planner can raise the transfer manually.
 
+## §E3b-3. MRP reallocation routes are conservative and remain pending
+
+**Assumed.** MRP emits reallocation routes only when the item's entire direct
+demand is attributable to sales-order lines, with no dependent BOM demand, and
+the target line names its warehouse, priority and required date. Free stock and
+in-time item-level supply are assigned to those lines in priority/date order;
+only each line's residual is offered to allocation's existing donor ranking.
+Manual, unassigned, mixed-source and BOM-dependent shortages remain aggregate
+and are not presented as if they belonged to one order. Any net supply already
+counted by the run, including transfers, is attributed to the eligible lines in
+that same priority/date order before their residual is offered.
+
+Each route records one donor reservation and one sales-order line in the same
+warehouse. It creates a PENDING reallocation request only; SOFT donors are not
+silently moved because the allocation service has no policy-based automatic
+execution path. `planned_reallocation_quantity` explains the residual shortage
+but is not committed supply: approval and execution remain the allocation
+module's responsibility.
+
+**Why.** MRP aggregates shared components and does not retain a safe per-order
+allocation for mixed demand. Guessing a recipient could move another order's
+stock to the wrong customer. Similarly, a suggestion is not an approval, and
+auto-executing a SOFT reservation would bypass the one audited reallocation
+flow.
+
+**Where.** The line attribution and shortage adjustment live in
+`src/modules/mrp/engine.py`; the batched donor query and existing E2 policy live
+in `src/modules/allocation/repository.py` and `service.py`; route persistence is
+migration `20261107_0100`.
+
+**Impact if wrong.** Eligible lines may receive fewer automatic suggestions
+than a more permissive attribution model would produce. Their remaining
+shortage still receives the ordinary PURCHASE/MANUFACTURE planning, and
+excluded cases remain visible in aggregate rather than risking a false donor
+assignment.
+
 ---
 
 ## How to read this

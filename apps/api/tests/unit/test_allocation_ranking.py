@@ -21,9 +21,11 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
+from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import (
     DemandType,
     ReservationStatus,
@@ -32,11 +34,13 @@ from src.modules.allocation.models import (
 from src.modules.allocation.repository import ReservationFacts
 from src.modules.allocation.service import (
     DEFAULT_POLICY,
+    ReallocationBatchTarget,
     ReallocationContext,
     ReallocationPolicy,
     candidate_eligibility,
     rank_candidates,
     score_candidate,
+    suggest_reallocations_batch,
 )
 
 pytestmark = pytest.mark.unit
@@ -160,6 +164,74 @@ class TestEligibility:
             )
             is None
         )
+
+
+@pytest.mark.asyncio
+async def test_batch_suggestions_read_once_and_do_not_overclaim_a_donor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    donor = _facts()
+    pool_calls: list[tuple[list[tuple[uuid.UUID, uuid.UUID]], int, int]] = []
+    claim_calls: list[list[uuid.UUID]] = []
+
+    class FakeReservations:
+        async def candidate_pools(
+            self,
+            positions: list[tuple[uuid.UUID, uuid.UUID]],
+            *,
+            worse_than_priority: int,
+            limit: int,
+        ) -> dict[tuple[uuid.UUID, uuid.UUID], list[ReservationFacts]]:
+            pool_calls.append((positions, worse_than_priority, limit))
+            return {(ITEM, WAREHOUSE): [donor]}
+
+    class FakeRequests:
+        async def claimed_quantities(
+            self, reservation_ids: list[uuid.UUID]
+        ) -> dict[uuid.UUID, Decimal]:
+            claim_calls.append(reservation_ids)
+            return {}
+
+    class FakeEngine:
+        def __init__(self, _session: Any, _tenant: Any) -> None:
+            self.reservations = FakeReservations()
+            self.requests = FakeRequests()
+
+    monkeypatch.setattr(allocation_service, "ReservationEngine", FakeEngine)
+    first = ReallocationBatchTarget(
+        item_id=ITEM,
+        warehouse_id=WAREHOUSE,
+        demand_type=DemandType.SALES_ORDER,
+        demand_id=uuid.uuid4(),
+        demand_line_id=uuid.uuid4(),
+        demand_code="SO/URGENT",
+        quantity=Decimal("60"),
+        priority=10,
+        required_date=TODAY + timedelta(days=5),
+    )
+    second = ReallocationBatchTarget(
+        item_id=ITEM,
+        warehouse_id=WAREHOUSE,
+        demand_type=DemandType.SALES_ORDER,
+        demand_id=uuid.uuid4(),
+        demand_line_id=uuid.uuid4(),
+        demand_code="SO/NEXT",
+        quantity=Decimal("60"),
+        priority=20,
+        required_date=TODAY + timedelta(days=6),
+    )
+
+    results = await suggest_reallocations_batch(object(), object(), [second, first], as_of=TODAY)
+
+    assert len(pool_calls) == 1
+    assert pool_calls[0][0] == [(ITEM, WAREHOUSE)]
+    assert len(claim_calls) == 1
+    assert claim_calls[0] == [donor.id]
+    assert [result.target for result in results] == [first, second]
+    assert [result.candidate.takeable_quantity for result in results] == [
+        Decimal("60.0000"),
+        Decimal("40.0000"),
+    ]
 
 
 class TestRanking:

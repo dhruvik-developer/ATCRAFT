@@ -10,6 +10,7 @@ import MrpRunDetailPage from './mrp-run-detail-page'
 const RUN_ID = '01a00000-0000-7000-8000-00000000mrp1'
 const SUGGESTION_ID = '01a00000-0000-7000-8000-00000000sug1'
 const TRANSFER_SUGGESTION_ID = '01a00000-0000-7000-8000-00000000sug2'
+const REALLOCATION_SUGGESTION_ID = '01a00000-0000-7000-8000-00000000sug3'
 const ITEM_ID = '01a00000-0000-7000-8000-0000000item1'
 const VENDOR_ID = '01a00000-0000-7000-8000-00000000ven1'
 const WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh01'
@@ -56,6 +57,15 @@ const suggestion: MrpSuggestionRow = {
   expected_available_date: REQUIRED_DATE,
   from_warehouse_id: null,
   to_warehouse_id: null,
+  from_reservation_id: null,
+  from_demand_type: null,
+  from_demand_id: null,
+  from_demand_code: null,
+  to_demand_type: null,
+  to_demand_id: null,
+  to_demand_line_id: null,
+  to_demand_code: null,
+  to_demand_priority: null,
   status: 'OPEN',
   converted_to_type: null,
   converted_to_id: null,
@@ -92,6 +102,7 @@ const requirement: MrpRequirementRow = {
   last_late_job_work_date: '2026-12-15',
   first_late_supply_date: '2026-12-01',
   net_requirement: '55.0000',
+  planned_reallocation_quantity: '0.0000',
   shortage_quantity: '55.0000',
   earliest_required_date: REQUIRED_DATE,
   expected_available_date: REQUIRED_DATE,
@@ -212,6 +223,64 @@ describe('MRP transfer conversion', () => {
     expect(fetch.requestFor('POST', `/mrp/suggestions/${TRANSFER_SUGGESTION_ID}/convert`)).toEqual(
       {},
     )
+  })
+})
+
+describe('MRP reallocation conversion', () => {
+  it('shows the donor-to-demand route and converts it to a request', async () => {
+    const reallocationSuggestion: MrpSuggestionRow = {
+      ...suggestion,
+      id: REALLOCATION_SUGGESTION_ID,
+      suggestion_type: 'REALLOCATION',
+      from_warehouse_id: WAREHOUSE_ID,
+      to_warehouse_id: WAREHOUSE_ID,
+      from_reservation_id: '01a00000-0000-7000-8000-00000000res1',
+      from_demand_type: 'SALES_ORDER',
+      from_demand_id: '01a00000-0000-7000-8000-00000000don1',
+      from_demand_code: 'SO/DONOR',
+      to_demand_type: 'SALES_ORDER',
+      to_demand_id: '01a00000-0000-7000-8000-00000000rec1',
+      to_demand_line_id: '01a00000-0000-7000-8000-00000000lin1',
+      to_demand_code: 'SO/RECIPIENT',
+      to_demand_priority: 2,
+    }
+    const { fetch, user } = renderScreen(<MrpRunDetailPage />, {
+      route: `/mrp/runs/${RUN_ID}`,
+      path: '/mrp/runs/:runId',
+      permissions: [P.MRP_VIEW, P.MRP_CONVERT_SUGGESTION, P.ALLOCATION_VIEW],
+      routes: {
+        [`GET /mrp/runs/${RUN_ID}`]: ok(run),
+        [`GET /mrp/runs/${RUN_ID}/suggestions`]: page([reallocationSuggestion]),
+        'GET /mrp/shortage-report': page([]),
+        [`POST /mrp/suggestions/${REALLOCATION_SUGGESTION_ID}/convert`]: ok({
+          handled: true,
+          message: 'Reallocation request created',
+          created_document_id: '01a00000-0000-7000-8000-00000000rea1',
+          created_document_code: 'SO/RECIPIENT',
+          created_document_type: 'REALLOCATION_REQUEST',
+          suggestion: { ...reallocationSuggestion, status: 'CONVERTED' },
+        }),
+      },
+    })
+
+    await screen.findByRole('heading', { name: run.code })
+    expect(await screen.findByText('SO/DONOR → SO/RECIPIENT')).toBeInTheDocument()
+    await user.click(await screen.findByRole('checkbox', { name: 'Select BRASS-ROD-12' }))
+    await user.click(screen.getByRole('button', { name: 'Convert selected' }))
+    await user.click(await screen.findByRole('button', { name: /^Convert$/ }))
+
+    await waitFor(() => {
+      expect(
+        fetch.calls.some(
+          (call) =>
+            call.method === 'POST' &&
+            call.path === `/mrp/suggestions/${REALLOCATION_SUGGESTION_ID}/convert`,
+        ),
+      ).toBe(true)
+    })
+    expect(
+      fetch.requestFor('POST', `/mrp/suggestions/${REALLOCATION_SUGGESTION_ID}/convert`),
+    ).toEqual({})
   })
 })
 

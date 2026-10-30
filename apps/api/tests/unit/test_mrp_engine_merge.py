@@ -214,7 +214,13 @@ class FakeSource:
 
 
 def sales_line(
-    item: PlanningItem, quantity: str, *, code: str, required: date = REQUIRED
+    item: PlanningItem,
+    quantity: str,
+    *,
+    code: str,
+    required: date = REQUIRED,
+    warehouse_id: uuid.UUID | None = None,
+    priority: int = 5,
 ) -> DemandLine:
     return DemandLine(
         item_id=item.id,
@@ -224,6 +230,8 @@ def sales_line(
         source_id=uuid.uuid4(),
         source_line_id=uuid.uuid4(),
         source_code=code,
+        warehouse_id=warehouse_id,
+        priority=priority,
     )
 
 
@@ -904,3 +912,88 @@ async def test_traceable_stock_is_not_offered_for_unlabelled_transfer() -> None:
 
     assert not plan.suggestions_for(item.id)
     assert any("serial-tracked" in warning for warning in plan.warnings)
+
+
+@pytest.mark.asyncio
+async def test_reallocation_reduces_the_shortage_before_purchase_is_suggested() -> None:
+    item = make_item("ALLOCATION-SHORT")
+    warehouse_id = uuid.uuid4()
+    demand = sales_line(item, "10", code="SO/REALLOC", warehouse_id=warehouse_id, priority=2)
+    source = FakeSource(
+        items={item.id: item},
+        warehouse_stock={(item.id, warehouse_id): StockPosition()},
+    )
+    donor_reservation_id = uuid.uuid4()
+
+    async def provide(targets: Any) -> list[engine.ReallocationRoute]:
+        assert len(targets) == 1
+        target = targets[0]
+        assert target.demand_id == demand.source_id
+        assert target.demand_line_id == demand.source_line_id
+        assert target.priority == 2
+        return [
+            engine.ReallocationRoute(
+                target=target,
+                reservation_id=donor_reservation_id,
+                donor_demand_type="SALES_ORDER",
+                donor_demand_id=uuid.uuid4(),
+                donor_demand_code="SO/DONOR",
+                quantity=D("4"),
+            )
+        ]
+
+    plan = await run(source, [demand], reallocation_provider=provide)
+
+    requirement = plan.requirement_for(item.id)
+    assert requirement is not None
+    assert requirement.net_requirement == D("10.0000")
+    assert requirement.planned_reallocation_quantity == D("4.0000")
+    assert requirement.shortage_quantity == D("6.0000")
+    suggestions = plan.suggestions_for(item.id)
+    assert [
+        (suggestion.suggestion_type, suggestion.suggested_quantity) for suggestion in suggestions
+    ] == [
+        (MrpSuggestionType.PURCHASE, D("6.0000")),
+        (MrpSuggestionType.REALLOCATION, D("4.0000")),
+    ]
+    reallocation = suggestions[1]
+    assert reallocation.from_reservation_id == donor_reservation_id
+    assert reallocation.from_warehouse_id == warehouse_id
+    assert reallocation.to_warehouse_id == warehouse_id
+    assert reallocation.to_demand_id == demand.source_id
+    assert reallocation.to_demand_line_id == demand.source_line_id
+    assert reallocation.to_demand_priority == 2
+
+
+@pytest.mark.asyncio
+async def test_manual_demand_does_not_get_a_sales_order_reallocation_target() -> None:
+    item = make_item("MANUAL-SHORT")
+    called = False
+
+    async def provide(targets: Any) -> list[engine.ReallocationRoute]:
+        nonlocal called
+        called = True
+        return []
+
+    source = FakeSource(items={item.id: item})
+    plan = await run(
+        source,
+        [
+            DemandLine(
+                item_id=item.id,
+                quantity=D("10"),
+                required_date=REQUIRED,
+                source=MrpDemandSource.MANUAL,
+            )
+        ],
+        reallocation_provider=provide,
+    )
+
+    assert called is False
+    requirement = plan.requirement_for(item.id)
+    assert requirement is not None
+    assert requirement.planned_reallocation_quantity == D("0")
+    assert all(
+        suggestion.suggestion_type is not MrpSuggestionType.REALLOCATION
+        for suggestion in plan.suggestions_for(item.id)
+    )

@@ -14891,6 +14891,52 @@
             ],
             "title": "Expected Return Date"
           },
+          "from_demand_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Demand Code"
+          },
+          "from_demand_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Demand Id"
+          },
+          "from_demand_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Demand Type"
+          },
+          "from_reservation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Reservation Id"
+          },
           "from_warehouse_id": {
             "anyOf": [
               {
@@ -14969,6 +15015,63 @@
           },
           "target": {
             "$ref": "#/components/schemas/ConversionTarget"
+          },
+          "to_demand_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Code"
+          },
+          "to_demand_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Id"
+          },
+          "to_demand_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Line Id"
+          },
+          "to_demand_priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Priority"
+          },
+          "to_demand_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Type"
           },
           "to_warehouse_id": {
             "anyOf": [
@@ -15073,7 +15176,8 @@
           "PURCHASE_REQUISITION",
           "PRODUCTION_ORDER",
           "JOB_WORK_ORDER",
-          "STOCK_TRANSFER"
+          "STOCK_TRANSFER",
+          "REALLOCATION_REQUEST"
         ],
         "title": "ConversionTarget",
         "type": "string"
@@ -35974,6 +36078,12 @@
             "title": "On Hand Quantity",
             "type": "string"
           },
+          "planned_reallocation_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Planned Reallocation Quantity",
+            "type": "string"
+          },
           "reserved_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Reserved Quantity",
@@ -36491,6 +36601,52 @@
             ],
             "title": "Expected Available Date"
           },
+          "from_demand_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Demand Code"
+          },
+          "from_demand_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Demand Id"
+          },
+          "from_demand_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Demand Type"
+          },
+          "from_reservation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Reservation Id"
+          },
           "from_warehouse_id": {
             "anyOf": [
               {
@@ -36603,6 +36759,63 @@
           "suggestion_type": {
             "$ref": "#/components/schemas/MrpSuggestionType"
           },
+          "to_demand_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Code"
+          },
+          "to_demand_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Id"
+          },
+          "to_demand_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Line Id"
+          },
+          "to_demand_priority": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Priority"
+          },
+          "to_demand_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Type"
+          },
           "to_warehouse_id": {
             "anyOf": [
               {
@@ -36653,7 +36866,8 @@
           "MANUFACTURE",
           "PURCHASE",
           "JOB_WORK",
-          "TRANSFER"
+          "TRANSFER",
+          "REALLOCATION"
         ],
         "title": "MrpSuggestionType",
         "type": "string"

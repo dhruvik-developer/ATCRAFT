@@ -32,7 +32,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, func, nulls_last, or_, select
+from sqlalchemy import Select, and_, func, nulls_last, or_, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -355,6 +355,53 @@ class StockReservationRepository(BaseRepository[StockReservation]):
 
         rows = (await self.session.execute(stmt)).all()
         return [ReservationFacts(*row) for row in rows]
+
+    async def candidate_pools(
+        self,
+        positions: Sequence[tuple[uuid.UUID, uuid.UUID]],
+        *,
+        worse_than_priority: int,
+        limit: int = CANDIDATE_POOL_LIMIT,
+    ) -> dict[tuple[uuid.UUID, uuid.UUID], list[ReservationFacts]]:
+        """Read bounded donor pools for many item/warehouse pairs in one query."""
+        unique_positions = list(dict.fromkeys(positions))
+        if not unique_positions:
+            return {}
+
+        rank = (
+            func.row_number()
+            .over(
+                partition_by=(StockReservation.item_id, StockReservation.warehouse_id),
+                order_by=(
+                    StockReservation.priority.desc(),
+                    nulls_last(StockReservation.required_date.desc()),
+                    StockReservation.id,
+                ),
+            )
+            .label("pool_rank")
+        )
+        base = (
+            select(*_FACT_COLUMNS, rank)
+            .where(
+                StockReservation.company_id == self.tenant.company_id,
+                tuple_(StockReservation.item_id, StockReservation.warehouse_id).in_(
+                    unique_positions
+                ),
+                StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+                StockReservation.remaining_quantity > 0,
+                StockReservation.priority > worse_than_priority,
+            )
+            .subquery()
+        )
+        stmt = select(*(base.c[column.key] for column in _FACT_COLUMNS)).where(
+            base.c.pool_rank <= limit
+        )
+        rows = (await self.session.execute(stmt)).all()
+        grouped: dict[tuple[uuid.UUID, uuid.UUID], list[ReservationFacts]] = {}
+        for row in rows:
+            facts = ReservationFacts(*row)
+            grouped.setdefault((facts.item_id, facts.warehouse_id), []).append(facts)
+        return grouped
 
 
 class ReservableStockRepository(BaseRepository[InventoryBalance]):

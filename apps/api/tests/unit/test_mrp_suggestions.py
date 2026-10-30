@@ -277,6 +277,10 @@ def test_each_suggestion_type_has_a_default_document() -> None:
     )
     assert DEFAULT_CONVERSION_TARGET[MrpSuggestionType.JOB_WORK] is ConversionTarget.JOB_WORK_ORDER
     assert DEFAULT_CONVERSION_TARGET[MrpSuggestionType.TRANSFER] is ConversionTarget.STOCK_TRANSFER
+    assert (
+        DEFAULT_CONVERSION_TARGET[MrpSuggestionType.REALLOCATION]
+        is ConversionTarget.REALLOCATION_REQUEST
+    )
 
 
 # -----------------------------------------------------------------------------

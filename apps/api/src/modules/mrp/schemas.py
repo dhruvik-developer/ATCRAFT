@@ -87,6 +87,7 @@ class ConversionTarget(StrEnum):
     PRODUCTION_ORDER = "PRODUCTION_ORDER"
     JOB_WORK_ORDER = "JOB_WORK_ORDER"
     STOCK_TRANSFER = "STOCK_TRANSFER"
+    REALLOCATION_REQUEST = "REALLOCATION_REQUEST"
 
 
 DEFAULT_CONVERSION_TARGET: dict[MrpSuggestionType, ConversionTarget] = {
@@ -94,6 +95,7 @@ DEFAULT_CONVERSION_TARGET: dict[MrpSuggestionType, ConversionTarget] = {
     MrpSuggestionType.MANUFACTURE: ConversionTarget.PRODUCTION_ORDER,
     MrpSuggestionType.JOB_WORK: ConversionTarget.JOB_WORK_ORDER,
     MrpSuggestionType.TRANSFER: ConversionTarget.STOCK_TRANSFER,
+    MrpSuggestionType.REALLOCATION: ConversionTarget.REALLOCATION_REQUEST,
 }
 
 
@@ -403,6 +405,7 @@ class MrpRequirementRead(_MrpDemandProvenanceRead):
     first_late_supply_date: date | None = None
 
     net_requirement: Decimal
+    planned_reallocation_quantity: Decimal = Decimal("0")
     shortage_quantity: Decimal
     earliest_required_date: date
     #: When the gross requirement is fully covered - stock, dated supply, the
@@ -451,6 +454,15 @@ class MrpSuggestionRead(_MrpDemandProvenanceRead):
     expected_available_date: date | None = None
     from_warehouse_id: uuid.UUID | None = None
     to_warehouse_id: uuid.UUID | None = None
+    from_reservation_id: uuid.UUID | None = None
+    from_demand_type: str | None = None
+    from_demand_id: uuid.UUID | None = None
+    from_demand_code: str | None = None
+    to_demand_type: str | None = None
+    to_demand_id: uuid.UUID | None = None
+    to_demand_line_id: uuid.UUID | None = None
+    to_demand_code: str | None = None
+    to_demand_priority: int | None = None
 
     status: MrpSuggestionStatus
     converted_to_type: str | None = None
@@ -539,6 +551,15 @@ class ConversionRequest(BaseModel):
     warehouse_id: uuid.UUID | None = None
     from_warehouse_id: uuid.UUID | None = None
     to_warehouse_id: uuid.UUID | None = None
+    from_reservation_id: uuid.UUID | None = None
+    from_demand_type: str | None = None
+    from_demand_id: uuid.UUID | None = None
+    from_demand_code: str | None = None
+    to_demand_type: str | None = None
+    to_demand_id: uuid.UUID | None = None
+    to_demand_line_id: uuid.UUID | None = None
+    to_demand_code: str | None = None
+    to_demand_priority: int | None = None
     notes: str | None = None
 
 

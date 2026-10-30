@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import {
   Ban,
+  ArrowLeftRight,
   CalendarClock,
   ChevronDown,
   ChevronRight,
@@ -482,6 +483,7 @@ export default function MrpRunDetailPage() {
 
   const isMutating = convert.isPending || ignore.isPending
   const canConvert = can(P.MRP_CONVERT_SUGGESTION)
+  const canViewAllocation = can(P.ALLOCATION_VIEW)
 
   const pageActionable = useMemo(
     () => suggestions.data.filter((row) => isActionable(row.status)),
@@ -637,10 +639,28 @@ export default function MrpRunDetailPage() {
         ),
       },
       {
-        id: 'warehouse_route',
-        header: 'Warehouse route',
+        id: 'route',
+        header: 'Route',
         enableSorting: false,
         cell: ({ row }) => {
+          if (row.original.suggestion_type === 'REALLOCATION') {
+            if (!canViewAllocation) {
+              return <span className="text-muted-foreground">Allocation details hidden</span>
+            }
+            const donor =
+              row.original.from_demand_code ??
+              `${humanise(row.original.from_demand_type ?? 'Unknown')} ${row.original.from_demand_id ?? ''}`
+            const recipient =
+              row.original.to_demand_code ?? row.original.to_demand_id ?? 'Unknown demand'
+            return (
+              <span
+                className="block max-w-[16rem] truncate"
+                title={`Donor ${donor}; recipient ${recipient}, line ${row.original.to_demand_line_id ?? 'unknown'}`}
+              >
+                {donor} → {recipient}
+              </span>
+            )
+          }
           if (row.original.suggestion_type !== 'TRANSFER') {
             return <span className="text-muted-foreground">—</span>
           }
@@ -856,7 +876,7 @@ export default function MrpRunDetailPage() {
     // The header checkbox and every row checkbox depend on the current tick
     // list and on which rows this page can act on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allPageSelected, canConvert, expanded, pageActionable, selected],
+    [allPageSelected, canConvert, canViewAllocation, expanded, pageActionable, selected],
   )
 
   // ------------------------------------------------------------- states ----
@@ -867,7 +887,7 @@ export default function MrpRunDetailPage() {
         <Skeleton className="h-7 w-64" />
         <Skeleton className="h-4 w-full max-w-sm" />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
+          {Array.from({ length: 7 }).map((_, index) => (
             <Skeleton key={index} className="h-[5.5rem] w-full" />
           ))}
         </div>
@@ -1022,6 +1042,12 @@ export default function MrpRunDetailPage() {
           value={tileValue(suggestionsOfType(summary, 'JOB_WORK'))}
           hint="Send out to a job worker"
           icon={Hammer}
+        />
+        <StatTile
+          label="Reallocation"
+          value={tileValue(suggestionsOfType(summary, 'REALLOCATION'))}
+          hint="Request stock from a lower-priority demand"
+          icon={ArrowLeftRight}
         />
         <StatTile
           label="Supply arriving late"

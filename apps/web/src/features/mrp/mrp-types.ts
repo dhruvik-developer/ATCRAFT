@@ -10,9 +10,10 @@
  * `horizon_days`, `lead_time_days`) are genuine integers and are the only
  * numbers here.
  *
- * The API sends a warehouse route only for `TRANSFER`; the other suggestions
- * remain item-level across the run's warehouse scope. It does not send an item
- * name or unit of measure, and the run list row is narrower than the run detail.
+ * The API sends warehouse and demand routes for `TRANSFER` and `REALLOCATION`;
+ * supply suggestions remain item-level across the run's warehouse scope. It does
+ * not send an item name or unit of measure, and the run list row is narrower
+ * than the run detail.
  */
 
 import type { DecimalString, SchemaOf } from '@/types/api'
@@ -31,7 +32,13 @@ export type MrpRunStatus = (typeof MRP_RUN_STATUSES)[number]
 export const MRP_RUN_MODES = ['SYNC', 'ASYNC'] as const
 export type MrpRunMode = (typeof MRP_RUN_MODES)[number]
 
-export const SUGGESTION_TYPES = ['MANUFACTURE', 'PURCHASE', 'JOB_WORK', 'TRANSFER'] as const
+export const SUGGESTION_TYPES = [
+  'MANUFACTURE',
+  'PURCHASE',
+  'JOB_WORK',
+  'TRANSFER',
+  'REALLOCATION',
+] as const
 export type SuggestionType = (typeof SUGGESTION_TYPES)[number]
 
 export const SUGGESTION_STATUSES = ['OPEN', 'CONVERTED', 'IGNORED'] as const
@@ -55,6 +62,7 @@ export const SUGGESTION_TYPE_VARIANT: Record<
   MANUFACTURE: 'secondary',
   JOB_WORK: 'outline',
   TRANSFER: 'muted',
+  REALLOCATION: 'muted',
 }
 
 /** What converting a suggestion of each type actually creates downstream. */
@@ -63,6 +71,7 @@ export const CONVERSION_TARGET: Record<SuggestionType, string> = {
   MANUFACTURE: 'production orders',
   JOB_WORK: 'job work orders',
   TRANSFER: 'stock transfers',
+  REALLOCATION: 'reallocation requests',
 }
 
 /**
@@ -262,6 +271,15 @@ export interface MrpSuggestionRow {
   expected_available_date: string
   from_warehouse_id: string | null
   to_warehouse_id: string | null
+  from_reservation_id: string | null
+  from_demand_type: string | null
+  from_demand_id: string | null
+  from_demand_code: string | null
+  to_demand_type: string | null
+  to_demand_id: string | null
+  to_demand_line_id: string | null
+  to_demand_code: string | null
+  to_demand_priority: number | null
 
   status: SuggestionStatus
   converted_to_type: string | null

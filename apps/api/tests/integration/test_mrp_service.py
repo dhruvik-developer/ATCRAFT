@@ -37,6 +37,13 @@ from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
+from src.modules.allocation import service as allocation_service
+from src.modules.allocation.models import (
+    DemandType,
+    ReallocationRequest,
+    ReallocationStatus,
+    ReservationType,
+)
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.customers.models import Customer, CustomerType
@@ -1322,6 +1329,78 @@ async def test_a_transfer_suggestion_creates_a_draft_transfer_from_its_route(ctx
     ).scalar_one()
     assert line.item_id == ctx.screw.id
     assert line.quantity == D("25")
+
+
+@pytest.mark.asyncio
+async def test_a_reallocation_suggestion_converts_to_a_pending_allocation_request(
+    ctx: Ctx,
+) -> None:
+    order = await add_sales_order(ctx, code="SO/RECIPIENT", lines=[(ctx.screw, "10")])
+    recipient_line = (
+        await ctx.session.execute(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+        )
+    ).scalar_one()
+    balance = await add_stock(ctx, ctx.screw, ctx.main_warehouse, on_hand="10")
+    donor = await allocation_service.reserve(
+        ctx.session,
+        ctx.tenant,
+        item_id=ctx.screw.id,
+        warehouse_id=ctx.main_warehouse.id,
+        quantity=D("5"),
+        demand_type=DemandType.SALES_ORDER,
+        demand_id=uuid.uuid4(),
+        demand_code="SO/DONOR",
+        reservation_type=ReservationType.HARD,
+        priority=100,
+        required_date=today() + timedelta(days=30),
+        reason="MRP reallocation integration fixture",
+    )
+
+    run = await run_plan(ctx)
+    requirement = await requirement_for(ctx, run.id, ctx.screw)
+    assert requirement is not None
+    assert requirement.net_requirement == D("5.0000")
+    assert requirement.planned_reallocation_quantity == D("5.0000")
+    assert requirement.shortage_quantity == D("0.0000")
+    suggestion = (
+        await ctx.session.execute(
+            select(MrpSuggestion).where(
+                MrpSuggestion.run_id == run.id,
+                MrpSuggestion.item_id == ctx.screw.id,
+                MrpSuggestion.suggestion_type == MrpSuggestionType.REALLOCATION,
+            )
+        )
+    ).scalar_one()
+    assert suggestion.from_reservation_id == donor.id
+    assert suggestion.to_demand_id == order.id
+    assert suggestion.to_demand_line_id == recipient_line.id
+    assert suggestion.to_demand_priority == order.priority
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+
+    assert result.handled is True
+    assert result.created_document_type == "reallocation_request"
+    request = (
+        await ctx.session.execute(
+            select(ReallocationRequest).where(ReallocationRequest.id == result.created_document_id)
+        )
+    ).scalar_one()
+    assert request.status is ReallocationStatus.PENDING
+    assert request.from_reservation_id == donor.id
+    assert request.to_demand_type is DemandType.SALES_ORDER
+    assert request.to_demand_id == order.id
+    assert request.quantity == D("5.0000")
+    assert request.impact_summary["requester"]["demand_line_id"] == str(recipient_line.id)
+
+    await ctx.session.refresh(donor)
+    assert donor.remaining_quantity == D("5.0000")
+    assert donor.status.value == "ACTIVE"
+    await ctx.session.refresh(balance)
+    assert balance.on_hand_quantity == D("10.0000")
+    assert balance.reserved_quantity == D("5.0000")
 
 
 @pytest.mark.asyncio

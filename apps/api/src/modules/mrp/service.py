@@ -224,6 +224,10 @@ CONVERSION_HOOKS: dict[ConversionTarget, tuple[str, str]] = {
         "src.modules.inventory.service",
         "create_transfer_from_mrp",
     ),
+    ConversionTarget.REALLOCATION_REQUEST: (
+        "src.modules.allocation.service",
+        "create_reallocation_from_mrp",
+    ),
 }
 
 
@@ -712,6 +716,7 @@ def _requirement_rows(
             # - which is also what the row's CHECK constraint asserts.
             first_late_supply_date=requirement.first_late_supply_date,
             net_requirement=requirement.net_requirement,
+            planned_reallocation_quantity=requirement.planned_reallocation_quantity,
             shortage_quantity=requirement.shortage_quantity,
             earliest_required_date=requirement.earliest_required_date,
             expected_available_date=requirement.expected_available_date,
@@ -746,6 +751,15 @@ def _suggestion_rows(
             expected_available_date=suggestion.expected_available_date,
             from_warehouse_id=suggestion.from_warehouse_id,
             to_warehouse_id=suggestion.to_warehouse_id,
+            from_reservation_id=suggestion.from_reservation_id,
+            from_demand_type=suggestion.from_demand_type,
+            from_demand_id=suggestion.from_demand_id,
+            from_demand_code=suggestion.from_demand_code,
+            to_demand_type=suggestion.to_demand_type,
+            to_demand_id=suggestion.to_demand_id,
+            to_demand_line_id=suggestion.to_demand_line_id,
+            to_demand_code=suggestion.to_demand_code,
+            to_demand_priority=suggestion.to_demand_priority,
             source_demands=list(suggestion.source_demands) or None,
             status=MrpSuggestionStatus.OPEN,
         )
@@ -811,12 +825,57 @@ async def execute_run(
     async with transaction(session):
         demand = await _snapshot_demand(session, tenant, run.id)
         source = DatabaseMrpSource(session, tenant, warehouse_ids=run.warehouse_ids)
+
+        async def reallocation_provider(
+            targets: Sequence[engine.ReallocationTarget],
+        ) -> Sequence[engine.ReallocationRoute]:
+            from src.modules.allocation.models import DemandType
+            from src.modules.allocation.service import (
+                ReallocationBatchTarget,
+                suggest_reallocations_batch,
+            )
+
+            targets_by_line = {
+                (target.demand_id, target.demand_line_id): target for target in targets
+            }
+            ranked = await suggest_reallocations_batch(
+                session,
+                tenant,
+                [
+                    ReallocationBatchTarget(
+                        item_id=target.item_id,
+                        warehouse_id=target.warehouse_id,
+                        demand_type=DemandType.SALES_ORDER,
+                        demand_id=target.demand_id,
+                        demand_line_id=target.demand_line_id,
+                        demand_code=target.demand_code,
+                        quantity=target.quantity,
+                        priority=target.priority,
+                        required_date=target.required_date,
+                    )
+                    for target in targets
+                ],
+                as_of=as_of,
+            )
+            return [
+                engine.ReallocationRoute(
+                    target=targets_by_line[(result.target.demand_id, result.target.demand_line_id)],
+                    reservation_id=result.candidate.reservation_id,
+                    donor_demand_type=result.candidate.demand_type.value,
+                    donor_demand_id=result.candidate.demand_id,
+                    donor_demand_code=result.candidate.demand_code,
+                    quantity=result.candidate.takeable_quantity,
+                )
+                for result in ranked
+            ]
+
         plan = await engine.plan(
             source,
             demands=demand,
             as_of=as_of,
             horizon_end=horizon_end,
             respect_safety_stock=respect_safety_stock,
+            reallocation_provider=reallocation_provider,
         )
 
     async with transaction(session):
@@ -1084,10 +1143,12 @@ def _conversion_target(
         )
     if (suggestion_type is MrpSuggestionType.TRANSFER) != (
         target is ConversionTarget.STOCK_TRANSFER
+    ) or (suggestion_type is MrpSuggestionType.REALLOCATION) != (
+        target is ConversionTarget.REALLOCATION_REQUEST
     ):
         raise BusinessRuleError(
-            "A transfer suggestion must create a stock transfer, and only a transfer "
-            "suggestion can create one.",
+            "Transfer and reallocation suggestions must use their matching document "
+            "types, and no other suggestion can create those documents.",
             details={"suggestion_type": suggestion_type.value, "target": target.value},
         )
     if suggestion_type is MrpSuggestionType.TRANSFER and (
@@ -1096,6 +1157,24 @@ def _conversion_target(
         raise BusinessRuleError(
             "This transfer suggestion has no source and destination warehouse; "
             "create the transfer manually.",
+            details={"suggestion_id": str(suggestion.id)},
+        )
+    if suggestion_type is MrpSuggestionType.REALLOCATION and any(
+        value is None
+        for value in (
+            suggestion.from_reservation_id,
+            suggestion.from_demand_type,
+            suggestion.from_demand_id,
+            suggestion.to_demand_type,
+            suggestion.to_demand_id,
+            suggestion.to_demand_line_id,
+            suggestion.to_demand_priority,
+            suggestion.from_warehouse_id,
+        )
+    ):
+        raise BusinessRuleError(
+            "This reallocation suggestion is missing its donor or sales-order target; "
+            "create the reallocation manually.",
             details={"suggestion_id": str(suggestion.id)},
         )
     return target
@@ -1124,6 +1203,15 @@ def _conversion_request(
         warehouse_id=payload.warehouse_id,
         from_warehouse_id=suggestion.from_warehouse_id,
         to_warehouse_id=suggestion.to_warehouse_id,
+        from_reservation_id=suggestion.from_reservation_id,
+        from_demand_type=suggestion.from_demand_type,
+        from_demand_id=suggestion.from_demand_id,
+        from_demand_code=suggestion.from_demand_code,
+        to_demand_type=suggestion.to_demand_type,
+        to_demand_id=suggestion.to_demand_id,
+        to_demand_line_id=suggestion.to_demand_line_id,
+        to_demand_code=suggestion.to_demand_code,
+        to_demand_priority=suggestion.to_demand_priority,
         notes=payload.notes,
     )
 
