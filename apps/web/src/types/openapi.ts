@@ -4119,9 +4119,9 @@ export interface paths {
         };
         /**
          * Items short against a plan
-         * @description The netted requirement for every short item, with the figures it was netted against - gross demand, free stock, what is already on order and what is already in production - so a number can be reviewed rather than just believed. Omit `run_id` to report against the latest completed run.
+         * @description The netted requirement for every short item, with the figures it was netted against - gross demand, free stock, what is already on order and what is in production, assembly or job work - so a number can be reviewed rather than just believed. Omit `run_id` to report against the latest completed run.
          *
-         *     It also carries the supply the plan deliberately did *not* net, each quantity with its own arrival date: `late_incoming_quantity` lands on `first_late_incoming_date`, `late_in_production_quantity` on `first_late_in_production_date`. `first_late_supply_date` is the earlier of the two - the soonest anything lands - and is not the date for either quantity on its own. A shortage with an open order behind it that arrives too late is the row a planner has to act on differently - expedite the order rather than raise another - and these fields are what let a table say so per row instead of leaving it in the run's warning text.
+         *     It also carries the supply the plan deliberately did *not* net, each quantity with its own arrival date: `late_incoming_quantity` lands on `first_late_incoming_date`, `late_in_production_quantity` on `first_late_in_production_date`, and `late_in_assembly_quantity` on `first_late_in_assembly_date`. `first_late_supply_date` is the earliest across all feeds - the soonest anything lands - and is not the date for either quantity on its own. A shortage with an open order behind it that arrives too late is the row a planner has to act on differently - expedite the order rather than raise another - and these fields are what let a table say so per row instead of leaving it in the run's warning text.
          */
         get: operations["get_shortage_report_api_v1_mrp_shortage_report_get"];
         put?: never;
@@ -16851,6 +16851,8 @@ export interface components {
          *     what MRP asks for is fixed here rather than being re-derived by each consumer.
          */
         ConversionRequest: {
+            /** Bom Id */
+            bom_id?: string | null;
             /** Expected Return Date */
             expected_return_date?: string | null;
             /** From Demand Code */
@@ -16953,7 +16955,7 @@ export interface components {
          *     recorded in the audit entry.
          * @enum {string}
          */
-        ConversionTarget: "PURCHASE_REQUISITION" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER" | "STOCK_TRANSFER" | "REALLOCATION_REQUEST";
+        ConversionTarget: "PURCHASE_REQUISITION" | "PRODUCTION_ORDER" | "ASSEMBLY_ORDER" | "JOB_WORK_ORDER" | "STOCK_TRANSFER" | "REALLOCATION_REQUEST";
         /**
          * CostCentreCreate
          * @description Payload for opening a cost centre.
@@ -24018,7 +24020,7 @@ export interface components {
          *     date understates how late the bulk is, which reads as "nearly here". So
          *     ``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is
          *     complete by ``last_late_incoming_date``, with the same pairing for
-         *     production and job-work supply. Render the interval - "the first of 5010 on
+         *     production, assembly and job-work supply. Render the interval - "the first of 5010 on
          *     2026-07-30, all of it by 2026-12-15" - never the quantity against one end
          *     of it. The feeds are independent schedules and pairing a quantity with
          *     another feed's dates is a false statement. The
@@ -24033,6 +24035,8 @@ export interface components {
          *     the misreading above, written down.
          */
         MrpRequirementRead: {
+            /** Assembly Quantity */
+            assembly_quantity: string;
             /** Available Quantity */
             available_quantity: string;
             /** @description Legacy incomplete plans remain readable; conversion refuses them. */
@@ -24048,6 +24052,8 @@ export interface components {
             earliest_required_date: string;
             /** Expected Available Date */
             expected_available_date?: string | null;
+            /** First Late In Assembly Date */
+            first_late_in_assembly_date?: string | null;
             /** First Late In Production Date */
             first_late_in_production_date?: string | null;
             /** First Late Incoming Date */
@@ -24076,12 +24082,19 @@ export interface components {
             item_id: string;
             /** Job Work Quantity */
             job_work_quantity: string;
+            /** Last Late In Assembly Date */
+            last_late_in_assembly_date?: string | null;
             /** Last Late In Production Date */
             last_late_in_production_date?: string | null;
             /** Last Late Incoming Date */
             last_late_incoming_date?: string | null;
             /** Last Late Job Work Date */
             last_late_job_work_date?: string | null;
+            /**
+             * Late In Assembly Quantity
+             * @default 0
+             */
+            late_in_assembly_quantity: string;
             /**
              * Late In Production Quantity
              * @default 0
@@ -24328,6 +24341,8 @@ export interface components {
         MrpSuggestionRead: {
             /** Available Quantity */
             available_quantity: string;
+            /** Bom Id */
+            bom_id?: string | null;
             /** Converted At */
             converted_at?: string | null;
             /** Converted To Id */

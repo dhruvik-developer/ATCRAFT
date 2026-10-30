@@ -85,6 +85,7 @@ class ConversionTarget(StrEnum):
 
     PURCHASE_REQUISITION = "PURCHASE_REQUISITION"
     PRODUCTION_ORDER = "PRODUCTION_ORDER"
+    ASSEMBLY_ORDER = "ASSEMBLY_ORDER"
     JOB_WORK_ORDER = "JOB_WORK_ORDER"
     STOCK_TRANSFER = "STOCK_TRANSFER"
     REALLOCATION_REQUEST = "REALLOCATION_REQUEST"
@@ -340,7 +341,7 @@ class MrpRequirementRead(_MrpDemandProvenanceRead):
     date understates how late the bulk is, which reads as "nearly here". So
     ``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is
     complete by ``last_late_incoming_date``, with the same pairing for
-    production and job-work supply. Render the interval - "the first of 5010 on
+    production, assembly and job-work supply. Render the interval - "the first of 5010 on
     2026-07-30, all of it by 2026-12-15" - never the quantity against one end
     of it. The feeds are independent schedules and pairing a quantity with
     another feed's dates is a false statement. The
@@ -376,6 +377,7 @@ class MrpRequirementRead(_MrpDemandProvenanceRead):
     available_quantity: Decimal
     incoming_quantity: Decimal
     in_production_quantity: Decimal
+    assembly_quantity: Decimal
     job_work_quantity: Decimal
 
     #: Supply inside the horizon that arrives after this requirement needs it
@@ -383,19 +385,22 @@ class MrpRequirementRead(_MrpDemandProvenanceRead):
     #: consumer constructing one by hand keeps working.
     late_incoming_quantity: Decimal = Decimal("0")
     late_in_production_quantity: Decimal = Decimal("0")
+    late_in_assembly_quantity: Decimal = Decimal("0")
     late_job_work_quantity: Decimal = Decimal("0")
-    #: When each of those two starts landing - one date per feed, beside the
+    #: When each late feed starts landing - one date per feed, beside the
     #: quantity it belongs to. ``None`` when that feed has nothing late. Render
     #: the pairs: ``late_incoming_quantity`` with ``first_late_incoming_date``,
     #: ``late_in_production_quantity`` with ``first_late_in_production_date``.
     first_late_incoming_date: date | None = None
     first_late_in_production_date: date | None = None
+    first_late_in_assembly_date: date | None = None
     first_late_job_work_date: date | None = None
     #: When each feed's late supply is COMPLETE. Pair each quantity with BOTH of
     #: its dates: the quantity is a sum, so the opening date alone attributes all
     #: of it to the first tranche. ``None`` when that feed has nothing late.
     last_late_incoming_date: date | None = None
     last_late_in_production_date: date | None = None
+    last_late_in_assembly_date: date | None = None
     last_late_job_work_date: date | None = None
     #: The earliest across all feeds, or ``None`` when none is late. The
     #: soonest anything at all lands - a row-level summary, and NOT the date for
@@ -422,6 +427,7 @@ class MrpRequirementRead(_MrpDemandProvenanceRead):
         return to_quantity(
             self.late_incoming_quantity
             + self.late_in_production_quantity
+            + self.late_in_assembly_quantity
             + self.late_job_work_quantity
         )
 
@@ -436,6 +442,7 @@ class MrpSuggestionRead(_MrpDemandProvenanceRead):
     item_id: uuid.UUID
     item_code: str
     suggestion_type: MrpSuggestionType
+    bom_id: uuid.UUID | None = None
 
     required_quantity: Decimal
     suggested_quantity: Decimal
@@ -541,6 +548,7 @@ class ConversionRequest(BaseModel):
     item_id: uuid.UUID
     item_code: str
     quantity: Decimal
+    bom_id: uuid.UUID | None = None
     required_date: date
     suggested_order_date: date
     warehouse_ids: list[uuid.UUID] = Field(default_factory=list)

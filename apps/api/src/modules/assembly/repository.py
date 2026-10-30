@@ -30,7 +30,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, delete, func, or_, select
+from sqlalchemy import Date, Select, and_, cast, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -82,6 +82,7 @@ class AssemblyItem:
     is_serial_tracked: bool
     can_be_assembly_component: bool
     is_active: bool
+    default_warehouse_id: uuid.UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +113,7 @@ class ItemLookupRepository(BaseRepository[Item]):
             Item.is_serial_tracked,
             Item.can_be_assembly_component,
             Item.is_active,
+            Item.default_warehouse_id,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.deleted_at.is_(None),
@@ -126,6 +128,7 @@ class ItemLookupRepository(BaseRepository[Item]):
                 is_serial_tracked=row.is_serial_tracked,
                 can_be_assembly_component=row.can_be_assembly_component,
                 is_active=row.is_active,
+                default_warehouse_id=row.default_warehouse_id,
             )
             for row in rows
         }
@@ -324,6 +327,66 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
         """
         stmt = self._scoped().where(AssemblyOrder.id == order_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def open_output_by_item(
+        self,
+        item_ids: Sequence[uuid.UUID],
+        *,
+        warehouse_ids: Sequence[uuid.UUID] | None,
+        upto: date,
+    ) -> dict[uuid.UUID, list[tuple[date, Decimal]]]:
+        """Return open, dated assembly output for MRP in one grouped query.
+
+        QC_PENDING is excluded: its produced output is already on QC hold, and
+        any remainder on the order is not reliable supply. Undated orders are
+        omitted rather than assigned an invented arrival date.
+        """
+        if not item_ids:
+            return {}
+
+        due_date = cast(func.timezone("UTC", AssemblyOrder.planned_end), Date)
+        remaining = func.greatest(
+            AssemblyOrder.planned_quantity
+            - AssemblyOrder.assembled_quantity
+            - AssemblyOrder.rejected_quantity,
+            0,
+        )
+        stmt = (
+            select(
+                AssemblyOrder.item_id.label("item_id"),
+                due_date.label("due_date"),
+                func.sum(remaining).label("remaining"),
+            )
+            .where(
+                AssemblyOrder.company_id == self.tenant.company_id,
+                AssemblyOrder.item_id.in_(list(dict.fromkeys(item_ids))),
+                AssemblyOrder.status.in_(
+                    (
+                        AssemblyOrderStatus.APPROVED,
+                        AssemblyOrderStatus.RELEASED,
+                        AssemblyOrderStatus.COMPONENTS_ISSUED,
+                        AssemblyOrderStatus.IN_PROGRESS,
+                    )
+                ),
+                AssemblyOrder.planned_end.is_not(None),
+                due_date <= upto,
+                remaining > 0,
+            )
+            .group_by(AssemblyOrder.item_id, due_date)
+            .order_by(AssemblyOrder.item_id, due_date)
+        )
+        if warehouse_ids:
+            stmt = stmt.where(
+                AssemblyOrder.output_warehouse_id.in_(list(dict.fromkeys(warehouse_ids)))
+            )
+
+        rows = (await self.session.execute(stmt)).all()
+        schedule: dict[uuid.UUID, list[tuple[date, Decimal]]] = {}
+        for row in rows:
+            quantity = Decimal(str(row.remaining))
+            if quantity > 0:
+                schedule.setdefault(row.item_id, []).append((row.due_date, quantity))
+        return schedule
 
     def _filtered(self, filters: AssemblyOrderFilters) -> Select[Any]:
         stmt = self._scoped()

@@ -154,6 +154,7 @@ def mrp_late_constraints(dsn: str) -> dict[str, tuple[str, bool]]:
         str(name): (str(definition), bool(valid))
         for name, definition, valid in rows
         if str(name).startswith("ck_mrp_requirements_late")
+        or name == "ck_mrp_requirements_assembly_non_negative"
         or name == "ck_mrp_requirements_job_work_non_negative"
         or name == "ck_mrp_requirements_first_late_supply_is_the_earlier"
     }
@@ -172,7 +173,12 @@ MRP_LATE_COLUMNS = (
     ("first_late_job_work_date", "date"),
     ("last_late_job_work_date", "date"),
     ("job_work_quantity", "numeric"),
+    ("late_in_assembly_quantity", "numeric"),
+    ("first_late_in_assembly_date", "date"),
+    ("last_late_in_assembly_date", "date"),
+    ("assembly_quantity", "numeric"),
 )
+ASSEMBLY_DEFAULTS = (0, None, None, 0)
 
 
 def admits_mrp_row(
@@ -185,6 +191,8 @@ def admits_mrp_row(
     The constraints are read back from ``pg_constraint`` and evaluated by the
     database, so this cannot pass merely because a test restated the rule.
     """
+    if len(row) == len(MRP_LATE_COLUMNS) - len(ASSEMBLY_DEFAULTS):
+        row = (*row, *ASSEMBLY_DEFAULTS)
     names = ", ".join(name for name, _ in MRP_LATE_COLUMNS)
     placeholders = ", ".join(f"%s::{kind}" for _, kind in MRP_LATE_COLUMNS)
     with psycopg.connect(dsn) as connection:
@@ -369,11 +377,15 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     }
     mrp_checks = mrp_late_constraints(dsn)
     assert set(mrp_checks) == {
+        "ck_mrp_requirements_assembly_non_negative",
         "ck_mrp_requirements_first_late_supply_is_the_earlier",
         "ck_mrp_requirements_job_work_non_negative",
+        "ck_mrp_requirements_late_assembly_interval_ordered",
         "ck_mrp_requirements_late_incoming_arrives_after_required",
         "ck_mrp_requirements_late_incoming_interval_ordered",
         "ck_mrp_requirements_late_incoming_non_negative",
+        "ck_mrp_requirements_late_in_assembly_arrives_after_required",
+        "ck_mrp_requirements_late_in_assembly_non_negative",
         "ck_mrp_requirements_late_job_work_arrives_after_required",
         "ck_mrp_requirements_late_job_work_interval_ordered",
         "ck_mrp_requirements_late_job_work_non_negative",
@@ -389,17 +401,22 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     )
     assert "late_incoming_quantity>=0::numeric" in normalized_mrp
     assert "late_in_production_quantity>=0::numeric" in normalized_mrp
+    assert "assembly_quantity>=0::numeric" in normalized_mrp
+    assert "late_in_assembly_quantity>=0::numeric" in normalized_mrp
     assert "job_work_quantity>=0::numeric" in normalized_mrp
     assert "late_job_work_quantity>=0::numeric" in normalized_mrp
     assert "last_late_incoming_date>=first_late_incoming_date" in normalized_mrp
     assert "last_late_in_production_date>=first_late_in_production_date" in normalized_mrp
+    assert "last_late_in_assembly_date>=first_late_in_assembly_date" in normalized_mrp
     assert (
         "first_late_supply_date=leastfirst_late_incoming_date,"
-        "first_late_in_production_date,first_late_job_work_date"
+        "first_late_in_production_date,first_late_in_assembly_date,"
+        "first_late_job_work_date"
     ) in normalized_mrp
     assert "first_late_supply_date>earliest_required_date" in normalized_mrp
     assert "first_late_incoming_date>earliest_required_date" in normalized_mrp
     assert "first_late_in_production_date>earliest_required_date" in normalized_mrp
+    assert "first_late_in_assembly_date>earliest_required_date" in normalized_mrp
     assert "first_late_job_work_date>earliest_required_date" in normalized_mrp
     assert "first_late_supply_dateisnotnull" in normalized_mrp
 
@@ -512,12 +529,49 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
             opened - timedelta(days=1),
             0,
         ),
+        "assembly interval": (
+            0,
+            0,
+            None,
+            None,
+            None,
+            None,
+            opened,
+            needed,
+            0,
+            None,
+            None,
+            0,
+            5,
+            opened,
+            closed,
+            0,
+        ),
+        "assembly interval reversed": (
+            0,
+            0,
+            None,
+            None,
+            None,
+            None,
+            opened,
+            needed,
+            0,
+            None,
+            None,
+            0,
+            5,
+            opened,
+            opened - timedelta(days=1),
+            0,
+        ),
     }
     assert admits_mrp_row(dsn, mrp_checks, rows["nothing late"])
     assert admits_mrp_row(dsn, mrp_checks, rows["summary only"])
     assert admits_mrp_row(dsn, mrp_checks, rows["one interval"])
     assert admits_mrp_row(dsn, mrp_checks, rows["two intervals"])
     assert admits_mrp_row(dsn, mrp_checks, rows["three intervals"])
+    assert admits_mrp_row(dsn, mrp_checks, rows["assembly interval"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["closing before opening"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["closing without opening"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["quantity without date"])
@@ -526,6 +580,7 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     assert not admits_mrp_row(dsn, mrp_checks, rows["date on required day"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["production interval reversed"])
     assert not admits_mrp_row(dsn, mrp_checks, rows["job-work interval reversed"])
+    assert not admits_mrp_row(dsn, mrp_checks, rows["assembly interval reversed"])
 
     assert column_names(dsn, "shifts") == {column.name for column in Shift.__table__.columns}
     assert column_names(dsn, "shift_assignments") == {

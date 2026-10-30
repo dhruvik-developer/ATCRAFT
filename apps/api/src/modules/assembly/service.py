@@ -95,7 +95,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
-from src.core.clock import utcnow
+from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -2721,6 +2721,83 @@ async def mark_packed(
     return order
 
 
+async def open_assembly_output(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item_ids: Sequence[uuid.UUID],
+    warehouse_ids: Sequence[uuid.UUID] | None = None,
+    upto: date,
+) -> dict[uuid.UUID, list[tuple[date, Decimal]]]:
+    """Return open, dated assembly output for MRP's time-phased supply feed."""
+    return await AssemblyOrderRepository(session, tenant).open_output_by_item(
+        item_ids,
+        warehouse_ids=warehouse_ids,
+        upto=upto,
+    )
+
+
+async def create_order_from_mrp(
+    session: AsyncSession, tenant: TenantContext, request: Any
+) -> tuple[uuid.UUID, str]:
+    """Create a DRAFT assembly order from a manufacture suggestion.
+
+    MRP passes the BOM id captured by its run, so a later BOM revision cannot
+    silently change the work this suggestion creates.
+    """
+    if request.bom_id is None:
+        raise BusinessRuleError(
+            "This MRP suggestion has no ASSEMBLY BOM snapshot; create the order manually."
+        )
+
+    item = (await ItemLookupRepository(session, tenant).load([request.item_id])).get(
+        request.item_id
+    )
+    if item is None:
+        raise NotFoundError("Item", request.item_id)
+
+    scope = list(request.warehouse_ids)
+    warehouse_id = request.warehouse_id
+    if warehouse_id is None:
+        if item.default_warehouse_id is not None and (
+            not scope or item.default_warehouse_id in scope
+        ):
+            warehouse_id = item.default_warehouse_id
+        elif scope:
+            warehouse_id = scope[0]
+        else:
+            raise BusinessRuleError(
+                f"Item {item.code} has no default warehouse; name a warehouse for "
+                "the assembly order.",
+                details={"item_id": str(request.item_id)},
+            )
+    if scope and warehouse_id not in scope:
+        raise BusinessRuleError(
+            "The assembly warehouse must be inside the MRP run's warehouse scope.",
+            details={"warehouse_id": str(warehouse_id)},
+        )
+
+    start_date = max(today(), request.suggested_order_date)
+    end_date = max(start_date, request.required_date)
+    order, _ = await create_order(
+        session,
+        tenant,
+        AssemblyOrderCreate(
+            item_id=request.item_id,
+            bom_id=request.bom_id,
+            planned_quantity=request.quantity,
+            warehouse_id=warehouse_id,
+            output_warehouse_id=warehouse_id,
+            planned_start=datetime.combine(start_date, datetime.min.time(), tzinfo=UTC),
+            planned_end=datetime.combine(end_date, datetime.min.time(), tzinfo=UTC),
+            source_type=AssemblySourceType.MRP_SUGGESTION,
+            source_id=request.suggestion_id,
+            notes=request.notes,
+        ),
+    )
+    return order.id, order.code
+
+
 __all__ = [
     "ASSEMBLABLE_BOM_TYPES",
     "ASSEMBLY_ORDER_LIFECYCLE",
@@ -2750,6 +2827,7 @@ __all__ = [
     "component_shortages",
     "consumption_for",
     "create_order",
+    "create_order_from_mrp",
     "delete_draft_order",
     "get_order_detail",
     "is_whole_units",
@@ -2760,6 +2838,7 @@ __all__ = [
     "list_ready_for_packing",
     "lock_for_quality_verdict",
     "mark_packed",
+    "open_assembly_output",
     "order_detail",
     "packing_handover_facts",
     "plan_consumption",

@@ -44,6 +44,7 @@ from src.modules.allocation.models import (
     ReallocationStatus,
     ReservationType,
 )
+from src.modules.assembly.models import AssemblyOrder, AssemblyOrderStatus, AssemblySourceType
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.customers.models import Customer, CustomerType
@@ -1149,6 +1150,62 @@ async def test_a_buy_suggestion_becomes_a_draft_requisition(ctx: Ctx) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mrp_nets_dated_open_assembly_output_but_not_qc_or_undated_orders(
+    ctx: Ctx,
+) -> None:
+    bom = (await ctx.session.scalars(select(Bom).where(Bom.item_id == ctx.kit.id))).one()
+    due = utcnow() + timedelta(days=10)
+    ctx.session.add_all(
+        [
+            AssemblyOrder(
+                company_id=ctx.tenant.company_id,
+                code="ASM-MRP-DATED",
+                item_id=ctx.kit.id,
+                bom_id=bom.id,
+                planned_quantity=D("4"),
+                warehouse_id=ctx.main_warehouse.id,
+                output_warehouse_id=ctx.main_warehouse.id,
+                planned_end=due,
+                status=AssemblyOrderStatus.IN_PROGRESS,
+                source_type=AssemblySourceType.MANUAL,
+            ),
+            AssemblyOrder(
+                company_id=ctx.tenant.company_id,
+                code="ASM-MRP-QC",
+                item_id=ctx.kit.id,
+                bom_id=bom.id,
+                planned_quantity=D("20"),
+                warehouse_id=ctx.main_warehouse.id,
+                output_warehouse_id=ctx.main_warehouse.id,
+                planned_end=due,
+                status=AssemblyOrderStatus.QC_PENDING,
+                source_type=AssemblySourceType.MANUAL,
+            ),
+            AssemblyOrder(
+                company_id=ctx.tenant.company_id,
+                code="ASM-MRP-UNDATED",
+                item_id=ctx.kit.id,
+                bom_id=bom.id,
+                planned_quantity=D("30"),
+                warehouse_id=ctx.main_warehouse.id,
+                output_warehouse_id=ctx.main_warehouse.id,
+                status=AssemblyOrderStatus.IN_PROGRESS,
+                source_type=AssemblySourceType.MANUAL,
+            ),
+        ]
+    )
+    await ctx.session.flush()
+    await add_sales_order(ctx, code="SO/ASSEMBLY-SUPPLY", lines=[(ctx.kit, "10")])
+
+    run = await run_plan(ctx, warehouse_ids=[ctx.main_warehouse.id])
+
+    requirement = await requirement_for(ctx, run.id, ctx.kit)
+    assert requirement is not None
+    assert requirement.assembly_quantity == D("4.0000")
+    assert requirement.shortage_quantity == D("6.0000")
+
+
+@pytest.mark.asyncio
 async def test_a_deployed_module_is_wired_through_the_same_seam(
     ctx: Ctx, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1238,6 +1295,45 @@ async def test_a_manufacture_suggestion_is_received_into_the_run_s_warehouse(ctx
     assert order.planned_quantity == suggestion.suggested_quantity
     assert order.source_type == ProductionSourceType.MRP_SUGGESTION
     assert order.source_id == suggestion.id
+
+
+@pytest.mark.asyncio
+async def test_an_assembly_bom_manufacture_suggestion_creates_a_draft_assembly_order(
+    ctx: Ctx,
+) -> None:
+    bom = (await ctx.session.scalars(select(Bom).where(Bom.item_id == ctx.kit.id))).one()
+    bom.bom_type = BomType.ASSEMBLY
+    ctx.handle.can_be_assembly_component = True
+    ctx.screw.can_be_assembly_component = True
+    await ctx.session.flush()
+    await add_sales_order(
+        ctx, code="SO/ASSEMBLY", lines=[(ctx.kit, "10")], warehouse=ctx.spare_warehouse
+    )
+
+    run = await run_plan(ctx, warehouse_ids=[ctx.spare_warehouse.id])
+    suggestion = await suggestion_for(ctx, run.id, ctx.kit)
+    assert suggestion is not None
+    assert suggestion.suggestion_type is MrpSuggestionType.MANUFACTURE
+    assert suggestion.bom_id == bom.id
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+
+    assert result.handled is True
+    assert result.request.target is ConversionTarget.ASSEMBLY_ORDER
+    assert result.created_document_type == "assembly_order"
+    order = (
+        await ctx.session.scalars(
+            select(AssemblyOrder).where(AssemblyOrder.id == result.created_document_id)
+        )
+    ).one()
+    assert order.status == AssemblyOrderStatus.DRAFT
+    assert order.source_type == AssemblySourceType.MRP_SUGGESTION
+    assert order.source_id == suggestion.id
+    assert order.bom_id == bom.id
+    assert order.warehouse_id == ctx.spare_warehouse.id
+    assert order.planned_quantity == suggestion.suggested_quantity
 
 
 @pytest.mark.asyncio

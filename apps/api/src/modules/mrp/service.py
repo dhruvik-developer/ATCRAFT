@@ -220,6 +220,10 @@ CONVERSION_HOOKS: dict[ConversionTarget, tuple[str, str]] = {
         "src.modules.job_work.service",
         "create_order_from_mrp",
     ),
+    ConversionTarget.ASSEMBLY_ORDER: (
+        "src.modules.assembly.service",
+        "create_order_from_mrp",
+    ),
     ConversionTarget.STOCK_TRANSFER: (
         "src.modules.inventory.service",
         "create_transfer_from_mrp",
@@ -697,12 +701,15 @@ def _requirement_rows(
             available_quantity=requirement.available_quantity,
             incoming_quantity=requirement.incoming_quantity,
             in_production_quantity=requirement.in_production_quantity,
+            assembly_quantity=requirement.assembly_quantity,
             job_work_quantity=requirement.job_work_quantity,
             late_incoming_quantity=requirement.late_incoming_quantity,
             late_in_production_quantity=requirement.late_in_production_quantity,
+            late_in_assembly_quantity=requirement.late_in_assembly_quantity,
             late_job_work_quantity=requirement.late_job_work_quantity,
             first_late_incoming_date=requirement.first_late_incoming_date,
             first_late_in_production_date=requirement.first_late_in_production_date,
+            first_late_in_assembly_date=requirement.first_late_in_assembly_date,
             first_late_job_work_date=requirement.first_late_job_work_date,
             # The closing half of each interval. Persisting the opening date
             # alone republishes the defect the pair exists to fix: the quantity
@@ -710,6 +717,7 @@ def _requirement_rows(
             # attributes the whole amount to the first tranche.
             last_late_incoming_date=requirement.last_late_incoming_date,
             last_late_in_production_date=requirement.last_late_in_production_date,
+            last_late_in_assembly_date=requirement.last_late_in_assembly_date,
             last_late_job_work_date=requirement.last_late_job_work_date,
             # Derived on the engine's requirement from the per-feed dates above, so
             # the persisted summary cannot disagree with the pair it summarises
@@ -761,6 +769,7 @@ def _suggestion_rows(
             to_demand_code=suggestion.to_demand_code,
             to_demand_priority=suggestion.to_demand_priority,
             source_demands=list(suggestion.source_demands) or None,
+            bom_id=suggestion.bom_id,
             status=MrpSuggestionStatus.OPEN,
         )
         for suggestion in plan.suggestions
@@ -1135,7 +1144,15 @@ def _conversion_target(
     suggestion: MrpSuggestion, requested: ConversionTarget | None
 ) -> ConversionTarget:
     suggestion_type = MrpSuggestionType(suggestion.suggestion_type)
-    target = requested or DEFAULT_CONVERSION_TARGET.get(suggestion_type)
+    target = (
+        requested
+        if requested is not None
+        else (
+            ConversionTarget.ASSEMBLY_ORDER
+            if suggestion_type is MrpSuggestionType.MANUFACTURE and suggestion.bom_id is not None
+            else DEFAULT_CONVERSION_TARGET.get(suggestion_type)
+        )
+    )
     if target is None:
         raise BusinessRuleError(
             f"A {suggestion.suggestion_type} suggestion has no default conversion target.",
@@ -1150,6 +1167,24 @@ def _conversion_target(
             "Transfer and reallocation suggestions must use their matching document "
             "types, and no other suggestion can create those documents.",
             details={"suggestion_type": suggestion_type.value, "target": target.value},
+        )
+    if target is ConversionTarget.ASSEMBLY_ORDER and (
+        suggestion_type is not MrpSuggestionType.MANUFACTURE or suggestion.bom_id is None
+    ):
+        raise BusinessRuleError(
+            "Only a manufacture suggestion planned against a default ASSEMBLY BOM can "
+            "create an assembly order.",
+            details={"suggestion_type": suggestion_type.value, "target": target.value},
+        )
+    if (
+        suggestion_type is MrpSuggestionType.MANUFACTURE
+        and suggestion.bom_id is not None
+        and target is ConversionTarget.PRODUCTION_ORDER
+    ):
+        raise BusinessRuleError(
+            "This manufacture suggestion was planned against an ASSEMBLY BOM and must "
+            "create an assembly order or use another target.",
+            details={"suggestion_id": str(suggestion.id), "target": target.value},
         )
     if suggestion_type is MrpSuggestionType.TRANSFER and (
         suggestion.from_warehouse_id is None or suggestion.to_warehouse_id is None
@@ -1193,6 +1228,7 @@ def _conversion_request(
         item_id=suggestion.item_id,
         item_code=suggestion.item_code,
         quantity=to_quantity(payload.quantity or suggestion.suggested_quantity),
+        bom_id=suggestion.bom_id,
         required_date=payload.required_date or suggestion.required_date,
         suggested_order_date=suggestion.suggested_order_date,
         warehouse_ids=list(run.warehouse_ids) if run.warehouse_ids else [],

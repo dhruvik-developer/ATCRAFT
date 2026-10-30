@@ -68,7 +68,7 @@ export const SUGGESTION_TYPE_VARIANT: Record<
 /** What converting a suggestion of each type actually creates downstream. */
 export const CONVERSION_TARGET: Record<SuggestionType, string> = {
   PURCHASE: 'purchase requisitions',
-  MANUFACTURE: 'production orders',
+  MANUFACTURE: 'production or assembly orders',
   JOB_WORK: 'job work orders',
   TRANSFER: 'stock transfers',
   REALLOCATION: 'reallocation requests',
@@ -139,6 +139,7 @@ export interface MrpRunSummaryStats {
   /** False means that netting stage could not run at all - the plan is an upper bound. */
   netted_against_incoming?: boolean | null
   netted_against_production?: boolean | null
+  netted_against_assembly?: boolean | null
   respected_safety_stock?: boolean | null
   suggestions_by_type?: Partial<Record<SuggestionType, number>> | null
   warnings?: string[] | null
@@ -240,6 +241,7 @@ export interface MrpSuggestionRow {
   item_id: string
   item_code: string
   suggestion_type: SuggestionType
+  bom_id: SchemaOf<'MrpSuggestionRead'>['bom_id']
 
   required_quantity: DecimalString
   /** Free stock the run could plan against. */

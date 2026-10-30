@@ -82,6 +82,39 @@ shortage still receives the ordinary PURCHASE/MANUFACTURE planning, and
 excluded cases remain visible in aggregate rather than risking a false donor
 assignment.
 
+## §E3b-4. Assembly orders are dated supply only when their output is usable
+
+**Assumed.** MRP nets remaining output from `APPROVED`, `RELEASED`,
+`COMPONENTS_ISSUED` and `IN_PROGRESS` assembly orders, grouped by the UTC date
+of `planned_end` and restricted to the run's output-warehouse scope. DRAFT
+orders are not committed supply. Orders without a planned end date are omitted
+rather than assigned an invented arrival date. `QC_PENDING` orders are also
+omitted: their produced output is already in QC hold, and any unbuilt remainder
+is not confidently usable supply.
+
+A manufacture suggestion snapshots the effective default ASSEMBLY BOM ID. Its
+conversion creates a DRAFT assembly order against that exact BOM and uses the
+item's default warehouse when it is in scope; otherwise it uses the first
+warehouse in the run's scope. A planner may explicitly select another
+in-scope warehouse. The planned start is no earlier than today, and the planned
+end is no earlier than either that start or the suggestion's required date.
+
+**Why.** Counting held output would hide a shortage that still needs a decision;
+counting an undated order would claim a delivery date the source document does
+not make. Resolving the BOM again at conversion time could also silently turn a
+plan for one approved revision into an order for another.
+
+**Where.** The grouped feed is `assembly.repository.AssemblyOrderRepository
+.open_output_by_item`, called through `assembly.service.open_assembly_output`.
+Conversion uses `assembly.service.create_order_from_mrp`; the persisted MRP
+fields are `mrp_requirements.assembly_quantity` and the per-feed late interval,
+plus `mrp_suggestions.bom_id`. Migration `20261108_0100`.
+
+**Impact if wrong.** Excluding an undated or QC-held order may leave a larger
+shortage in the plan than the plant expects to fulfil; the source order remains
+visible and the plan does not treat an unconfirmed date or held stock as
+available.
+
 ---
 
 ## How to read this
@@ -644,10 +677,10 @@ netting used.
 
 ## §E3b-1. Job-work output is dated supply, never twice-ordered
 
-**Assumed.** MRP nets a third dated supply feed beside purchase orders and
-production: the good output still expected from input already issued to a
-job-work vendor. The quantity for a line is its frozen output ratio applied to
-the input no receipt has accounted for yet -
+**Assumed.** MRP nets the good output still expected from input already issued
+to a job-work vendor as a dated supply feed, alongside purchase orders,
+production output and assembly output. The quantity for a line is its frozen
+output ratio applied to the input no receipt has accounted for yet -
 `expected_output_quantity × max(issued − received, 0) ÷ quantity_to_issue` -
 grouped by the order's expected return date. Input not yet issued is not supply:
 the planner has not sent it out, so it cannot come back processed. Input already
@@ -658,8 +691,8 @@ horizon.
 
 A job-work arrival after the requirement's own date is not netted. It is
 reported in `late_job_work_quantity` with its opening and closing dates, exactly
-like late purchase and production supply; `first_late_supply_date` is the
-earliest of all three feeds, not a date for any one of them.
+like late purchase, production and assembly supply; `first_late_supply_date`
+is the earliest of all four feeds, not a date for any one of them.
 
 **Why.** An order whose material is already at a vendor is work in progress
 owned by the company. Re-suggesting it on the next run raises a duplicate order

@@ -36,6 +36,8 @@ Read each of these in `trace/trace.json`. E3a, E2, E4 and E1b are already on mai
 
 - MANUFACTURE suggestions for items whose default approved BOM is of type ASSEMBLY convert to **assembly orders** (`ConversionTarget.ASSEMBLY_ORDER`, through the E4 creation seam).
 - MRP nets open assembly orders as supply.
+- Persist the effective BOM ID on the suggestion and use that exact approved BOM when converting, so a later revision does not change the planned work.
+- Net assembly output separately from production output. Only dated `APPROVED`, `RELEASED`, `COMPONENTS_ISSUED` and `IN_PROGRESS` orders in the run's output-warehouse scope count; undated and `QC_PENDING` orders do not.
 
 ### 5. Scheduled runs (P06.F5/F6, S01.1)
 

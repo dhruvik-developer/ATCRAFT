@@ -132,6 +132,15 @@ def test_both_supply_sources_are_counted() -> None:
     assert net_after_supply(D("140"), incoming=D("60"), in_production=D("50")) == D("30.0000")
 
 
+def test_assembly_output_is_counted_separately() -> None:
+    assert net_after_supply(
+        D("140"),
+        incoming=D("60"),
+        in_production=D("20"),
+        assembly=D("50"),
+    ) == D("10.0000")
+
+
 def test_supply_beyond_the_requirement_does_not_create_negative_shortage() -> None:
     assert net_after_supply(D("40"), incoming=D("500"), in_production=D("100")) == D("0.0000")
 

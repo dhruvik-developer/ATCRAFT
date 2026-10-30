@@ -20,18 +20,26 @@ plan is meaningless without all five, and going through ``BaseRepository`` keeps
 the tenant and soft-delete predicates automatic rather than something each of
 those queries has to remember.
 
-Modules that do not exist yet
+Cross-module supply contracts
 -----------------------------
-Two netting inputs - confirmed incoming purchase orders and in-progress
-production output - belong to modules that may not be deployed. They are reached
-through a *named service contract* resolved at call time, never by importing
-their tables and guessing at column names:
+Confirmed incoming purchase orders, in-progress production output, open
+assembly output and job-work output are reached through named service contracts
+resolved at call time, never by importing their tables and guessing at column
+names:
 
     src.modules.procurement.service.incoming_quantities(
         session, tenant, *, item_ids, warehouse_ids, upto)
             -> dict[UUID, list[tuple[date, Decimal]]]
 
     src.modules.production.service.in_progress_output(
+        session, tenant, *, item_ids, warehouse_ids, upto)
+            -> dict[UUID, list[tuple[date, Decimal]]]
+
+    src.modules.assembly.service.open_assembly_output(
+        session, tenant, *, item_ids, warehouse_ids, upto)
+            -> dict[UUID, list[tuple[date, Decimal]]]
+
+    src.modules.job_work.service.open_job_work_output(
         session, tenant, *, item_ids, warehouse_ids, upto)
             -> dict[UUID, list[tuple[date, Decimal]]]
 
@@ -474,6 +482,8 @@ class DatabaseMrpSource:
                     for line in lines.get(bom.id, [])
                     if bom_engine.is_explodable(line)
                 ),
+                bom_id=bom.id,
+                bom_type=BomType(bom.bom_type),
             )
             for item_id, bom in boms.items()
         }
@@ -500,6 +510,20 @@ class DatabaseMrpSource:
         return await _optional_supply_hook(
             "src.modules.production.service",
             "in_progress_output",
+            self._session,
+            self._tenant,
+            item_ids=item_ids,
+            warehouse_ids=self._warehouse_ids,
+            upto=upto,
+        )
+
+    async def assembly_supply(
+        self, item_ids: Sequence[uuid.UUID], upto: date
+    ) -> tuple[SupplySchedule, bool]:
+        """Assembly output expected by the due date, through assembly's service."""
+        return await _optional_supply_hook(
+            "src.modules.assembly.service",
+            "open_assembly_output",
             self._session,
             self._tenant,
             item_ids=item_ids,

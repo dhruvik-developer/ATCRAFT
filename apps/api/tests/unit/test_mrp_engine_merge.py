@@ -28,6 +28,7 @@ from typing import Any
 
 import pytest
 
+from src.modules.bom.models import BomType
 from src.modules.mrp import engine
 from src.modules.mrp.engine import (
     BomComponent,
@@ -127,9 +128,11 @@ class FakeSource:
     terms: dict[uuid.UUID, SupplyTerms] = field(default_factory=dict)
     incoming: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
     in_production: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
+    assembly: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
     job_work: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
     incoming_available: bool = True
     production_available: bool = True
+    assembly_available: bool = True
     job_work_available: bool = True
     calls: Counter[str] = field(default_factory=Counter)
     batch_sizes: dict[str, list[int]] = field(default_factory=dict)
@@ -170,6 +173,7 @@ class FakeSource:
                     )
                     for component, per_unit in self.structure[i]
                 ),
+                bom_type=BomType.PRODUCTION,
             )
             for i in ids
             if i in self.structure
@@ -211,6 +215,15 @@ class FakeSource:
         if not self.job_work_available:
             return {}, False
         return {i: self.job_work[i] for i in ids if i in self.job_work}, True
+
+    async def assembly_supply(
+        self, item_ids: Any, upto: date
+    ) -> tuple[dict[uuid.UUID, tuple[SupplyArrival, ...]], bool]:
+        ids = list(item_ids)
+        self._record("assembly_supply", len(ids))
+        if not self.assembly_available:
+            return {}, False
+        return {i: self.assembly[i] for i in ids if i in self.assembly}, True
 
 
 def sales_line(
@@ -545,6 +558,28 @@ async def test_production_in_progress_reduces_the_shortage() -> None:
 
 
 @pytest.mark.asyncio
+async def test_open_assembly_output_is_time_phased_and_netted() -> None:
+    part = make_product("ASSEMBLED-PART")
+    due_in_time = arriving("25")
+    due_late = arriving("10", on=date(2026, 8, 1))
+    source = FakeSource(
+        items={part.id: part},
+        assembly={part.id: (*due_in_time, *due_late)},
+    )
+
+    plan = await run(source, [sales_line(part, "80", code="SO/0001")])
+
+    requirement = plan.requirement_for(part.id)
+    assert requirement is not None
+    assert requirement.assembly_quantity == D("25.0000")
+    assert requirement.late_in_assembly_quantity == D("10.0000")
+    assert requirement.first_late_in_assembly_date == date(2026, 8, 1)
+    assert requirement.last_late_in_assembly_date == date(2026, 8, 1)
+    assert requirement.shortage_quantity == D("55.0000")
+    assert any("in assembly arriving 2026-08-01" in warning for warning in plan.warnings)
+
+
+@pytest.mark.asyncio
 async def test_job_work_output_due_in_time_reduces_the_shortage() -> None:
     part = make_item("PLATED-HANDLE")
     source = FakeSource(items={part.id: part}, job_work={part.id: arriving("25")})
@@ -652,6 +687,7 @@ async def test_the_engine_never_queries_per_item() -> None:
     assert source.calls["stock_positions"] == 1
     assert source.calls["incoming_supply"] == 1
     assert source.calls["in_production_supply"] == 1
+    assert source.calls["assembly_supply"] == 1
     assert source.calls["supply_terms"] == 1
     assert source.calls["manufacture_lead_times"] == 1
 
@@ -661,6 +697,7 @@ async def test_the_engine_never_queries_per_item() -> None:
     assert source.batch_sizes["stock_positions"] == [9]
     assert source.batch_sizes["incoming_supply"] == [9]
     assert source.batch_sizes["in_production_supply"] == [9]
+    assert source.batch_sizes["assembly_supply"] == [9]
     assert source.batch_sizes["supply_terms"] == [9]
     assert source.batch_sizes["manufacture_lead_times"] == [3]
 

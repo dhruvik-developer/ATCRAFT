@@ -632,11 +632,18 @@ export default function MrpRunDetailPage() {
       {
         id: 'suggestion_type',
         header: 'Type',
-        cell: ({ row }) => (
-          <Badge variant={SUGGESTION_TYPE_VARIANT[row.original.suggestion_type] ?? 'secondary'}>
-            {humanise(row.original.suggestion_type)}
-          </Badge>
-        ),
+        cell: ({ row }) => {
+          const suggestion = row.original
+          const label =
+            suggestion.suggestion_type === 'MANUFACTURE' && suggestion.bom_id
+              ? 'Assembly'
+              : humanise(suggestion.suggestion_type)
+          return (
+            <Badge variant={SUGGESTION_TYPE_VARIANT[suggestion.suggestion_type] ?? 'secondary'}>
+              {label}
+            </Badge>
+          )
+        },
       },
       {
         id: 'route',

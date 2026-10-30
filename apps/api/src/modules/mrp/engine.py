@@ -22,8 +22,8 @@ issued inside a per-item loop is a defect, not a slow path (master rules section
    the items each level of the structure introduces - two statements per level
    of the deepest structure in scope, never one per part;
 2. one statement for the stock positions of every discovered item;
-3. one statement each for confirmed incoming purchase orders and in-progress
-   production output, over the whole discovered set;
+3. one statement each for confirmed incoming purchase orders, in-progress
+   production output, open assembly output and job-work output;
 4. one statement per level for the shop lead time of the short, manufactured
    items at that level that have an effective routing: the routing module
    answers a whole level in one call;
@@ -106,9 +106,9 @@ warning, so a planner can see the supply exists, when it lands, and that the
 plan did not count on it. The requirement row carries all of it as typed
 columns rather than leaving a client to read the figures out of warning prose.
 
-One interval per feed, not one date per row. Purchase orders, production output
-and job-work returns are independent schedules; a single date beside their
-quantities belongs to at most one of them. ``first_late_supply_date`` still
+One interval per feed, not one date per row. Purchase orders, production output,
+assembly output and job-work returns are independent schedules; a single date
+beside their quantities belongs to at most one of them. ``first_late_supply_date`` still
 exists - it is the earliest across all feeds - but answers "how soon could any
 of this be relieved", not "when does that quantity land".
 
@@ -139,7 +139,7 @@ Job-work supply
 Expected good output from issued, unaccounted-for job-work input is netted at
 the order's expected return date within the run's warehouse scope. A missing
 feed produces an explicit warning and an upper-bound suggestion, just like
-unavailable purchase-order or production feeds.
+any other unavailable supply feed.
 
 Rounding: every quantity is ``Decimal`` and is quantised with
 :func:`~src.core.types.to_quantity` as it is produced, so a plan's printed lines
@@ -164,7 +164,7 @@ from src.core.errors import BusinessRuleError, ErrorCode
 from src.core.logging import get_logger
 from src.core.types import ZERO, to_quantity
 from src.modules.bom.engine import apply_scrap, line_requirement
-from src.modules.bom.models import DEFAULT_MAX_EXPLOSION_DEPTH
+from src.modules.bom.models import DEFAULT_MAX_EXPLOSION_DEPTH, BomType
 from src.modules.mrp.models import (
     MAX_DEMAND_LINES,
     MAX_SOURCE_DEMANDS_LISTED,
@@ -364,6 +364,8 @@ class BomStructure:
     is_default: bool
     is_phantom: bool
     lines: tuple[BomComponent, ...]
+    bom_id: uuid.UUID | None = None
+    bom_type: BomType | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -395,6 +397,7 @@ class Requirement:
     #: and was therefore netted off the requirement.
     incoming_quantity: Decimal
     in_production_quantity: Decimal
+    assembly_quantity: Decimal
     job_work_quantity: Decimal
     net_requirement: Decimal
     shortage_quantity: Decimal
@@ -416,6 +419,7 @@ class Requirement:
     #: order exists and is simply too late.
     late_incoming_quantity: Decimal = ZERO
     late_in_production_quantity: Decimal = ZERO
+    late_in_assembly_quantity: Decimal = ZERO
     late_job_work_quantity: Decimal = ZERO
     #: The date each of those quantities starts landing on - one per feed, so a
     #: consumer can render "5000 arriving 2026-11-12" and "0.0001 arriving
@@ -437,12 +441,14 @@ class Requirement:
     #: making the absence visible.
     first_late_incoming_date: date | None = None
     first_late_in_production_date: date | None = None
+    first_late_in_assembly_date: date | None = None
     #: When the LAST late tranche of each feed lands - the date by which the
     #: whole late quantity beside it is in. A late quantity is a SUM and its
     #: first date a MINIMUM, so the two together only describe a single-tranche
     #: feed; these close the interval so a consumer can state the fact fully.
     last_late_incoming_date: date | None = None
     last_late_in_production_date: date | None = None
+    last_late_in_assembly_date: date | None = None
     first_late_job_work_date: date | None = None
     last_late_job_work_date: date | None = None
     #: Warehouse-local residuals after stock, dated supply and transfer netting.
@@ -458,13 +464,14 @@ class Requirement:
         because it is what the warning sorts on and what existing consumers
         already read. It is *not* the date for either quantity beside it - each
         of those carries its own - and it is derived here rather than stored so
-        it cannot drift from the two dates it summarises.
+        it cannot drift from the per-feed dates it summarises.
         """
         dates = [
             when
             for when in (
                 self.first_late_incoming_date,
                 self.first_late_in_production_date,
+                self.first_late_in_assembly_date,
                 self.first_late_job_work_date,
             )
             if when is not None
@@ -507,6 +514,7 @@ class Suggestion:
     to_demand_line_id: uuid.UUID | None = None
     to_demand_code: str | None = None
     to_demand_priority: int | None = None
+    bom_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -718,19 +726,22 @@ class SupplySplit:
     #: Live production output promised on or before :attr:`needed_by`.
     in_production: Decimal = ZERO
     late_in_production: Decimal = ZERO
+    assembly: Decimal = ZERO
+    late_in_assembly: Decimal = ZERO
     job_work: Decimal = ZERO
     late_job_work: Decimal = ZERO
     #: The earliest date the excluded tranche of *this* feed lands, one per feed
     #: and beside the quantity it describes. ``None`` when that feed excluded
     #: nothing.
     #:
-    #: One date across both feeds is the defect these two replace: a purchase
+    #: One date shared by the feeds is the defect these pairs replace: a purchase
     #: order for 5 000 landing in November and a job for 0.0001 landing tomorrow
     #: produced "5000 arriving tomorrow" the moment a consumer read the single
     #: date beside the larger quantity. A quantity and a date belong to the same
     #: feed or they are not one fact.
     first_late_incoming: date | None = None
     first_late_in_production: date | None = None
+    first_late_in_assembly: date | None = None
     first_late_job_work: date | None = None
     #: When the LAST late tranche of each feed lands. The late quantity above is
     #: a SUM over that feed's late tranches and ``first_late_*`` is the MINIMUM
@@ -741,12 +752,18 @@ class SupplySplit:
     #: 2026-12-15" is a fact; "5010 on 2026-07-30" is not.
     last_late_incoming: date | None = None
     last_late_in_production: date | None = None
+    last_late_in_assembly: date | None = None
     last_late_job_work: date | None = None
 
     @property
     def late_total(self) -> Decimal:
         """Everything the phasing excluded, from any source."""
-        return to_quantity(self.late_incoming + self.late_in_production + self.late_job_work)
+        return to_quantity(
+            self.late_incoming
+            + self.late_in_production
+            + self.late_in_assembly
+            + self.late_job_work
+        )
 
     @property
     def first_late_arrival(self) -> date | None:
@@ -765,6 +782,7 @@ class SupplySplit:
             for when in (
                 self.first_late_incoming,
                 self.first_late_in_production,
+                self.first_late_in_assembly,
                 self.first_late_job_work,
             )
             if when is not None
@@ -777,6 +795,7 @@ def supply_split(
     *,
     incoming: Sequence[SupplyArrival] | None = None,
     in_production: Sequence[SupplyArrival] | None = None,
+    assembly: Sequence[SupplyArrival] | None = None,
     job_work: Sequence[SupplyArrival] | None = None,
 ) -> SupplySplit:
     """Phase each supply feed for one item at one date.
@@ -786,6 +805,7 @@ def supply_split(
     """
     on_order, late_on_order = split_supply(incoming, needed_by)
     being_made, late_being_made = split_supply(in_production, needed_by)
+    being_assembled, late_being_assembled = split_supply(assembly, needed_by)
     at_vendor, late_at_vendor = split_supply(job_work, needed_by)
     # Each feed's dates describe only its own quantity. The cross-feed earliest
     # is derived by :attr:`SupplySplit.first_late_arrival`.
@@ -795,12 +815,16 @@ def supply_split(
         late_incoming=late_on_order,
         in_production=being_made,
         late_in_production=late_being_made,
+        assembly=being_assembled,
+        late_in_assembly=late_being_assembled,
         job_work=at_vendor,
         late_job_work=late_at_vendor,
         first_late_incoming=earliest_late_arrival(incoming, needed_by),
         first_late_in_production=earliest_late_arrival(in_production, needed_by),
+        first_late_in_assembly=earliest_late_arrival(assembly, needed_by),
         last_late_incoming=latest_late_arrival(incoming, needed_by),
         last_late_in_production=latest_late_arrival(in_production, needed_by),
+        last_late_in_assembly=latest_late_arrival(assembly, needed_by),
         first_late_job_work=earliest_late_arrival(job_work, needed_by),
         last_late_job_work=latest_late_arrival(job_work, needed_by),
     )
@@ -811,10 +835,11 @@ def net_after_supply(
     incoming: Decimal,
     in_production: Decimal,
     job_work: Decimal = ZERO,
+    assembly: Decimal = ZERO,
 ) -> Decimal:
     """What is still missing once confirmed inbound supply is counted.
 
-    Purchase orders, in-progress production and issued job-work output are
+    Purchase orders, in-progress production, assembly output and issued job-work output are
     supply that will exist without anybody doing anything further, so ordering
     against them again is a duplicate order.
 
@@ -824,7 +849,7 @@ def net_after_supply(
     supply is the defect it used to have - a purchase order landing six weeks
     after the line ships would net the shortage away to nothing.
     """
-    remaining = net_requirement - incoming - in_production - job_work
+    remaining = net_requirement - incoming - in_production - assembly - job_work
     return to_quantity(max(remaining, ZERO))
 
 
@@ -1255,6 +1280,12 @@ class MrpDataSource(Protocol):
         """Output still expected from production orders in progress, by due date."""
         ...
 
+    async def assembly_supply(
+        self, item_ids: Sequence[uuid.UUID], upto: date
+    ) -> tuple[SupplySchedule, bool]:
+        """Output still expected from assembly orders in progress, by due date."""
+        ...
+
     async def job_work_supply(
         self, item_ids: Sequence[uuid.UUID], upto: date
     ) -> tuple[SupplySchedule, bool]:
@@ -1564,12 +1595,13 @@ def _late_tranches(split: SupplySplit) -> list[str]:
     arrival, and printing "0.0000 on order arriving ..." is the honest form of
     that. The date and the quantity in one phrase come from the same feed of the
     same split, which is the whole point - the previous text paired one date
-    with the sum of both feeds, so a purchase order for 5 000 landing in
+    with the sum of all feeds, so a purchase order for 5 000 landing in
     November read as arriving on the day a 0.0001 job did.
     """
     feeds = (
         (split.late_incoming, split.first_late_incoming, "on order"),
         (split.late_in_production, split.first_late_in_production, "in production"),
+        (split.late_in_assembly, split.first_late_in_assembly, "in assembly"),
         (split.late_job_work, split.first_late_job_work, "at job-work vendor"),
     )
     return [
@@ -1684,6 +1716,7 @@ async def plan(
     positions = await source.stock_positions(known)
     incoming, incoming_ok = await source.incoming_supply(known, horizon_end)
     in_production, production_ok = await source.in_production_supply(known, horizon_end)
+    assembly, assembly_ok = await source.assembly_supply(known, horizon_end)
     job_work, job_work_ok = await source.job_work_supply(known, horizon_end)
 
     inactive = [i for i in demand_item_ids if i in items and not items[i].is_active]
@@ -1718,6 +1751,11 @@ async def plan(
         warnings.append(
             "In-progress production output could not be read, so the plan did NOT "
             "net against it. Treat manufactured-item suggestions as an upper bound."
+        )
+    if not assembly_ok:
+        warnings.append(
+            "Open assembly output could not be read, so the plan did NOT net against "
+            "it. Treat assembly-item suggestions as an upper bound."
         )
     if not job_work_ok:
         warnings.append(
@@ -1776,9 +1814,16 @@ async def plan(
                 needed_by,
                 incoming=incoming.get(item_id),
                 in_production=in_production.get(item_id),
+                assembly=assembly.get(item_id),
                 job_work=job_work.get(item_id),
             )
-            shortage = net_after_supply(net, split.incoming, split.in_production, split.job_work)
+            shortage = net_after_supply(
+                net,
+                split.incoming,
+                split.in_production,
+                split.job_work,
+                assembly=split.assembly,
+            )
             (
                 item_transfers,
                 item_shortage_by_warehouse,
@@ -1791,7 +1836,9 @@ async def plan(
                 shortage=shortage,
                 safety_stock=item.safety_stock,
                 respect_safety_stock=respect_safety_stock,
-                in_time_supply=to_quantity(split.incoming + split.in_production + split.job_work),
+                in_time_supply=to_quantity(
+                    split.incoming + split.in_production + split.assembly + split.job_work
+                ),
                 traceable=item.is_batch_tracked or item.is_serial_tracked,
             )
             transfer_routes.extend(item_transfers)
@@ -1931,6 +1978,7 @@ async def plan(
                 available_quantity=entry.free,
                 incoming_quantity=entry.split.incoming,
                 in_production_quantity=entry.split.in_production,
+                assembly_quantity=entry.split.assembly,
                 job_work_quantity=entry.split.job_work,
                 net_requirement=entry.net,
                 planned_reallocation_quantity=entry.planned_reallocation_quantity,
@@ -1942,6 +1990,7 @@ async def plan(
                     supply=(
                         *incoming.get(item.id, ()),
                         *in_production.get(item.id, ()),
+                        *assembly.get(item.id, ()),
                         *job_work.get(item.id, ()),
                     ),
                     as_of=as_of,
@@ -1950,11 +1999,14 @@ async def plan(
                 source_demands=entry.bucket.listed_sources(),
                 late_incoming_quantity=entry.split.late_incoming,
                 late_in_production_quantity=entry.split.late_in_production,
+                late_in_assembly_quantity=entry.split.late_in_assembly,
                 late_job_work_quantity=entry.split.late_job_work,
                 first_late_incoming_date=entry.split.first_late_incoming,
                 last_late_incoming_date=entry.split.last_late_incoming,
                 last_late_in_production_date=entry.split.last_late_in_production,
                 first_late_in_production_date=entry.split.first_late_in_production,
+                first_late_in_assembly_date=entry.split.first_late_in_assembly,
+                last_late_in_assembly_date=entry.split.last_late_in_assembly,
                 first_late_job_work_date=entry.split.first_late_job_work,
                 last_late_job_work_date=entry.split.last_late_job_work,
                 warehouse_shortages=dict(entry.warehouse_shortages),
@@ -2115,6 +2167,13 @@ async def plan(
                 low_level_code=levels[requirement.item_id],
                 expected_available_date=availability,
                 source_demands=requirement.source_demands,
+                bom_id=(
+                    structure.bom_id
+                    if (structure := structures.get(requirement.item_id))
+                    and structure.is_default
+                    and structure.bom_type is BomType.ASSEMBLY
+                    else None
+                ),
             )
         )
 
@@ -2275,6 +2334,7 @@ async def plan(
         "late_supply_item_count": len(late_supply),
         "netted_against_incoming": incoming_ok,
         "netted_against_production": production_ok,
+        "netted_against_assembly": assembly_ok,
         "respected_safety_stock": respect_safety_stock,
         "suggestions_by_type": {
             str(kind): sum(1 for s in ordered_suggestions if s.suggestion_type is kind)

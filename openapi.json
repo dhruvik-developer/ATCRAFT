@@ -14879,6 +14879,18 @@
       "ConversionRequest": {
         "description": "A typed instruction to create one document from one suggestion.\n\nThis is the seam between planning and execution. When the owning module is\ndeployed the service hands it this payload and receives back the document it\ncreated; when it is not, the same payload is returned to the caller so the\nrequest can be replayed later or actioned by hand. Either way the *shape* of\nwhat MRP asks for is fixed here rather than being re-derived by each consumer.",
         "properties": {
+          "bom_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bom Id"
+          },
           "expected_return_date": {
             "anyOf": [
               {
@@ -15175,6 +15187,7 @@
         "enum": [
           "PURCHASE_REQUISITION",
           "PRODUCTION_ORDER",
+          "ASSEMBLY_ORDER",
           "JOB_WORK_ORDER",
           "STOCK_TRANSFER",
           "REALLOCATION_REQUEST"
@@ -35864,8 +35877,13 @@
         "type": "string"
       },
       "MrpRequirementRead": {
-        "description": "One merged requirement, with every figure that went into it.\n\nThe netting inputs are all present on purpose: \"we are 40 short\" cannot be\nreviewed, and \"gross 200 = 100 direct + 100 from bills of materials, 60 free\nof 160 on hand, 100 already on order, so 40 short\" can.\n\nThat includes the supply the run deliberately did *not* net. The quantities\nand their dates are the per-row form of the run's\n``late_supply_item_count`` and its \"arrives AFTER it is needed\" warning: an\norder exists, it lands on this date, and the shortage beside it stands\nanyway. A client that had only the warning would have to parse an English\nsentence to render a row, which is fragile and untranslatable.\n\nEach quantity carries **its own INTERVAL**, not a single date. A late\nquantity is a SUM over that feed's late tranches, so one date beside it is a\nwhole fact only when the feed had one tranche; with several, the earliest\ndate understates how late the bulk is, which reads as \"nearly here\". So\n``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is\ncomplete by ``last_late_incoming_date``, with the same pairing for\nproduction and job-work supply. Render the interval - \"the first of 5010 on\n2026-07-30, all of it by 2026-12-15\" - never the quantity against one end\nof it. The feeds are independent schedules and pairing a quantity with\nanother feed's dates is a false statement. The\nsingle ``first_late_supply_date`` is the earliest of all feeds and answers only\n\"how soon does anything land at all\" - it used to be the only date on the\nrow, which made \"5000 on order\" beside a 0.0001 job's date read as five\nthousand arriving the next day.\n\n``late_supply_quantity`` is the sum of all feeds, computed here so a client\nnever adds two decimal strings in JavaScript and gets a float back. There is\ndeliberately no summed-quantity-plus-summary-date pair: that combination is\nthe misreading above, written down.",
+        "description": "One merged requirement, with every figure that went into it.\n\nThe netting inputs are all present on purpose: \"we are 40 short\" cannot be\nreviewed, and \"gross 200 = 100 direct + 100 from bills of materials, 60 free\nof 160 on hand, 100 already on order, so 40 short\" can.\n\nThat includes the supply the run deliberately did *not* net. The quantities\nand their dates are the per-row form of the run's\n``late_supply_item_count`` and its \"arrives AFTER it is needed\" warning: an\norder exists, it lands on this date, and the shortage beside it stands\nanyway. A client that had only the warning would have to parse an English\nsentence to render a row, which is fragile and untranslatable.\n\nEach quantity carries **its own INTERVAL**, not a single date. A late\nquantity is a SUM over that feed's late tranches, so one date beside it is a\nwhole fact only when the feed had one tranche; with several, the earliest\ndate understates how late the bulk is, which reads as \"nearly here\". So\n``late_incoming_quantity`` opens at ``first_late_incoming_date`` and is\ncomplete by ``last_late_incoming_date``, with the same pairing for\nproduction, assembly and job-work supply. Render the interval - \"the first of 5010 on\n2026-07-30, all of it by 2026-12-15\" - never the quantity against one end\nof it. The feeds are independent schedules and pairing a quantity with\nanother feed's dates is a false statement. The\nsingle ``first_late_supply_date`` is the earliest of all feeds and answers only\n\"how soon does anything land at all\" - it used to be the only date on the\nrow, which made \"5000 on order\" beside a 0.0001 job's date read as five\nthousand arriving the next day.\n\n``late_supply_quantity`` is the sum of all feeds, computed here so a client\nnever adds two decimal strings in JavaScript and gets a float back. There is\ndeliberately no summed-quantity-plus-summary-date pair: that combination is\nthe misreading above, written down.",
         "properties": {
+          "assembly_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Assembly Quantity",
+            "type": "string"
+          },
           "available_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Available Quantity",
@@ -35909,6 +35927,18 @@
               }
             ],
             "title": "Expected Available Date"
+          },
+          "first_late_in_assembly_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Late In Assembly Date"
           },
           "first_late_in_production_date": {
             "anyOf": [
@@ -35992,6 +36022,18 @@
             "title": "Job Work Quantity",
             "type": "string"
           },
+          "last_late_in_assembly_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Late In Assembly Date"
+          },
           "last_late_in_production_date": {
             "anyOf": [
               {
@@ -36027,6 +36069,12 @@
               }
             ],
             "title": "Last Late Job Work Date"
+          },
+          "late_in_assembly_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Late In Assembly Quantity",
+            "type": "string"
           },
           "late_in_production_quantity": {
             "default": "0",
@@ -36133,6 +36181,7 @@
           "available_quantity",
           "incoming_quantity",
           "in_production_quantity",
+          "assembly_quantity",
           "job_work_quantity",
           "net_requirement",
           "shortage_quantity",
@@ -36541,6 +36590,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Available Quantity",
             "type": "string"
+          },
+          "bom_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bom Id"
           },
           "converted_at": {
             "anyOf": [
@@ -126168,7 +126229,7 @@
     },
     "/api/v1/mrp/shortage-report": {
       "get": {
-        "description": "The netted requirement for every short item, with the figures it was netted against - gross demand, free stock, what is already on order and what is already in production - so a number can be reviewed rather than just believed. Omit `run_id` to report against the latest completed run.\n\nIt also carries the supply the plan deliberately did *not* net, each quantity with its own arrival date: `late_incoming_quantity` lands on `first_late_incoming_date`, `late_in_production_quantity` on `first_late_in_production_date`. `first_late_supply_date` is the earlier of the two - the soonest anything lands - and is not the date for either quantity on its own. A shortage with an open order behind it that arrives too late is the row a planner has to act on differently - expedite the order rather than raise another - and these fields are what let a table say so per row instead of leaving it in the run's warning text.",
+        "description": "The netted requirement for every short item, with the figures it was netted against - gross demand, free stock, what is already on order and what is in production, assembly or job work - so a number can be reviewed rather than just believed. Omit `run_id` to report against the latest completed run.\n\nIt also carries the supply the plan deliberately did *not* net, each quantity with its own arrival date: `late_incoming_quantity` lands on `first_late_incoming_date`, `late_in_production_quantity` on `first_late_in_production_date`, and `late_in_assembly_quantity` on `first_late_in_assembly_date`. `first_late_supply_date` is the earliest across all feeds - the soonest anything lands - and is not the date for either quantity on its own. A shortage with an open order behind it that arrives too late is the row a planner has to act on differently - expedite the order rather than raise another - and these fields are what let a table say so per row instead of leaving it in the run's warning text.",
         "operationId": "get_shortage_report_api_v1_mrp_shortage_report_get",
         "parameters": [
           {
