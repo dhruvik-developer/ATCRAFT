@@ -35,6 +35,7 @@ from src.modules.mrp.engine import (
     DemandLine,
     PlanningItem,
     StockPosition,
+    StockPositions,
     SupplyArrival,
     SupplyTerms,
 )
@@ -71,6 +72,8 @@ def make_item(
     safety_stock: str = "0",
     can_manufacture: bool = False,
     can_purchase: bool = True,
+    is_batch_tracked: bool = False,
+    is_serial_tracked: bool = False,
 ) -> PlanningItem:
     return PlanningItem(
         id=uuid.uuid4(),
@@ -85,6 +88,8 @@ def make_item(
         can_manufacture=can_manufacture,
         can_job_work=False,
         is_active=True,
+        is_batch_tracked=is_batch_tracked,
+        is_serial_tracked=is_serial_tracked,
     )
 
 
@@ -114,6 +119,7 @@ class FakeSource:
 
     items: dict[uuid.UUID, PlanningItem]
     stock: dict[uuid.UUID, StockPosition] = field(default_factory=dict)
+    warehouse_stock: dict[tuple[uuid.UUID, uuid.UUID], StockPosition] = field(default_factory=dict)
     structure: dict[uuid.UUID, list[tuple[PlanningItem, str]]] = field(default_factory=dict)
     default_bom: set[uuid.UUID] = field(default_factory=set)
     phantom: set[uuid.UUID] = field(default_factory=set)
@@ -138,10 +144,15 @@ class FakeSource:
         self._record("planning_items", len(ids))
         return {i: self.items[i] for i in ids if i in self.items}
 
-    async def stock_positions(self, item_ids: Any) -> dict[uuid.UUID, StockPosition]:
+    async def stock_positions(self, item_ids: Any) -> StockPositions:
         ids = list(item_ids)
         self._record("stock_positions", len(ids))
-        return {i: self.stock[i] for i in ids if i in self.stock}
+        return StockPositions(
+            by_item={i: self.stock[i] for i in ids if i in self.stock},
+            by_warehouse={
+                key: value for key, value in self.warehouse_stock.items() if key[0] in ids
+            },
+        )
 
     async def bom_structures(self, item_ids: Any, as_of: date) -> dict[uuid.UUID, BomStructure]:
         ids = list(item_ids)
@@ -781,3 +792,115 @@ async def test_suggestions_are_ordered_by_urgency() -> None:
 
     assert [s.item_code for s in plan.suggestions] == ["URGENT", "RELAXED"]
     assert plan.suggestions[0].suggestion_type is MrpSuggestionType.PURCHASE
+
+
+@pytest.mark.asyncio
+async def test_transfer_suggestions_keep_distinct_routes_and_reduce_purchase_shortage() -> None:
+    item = make_item("BRASS-ROD")
+    source_warehouse, second_source, target = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    source = FakeSource(
+        items={item.id: item},
+        stock={item.id: StockPosition(on_hand=D("100"))},
+        warehouse_stock={
+            (item.id, source_warehouse): StockPosition(on_hand=D("60")),
+            (item.id, second_source): StockPosition(on_hand=D("40")),
+        },
+    )
+
+    plan = await run(
+        source,
+        [
+            DemandLine(
+                item_id=item.id,
+                quantity=D("150"),
+                required_date=REQUIRED,
+                source=MrpDemandSource.MANUAL,
+                warehouse_id=target,
+            )
+        ],
+    )
+
+    transfers = [
+        suggestion
+        for suggestion in plan.suggestions_for(item.id)
+        if suggestion.suggestion_type is MrpSuggestionType.TRANSFER
+    ]
+    purchase = next(
+        suggestion
+        for suggestion in plan.suggestions_for(item.id)
+        if suggestion.suggestion_type is MrpSuggestionType.PURCHASE
+    )
+    assert len(transfers) == 2
+    assert sum((suggestion.suggested_quantity for suggestion in transfers), D("0")) == D("100.0000")
+    assert {suggestion.from_warehouse_id for suggestion in transfers} == {
+        source_warehouse,
+        second_source,
+    }
+    assert {suggestion.to_warehouse_id for suggestion in transfers} == {target}
+    assert purchase.shortage_quantity == D("50.0000")
+    requirement = plan.requirement_for(item.id)
+    assert requirement is not None
+    assert requirement.shortage_quantity == D("50.0000")
+
+
+@pytest.mark.asyncio
+async def test_transfer_netting_follows_manufactured_demand_into_the_bom() -> None:
+    kit = make_product("LOCK-KIT")
+    component = make_item("SCREW-M4")
+    source_warehouse, target = uuid.uuid4(), uuid.uuid4()
+    source = FakeSource(
+        items={kit.id: kit, component.id: component},
+        stock={component.id: StockPosition(on_hand=D("10"))},
+        warehouse_stock={(component.id, source_warehouse): StockPosition(on_hand=D("10"))},
+        structure={kit.id: [(component, "1")]},
+        default_bom={kit.id},
+    )
+
+    plan = await run(
+        source,
+        [
+            DemandLine(
+                item_id=kit.id,
+                quantity=D("10"),
+                required_date=REQUIRED,
+                source=MrpDemandSource.MANUAL,
+                warehouse_id=target,
+            )
+        ],
+    )
+
+    component_transfer = next(
+        suggestion
+        for suggestion in plan.suggestions_for(component.id)
+        if suggestion.suggestion_type is MrpSuggestionType.TRANSFER
+    )
+    assert component_transfer.from_warehouse_id == source_warehouse
+    assert component_transfer.to_warehouse_id == target
+    assert component_transfer.suggested_quantity == D("10.0000")
+
+
+@pytest.mark.asyncio
+async def test_traceable_stock_is_not_offered_for_unlabelled_transfer() -> None:
+    item = make_item("SERIAL-PART", is_serial_tracked=True)
+    source_warehouse, target = uuid.uuid4(), uuid.uuid4()
+    source = FakeSource(
+        items={item.id: item},
+        stock={item.id: StockPosition(on_hand=D("10"))},
+        warehouse_stock={(item.id, source_warehouse): StockPosition(on_hand=D("10"))},
+    )
+
+    plan = await run(
+        source,
+        [
+            DemandLine(
+                item_id=item.id,
+                quantity=D("10"),
+                required_date=REQUIRED,
+                source=MrpDemandSource.MANUAL,
+                warehouse_id=target,
+            )
+        ],
+    )
+
+    assert not plan.suggestions_for(item.id)
+    assert any("serial-tracked" in warning for warning in plan.warnings)

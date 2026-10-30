@@ -254,6 +254,8 @@ class PlanningItem:
     can_manufacture: bool
     can_job_work: bool
     is_active: bool
+    is_batch_tracked: bool = False
+    is_serial_tracked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +281,14 @@ class StockPosition:
         """Stock a new demand may actually be planned against."""
         free = self.on_hand - self.reserved - self.qc_hold - self.damaged
         return to_quantity(max(free, ZERO))
+
+
+@dataclass(frozen=True, slots=True)
+class StockPositions:
+    """The item totals and warehouse grains read by one stock query."""
+
+    by_item: dict[uuid.UUID, StockPosition]
+    by_warehouse: dict[tuple[uuid.UUID, uuid.UUID], StockPosition]
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,6 +491,19 @@ class Suggestion:
     #: the date the requirement needed it (see :func:`expected_availability`).
     expected_available_date: date
     source_demands: tuple[dict[str, Any], ...]
+    from_warehouse_id: uuid.UUID | None = None
+    to_warehouse_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TransferRoute:
+    """A proposed movement for one item between one source and destination."""
+
+    item_id: uuid.UUID
+    from_warehouse_id: uuid.UUID
+    to_warehouse_id: uuid.UUID
+    quantity: Decimal
+    required_date: date
 
 
 @dataclass(frozen=True, slots=True)
@@ -500,7 +523,19 @@ class MrpPlan:
         return next((r for r in self.requirements if r.item_id == item_id), None)
 
     def suggestion_for(self, item_id: uuid.UUID) -> Suggestion | None:
-        return next((s for s in self.suggestions if s.item_id == item_id), None)
+        return next(
+            (
+                suggestion
+                for suggestion in self.suggestions
+                if suggestion.item_id == item_id
+                and suggestion.suggestion_type is not MrpSuggestionType.TRANSFER
+            ),
+            next((s for s in self.suggestions if s.item_id == item_id), None),
+        )
+
+    def suggestions_for(self, item_id: uuid.UUID) -> tuple[Suggestion, ...]:
+        """All actionable rows for an item; transfer routes may be multiple."""
+        return tuple(suggestion for suggestion in self.suggestions if suggestion.item_id == item_id)
 
 
 # -----------------------------------------------------------------------------
@@ -864,6 +899,9 @@ class DemandBucket:
     item_id: uuid.UUID
     direct: Decimal = ZERO
     dependent: Decimal = ZERO
+    warehouse_quantities: dict[uuid.UUID, Decimal] = field(default_factory=dict)
+    warehouse_required_dates: dict[uuid.UUID, date] = field(default_factory=dict)
+    unassigned_quantity: Decimal = ZERO
     earliest_date: date | None = None
     level: int | None = None
     sources: list[dict[str, Any]] = field(default_factory=list)
@@ -912,6 +950,14 @@ class DemandBucket:
         if self.earliest_date is None or when < self.earliest_date:
             self.earliest_date = when
 
+    def add_warehouse_demand(self, warehouse_id: uuid.UUID, quantity: Decimal, when: date) -> None:
+        self.warehouse_quantities[warehouse_id] = to_quantity(
+            self.warehouse_quantities.get(warehouse_id, ZERO) + quantity
+        )
+        current = self.warehouse_required_dates.get(warehouse_id)
+        if current is None or when < current:
+            self.warehouse_required_dates[warehouse_id] = when
+
     def note_level(self, level: int) -> None:
         """Keep the shallowest level the item was reached at.
 
@@ -921,6 +967,127 @@ class DemandBucket:
         """
         if self.level is None or level < self.level:
             self.level = level
+
+
+def _warehouse_transfer_plan(
+    item_id: uuid.UUID,
+    bucket: DemandBucket,
+    warehouse_positions: Mapping[tuple[uuid.UUID, uuid.UUID], StockPosition],
+    *,
+    shortage: Decimal,
+    safety_stock: Decimal,
+    respect_safety_stock: bool,
+    in_time_supply: Decimal,
+    traceable: bool,
+) -> tuple[list[TransferRoute], dict[uuid.UUID, Decimal], Decimal, bool]:
+    """Match warehouse demand to local stock, transferable surplus and shortage.
+
+    The aggregate requirement remains the authority for total shortage. This
+    pass only assigns that shortage to the warehouses that need it and proposes
+    movements between those locations. Supply feeds have item-level scope, so
+    their in-time quantities are treated as fungible before proposing a transfer.
+    """
+
+    def warehouse_order(warehouse_id: uuid.UUID) -> tuple[date, str]:
+        return (
+            bucket.warehouse_required_dates.get(warehouse_id) or bucket.earliest_date or date.min,
+            str(warehouse_id),
+        )
+
+    demand = bucket.warehouse_quantities
+    ordered_targets = sorted(demand, key=warehouse_order)
+    remaining_by_warehouse = {
+        warehouse_id: max(
+            quantity - warehouse_positions.get((item_id, warehouse_id), StockPosition()).available,
+            ZERO,
+        )
+        for warehouse_id, quantity in demand.items()
+    }
+
+    supply_left = in_time_supply
+    for warehouse_id in ordered_targets:
+        used = min(remaining_by_warehouse[warehouse_id], supply_left)
+        remaining_by_warehouse[warehouse_id] = to_quantity(
+            remaining_by_warehouse[warehouse_id] - used
+        )
+        supply_left = to_quantity(supply_left - used)
+
+    donor_surplus: dict[uuid.UUID, Decimal] = {}
+    for (position_item_id, warehouse_id), position in warehouse_positions.items():
+        if position_item_id != item_id:
+            continue
+        surplus = to_quantity(max(position.available - demand.get(warehouse_id, ZERO), ZERO))
+        if surplus > 0:
+            donor_surplus[warehouse_id] = surplus
+
+    unassigned_need = max(bucket.unassigned_quantity - supply_left, ZERO)
+    protected_stock = safety_stock if respect_safety_stock else ZERO
+    transferable = to_quantity(
+        max(sum(donor_surplus.values(), ZERO) - unassigned_need - protected_stock, ZERO)
+    )
+
+    routes: list[TransferRoute] = []
+    blocked_for_traceability = False
+    if traceable and transferable > 0 and any(remaining_by_warehouse.values()):
+        blocked_for_traceability = True
+    elif transferable > 0:
+        donors = sorted(
+            donor_surplus,
+            key=lambda warehouse_id: (-donor_surplus[warehouse_id], str(warehouse_id)),
+        )
+        for to_warehouse_id in ordered_targets:
+            need = remaining_by_warehouse[to_warehouse_id]
+            for from_warehouse_id in donors:
+                if need <= 0 or transferable <= 0:
+                    break
+                available = donor_surplus[from_warehouse_id]
+                quantity = min(need, available, transferable)
+                if quantity <= 0:
+                    continue
+                routes.append(
+                    TransferRoute(
+                        item_id=item_id,
+                        from_warehouse_id=from_warehouse_id,
+                        to_warehouse_id=to_warehouse_id,
+                        quantity=to_quantity(quantity),
+                        required_date=warehouse_order(to_warehouse_id)[0],
+                    )
+                )
+                need = to_quantity(need - quantity)
+                remaining_by_warehouse[to_warehouse_id] = need
+                donor_surplus[from_warehouse_id] = to_quantity(available - quantity)
+                transferable = to_quantity(transferable - quantity)
+
+    shortage_by_warehouse: dict[uuid.UUID, Decimal] = {}
+    shortage_left = shortage
+    for warehouse_id in ordered_targets:
+        quantity = min(shortage_left, remaining_by_warehouse[warehouse_id])
+        if quantity > 0:
+            shortage_by_warehouse[warehouse_id] = to_quantity(quantity)
+            shortage_left = to_quantity(shortage_left - quantity)
+
+    unassigned_quantity = min(shortage_left, bucket.unassigned_quantity)
+    shortage_left = to_quantity(shortage_left - unassigned_quantity)
+
+    # Safety stock and unassigned demand can leave an aggregate shortage that
+    # does not fit the warehouse-local deficits above. Attribute that residual
+    # to the earliest warehouse demands without exceeding their original need.
+    for warehouse_id in ordered_targets:
+        if shortage_left <= 0:
+            break
+        already_assigned = shortage_by_warehouse.get(warehouse_id, ZERO)
+        capacity = max(demand[warehouse_id] - already_assigned, ZERO)
+        quantity = min(shortage_left, capacity)
+        if quantity > 0:
+            shortage_by_warehouse[warehouse_id] = to_quantity(already_assigned + quantity)
+            shortage_left = to_quantity(shortage_left - quantity)
+
+    return (
+        routes,
+        shortage_by_warehouse,
+        to_quantity(unassigned_quantity + shortage_left),
+        blocked_for_traceability,
+    )
 
 
 def merge_demand(demands: Sequence[DemandLine]) -> dict[uuid.UUID, DemandBucket]:
@@ -939,6 +1106,10 @@ def merge_demand(demands: Sequence[DemandLine]) -> dict[uuid.UUID, DemandBucket]
             continue
         bucket = buckets.setdefault(line.item_id, DemandBucket(item_id=line.item_id))
         bucket.direct = to_quantity(bucket.direct + line.quantity)
+        if line.warehouse_id is None:
+            bucket.unassigned_quantity = to_quantity(bucket.unassigned_quantity + line.quantity)
+        else:
+            bucket.add_warehouse_demand(line.warehouse_id, line.quantity, line.required_date)
         bucket.note_date(line.required_date)
         bucket.note_level(0)
         if line.source is MrpDemandSource.SALES_ORDER and line.source_id is not None:
@@ -984,9 +1155,7 @@ class MrpDataSource(Protocol):
         self, item_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, PlanningItem]: ...
 
-    async def stock_positions(
-        self, item_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, StockPosition]: ...
+    async def stock_positions(self, item_ids: Sequence[uuid.UUID]) -> StockPositions: ...
 
     async def bom_structures(
         self, item_ids: Sequence[uuid.UUID], as_of: date
@@ -1439,6 +1608,9 @@ async def plan(
     #: row is: a quantity and a date extracted separately can be paired
     #: wrongly, which is the defect this shape removes.
     late_supply: list[tuple[str, SupplySplit]] = []
+    transfer_routes: list[TransferRoute] = []
+    shortage_by_warehouse: dict[uuid.UUID, dict[uuid.UUID, Decimal]] = {}
+    unassigned_shortage: dict[uuid.UUID, Decimal] = {}
     #: item -> the children its shortfall was exploded into, for the expected
     #: availability roll-up after the suggestions are dated.
     exploded_children: dict[uuid.UUID, tuple[uuid.UUID, ...]] = {}
@@ -1458,7 +1630,7 @@ async def plan(
         for item_id in level_ids:
             item = items[item_id]
             bucket = buckets[item_id]
-            position = positions.get(item_id, StockPosition())
+            position = positions.by_item.get(item_id, StockPosition())
             free = planning_available(position, item.safety_stock, respect=respect_safety_stock)
             needed_by = bucket.earliest_date or as_of
 
@@ -1476,6 +1648,29 @@ async def plan(
                 job_work=job_work.get(item_id),
             )
             shortage = net_after_supply(net, split.incoming, split.in_production, split.job_work)
+            (
+                item_transfers,
+                item_shortage_by_warehouse,
+                item_unassigned_shortage,
+                traceability_blocked,
+            ) = _warehouse_transfer_plan(
+                item_id,
+                bucket,
+                positions.by_warehouse,
+                shortage=shortage,
+                safety_stock=item.safety_stock,
+                respect_safety_stock=respect_safety_stock,
+                in_time_supply=to_quantity(split.incoming + split.in_production + split.job_work),
+                traceable=item.is_batch_tracked or item.is_serial_tracked,
+            )
+            transfer_routes.extend(item_transfers)
+            shortage_by_warehouse[item_id] = item_shortage_by_warehouse
+            unassigned_shortage[item_id] = item_unassigned_shortage
+            if traceability_blocked:
+                warnings.append(
+                    f"{item.code} has transferable stock but is batch- or serial-tracked; "
+                    "the transfer suggestion was withheld until its lot or units can be named."
+                )
             structure = structures.get(item_id)
             suggestion_type = choose_suggestion_type(
                 item, has_default_bom=bool(structure and structure.is_default)
@@ -1610,6 +1805,56 @@ async def plan(
                         component.item_id, DemandBucket(item_id=component.item_id)
                     )
                     child.dependent = to_quantity(child.dependent + quantity)
+                    child_locations: list[tuple[uuid.UUID, Decimal]] = []
+                    for warehouse_id, parent_quantity in shortage_by_warehouse.get(
+                        item.id, {}
+                    ).items():
+                        child_quantity = component_requirement(
+                            parent_quantity, component, entry.structure.output_quantity
+                        )
+                        if child_quantity > 0:
+                            child_locations.append((warehouse_id, child_quantity))
+                    assigned_quantity = sum(
+                        (child_quantity for _, child_quantity in child_locations), ZERO
+                    )
+                    child_unassigned = component_requirement(
+                        unassigned_shortage.get(item.id, ZERO),
+                        component,
+                        entry.structure.output_quantity,
+                    )
+                    rounding_remainder = to_quantity(
+                        quantity - assigned_quantity - child_unassigned
+                    )
+                    if rounding_remainder > 0:
+                        if child_locations:
+                            warehouse_id, prior_quantity = child_locations[-1]
+                            child_locations[-1] = (
+                                warehouse_id,
+                                to_quantity(prior_quantity + rounding_remainder),
+                            )
+                        else:
+                            child_unassigned = to_quantity(child_unassigned + rounding_remainder)
+                    elif rounding_remainder < 0:
+                        excess = -rounding_remainder
+                        reduction = min(child_unassigned, excess)
+                        child_unassigned = to_quantity(child_unassigned - reduction)
+                        excess = to_quantity(excess - reduction)
+                        for index in range(len(child_locations) - 1, -1, -1):
+                            if excess <= 0:
+                                break
+                            warehouse_id, prior_quantity = child_locations[index]
+                            reduction = min(prior_quantity, excess)
+                            child_locations[index] = (
+                                warehouse_id,
+                                to_quantity(prior_quantity - reduction),
+                            )
+                            excess = to_quantity(excess - reduction)
+                    for warehouse_id, child_quantity in child_locations:
+                        if child_quantity > 0:
+                            child.add_warehouse_demand(warehouse_id, child_quantity, component_date)
+                    child.unassigned_quantity = to_quantity(
+                        child.unassigned_quantity + child_unassigned
+                    )
                     child.note_date(component_date)
                     child.note_level(level + 1)
                     # ASSUMPTION: aggregate netting does not choose which root
@@ -1683,6 +1928,33 @@ async def plan(
             )
         )
 
+    for route in transfer_routes:
+        route_requirement = requirements.get(route.item_id)
+        if route_requirement is None:
+            continue
+        order_date = order_date_for(route.required_date, 0)
+        suggestions.append(
+            Suggestion(
+                item_id=route.item_id,
+                item_code=route_requirement.item_code,
+                suggestion_type=MrpSuggestionType.TRANSFER,
+                required_quantity=route.quantity,
+                suggested_quantity=route.quantity,
+                shortage_quantity=route.quantity,
+                available_quantity=ZERO,
+                incoming_quantity=ZERO,
+                required_date=route.required_date,
+                suggested_order_date=order_date,
+                is_late=is_late_order(order_date, as_of),
+                lead_time_days=0,
+                low_level_code=levels[route.item_id],
+                expected_available_date=expected_availability(order_date, 0, as_of=as_of),
+                source_demands=route_requirement.source_demands,
+                from_warehouse_id=route.from_warehouse_id,
+                to_warehouse_id=route.to_warehouse_id,
+            )
+        )
+
     # A requirement covered only by the order this plan raises takes that
     # order's expected arrival; one that supply already on its way covers takes
     # the earlier of the two.
@@ -1738,7 +2010,16 @@ async def plan(
     )
     # Suggestions are a work queue: the latest thing to act on comes first.
     ordered_suggestions = tuple(
-        sorted(suggestions, key=lambda s: (s.suggested_order_date, s.item_code))
+        sorted(
+            suggestions,
+            key=lambda suggestion: (
+                suggestion.suggested_order_date,
+                suggestion.item_code,
+                str(suggestion.suggestion_type),
+                str(suggestion.from_warehouse_id or ""),
+                str(suggestion.to_warehouse_id or ""),
+            ),
+        )
     )
 
     stats = {
@@ -1798,11 +2079,13 @@ __all__ = [
     "PlanningItem",
     "Requirement",
     "StockPosition",
+    "StockPositions",
     "Suggestion",
     "SupplyArrival",
     "SupplySchedule",
     "SupplySplit",
     "SupplyTerms",
+    "TransferRoute",
     "apply_order_policy",
     "choose_suggestion_type",
     "component_requirement",

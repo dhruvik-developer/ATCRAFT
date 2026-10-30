@@ -352,9 +352,17 @@ export default function MrpRunDetailPage() {
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(warehouseParams),
     queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: warehouseParams }),
-    enabled: (scopedWarehouseIds.length > 0 || convertOpen) && can(P.WAREHOUSE_VIEW),
+    enabled:
+      (scopedWarehouseIds.length > 0 ||
+        convertOpen ||
+        suggestions.data.some((row) => row.suggestion_type === 'TRANSFER')) &&
+      can(P.WAREHOUSE_VIEW),
     staleTime: staleTimes.master,
   })
+  const warehouseById = useMemo(
+    () => new Map((warehouses.data?.data ?? []).map((warehouse) => [warehouse.id, warehouse])),
+    [warehouses.data],
+  )
   const vendors = useVendorOptions(convertOpen && can(P.VENDOR_VIEW), true)
 
   const warehouseLabel = useMemo(() => {
@@ -402,6 +410,7 @@ export default function MrpRunDetailPage() {
       // Conversion creates documents in the modules that own them.
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
       setSelected({})
       setConvertOpen(false)
@@ -479,8 +488,6 @@ export default function MrpRunDetailPage() {
     [suggestions.data],
   )
 
-  // A transfer can be ignored but not converted, so the two buttons look at
-  // different halves of the tick list.
   const convertibleIds = useMemo(
     () => selectedRows.filter((row) => isConvertible(row.suggestion_type)).map((row) => row.id),
     [selectedRows],
@@ -512,7 +519,6 @@ export default function MrpRunDetailPage() {
     (vendors.data ?? []).some((vendor) => vendor.id === jobWorkVendorId) &&
     (Boolean(singleRunWarehouseId) ||
       selectableWarehouses.some((warehouse) => warehouse.id === jobWorkWarehouseId))
-  const transferCount = selectedRows.length - convertibleRows.length
   const allPageSelected =
     pageActionable.length > 0 && pageActionable.every((row) => Boolean(selected[row.id]))
 
@@ -629,6 +635,32 @@ export default function MrpRunDetailPage() {
             {humanise(row.original.suggestion_type)}
           </Badge>
         ),
+      },
+      {
+        id: 'warehouse_route',
+        header: 'Warehouse route',
+        enableSorting: false,
+        cell: ({ row }) => {
+          if (row.original.suggestion_type !== 'TRANSFER') {
+            return <span className="text-muted-foreground">—</span>
+          }
+          if (warehouses.isLoading) {
+            return <span className="text-muted-foreground">Loading warehouses…</span>
+          }
+          if (warehouses.error) {
+            return <FieldError message="Warehouse labels could not be loaded." />
+          }
+          if (!can(P.WAREHOUSE_VIEW)) {
+            return <span className="text-muted-foreground">Warehouse details hidden</span>
+          }
+          const source = warehouseById.get(row.original.from_warehouse_id ?? '')
+          const destination = warehouseById.get(row.original.to_warehouse_id ?? '')
+          return (
+            <span className="whitespace-nowrap">
+              {source?.code ?? 'Unknown'} → {destination?.code ?? 'Unknown'}
+            </span>
+          )
+        },
       },
       {
         id: 'low_level_code',
@@ -1040,13 +1072,6 @@ export default function MrpRunDetailPage() {
           <span className="text-sm font-medium" role="status">
             {formatNumber(selectedRows.length)} suggestion{selectedRows.length === 1 ? '' : 's'}{' '}
             selected
-            {transferCount > 0 && (
-              <span className="ml-2 font-normal text-muted-foreground">
-                ({formatNumber(transferCount)} transfer
-                {transferCount === 1 ? '' : 's'} cannot be converted - raise a stock transfer by
-                hand)
-              </span>
-            )}
             {selectedRows.length > MAX_BULK_IGNORE && (
               <span className="ml-2 font-normal text-warning">
                 (the API ignores at most {formatNumber(MAX_BULK_IGNORE)} in one call)
@@ -1199,13 +1224,6 @@ export default function MrpRunDetailPage() {
         onConfirm={() => convertSelected()}
       >
         <SelectionSummary rows={convertibleRows} action="convert" />
-        {transferCount > 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {formatNumber(transferCount)} transfer suggestion
-            {transferCount === 1 ? '' : 's'} in the selection will be left untouched: the API has no
-            conversion target for a transfer.
-          </p>
-        )}
       </ConfirmDialog>
 
       <Dialog

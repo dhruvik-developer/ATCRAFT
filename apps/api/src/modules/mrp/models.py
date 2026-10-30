@@ -129,11 +129,9 @@ class MrpDemandSource(StrEnum):
 class MrpSuggestionType(StrEnum):
     """What the planner is being told to do about a shortage.
 
-    ``TRANSFER`` is part of the contract vocabulary (database.md section 6) but
-    is not produced by this engine: proposing a transfer means comparing free
-    stock across warehouses the run was explicitly told not to plan against, and
-    that warehouse-balancing pass is not part of the section 14 flow. The value
-    exists so a future pass, or a planner editing a suggestion, can use it.
+    Transfers are emitted only between warehouses inside the run's explicit
+    scope. A transfer suggestion names one source/destination route; a separate
+    supply suggestion may also exist for the item's remaining aggregate shortage.
     """
 
     MANUFACTURE = "MANUFACTURE"
@@ -617,6 +615,13 @@ class MrpSuggestion(TenantEntity):
     #: this order can physically land. Nullable for rows written before E3a.
     expected_available_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
+    from_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+    to_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+
     source_demands: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     status: Mapped[MrpSuggestionStatus] = mapped_column(
@@ -638,9 +643,26 @@ class MrpSuggestion(TenantEntity):
     ignored_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     __table_args__ = (
-        # One suggestion per item per run. Without it a merged shortage could be
-        # proposed twice and bought twice.
-        UniqueConstraint("run_id", "item_id", name="uq_mrp_suggestions_run_id_item_id"),
+        # A merged shortage has one supply action per item, while distinct
+        # source/destination routes remain independently actionable.
+        Index(
+            "uq_mrp_suggestions_supply_run_item",
+            "run_id",
+            "item_id",
+            unique=True,
+            postgresql_where=text("suggestion_type IN ('MANUFACTURE', 'PURCHASE', 'JOB_WORK')"),
+            sqlite_where=text("suggestion_type IN ('MANUFACTURE', 'PURCHASE', 'JOB_WORK')"),
+        ),
+        Index(
+            "uq_mrp_suggestions_transfer_route",
+            "run_id",
+            "item_id",
+            "from_warehouse_id",
+            "to_warehouse_id",
+            unique=True,
+            postgresql_where=text("suggestion_type = 'TRANSFER'"),
+            sqlite_where=text("suggestion_type = 'TRANSFER'"),
+        ),
         # Sales fulfilment resolves both direct facts and canonical BOM roots
         # with JSONB containment; tenant filtering remains part of every query.
         Index("ix_mrp_suggestions_source_demands", "source_demands", postgresql_using="gin"),
@@ -663,6 +685,13 @@ class MrpSuggestion(TenantEntity):
         ),
         CheckConstraint(
             f"suggestion_type IN ({sql_in_list(MrpSuggestionType)})", name="suggestion_type_known"
+        ),
+        CheckConstraint(
+            "(suggestion_type = 'TRANSFER' AND from_warehouse_id IS NOT NULL "
+            "AND to_warehouse_id IS NOT NULL AND from_warehouse_id <> to_warehouse_id) "
+            "OR (suggestion_type <> 'TRANSFER' AND from_warehouse_id IS NULL "
+            "AND to_warehouse_id IS NULL)",
+            name="transfer_route_matches_type",
         ),
         CheckConstraint(f"status IN ({sql_in_list(MrpSuggestionStatus)})", name="status_known"),
         CheckConstraint("required_quantity > 0", name="required_quantity_positive"),

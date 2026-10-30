@@ -40,7 +40,13 @@ from src.core.pagination import PageParams, SortParams
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.customers.models import Customer, CustomerType
-from src.modules.inventory.models import InventoryBalance
+from src.modules.inventory.models import (
+    InventoryBalance,
+    StockTransfer,
+    StockTransferLine,
+    TransferSourceType,
+    TransferStatus,
+)
 from src.modules.mrp import service
 from src.modules.mrp.models import (
     MrpRequirement,
@@ -443,8 +449,11 @@ async def requirement_for(ctx: Ctx, run_id: uuid.UUID, item: Item) -> MrpRequire
 
 
 async def suggestion_for(ctx: Ctx, run_id: uuid.UUID, item: Item) -> MrpSuggestion | None:
-    stmt = select(MrpSuggestion).where(
-        MrpSuggestion.run_id == run_id, MrpSuggestion.item_id == item.id
+    stmt = (
+        select(MrpSuggestion)
+        .where(MrpSuggestion.run_id == run_id, MrpSuggestion.item_id == item.id)
+        .order_by(MrpSuggestion.suggestion_type == MrpSuggestionType.TRANSFER)
+        .limit(1)
     )
     return (await ctx.session.execute(stmt)).scalar_one_or_none()
 
@@ -1268,6 +1277,51 @@ async def test_a_multi_warehouse_run_receives_into_a_warehouse_inside_its_scope(
     ).scalar_one()
     assert ctx.kit.default_warehouse_id == ctx.main_warehouse.id
     assert order.warehouse_id == ctx.main_warehouse.id
+
+
+@pytest.mark.asyncio
+async def test_a_transfer_suggestion_creates_a_draft_transfer_from_its_route(ctx: Ctx) -> None:
+    await add_stock(ctx, ctx.screw, ctx.spare_warehouse, on_hand="25")
+    run = await run_plan(
+        ctx,
+        manual_demand=[
+            ManualDemandIn(
+                item_id=ctx.screw.id,
+                quantity=D("25"),
+                required_date=today() + timedelta(days=20),
+                warehouse_id=ctx.main_warehouse.id,
+            )
+        ],
+    )
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    assert suggestion.suggestion_type is MrpSuggestionType.TRANSFER
+    assert suggestion.from_warehouse_id == ctx.spare_warehouse.id
+    assert suggestion.to_warehouse_id == ctx.main_warehouse.id
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+
+    assert result.handled is True
+    assert result.created_document_type == "stock_transfer"
+    transfer = (
+        await ctx.session.execute(
+            select(StockTransfer).where(StockTransfer.id == result.created_document_id)
+        )
+    ).scalar_one()
+    assert transfer.status is TransferStatus.DRAFT
+    assert transfer.from_warehouse_id == ctx.spare_warehouse.id
+    assert transfer.to_warehouse_id == ctx.main_warehouse.id
+    assert transfer.source_type == TransferSourceType.MRP_SUGGESTION.value
+    assert transfer.source_id == suggestion.id
+    line = (
+        await ctx.session.execute(
+            select(StockTransferLine).where(StockTransferLine.transfer_id == transfer.id)
+        )
+    ).scalar_one()
+    assert line.item_id == ctx.screw.id
+    assert line.quantity == D("25")
 
 
 @pytest.mark.asyncio

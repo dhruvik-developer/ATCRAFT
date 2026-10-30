@@ -11,6 +11,43 @@ somewhere else.
 
 ---
 
+## §E3b-2. MRP transfer suggestions preserve warehouse and traceability facts
+
+**Assumed.** A transfer destination must be a warehouse named by demand in the
+run; unassigned manual demand does not invent a destination. In-time purchase,
+production and job-work supply has no warehouse detail in the existing MRP
+feeds, so the transfer pass treats it as fungible and nets it against the
+earliest warehouse demand before proposing a movement. Protected safety stock
+is held back once from the run's aggregate donor surplus, consistent with the
+item-level requirement netting. Destinations are considered by required date
+and then warehouse id; donors by greatest surplus and then warehouse id, so
+repeated plans make the same routes without introducing an undocumented
+distance or business-priority rule.
+
+One transfer suggestion represents one `(item, source warehouse, destination
+warehouse)` route. Batch- and serial-tracked items are not offered for automatic
+transfer conversion until the conversion flow can ask an operator to name the
+lot or units; the plan records a warning rather than suggesting a document the
+inventory service must refuse.
+
+**Why.** MRP demand and supply are consolidated per item, while a physical
+transfer is warehouse-specific and traceable. Treating an unassigned demand as
+though it belonged to a guessed warehouse, or moving an unnamed lot/unit, would
+make the suggestion look actionable while creating a document the inventory
+lifecycle cannot safely post.
+
+**Where.** `src/modules/mrp/engine.py` and `repository.py` perform the
+warehouse-grain netting; `src/modules/inventory/service.py` creates the DRAFT
+transfer through the stock-transfer lifecycle; migration `20261106_0100`.
+
+**Impact if wrong.** Item-level supply feeds cannot distinguish a receipt that
+will arrive at the source warehouse from one that will arrive at the target.
+Treating them as fungible can defer a transfer that was physically needed; the
+open purchase/production/job-work document and the plan warning remain visible,
+and the planner can raise the transfer manually.
+
+---
+
 ## How to read this
 
 | Field | Meaning |

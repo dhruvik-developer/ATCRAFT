@@ -86,14 +86,14 @@ class ConversionTarget(StrEnum):
     PURCHASE_REQUISITION = "PURCHASE_REQUISITION"
     PRODUCTION_ORDER = "PRODUCTION_ORDER"
     JOB_WORK_ORDER = "JOB_WORK_ORDER"
+    STOCK_TRANSFER = "STOCK_TRANSFER"
 
 
-#: Default target for each suggestion type. ``TRANSFER`` is absent because this
-#: engine does not raise transfer suggestions - see ``models.MrpSuggestionType``.
 DEFAULT_CONVERSION_TARGET: dict[MrpSuggestionType, ConversionTarget] = {
     MrpSuggestionType.PURCHASE: ConversionTarget.PURCHASE_REQUISITION,
     MrpSuggestionType.MANUFACTURE: ConversionTarget.PRODUCTION_ORDER,
     MrpSuggestionType.JOB_WORK: ConversionTarget.JOB_WORK_ORDER,
+    MrpSuggestionType.TRANSFER: ConversionTarget.STOCK_TRANSFER,
 }
 
 
@@ -449,6 +449,8 @@ class MrpSuggestionRead(_MrpDemandProvenanceRead):
     #: lead_time_days``). Both ``None`` on suggestions written before E3a.
     low_level_code: int | None = None
     expected_available_date: date | None = None
+    from_warehouse_id: uuid.UUID | None = None
+    to_warehouse_id: uuid.UUID | None = None
 
     status: MrpSuggestionStatus
     converted_to_type: str | None = None
@@ -535,6 +537,8 @@ class ConversionRequest(BaseModel):
     process_type: str | None = None
     expected_return_date: date | None = None
     warehouse_id: uuid.UUID | None = None
+    from_warehouse_id: uuid.UUID | None = None
+    to_warehouse_id: uuid.UUID | None = None
     notes: str | None = None
 
 

@@ -16853,6 +16853,8 @@ export interface components {
         ConversionRequest: {
             /** Expected Return Date */
             expected_return_date?: string | null;
+            /** From Warehouse Id */
+            from_warehouse_id?: string | null;
             /** Item Code */
             item_code: string;
             /**
@@ -16891,6 +16893,8 @@ export interface components {
              */
             suggestion_id: string;
             target: components["schemas"]["ConversionTarget"];
+            /** To Warehouse Id */
+            to_warehouse_id?: string | null;
             /** Vendor Id */
             vendor_id?: string | null;
             /** Warehouse Id */
@@ -16931,7 +16935,7 @@ export interface components {
          *     recorded in the audit entry.
          * @enum {string}
          */
-        ConversionTarget: "PURCHASE_REQUISITION" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER";
+        ConversionTarget: "PURCHASE_REQUISITION" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER" | "STOCK_TRANSFER";
         /**
          * CostCentreCreate
          * @description Payload for opening a cost centre.
@@ -24311,6 +24315,8 @@ export interface components {
             readonly demand_provenance: components["schemas"]["RootDemandProvenance"] | null;
             /** Expected Available Date */
             expected_available_date?: string | null;
+            /** From Warehouse Id */
+            from_warehouse_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -24360,6 +24366,8 @@ export interface components {
             /** Suggested Quantity */
             suggested_quantity: string;
             suggestion_type: components["schemas"]["MrpSuggestionType"];
+            /** To Warehouse Id */
+            to_warehouse_id?: string | null;
         };
         /**
          * MrpSuggestionStatus
@@ -24374,11 +24382,9 @@ export interface components {
          * MrpSuggestionType
          * @description What the planner is being told to do about a shortage.
          *
-         *     ``TRANSFER`` is part of the contract vocabulary (database.md section 6) but
-         *     is not produced by this engine: proposing a transfer means comparing free
-         *     stock across warehouses the run was explicitly told not to plan against, and
-         *     that warehouse-balancing pass is not part of the section 14 flow. The value
-         *     exists so a future pass, or a planner editing a suggestion, can use it.
+         *     Transfers are emitted only between warehouses inside the run's explicit
+         *     scope. A transfer suggestion names one source/destination route; a separate
+         *     supply suggestion may also exist for the item's remaining aggregate shortage.
          * @enum {string}
          */
         MrpSuggestionType: "MANUFACTURE" | "PURCHASE" | "JOB_WORK" | "TRANSFER";
@@ -36048,8 +36054,8 @@ export interface components {
          *     ``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a
          *     short sales-order line to pull stock to the warehouse that must ship it.
          *     ``REALLOCATION`` is the cross-warehouse execution of an approved
-         *     reallocation request, reserved for E2's execution leg so both lands use one
-         *     vocabulary.
+         *     reallocation request. ``MRP_SUGGESTION`` records a draft raised from one
+         *     persisted transfer suggestion.
          *
          *     The pair is the same bare ``(source_type, source_id)`` shape every other
          *     document in the system uses; the transfer does not hold a foreign key to
@@ -36057,7 +36063,7 @@ export interface components {
          *     the road, and the physical movement must survive that.
          * @enum {string}
          */
-        TransferSourceType: "MANUAL" | "SALES_ORDER" | "REALLOCATION";
+        TransferSourceType: "MANUAL" | "SALES_ORDER" | "REALLOCATION" | "MRP_SUGGESTION";
         /**
          * TransferStatus
          * @description Stock transfer document lifecycle.

@@ -9,9 +9,11 @@ import MrpRunDetailPage from './mrp-run-detail-page'
 
 const RUN_ID = '01a00000-0000-7000-8000-00000000mrp1'
 const SUGGESTION_ID = '01a00000-0000-7000-8000-00000000sug1'
+const TRANSFER_SUGGESTION_ID = '01a00000-0000-7000-8000-00000000sug2'
 const ITEM_ID = '01a00000-0000-7000-8000-0000000item1'
 const VENDOR_ID = '01a00000-0000-7000-8000-00000000ven1'
 const WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh01'
+const SOURCE_WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh02'
 const REQUIRED_DATE = '2026-11-10'
 
 const run: MrpRunDetail = {
@@ -52,6 +54,8 @@ const suggestion: MrpSuggestionRow = {
   lead_time_days: 5,
   low_level_code: 0,
   expected_available_date: REQUIRED_DATE,
+  from_warehouse_id: null,
+  to_warehouse_id: null,
   status: 'OPEN',
   converted_to_type: null,
   converted_to_id: null,
@@ -152,6 +156,62 @@ describe('MRP job-work conversion', () => {
       expected_return_date: REQUIRED_DATE,
       warehouse_id: WAREHOUSE_ID,
     })
+  })
+})
+
+describe('MRP transfer conversion', () => {
+  it('creates a stock transfer from the suggestion route', async () => {
+    const transferSuggestion: MrpSuggestionRow = {
+      ...suggestion,
+      id: TRANSFER_SUGGESTION_ID,
+      suggestion_type: 'TRANSFER',
+      from_warehouse_id: SOURCE_WAREHOUSE_ID,
+      to_warehouse_id: WAREHOUSE_ID,
+    }
+    const { fetch, user } = renderScreen(<MrpRunDetailPage />, {
+      route: `/mrp/runs/${RUN_ID}`,
+      path: '/mrp/runs/:runId',
+      permissions: [P.MRP_VIEW, P.MRP_CONVERT_SUGGESTION, P.WAREHOUSE_VIEW],
+      routes: {
+        [`GET /mrp/runs/${RUN_ID}`]: ok({
+          ...run,
+          warehouse_ids: [SOURCE_WAREHOUSE_ID, WAREHOUSE_ID],
+        }),
+        [`GET /mrp/runs/${RUN_ID}/suggestions`]: page([transferSuggestion]),
+        'GET /mrp/shortage-report': page([]),
+        'GET /warehouses': page([
+          { id: SOURCE_WAREHOUSE_ID, code: 'WH-A', name: 'Source' },
+          { id: WAREHOUSE_ID, code: 'WH-B', name: 'Destination' },
+        ]),
+        [`POST /mrp/suggestions/${TRANSFER_SUGGESTION_ID}/convert`]: ok({
+          handled: true,
+          message: 'Stock transfer created',
+          created_document_id: '01a00000-0000-7000-8000-00000000trn1',
+          created_document_code: 'TRN-0001',
+          created_document_type: 'STOCK_TRANSFER',
+          suggestion: { ...transferSuggestion, status: 'CONVERTED' },
+        }),
+      },
+    })
+
+    await screen.findByRole('heading', { name: run.code })
+    expect(await screen.findByText('WH-A → WH-B')).toBeInTheDocument()
+    await user.click(await screen.findByRole('checkbox', { name: 'Select BRASS-ROD-12' }))
+    await user.click(screen.getByRole('button', { name: 'Convert selected' }))
+    await user.click(await screen.findByRole('button', { name: /^Convert$/ }))
+
+    await waitFor(() => {
+      expect(
+        fetch.calls.some(
+          (call) =>
+            call.method === 'POST' &&
+            call.path === `/mrp/suggestions/${TRANSFER_SUGGESTION_ID}/convert`,
+        ),
+      ).toBe(true)
+    })
+    expect(fetch.requestFor('POST', `/mrp/suggestions/${TRANSFER_SUGGESTION_ID}/convert`)).toEqual(
+      {},
+    )
   })
 })
 

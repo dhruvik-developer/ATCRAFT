@@ -303,8 +303,8 @@ class TransferSourceType(StrEnum):
     ``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a
     short sales-order line to pull stock to the warehouse that must ship it.
     ``REALLOCATION`` is the cross-warehouse execution of an approved
-    reallocation request, reserved for E2's execution leg so both lands use one
-    vocabulary.
+    reallocation request. ``MRP_SUGGESTION`` records a draft raised from one
+    persisted transfer suggestion.
 
     The pair is the same bare ``(source_type, source_id)`` shape every other
     document in the system uses; the transfer does not hold a foreign key to
@@ -315,6 +315,7 @@ class TransferSourceType(StrEnum):
     MANUAL = "MANUAL"
     SALES_ORDER = "SALES_ORDER"
     REALLOCATION = "REALLOCATION"
+    MRP_SUGGESTION = "MRP_SUGGESTION"
 
 
 class AdjustmentStatus(StrEnum):

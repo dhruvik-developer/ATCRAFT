@@ -803,6 +803,8 @@ Sales orders (+ manual demand)
        gross = direct demand + dependent demand from parents already planned
        net against free stock, then in-time supply (POs, production,
        job-work output)
+  -> compare warehouse-level demand with free stock and emit in-scope transfers
+     for local shortfalls that can be covered by warehouse surplus
        explode only the net shortfall one level down,
        offsetting each child's date by the parent's own lead time
   -> MERGE common parts: every item is netted once, at its low-level code
@@ -844,11 +846,22 @@ for any single quantity.
 `suggested_quantity` (after min-order-qty / multiple rounding),
 `required_date`, `suggested_order_date` (required date − lead time),
 `shortage_quantity`, `available_quantity`, `incoming_quantity`, `source_demands`
-(JSONB), `low_level_code`, `expected_available_date`
+(JSONB), `low_level_code`, `expected_available_date`, nullable
+`from_warehouse_id` and `to_warehouse_id`
 (`max(as_of, suggested_order_date) + lead_time_days` - the date the order can
 physically land, which for a late suggestion is later than the required date),
 `status` (`OPEN | CONVERTED | IGNORED`), `converted_to_type`,
 `converted_to_id`.
+
+The merged requirement stays unique on `(run_id, item_id)`. Supply suggestions
+are unique on that pair for `PURCHASE`, `MANUFACTURE` and `JOB_WORK`; transfer
+suggestions are unique per `(run_id, item_id, from_warehouse_id, to_warehouse_id)`
+and may coexist with the item's remaining supply suggestion. A transfer suggestion
+creates a DRAFT `stock_transfers` document whose source is the suggestion itself.
+Only in-scope, untracked items are currently offered for automatic conversion;
+batch/serial-tracked items require an operator to name the lot or units and are
+withheld with a plan warning until that selection is available in the conversion
+flow.
 
 Demand provenance is independent of the display contribution count. New plans
 store validated `root_demand_refs` and `root_demand_refs_complete` on the first

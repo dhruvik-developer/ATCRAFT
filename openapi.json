@@ -14891,6 +14891,18 @@
             ],
             "title": "Expected Return Date"
           },
+          "from_warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Warehouse Id"
+          },
           "item_code": {
             "title": "Item Code",
             "type": "string"
@@ -14957,6 +14969,18 @@
           },
           "target": {
             "$ref": "#/components/schemas/ConversionTarget"
+          },
+          "to_warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Warehouse Id"
           },
           "vendor_id": {
             "anyOf": [
@@ -15048,7 +15072,8 @@
         "enum": [
           "PURCHASE_REQUISITION",
           "PRODUCTION_ORDER",
-          "JOB_WORK_ORDER"
+          "JOB_WORK_ORDER",
+          "STOCK_TRANSFER"
         ],
         "title": "ConversionTarget",
         "type": "string"
@@ -36466,6 +36491,18 @@
             ],
             "title": "Expected Available Date"
           },
+          "from_warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Warehouse Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -36565,6 +36602,18 @@
           },
           "suggestion_type": {
             "$ref": "#/components/schemas/MrpSuggestionType"
+          },
+          "to_warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Warehouse Id"
           }
         },
         "required": [
@@ -36599,7 +36648,7 @@
         "type": "string"
       },
       "MrpSuggestionType": {
-        "description": "What the planner is being told to do about a shortage.\n\n``TRANSFER`` is part of the contract vocabulary (database.md section 6) but\nis not produced by this engine: proposing a transfer means comparing free\nstock across warehouses the run was explicitly told not to plan against, and\nthat warehouse-balancing pass is not part of the section 14 flow. The value\nexists so a future pass, or a planner editing a suggestion, can use it.",
+        "description": "What the planner is being told to do about a shortage.\n\nTransfers are emitted only between warehouses inside the run's explicit\nscope. A transfer suggestion names one source/destination route; a separate\nsupply suggestion may also exist for the item's remaining aggregate shortage.",
         "enum": [
           "MANUFACTURE",
           "PURCHASE",
@@ -67104,11 +67153,12 @@
         "type": "string"
       },
       "TransferSourceType": {
-        "description": "Why a transfer was raised (WP E1b section 4, E2 section 8).\n\n``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a\nshort sales-order line to pull stock to the warehouse that must ship it.\n``REALLOCATION`` is the cross-warehouse execution of an approved\nreallocation request, reserved for E2's execution leg so both lands use one\nvocabulary.\n\nThe pair is the same bare ``(source_type, source_id)`` shape every other\ndocument in the system uses; the transfer does not hold a foreign key to\nthe order because the order may be cancelled while the goods are still on\nthe road, and the physical movement must survive that.",
+        "description": "Why a transfer was raised (WP E1b section 4, E2 section 8).\n\n``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a\nshort sales-order line to pull stock to the warehouse that must ship it.\n``REALLOCATION`` is the cross-warehouse execution of an approved\nreallocation request. ``MRP_SUGGESTION`` records a draft raised from one\npersisted transfer suggestion.\n\nThe pair is the same bare ``(source_type, source_id)`` shape every other\ndocument in the system uses; the transfer does not hold a foreign key to\nthe order because the order may be cancelled while the goods are still on\nthe road, and the physical movement must survive that.",
         "enum": [
           "MANUAL",
           "SALES_ORDER",
-          "REALLOCATION"
+          "REALLOCATION",
+          "MRP_SUGGESTION"
         ],
         "title": "TransferSourceType",
         "type": "string"

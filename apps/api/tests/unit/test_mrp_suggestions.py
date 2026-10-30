@@ -266,6 +266,7 @@ def test_conversion_is_marked_irreversible() -> None:
 
 
 def test_each_suggestion_type_has_a_default_document() -> None:
+    assert set(DEFAULT_CONVERSION_TARGET) == set(MrpSuggestionType)
     assert (
         DEFAULT_CONVERSION_TARGET[MrpSuggestionType.PURCHASE]
         is ConversionTarget.PURCHASE_REQUISITION
@@ -275,11 +276,7 @@ def test_each_suggestion_type_has_a_default_document() -> None:
         is ConversionTarget.PRODUCTION_ORDER
     )
     assert DEFAULT_CONVERSION_TARGET[MrpSuggestionType.JOB_WORK] is ConversionTarget.JOB_WORK_ORDER
-
-
-def test_transfer_has_no_default_target() -> None:
-    """This engine does not raise transfer suggestions - see MrpSuggestionType."""
-    assert MrpSuggestionType.TRANSFER not in DEFAULT_CONVERSION_TARGET
+    assert DEFAULT_CONVERSION_TARGET[MrpSuggestionType.TRANSFER] is ConversionTarget.STOCK_TRANSFER
 
 
 # -----------------------------------------------------------------------------

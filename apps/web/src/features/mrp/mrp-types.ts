@@ -10,10 +10,9 @@
  * `horizon_days`, `lead_time_days`) are genuine integers and are the only
  * numbers here.
  *
- * Two things the API does NOT send, and which no screen may therefore claim: a
- * suggestion carries `item_code` but no item *name*, no unit of measure and no
- * warehouse - it is planned per item across the run's warehouse scope, not per
- * warehouse - and the run list row is narrower than the run detail.
+ * The API sends a warehouse route only for `TRANSFER`; the other suggestions
+ * remain item-level across the run's warehouse scope. It does not send an item
+ * name or unit of measure, and the run list row is narrower than the run detail.
  */
 
 import type { DecimalString, SchemaOf } from '@/types/api'
@@ -67,16 +66,9 @@ export const CONVERSION_TARGET: Record<SuggestionType, string> = {
 }
 
 /**
- * Whether the API will convert a suggestion of this type at all.
- *
- * `DEFAULT_CONVERSION_TARGET` maps purchase, manufacture and job work; a
- * TRANSFER has no entry, so converting one is refused outright unless the caller
- * names a target - and the three targets on offer
- * (requisition / production order / job work order) are none of them a stock
- * transfer. Offering the button anyway just produces a rejection a planner
- * cannot act on, so a transfer is raised by hand instead.
+ * Whether the API has a default target for this suggestion type.
  */
-export const isConvertible = (type: SuggestionType): boolean => type !== 'TRANSFER'
+export const isConvertible = (type: SuggestionType): boolean => type in CONVERSION_TARGET
 
 /** Suggestions in a single bulk-ignore call - `MAX_BULK_SUGGESTIONS` in the API. */
 export const MAX_BULK_IGNORE = 500
@@ -268,6 +260,8 @@ export interface MrpSuggestionRow {
    * expedite.
    */
   expected_available_date: string
+  from_warehouse_id: string | null
+  to_warehouse_id: string | null
 
   status: SuggestionStatus
   converted_to_type: string | null

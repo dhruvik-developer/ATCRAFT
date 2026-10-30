@@ -220,6 +220,10 @@ CONVERSION_HOOKS: dict[ConversionTarget, tuple[str, str]] = {
         "src.modules.job_work.service",
         "create_order_from_mrp",
     ),
+    ConversionTarget.STOCK_TRANSFER: (
+        "src.modules.inventory.service",
+        "create_transfer_from_mrp",
+    ),
 }
 
 
@@ -740,6 +744,8 @@ def _suggestion_rows(
             lead_time_days=suggestion.lead_time_days,
             low_level_code=suggestion.low_level_code,
             expected_available_date=suggestion.expected_available_date,
+            from_warehouse_id=suggestion.from_warehouse_id,
+            to_warehouse_id=suggestion.to_warehouse_id,
             source_demands=list(suggestion.source_demands) or None,
             status=MrpSuggestionStatus.OPEN,
         )
@@ -1069,14 +1075,28 @@ async def shortage_report(
 def _conversion_target(
     suggestion: MrpSuggestion, requested: ConversionTarget | None
 ) -> ConversionTarget:
-    if requested is not None:
-        return requested
-    target = DEFAULT_CONVERSION_TARGET.get(MrpSuggestionType(suggestion.suggestion_type))
+    suggestion_type = MrpSuggestionType(suggestion.suggestion_type)
+    target = requested or DEFAULT_CONVERSION_TARGET.get(suggestion_type)
     if target is None:
         raise BusinessRuleError(
-            f"A {suggestion.suggestion_type} suggestion has no default conversion "
-            "target; name one explicitly.",
+            f"A {suggestion.suggestion_type} suggestion has no default conversion target.",
             details={"suggestion_type": str(suggestion.suggestion_type)},
+        )
+    if (suggestion_type is MrpSuggestionType.TRANSFER) != (
+        target is ConversionTarget.STOCK_TRANSFER
+    ):
+        raise BusinessRuleError(
+            "A transfer suggestion must create a stock transfer, and only a transfer "
+            "suggestion can create one.",
+            details={"suggestion_type": suggestion_type.value, "target": target.value},
+        )
+    if suggestion_type is MrpSuggestionType.TRANSFER and (
+        suggestion.from_warehouse_id is None or suggestion.to_warehouse_id is None
+    ):
+        raise BusinessRuleError(
+            "This transfer suggestion has no source and destination warehouse; "
+            "create the transfer manually.",
+            details={"suggestion_id": str(suggestion.id)},
         )
     return target
 
@@ -1102,6 +1122,8 @@ def _conversion_request(
         process_type=payload.process_type,
         expected_return_date=payload.expected_return_date,
         warehouse_id=payload.warehouse_id,
+        from_warehouse_id=suggestion.from_warehouse_id,
+        to_warehouse_id=suggestion.to_warehouse_id,
         notes=payload.notes,
     )
 

@@ -155,6 +155,7 @@ from src.modules.inventory.models import (
     StockTransfer,
     StockTransferLine,
     TransactionType,
+    TransferSourceType,
     TransferStatus,
     fifo_sort_key,
 )
@@ -5696,6 +5697,29 @@ class StockTransferService:
         return read
 
 
+async def create_transfer_from_mrp(
+    session: AsyncSession, tenant: TenantContext, request: Any
+) -> tuple[uuid.UUID, str]:
+    """Create a draft stock transfer from one persisted MRP route suggestion."""
+    payload = StockTransferCreate(
+        from_warehouse_id=request.from_warehouse_id,
+        to_warehouse_id=request.to_warehouse_id,
+        reason="MRP transfer suggestion",
+        expected_date=request.required_date,
+        source_type=TransferSourceType.MRP_SUGGESTION,
+        source_id=request.suggestion_id,
+        notes=request.notes,
+        lines=[
+            StockTransferLineCreate(
+                item_id=request.item_id,
+                quantity=request.quantity,
+            )
+        ],
+    )
+    transfer = await StockTransferService(session, tenant).create(payload)
+    return transfer.id, transfer.code
+
+
 # -----------------------------------------------------------------------------
 # Stock adjustment service
 # -----------------------------------------------------------------------------
@@ -7930,6 +7954,7 @@ __all__ = [
     "assert_warehouse_scope",
     "carried_cost_layers",
     "change_stock_state",
+    "create_transfer_from_mrp",
     "draws_on_scrap",
     "find_shortfall",
     "get_available",

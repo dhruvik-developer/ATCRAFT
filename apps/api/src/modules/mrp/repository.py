@@ -75,6 +75,7 @@ from src.modules.mrp.engine import (
     DemandLine,
     PlanningItem,
     StockPosition,
+    StockPositions,
     SupplyArrival,
     SupplySchedule,
     SupplyTerms,
@@ -118,6 +119,8 @@ PLANNING_ITEM_COLUMNS = (
     Item.can_manufacture,
     Item.can_job_work,
     Item.is_active,
+    Item.is_batch_tracked,
+    Item.is_serial_tracked,
 )
 
 
@@ -221,7 +224,7 @@ class PlanningItemRepository(BaseRepository[Item]):
     model = Item
 
     async def planning_items(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, PlanningItem]:
-        """The twelve columns the planner reads, for a whole set of items."""
+        """The item facts the planner reads, for a whole set of items."""
         if not item_ids:
             return {}
         stmt = select(*PLANNING_ITEM_COLUMNS).where(
@@ -244,6 +247,8 @@ class PlanningItemRepository(BaseRepository[Item]):
                 can_manufacture=bool(row.can_manufacture),
                 can_job_work=bool(row.can_job_work),
                 is_active=bool(row.is_active),
+                is_batch_tracked=bool(row.is_batch_tracked),
+                is_serial_tracked=bool(row.is_serial_tracked),
             )
             for row in rows
         }
@@ -282,13 +287,13 @@ class PlanningItemRepository(BaseRepository[Item]):
 
 
 class StockPositionRepository(BaseRepository[InventoryBalance]):
-    """Summed stock pools per item over the warehouses a run is scoped to."""
+    """Stock pools per item and warehouse, plus the item-level totals."""
 
     model = InventoryBalance
 
     async def positions(
         self, item_ids: Sequence[uuid.UUID], warehouse_ids: Sequence[uuid.UUID] | None = None
-    ) -> dict[uuid.UUID, StockPosition]:
+    ) -> StockPositions:
         """One grouped statement for the whole item set. Never cached (§34).
 
         The four pools are summed rather than the generated ``available_quantity``
@@ -301,34 +306,44 @@ class StockPositionRepository(BaseRepository[InventoryBalance]):
         was not scoped to warehouses plans against all of them.
         """
         if not item_ids:
-            return {}
+            return StockPositions(by_item={}, by_warehouse={})
         stmt = (
             select(
                 InventoryBalance.item_id,
-                func.coalesce(func.sum(InventoryBalance.on_hand_quantity), 0).label("on_hand"),
-                func.coalesce(func.sum(InventoryBalance.reserved_quantity), 0).label("reserved"),
-                func.coalesce(func.sum(InventoryBalance.qc_hold_quantity), 0).label("qc_hold"),
-                func.coalesce(func.sum(InventoryBalance.damaged_quantity), 0).label("damaged"),
+                InventoryBalance.warehouse_id,
+                func.sum(InventoryBalance.on_hand_quantity).label("on_hand"),
+                func.sum(InventoryBalance.reserved_quantity).label("reserved"),
+                func.sum(InventoryBalance.qc_hold_quantity).label("qc_hold"),
+                func.sum(InventoryBalance.damaged_quantity).label("damaged"),
             )
             .where(
                 InventoryBalance.company_id == self.tenant.company_id,
                 InventoryBalance.item_id.in_(list(dict.fromkeys(item_ids))),
             )
-            .group_by(InventoryBalance.item_id)
+            .group_by(InventoryBalance.item_id, InventoryBalance.warehouse_id)
         )
         if warehouse_ids:
             stmt = stmt.where(InventoryBalance.warehouse_id.in_(list(warehouse_ids)))
 
         rows = (await self.session.execute(stmt)).all()
-        return {
-            row.item_id: StockPosition(
+        by_item: dict[uuid.UUID, StockPosition] = {}
+        by_warehouse: dict[tuple[uuid.UUID, uuid.UUID], StockPosition] = {}
+        for row in rows:
+            position = StockPosition(
                 on_hand=Decimal(str(row.on_hand)),
                 reserved=Decimal(str(row.reserved)),
                 qc_hold=Decimal(str(row.qc_hold)),
                 damaged=Decimal(str(row.damaged)),
             )
-            for row in rows
-        }
+            by_warehouse[(row.item_id, row.warehouse_id)] = position
+            previous = by_item.get(row.item_id, StockPosition())
+            by_item[row.item_id] = StockPosition(
+                on_hand=previous.on_hand + position.on_hand,
+                reserved=previous.reserved + position.reserved,
+                qc_hold=previous.qc_hold + position.qc_hold,
+                damaged=previous.damaged + position.damaged,
+            )
+        return StockPositions(by_item=by_item, by_warehouse=by_warehouse)
 
 
 async def _optional_supply_hook(
@@ -419,9 +434,7 @@ class DatabaseMrpSource:
     async def planning_items(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, PlanningItem]:
         return await self._items.planning_items(item_ids)
 
-    async def stock_positions(
-        self, item_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, StockPosition]:
+    async def stock_positions(self, item_ids: Sequence[uuid.UUID]) -> StockPositions:
         return await self._stock.positions(item_ids, self._warehouse_ids)
 
     async def bom_structures(
