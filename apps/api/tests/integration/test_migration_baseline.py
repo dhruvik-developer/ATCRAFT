@@ -40,7 +40,7 @@ from src.modules.job_work.models import (
     JobWorkOrderLine,
     JobWorkReceiptLine,
 )
-from src.modules.mrp.models import MrpRequirement
+from src.modules.mrp.models import MrpRequirement, MrpScheduleSettings
 from src.modules.procurement.models import PurchaseRequisitionLine
 from src.modules.production.models import ProductionOrder
 from src.modules.routing.models import Shift, ShiftAssignment
@@ -247,6 +247,24 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
         )
     }
     assert settings_nullable["auto_plan_on_confirm"] == "YES"
+    assert column_names(dsn, "mrp_schedule_settings") == {
+        column.name for column in MrpScheduleSettings.__table__.columns
+    }
+    schedule_constraints = table_constraints(dsn, "mrp_schedule_settings", "c")
+    assert schedule_constraints["ck_mrp_schedule_settings_horizon_days_bounded"][1] is True
+    schedule_indexes = {
+        str(name)
+        for (name,) in query(
+            dsn,
+            "SELECT indexname FROM pg_indexes "
+            "WHERE schemaname = 'public' AND tablename = 'mrp_schedule_settings'",
+        )
+    }
+    assert {
+        "ix_mrp_schedule_settings_company_id",
+        "ix_mrp_schedule_settings_created_at",
+        "uq_mrp_schedule_settings_company",
+    } <= schedule_indexes
     assert "source_line_id" in column_names(dsn, "production_orders")
     assert "source_line_id" in {column.name for column in ProductionOrder.__table__.columns}
     requisition_columns = column_names(dsn, "purchase_requisition_lines")

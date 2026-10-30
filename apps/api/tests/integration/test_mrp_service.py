@@ -61,6 +61,7 @@ from src.modules.mrp.models import (
     MrpRun,
     MrpRunMode,
     MrpRunStatus,
+    MrpScheduleSettings,
     MrpSuggestion,
     MrpSuggestionStatus,
     MrpSuggestionType,
@@ -71,6 +72,7 @@ from src.modules.mrp.schemas import (
     ManualDemandIn,
     MrpRunFilters,
     MrpRunRequest,
+    MrpScheduleSettingsUpdate,
     ShortageReportFilters,
     SuggestionConvertRequest,
     SuggestionFilters,
@@ -1027,16 +1029,98 @@ async def test_a_queued_run_is_executed_by_the_worker_entry_point(
         id = "task-under-test"
 
     monkeypatch.setattr(celery_module.celery_app, "send_task", lambda *a, **k: _Task())
+
+    notifications: list[dict[str, Any]] = []
+
+    from src.modules.notifications import service as notification_service
+    from src.modules.notifications.repository import NotificationRepository
+
+    async def recipients(repository: Any, permission: str) -> list[uuid.UUID]:
+        assert permission == "mrp.view"
+        return [ctx.tenant.user_id]
+
+    async def notify(session: AsyncSession, **kwargs: Any) -> None:
+        notifications.append(kwargs)
+
+    monkeypatch.setattr(NotificationRepository, "user_ids_with_permission", recipients)
+    monkeypatch.setattr(notification_service, "notify", notify)
+
     run, _ = await service.start_run(ctx.session, ctx.tenant, MrpRunRequest())
 
     completed = await service.execute_run(ctx.session, ctx.tenant, run_id=run.id)
 
     assert completed.status is MrpRunStatus.COMPLETED
     assert completed.suggestion_count > 0
+    assert len(notifications) == 1
+    assert notifications[0]["user_ids"] == [ctx.tenant.user_id]
+    assert notifications[0]["notification_type"].value == "MRP_RUN_COMPLETED"
 
     # A re-delivered task must not write a second plan for the same run.
     with pytest.raises(InvalidStateTransitionError):
         await service.execute_run(ctx.session, ctx.tenant, run_id=run.id)
+
+
+@pytest.mark.asyncio
+async def test_forced_scheduled_run_is_queued_even_below_the_sync_threshold(
+    ctx: Ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "mrp_sync_threshold_demand_lines", 50)
+    from src.workers import celery_app as celery_module
+
+    class _Task:
+        id = "scheduled-task"
+
+    monkeypatch.setattr(celery_module.celery_app, "send_task", lambda *a, **k: _Task())
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "10")])
+
+    run, dispatched = await service.start_run(
+        ctx.session,
+        ctx.tenant,
+        MrpRunRequest(),
+        force_async=True,
+    )
+
+    assert dispatched is True
+    assert run.mode is MrpRunMode.ASYNC
+    assert run.status is MrpRunStatus.QUEUED
+    assert run.celery_task_id == "scheduled-task"
+
+
+@pytest.mark.asyncio
+async def test_a_scheduled_run_notifies_without_a_user_actor(
+    ctx: Ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The nightly task has no principal, so its notification actor is NULL."""
+    from src.core.deps import system_tenant
+    from src.modules.notifications.models import Notification, NotificationType
+    from src.modules.notifications.repository import NotificationRepository
+    from src.workers import celery_app as celery_module
+
+    class _Task:
+        id = "scheduled-task"
+
+    monkeypatch.setattr(celery_module.celery_app, "send_task", lambda *a, **k: _Task())
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "10")])
+
+    async def recipients(repository: Any, permission: str) -> list[uuid.UUID]:
+        assert permission == "mrp.view"
+        return [ctx.tenant.user_id]
+
+    monkeypatch.setattr(NotificationRepository, "user_ids_with_permission", recipients)
+
+    tenant = system_tenant(ctx.tenant.company_id)
+    run, _ = await service.start_run(ctx.session, tenant, MrpRunRequest(), force_async=True)
+    await service.execute_run(ctx.session, tenant, run_id=run.id)
+
+    notification = await ctx.session.scalar(
+        select(Notification).where(
+            Notification.company_id == ctx.tenant.company_id,
+            Notification.user_id == ctx.tenant.user_id,
+            Notification.notification_type == NotificationType.MRP_RUN_COMPLETED,
+        )
+    )
+    assert notification is not None
+    assert notification.created_by_id is None
 
 
 @pytest.mark.asyncio
@@ -2011,3 +2095,99 @@ async def test_unprovable_mrp_conversion_leaves_no_requisition_or_audit(
         await ctx.session.scalar(select(func.count()).select_from(PurchaseRequisition)) == before_pr
     )
     assert await ctx.session.scalar(select(func.count()).select_from(AuditLog)) == before_audit
+
+
+@pytest.mark.asyncio
+async def test_schedule_settings_default_and_disabled_company_discovery(ctx: Ctx) -> None:
+    defaults = await service.get_schedule_settings(ctx.session, ctx.tenant)
+    assert defaults.mrp_scheduled_enabled is True
+    assert defaults.horizon_days == 90
+    assert defaults.warehouse_ids is None
+    assert defaults.respect_safety_stock is True
+
+    configurations = await service.scheduled_configurations(ctx.session)
+    assert {configuration.company_id for configuration in configurations} == {
+        ctx.tenant.company_id,
+        ctx.other.company_id,
+    }
+    default_configuration = next(
+        configuration
+        for configuration in configurations
+        if configuration.company_id == ctx.tenant.company_id
+    )
+    assert default_configuration.horizon_days == 90
+    assert default_configuration.warehouse_ids is None
+    assert default_configuration.respect_safety_stock is True
+
+    configured = MrpScheduleSettings(
+        company_id=ctx.tenant.company_id,
+        mrp_scheduled_enabled=True,
+        horizon_days=45,
+        warehouse_ids=[ctx.main_warehouse.id],
+        respect_safety_stock=False,
+    )
+    ctx.session.add(configured)
+    await ctx.session.flush()
+    configurations = await service.scheduled_configurations(ctx.session)
+    tenant_configuration = next(
+        configuration
+        for configuration in configurations
+        if configuration.company_id == ctx.tenant.company_id
+    )
+    assert tenant_configuration.horizon_days == 45
+    assert tenant_configuration.warehouse_ids == (ctx.main_warehouse.id,)
+    assert tenant_configuration.respect_safety_stock is False
+
+    configured.mrp_scheduled_enabled = False
+    await ctx.session.flush()
+    configurations = await service.scheduled_configurations(ctx.session)
+    assert [configuration.company_id for configuration in configurations] == [ctx.other.company_id]
+
+
+@pytest.mark.asyncio
+async def test_schedule_settings_validate_scope_and_audit_each_change(ctx: Ctx) -> None:
+    with pytest.raises(BusinessRuleError, match="active warehouses"):
+        await service.update_schedule_settings(
+            ctx.session,
+            ctx.tenant,
+            MrpScheduleSettingsUpdate(warehouse_ids=[uuid.uuid4()]),
+        )
+
+    created = await service.update_schedule_settings(
+        ctx.session,
+        ctx.tenant,
+        MrpScheduleSettingsUpdate(
+            mrp_scheduled_enabled=False,
+            horizon_days=45,
+            warehouse_ids=[ctx.main_warehouse.id],
+            respect_safety_stock=False,
+        ),
+    )
+    assert created.mrp_scheduled_enabled is False
+    assert created.horizon_days == 45
+    assert created.warehouse_ids == [ctx.main_warehouse.id]
+    assert created.respect_safety_stock is False
+
+    updated = await service.update_schedule_settings(
+        ctx.session,
+        ctx.tenant,
+        MrpScheduleSettingsUpdate(horizon_days=60),
+    )
+    assert updated.mrp_scheduled_enabled is True
+    assert updated.horizon_days == 60
+    assert updated.warehouse_ids is None
+    assert updated.respect_safety_stock is True
+
+    audits = list(
+        (
+            await ctx.session.scalars(
+                select(AuditLog)
+                .where(
+                    AuditLog.company_id == ctx.tenant.company_id,
+                    AuditLog.entity_type == "mrp_schedule_settings",
+                )
+                .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+            )
+        ).all()
+    )
+    assert [entry.action for entry in audits] == [AuditAction.CREATE, AuditAction.UPDATE]

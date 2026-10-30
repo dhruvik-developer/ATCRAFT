@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 721 requests in 31
+Import `postman_collection.json` (Postman v2.1 format, 723 requests in 31
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -481,7 +481,14 @@ inline with 200, while runs above the threshold are queued with 202.
 POST /api/v1/mrp/runs                → 200 completed run, or 202 {job_id, status_url}
 GET  /api/v1/mrp/runs/{id}           → status: QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
 GET  /api/v1/mrp/runs/{id}/suggestions
+GET  /api/v1/mrp/schedule-settings   → tenant's nightly planning defaults and scope
+PUT  /api/v1/mrp/schedule-settings   → replace them (requires mrp.run)
 ```
+
+Nightly runs are dispatched by Celery beat at `MRP_SCHEDULE_CRON` (default
+`30 20 * * *`, or 02:00 Asia/Kolkata). A tenant with no saved settings is
+enabled by default with a 90-day horizon, all active warehouses and safety stock
+respected.
 
 Report queries likewise return an inline page or an accepted job according to
 their bounded-query rules. Queued exports finish with a document ID to

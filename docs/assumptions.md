@@ -115,6 +115,32 @@ shortage in the plan than the plant expects to fulfil; the source order remains
 visible and the plan does not treat an unconfirmed date or held stock as
 available.
 
+## §E3b-5. Nightly MRP defaults to enabled and plans company-wide
+
+**Assumed.** Celery beat invokes the MRP scheduler nightly at 02:00
+Asia/Kolkata, represented as `20:30 UTC` by the default `MRP_SCHEDULE_CRON`
+value `30 20 * * *`. Each active company is enabled by default, plans a
+90-day horizon across all active warehouses, and protects safety stock. A
+company may override those values through `/mrp/schedule-settings`; `NULL`
+warehouse scope means all active warehouses. Scheduled runs are always ASYNC
+and go through the ordinary company planning lock and rate policy. A company
+with a run already in progress or over the run budget is skipped until the next
+nightly tick. Completion is notified to active internal users holding
+`mrp.view`, using the existing `MRP_RUN_COMPLETED` notification type.
+
+**Why.** A disabled-by-default scheduler would silently leave planning manual,
+contrary to the scope. A full-company default makes the first scheduled plan
+useful without configuration; explicit settings allow plants with a separate
+planning scope to avoid netting against one another.
+
+**Where.** `mrp_schedule_settings` is owned by MRP. The task is
+`mrp.scheduled_run`; its schedule is controlled by `MRP_SCHEDULE_CRON`.
+Migration `20261109_0100`.
+
+**Impact if wrong.** A company that does not want automatic planning must
+explicitly disable it. Review its warehouse scope before relying on scheduled
+suggestions where warehouses represent independent plants.
+
 ---
 
 ## How to read this

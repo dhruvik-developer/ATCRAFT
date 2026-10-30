@@ -18,6 +18,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 from celery import Celery, Task
+from celery.schedules import crontab
 from celery.signals import beat_init, setup_logging, task_failure, task_postrun, task_prerun
 
 from src.core.config import settings
@@ -35,6 +36,21 @@ log = get_logger("worker")
 #: because the schedule and the start-up hook below both need it.
 RECONCILE_QUALITY_OWNERS_TASK = "maintenance.reconcile_quality_owners"
 RECONCILE_QUALITY_OWNERS_ENTRY = "reconcile-quality-owners"
+MRP_SCHEDULED_RUN_TASK = "mrp.scheduled_run"
+MRP_SCHEDULED_RUN_ENTRY = "mrp-scheduled-run"
+
+
+def _mrp_schedule() -> crontab:
+    """Build the configured five-field cron schedule in Celery's UTC timezone."""
+    minute, hour, day_of_month, month_of_year, day_of_week = settings.mrp_schedule_cron.split()
+    return crontab(
+        minute=minute,
+        hour=hour,
+        day_of_month=day_of_month,
+        month_of_year=month_of_year,
+        day_of_week=day_of_week,
+    )
+
 
 celery_app = Celery(
     "atcraft",
@@ -78,6 +94,11 @@ celery_app.conf.update(
             "task": "notifications.dispatch_pending_deliveries",
             "schedule": 120.0,
             "options": {"queue": "notifications", "expires": 110},
+        },
+        MRP_SCHEDULED_RUN_ENTRY: {
+            "task": MRP_SCHEDULED_RUN_TASK,
+            "schedule": _mrp_schedule(),
+            "options": {"queue": "mrp", "expires": 3600},
         },
         # Section 25: dashboards read summary tables, not hot transactional ones.
         "refresh-inventory-summary": {

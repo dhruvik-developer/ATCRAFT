@@ -59,11 +59,12 @@ from __future__ import annotations
 import importlib
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, case, func, select, update
+from sqlalchemy import Select, and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -90,16 +91,19 @@ from src.modules.mrp.engine import (
 )
 from src.modules.mrp.models import (
     ACTIVE_RUN_STATUSES,
+    DEFAULT_HORIZON_DAYS,
     MAX_DEMAND_LINES,
     MrpDemand,
     MrpDemandSource,
     MrpRequirement,
     MrpRun,
     MrpRunStatus,
+    MrpScheduleSettings,
     MrpSuggestion,
     MrpSuggestionStatus,
     MrpSuggestionType,
 )
+from src.modules.organization.models import Company
 from src.modules.products.models import Item, ItemVendorLink
 from src.modules.routing import service as routing_service
 from src.modules.sales.models import (
@@ -110,6 +114,17 @@ from src.modules.sales.models import (
 )
 
 log = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledMrpConfiguration:
+    """Resolved settings needed to dispatch one company's nightly plan."""
+
+    company_id: uuid.UUID
+    horizon_days: int
+    warehouse_ids: tuple[uuid.UUID, ...] | None
+    respect_safety_stock: bool
+
 
 #: Item-master columns the planner reads. Named explicitly because ``items`` is
 #: a very wide table and a run touches every part in every structure - selecting
@@ -224,6 +239,59 @@ class SalesDemandRepository(BaseRepository[SalesOrderLine]):
             )
             for row in rows
         ]
+
+
+class MrpScheduleSettingsRepository(BaseRepository[MrpScheduleSettings]):
+    """Tenant-scoped persistence for nightly planning settings."""
+
+    model = MrpScheduleSettings
+
+    async def get_settings(self) -> MrpScheduleSettings | None:
+        stmt = self._scoped().limit(1)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+
+async def scheduled_configurations(
+    session: AsyncSession,
+) -> list[ScheduledMrpConfiguration]:
+    """Resolve enabled active companies, including companies with no settings row.
+
+    This is the one intentional cross-tenant read: the system scheduler must
+    discover which tenant contexts to create, then each company is processed
+    through the ordinary tenant-scoped service and repositories.
+    """
+    stmt = (
+        select(
+            Company.id,
+            MrpScheduleSettings.horizon_days,
+            MrpScheduleSettings.warehouse_ids,
+            MrpScheduleSettings.respect_safety_stock,
+        )
+        .outerjoin(MrpScheduleSettings, MrpScheduleSettings.company_id == Company.id)
+        .where(
+            Company.is_active.is_(True),
+            Company.deleted_at.is_(None),
+            or_(
+                MrpScheduleSettings.id.is_(None),
+                MrpScheduleSettings.mrp_scheduled_enabled.is_(True),
+            ),
+        )
+        .order_by(Company.id.asc())
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        ScheduledMrpConfiguration(
+            company_id=row.id,
+            horizon_days=(
+                row.horizon_days if row.horizon_days is not None else DEFAULT_HORIZON_DAYS
+            ),
+            warehouse_ids=tuple(row.warehouse_ids) if row.warehouse_ids else None,
+            respect_safety_stock=(
+                row.respect_safety_stock if row.respect_safety_stock is not None else True
+            ),
+        )
+        for row in rows
+    ]
 
 
 class PlanningItemRepository(BaseRepository[Item]):
@@ -949,8 +1017,11 @@ __all__ = [
     "MrpDemandRepository",
     "MrpRequirementRepository",
     "MrpRunRepository",
+    "MrpScheduleSettingsRepository",
     "MrpSuggestionRepository",
     "PlanningItemRepository",
     "SalesDemandRepository",
+    "ScheduledMrpConfiguration",
     "StockPositionRepository",
+    "scheduled_configurations",
 ]

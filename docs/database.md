@@ -77,7 +77,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
 | `sales` | `sales_orders`, `sales_order_lines`, `sales_settings` |
 | `sales_returns` | `sales_returns`, `sales_return_lines` |
-| `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
+| `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions`, `mrp_schedule_settings` |
 | `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `purchase_order_source_allocations`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
 | `assembly` | `assembly_orders`, `assembly_order_components` |
@@ -823,6 +823,17 @@ visit and cannot disagree afterwards. The structure walk is capped at
 `started_at`, `completed_at`, `demand_line_count`, `suggestion_count`,
 `error_message`, `parameters` (JSONB), `result_summary` (JSONB; includes
 `low_level_code_max`, the deepest level the plan netted at).
+
+`mrp_schedule_settings`: one optional row per company. Missing rows use the
+defaults: scheduled runs enabled, a 90-day horizon, all active warehouses, and
+safety stock protected. `mrp_scheduled_enabled`, `horizon_days`, nullable
+`warehouse_ids` (NULL means all active warehouses) and
+`respect_safety_stock` are configurable through `GET/PUT /mrp/schedule-settings`;
+updates are tenant-scoped and audited. Celery beat runs `mrp.scheduled_run`
+nightly using the five-field UTC `MRP_SCHEDULE_CRON` setting, default
+`30 20 * * *` (02:00 Asia/Kolkata). It creates ASYNC runs through the ordinary
+planning lock and rate policy. Completed runs notify active internal users with
+`mrp.view`.
 
 `mrp_demands`: the demand snapshot the run planned against, one row per source
 line. `expected_available_date` is stamped when the run completes: the date the

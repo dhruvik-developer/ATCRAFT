@@ -153,6 +153,35 @@ class MrpSuggestionStatus(StrEnum):
     IGNORED = "IGNORED"
 
 
+class MrpScheduleSettings(TenantEntity):
+    """Sparse per-company configuration for nightly MRP runs."""
+
+    __tablename__ = "mrp_schedule_settings"
+
+    mrp_scheduled_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    horizon_days: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=DEFAULT_HORIZON_DAYS,
+        server_default=str(DEFAULT_HORIZON_DAYS),
+    )
+    #: NULL means every active warehouse in the company.
+    warehouse_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
+    respect_safety_stock: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", name="uq_mrp_schedule_settings_company"),
+        CheckConstraint(
+            f"horizon_days BETWEEN {MIN_HORIZON_DAYS} AND {MAX_HORIZON_DAYS}",
+            name="horizon_days_bounded",
+        ),
+    )
+
+
 class MrpRun(TenantEntity):
     """One execution of the planning engine, with everything it was given."""
 
@@ -808,6 +837,7 @@ __all__ = [
     "MrpRun",
     "MrpRunMode",
     "MrpRunStatus",
+    "MrpScheduleSettings",
     "MrpSuggestion",
     "MrpSuggestionStatus",
     "MrpSuggestionType",

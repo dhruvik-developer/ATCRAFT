@@ -176,6 +176,43 @@ class MrpRunRequest(BaseModel):
         return clean_text(value)
 
 
+class MrpScheduleSettingsRead(BaseModel):
+    """Resolved nightly MRP settings for one company."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    mrp_scheduled_enabled: bool = True
+    horizon_days: Annotated[int, Field(ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)] = (
+        DEFAULT_HORIZON_DAYS
+    )
+    warehouse_ids: list[uuid.UUID] | None = None
+    respect_safety_stock: bool = True
+
+
+class MrpScheduleSettingsUpdate(BaseModel):
+    """Replace the company's scheduled-planning configuration."""
+
+    mrp_scheduled_enabled: bool = True
+    horizon_days: Annotated[int, Field(ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)] = (
+        DEFAULT_HORIZON_DAYS
+    )
+    warehouse_ids: list[uuid.UUID] | None = None
+    respect_safety_stock: bool = True
+
+    @field_validator("warehouse_ids")
+    @classmethod
+    def _bound_schedule_warehouses(cls, value: list[uuid.UUID] | None) -> list[uuid.UUID] | None:
+        if value is None:
+            return None
+        unique = list(dict.fromkeys(value))
+        if len(unique) > MAX_RUN_WAREHOUSES:
+            raise ValueError(
+                f"A scheduled run may be scoped to at most {MAX_RUN_WAREHOUSES} warehouses; "
+                "omit the list to plan across all of them."
+            )
+        return unique or None
+
+
 # -----------------------------------------------------------------------------
 # Reading runs
 # -----------------------------------------------------------------------------

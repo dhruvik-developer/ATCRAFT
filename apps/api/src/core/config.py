@@ -264,6 +264,9 @@ class Settings(BaseSettings):
     # Above this many demand lines an MRP run is dispatched to Celery rather
     # than executed inline (section 14: never hold HTTP open for minutes).
     mrp_sync_threshold_demand_lines: Annotated[int, Field(ge=1)] = 50
+    # Celery beat uses UTC. 20:30 UTC is 02:00 the following day in India.
+    # Five-field cron syntax: minute hour day-of-month month day-of-week.
+    mrp_schedule_cron: str = "30 20 * * *"
     # A line discount above this percentage needs the
     # ``sales_order.discount_override`` right, and the order then needs
     # approval before it can be confirmed. Without the right the discount is
@@ -367,6 +370,14 @@ class Settings(BaseSettings):
                 )
             cleaned.append(host)
         return ",".join(cleaned)
+
+    @field_validator("mrp_schedule_cron")
+    @classmethod
+    def _validate_mrp_schedule_cron(cls, value: str) -> str:
+        fields = value.split()
+        if len(fields) != 5:
+            raise ValueError("MRP_SCHEDULE_CRON must use five-field cron syntax")
+        return " ".join(fields)
 
     web_push_enabled: bool = False
     web_push_vapid_private_key: SecretStr = SecretStr("")

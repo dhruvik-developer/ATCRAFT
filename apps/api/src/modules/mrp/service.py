@@ -52,6 +52,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.core.actors import actor_id
 from src.core.cache import acquire_lock, release_lock
 from src.core.clock import today, utcnow
 from src.core.config import settings
@@ -76,6 +77,7 @@ from src.modules.mrp.models import (
     MrpRun,
     MrpRunMode,
     MrpRunStatus,
+    MrpScheduleSettings,
     MrpSuggestion,
     MrpSuggestionStatus,
     MrpSuggestionType,
@@ -87,8 +89,13 @@ from src.modules.mrp.repository import (
     MrpDemandRepository,
     MrpRequirementRepository,
     MrpRunRepository,
+    MrpScheduleSettingsRepository,
     MrpSuggestionRepository,
     SalesDemandRepository,
+    ScheduledMrpConfiguration,
+)
+from src.modules.mrp.repository import (
+    scheduled_configurations as load_scheduled_configurations,
 )
 from src.modules.mrp.schemas import (
     DEFAULT_CONVERSION_TARGET,
@@ -102,6 +109,8 @@ from src.modules.mrp.schemas import (
     MrpRunRead,
     MrpRunRequest,
     MrpRunSummary,
+    MrpScheduleSettingsRead,
+    MrpScheduleSettingsUpdate,
     MrpSuggestionRead,
     SalesOrderAvailabilityRead,
     SalesOrderLineAvailabilityRead,
@@ -110,6 +119,7 @@ from src.modules.mrp.schemas import (
     SuggestionConvertRequest,
     SuggestionFilters,
 )
+from src.modules.warehouses.repository import WarehouseRepository
 
 log = get_logger(__name__)
 
@@ -444,7 +454,7 @@ def _demand_rows(
     return [
         MrpDemand(
             company_id=tenant.company_id,
-            created_by_id=tenant.user_id,
+            created_by_id=actor_id(tenant.user_id),
             run_id=run.id,
             demand_source=line.source,
             source_id=line.source_id,
@@ -461,8 +471,109 @@ def _demand_rows(
     ]
 
 
+async def get_schedule_settings(
+    session: AsyncSession, tenant: TenantContext
+) -> MrpScheduleSettingsRead:
+    """Read the tenant's schedule settings, resolving an absent row to defaults."""
+    row = await MrpScheduleSettingsRepository(session, tenant).get_settings()
+    if row is None:
+        return MrpScheduleSettingsRead()
+    return MrpScheduleSettingsRead.model_validate(row)
+
+
+async def update_schedule_settings(
+    session: AsyncSession,
+    tenant: TenantContext,
+    payload: MrpScheduleSettingsUpdate,
+) -> MrpScheduleSettingsRead:
+    """Validate, persist and audit this tenant's nightly MRP configuration."""
+    warehouse_ids = payload.warehouse_ids
+    if warehouse_ids is not None:
+        active = await WarehouseRepository(session, tenant).active_by_ids(warehouse_ids)
+        active_ids = {warehouse.id for warehouse in active}
+        invalid_ids = [
+            str(identifier) for identifier in warehouse_ids if identifier not in active_ids
+        ]
+        if invalid_ids:
+            raise BusinessRuleError(
+                "Scheduled MRP scope may include only active warehouses in this company.",
+                details={"warehouse_ids": invalid_ids},
+            )
+
+    async with transaction(session):
+        await advisory_xact_lock(session, "mrp-schedule-settings", tenant.company_id)
+        repository = MrpScheduleSettingsRepository(session, tenant)
+        row = await repository.get_settings()
+        created = row is None
+        old_values = (
+            {
+                "mrp_scheduled_enabled": row.mrp_scheduled_enabled,
+                "horizon_days": row.horizon_days,
+                "warehouse_ids": (
+                    [str(value) for value in row.warehouse_ids]
+                    if row.warehouse_ids is not None
+                    else None
+                ),
+                "respect_safety_stock": row.respect_safety_stock,
+            }
+            if row is not None
+            else None
+        )
+        if row is None:
+            row = MrpScheduleSettings(
+                company_id=tenant.company_id,
+                created_by_id=actor_id(tenant.user_id),
+            )
+        row.mrp_scheduled_enabled = payload.mrp_scheduled_enabled
+        row.horizon_days = payload.horizon_days
+        row.warehouse_ids = list(warehouse_ids) if warehouse_ids is not None else None
+        row.respect_safety_stock = payload.respect_safety_stock
+        row.updated_by_id = actor_id(tenant.user_id)
+        session.add(row)
+        await session.flush()
+
+        new_values = {
+            "mrp_scheduled_enabled": row.mrp_scheduled_enabled,
+            "horizon_days": row.horizon_days,
+            "warehouse_ids": (
+                [str(value) for value in row.warehouse_ids]
+                if row.warehouse_ids is not None
+                else None
+            ),
+            "respect_safety_stock": row.respect_safety_stock,
+        }
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE if created else AuditAction.UPDATE,
+            entity_type="mrp_schedule_settings",
+            entity_id=row.id,
+            entity_code=None,
+            summary=(
+                "Nightly MRP schedule settings created"
+                if created
+                else "Nightly MRP schedule settings updated"
+            ),
+            user_id=tenant.user_id,
+            old_values=old_values,
+            new_values=new_values,
+        )
+        return MrpScheduleSettingsRead.model_validate(row)
+
+
+async def scheduled_configurations(
+    session: AsyncSession,
+) -> list[ScheduledMrpConfiguration]:
+    """Expose the global schedule discovery query to the worker seam."""
+    return await load_scheduled_configurations(session)
+
+
 async def start_run(
-    session: AsyncSession, tenant: TenantContext, payload: MrpRunRequest
+    session: AsyncSession,
+    tenant: TenantContext,
+    payload: MrpRunRequest,
+    *,
+    force_async: bool = False,
 ) -> tuple[MrpRunRead, bool]:
     """Create a run, snapshot its demand, and either execute it or dispatch it.
 
@@ -503,7 +614,7 @@ async def start_run(
         demand = await _collect_demand(session, tenant, payload, horizon_end=horizon_end)
         mode = (
             MrpRunMode.ASYNC
-            if len(demand) > settings.mrp_sync_threshold_demand_lines
+            if force_async or len(demand) > settings.mrp_sync_threshold_demand_lines
             else MrpRunMode.SYNC
         )
 
@@ -687,7 +798,7 @@ def _requirement_rows(
     return [
         MrpRequirement(
             company_id=tenant.company_id,
-            created_by_id=tenant.user_id,
+            created_by_id=actor_id(tenant.user_id),
             run_id=run.id,
             item_id=requirement.item_id,
             item_code=requirement.item_code,
@@ -741,7 +852,7 @@ def _suggestion_rows(
     return [
         MrpSuggestion(
             company_id=tenant.company_id,
-            created_by_id=tenant.user_id,
+            created_by_id=actor_id(tenant.user_id),
             run_id=run.id,
             item_id=suggestion.item_id,
             item_code=suggestion.item_code,
@@ -947,6 +1058,35 @@ async def execute_run(
             user_id=tenant.user_id,
             new_values=dict(plan.stats),
             context={"warnings": list(plan.warnings)} if plan.warnings else None,
+        )
+        from src.core.permissions import Permission
+        from src.modules.notifications.models import NotificationSeverity, NotificationType
+        from src.modules.notifications.repository import NotificationRepository
+        from src.modules.notifications.service import notify
+
+        recipients = await NotificationRepository.for_company(
+            session, tenant.company_id, tenant.user_id
+        ).user_ids_with_permission(str(Permission.MRP_VIEW))
+        shortage_count = int(plan.stats.get("shortage_item_count", 0))
+        await notify(
+            session,
+            company_id=tenant.company_id,
+            user_ids=recipients,
+            notification_type=NotificationType.MRP_RUN_COMPLETED,
+            title=("MRP run completed with shortages" if shortage_count else "MRP run completed"),
+            body=(
+                f"Run {run.code} produced {shortage_count} shortage(s) and "
+                f"{len(plan.suggestions)} suggestion(s)."
+            ),
+            severity=(
+                NotificationSeverity.WARNING if shortage_count else NotificationSeverity.SUCCESS
+            ),
+            entity_type="mrp_run",
+            entity_id=run.id,
+            action_url=f"/mrp/runs/{run.id}",
+            # A scheduled run has no principal: the nil placeholder must become
+            # NULL before it reaches the notification's user foreign key.
+            actor_id=actor_id(tenant.user_id),
         )
 
     log.info(

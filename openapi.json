@@ -3482,6 +3482,33 @@
         "title": "ApiResponse[MrpRunRead]",
         "type": "object"
       },
+      "ApiResponse_MrpScheduleSettingsRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MrpScheduleSettingsRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[MrpScheduleSettingsRead]",
+        "type": "object"
+      },
       "ApiResponse_MrpSuggestionRead_": {
         "properties": {
           "data": {
@@ -36505,6 +36532,84 @@
           "created_at"
         ],
         "title": "MrpRunSummary",
+        "type": "object"
+      },
+      "MrpScheduleSettingsRead": {
+        "description": "Resolved nightly MRP settings for one company.",
+        "properties": {
+          "horizon_days": {
+            "default": 90,
+            "maximum": 1095.0,
+            "minimum": 1.0,
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "mrp_scheduled_enabled": {
+            "default": true,
+            "title": "Mrp Scheduled Enabled",
+            "type": "boolean"
+          },
+          "respect_safety_stock": {
+            "default": true,
+            "title": "Respect Safety Stock",
+            "type": "boolean"
+          },
+          "warehouse_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Ids"
+          }
+        },
+        "title": "MrpScheduleSettingsRead",
+        "type": "object"
+      },
+      "MrpScheduleSettingsUpdate": {
+        "description": "Replace the company's scheduled-planning configuration.",
+        "properties": {
+          "horizon_days": {
+            "default": 90,
+            "maximum": 1095.0,
+            "minimum": 1.0,
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "mrp_scheduled_enabled": {
+            "default": true,
+            "title": "Mrp Scheduled Enabled",
+            "type": "boolean"
+          },
+          "respect_safety_stock": {
+            "default": true,
+            "title": "Respect Safety Stock",
+            "type": "boolean"
+          },
+          "warehouse_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Ids"
+          }
+        },
+        "title": "MrpScheduleSettingsUpdate",
         "type": "object"
       },
       "MrpShortageRow": {
@@ -126222,6 +126327,286 @@
           }
         ],
         "summary": "When the latest plan expects a sales order to be covered",
+        "tags": [
+          "MRP"
+        ]
+      }
+    },
+    "/api/v1/mrp/schedule-settings": {
+      "get": {
+        "operationId": "get_schedule_settings_api_v1_mrp_schedule_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_MrpScheduleSettingsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read nightly MRP settings",
+        "tags": [
+          "MRP"
+        ]
+      },
+      "put": {
+        "operationId": "update_schedule_settings_api_v1_mrp_schedule_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MrpScheduleSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_MrpScheduleSettingsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update nightly MRP settings",
         "tags": [
           "MRP"
         ]

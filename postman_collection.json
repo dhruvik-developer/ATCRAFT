@@ -11639,6 +11639,26 @@
           }
         },
         {
+          "name": "Read nightly MRP settings",
+          "request": {
+            "description": "Read nightly MRP settings",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mrp",
+                "schedule-settings"
+              ],
+              "raw": "{{base_url}}/api/v1/mrp/schedule-settings"
+            }
+          }
+        },
+        {
           "name": "Read one suggestion",
           "request": {
             "description": "Read one suggestion",
@@ -11862,6 +11882,40 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Update nightly MRP settings",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"horizon_days\": 90,\n  \"mrp_scheduled_enabled\": true,\n  \"respect_safety_stock\": true,\n  \"warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
+            },
+            "description": "Update nightly MRP settings",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mrp",
+                "schedule-settings"
+              ],
+              "raw": "{{base_url}}/api/v1/mrp/schedule-settings"
             }
           }
         },

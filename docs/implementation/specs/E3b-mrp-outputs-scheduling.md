@@ -44,7 +44,7 @@ Read each of these in `trace/trace.json`. E3a, E2, E4 and E1b are already on mai
 - New beat task `mrp.scheduled_run`, nightly. The time comes from the setting `MRP_SCHEDULE_CRON`; the default is daily at 02:00 IST, expressed in UTC.
 - It runs per company, controlled by the company setting `mrp_scheduled_enabled` (default **true**) with its horizon and scope.
 - Each run is an ASYNC run on the `mrp` queue, using the existing planning lock and rate policy.
-- Completion notifies planners. B4 already has "MRP run completed with shortages".
+- Completion notifies active internal users with `mrp.view` through `MRP_RUN_COMPLETED`.
 - Optional auto-convert policy per suggestion type, **off** by default (`§E3b-n`): PURCHASE becomes a DRAFT requisition, MANUFACTURE a DRAFT production order. TRANSFER and REALLOCATION are never auto-converted.
 
 ### 6. Reorder and packing-material replenishment (K06, S03.11)

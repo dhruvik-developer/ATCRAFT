@@ -31,13 +31,66 @@ import uuid
 from typing import Any
 
 from src.core.database import session_scope
-from src.core.deps import TenantContext
-from src.core.errors import AppError, InvalidStateTransitionError
+from src.core.deps import TenantContext, system_tenant
+from src.core.errors import AppError, InvalidStateTransitionError, RateLimitedError
 from src.core.logging import get_logger
 from src.modules.mrp import service
+from src.modules.mrp.schemas import MrpRunRequest
 from src.workers.celery_app import async_task
 
 log = get_logger("worker.mrp")
+
+
+@async_task(name="mrp.scheduled_run", queue="mrp")
+async def scheduled_run(request_id: str | None = None, **_: Any) -> dict[str, int]:
+    """Queue one asynchronous planning run for each enabled company."""
+    async with session_scope() as session:
+        configurations = await service.scheduled_configurations(session)
+
+    queued = 0
+    skipped = 0
+    failed = 0
+    for configuration in configurations:
+        tenant = system_tenant(configuration.company_id)
+        try:
+            async with session_scope() as session:
+                await service.start_run(
+                    session,
+                    tenant,
+                    MrpRunRequest(
+                        horizon_days=configuration.horizon_days,
+                        warehouse_ids=list(configuration.warehouse_ids or ()),
+                        respect_safety_stock=configuration.respect_safety_stock,
+                    ),
+                    force_async=True,
+                )
+        except (service.MrpRunInProgressError, RateLimitedError) as exc:
+            skipped += 1
+            log.info(
+                "mrp.scheduled_run_skipped",
+                company_id=str(configuration.company_id),
+                reason=exc.message,
+            )
+            continue
+        except Exception as exc:
+            failed += 1
+            log.error(
+                "mrp.scheduled_run_failed",
+                company_id=str(configuration.company_id),
+                error=str(exc),
+                exc_info=exc,
+            )
+            continue
+        queued += 1
+
+    outcome = {
+        "companies": len(configurations),
+        "queued": queued,
+        "skipped": skipped,
+        "failed": failed,
+    }
+    log.info("mrp.scheduled_runs_dispatched", **outcome)
+    return outcome
 
 
 def _failure_message(exc: BaseException) -> str:
@@ -109,4 +162,4 @@ async def run_mrp(
         await service.release_planning_lock(tenant.company_id, lock_token)
 
 
-__all__ = ["run_mrp"]
+__all__ = ["run_mrp", "scheduled_run"]

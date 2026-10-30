@@ -185,6 +185,16 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         stmt = stmt.order_by(Warehouse.is_default.desc(), Warehouse.code.asc()).limit(500)
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def active_by_ids(self, warehouse_ids: Sequence[uuid.UUID]) -> list[Warehouse]:
+        """Resolve a bounded set of active warehouses inside the tenant scope."""
+        if not warehouse_ids:
+            return []
+        stmt = self._scoped().where(
+            Warehouse.is_active.is_(True),
+            Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def location_counts(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
         """Live location count per warehouse, for a whole page in one query.
 

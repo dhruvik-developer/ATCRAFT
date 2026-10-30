@@ -66,6 +66,8 @@ from src.modules.mrp.schemas import (
     MrpRunRead,
     MrpRunRequest,
     MrpRunSummary,
+    MrpScheduleSettingsRead,
+    MrpScheduleSettingsUpdate,
     MrpSuggestionRead,
     SalesOrderAvailabilityRead,
     ShortageReportFilters,
@@ -144,6 +146,35 @@ ShortageFilterDep = Annotated[ShortageReportFilters, Depends(shortage_filters)]
 # -----------------------------------------------------------------------------
 # Runs
 # -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/schedule-settings",
+    response_model=ApiResponse[MrpScheduleSettingsRead],
+    summary="Read nightly MRP settings",
+    dependencies=[require_permission(Permission.MRP_VIEW)],
+)
+async def get_schedule_settings(
+    session: DbSession, tenant: Tenant
+) -> ApiResponse[MrpScheduleSettingsRead]:
+    return ApiResponse[MrpScheduleSettingsRead].ok(
+        await service.get_schedule_settings(session, tenant)
+    )
+
+
+@router.put(
+    "/schedule-settings",
+    response_model=ApiResponse[MrpScheduleSettingsRead],
+    summary="Update nightly MRP settings",
+    dependencies=[require_permission(Permission.MRP_RUN)],
+)
+async def update_schedule_settings(
+    payload: MrpScheduleSettingsUpdate, session: DbSession, tenant: Tenant
+) -> ApiResponse[MrpScheduleSettingsRead]:
+    settings = await service.update_schedule_settings(session, tenant, payload)
+    return ApiResponse[MrpScheduleSettingsRead].ok(
+        settings, success_message("Nightly MRP settings", "updated")
+    )
 
 
 @router.post(

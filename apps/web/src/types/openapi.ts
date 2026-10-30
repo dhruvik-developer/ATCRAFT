@@ -4110,6 +4110,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mrp/schedule-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read nightly MRP settings */
+        get: operations["get_schedule_settings_api_v1_mrp_schedule_settings_get"];
+        /** Update nightly MRP settings */
+        put: operations["update_schedule_settings_api_v1_mrp_schedule_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mrp/shortage-report": {
         parameters: {
             query?: never;
@@ -12126,6 +12144,21 @@ export interface components {
         /** ApiResponse[MrpRunRead] */
         ApiResponse_MrpRunRead_: {
             data?: components["schemas"]["MrpRunRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[MrpScheduleSettingsRead] */
+        ApiResponse_MrpScheduleSettingsRead_: {
+            data?: components["schemas"]["MrpScheduleSettingsRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -24294,6 +24327,52 @@ export interface components {
             status: components["schemas"]["MrpRunStatus"];
             /** Suggestion Count */
             suggestion_count: number;
+            /** Warehouse Ids */
+            warehouse_ids?: string[] | null;
+        };
+        /**
+         * MrpScheduleSettingsRead
+         * @description Resolved nightly MRP settings for one company.
+         */
+        MrpScheduleSettingsRead: {
+            /**
+             * Horizon Days
+             * @default 90
+             */
+            horizon_days: number;
+            /**
+             * Mrp Scheduled Enabled
+             * @default true
+             */
+            mrp_scheduled_enabled: boolean;
+            /**
+             * Respect Safety Stock
+             * @default true
+             */
+            respect_safety_stock: boolean;
+            /** Warehouse Ids */
+            warehouse_ids?: string[] | null;
+        };
+        /**
+         * MrpScheduleSettingsUpdate
+         * @description Replace the company's scheduled-planning configuration.
+         */
+        MrpScheduleSettingsUpdate: {
+            /**
+             * Horizon Days
+             * @default 90
+             */
+            horizon_days: number;
+            /**
+             * Mrp Scheduled Enabled
+             * @default true
+             */
+            mrp_scheduled_enabled: boolean;
+            /**
+             * Respect Safety Stock
+             * @default true
+             */
+            respect_safety_stock: boolean;
             /** Warehouse Ids */
             warehouse_ids?: string[] | null;
         };
@@ -73375,6 +73454,248 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_SalesOrderAvailabilityRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_schedule_settings_api_v1_mrp_schedule_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MrpScheduleSettingsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_schedule_settings_api_v1_mrp_schedule_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MrpScheduleSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MrpScheduleSettingsRead_"];
                 };
             };
             /** @description Malformed request */
