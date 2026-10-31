@@ -1126,22 +1126,30 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         def zero() -> Any:
             return literal(ZERO, Numeric(18, 4))
 
+        line_dispatch_cost = (
+            select(
+                InventoryTransaction.source_line_id.label("line_id"),
+                func.sum(InventoryTransaction.total_cost).label("total_cost"),
+            )
+            .where(
+                InventoryTransaction.company_id == self._company,
+                InventoryTransaction.transaction_type == TransactionType.DISPATCH,
+                InventoryTransaction.source_line_id.is_not(None),
+            )
+            .group_by(InventoryTransaction.source_line_id)
+            .subquery("dispatch_line_cost")
+        )
+        dispatch_cost = line_dispatch_cost.c.total_cost
+
         def value_of_billed_quantity(quantity: Any) -> Any:
             # An invoice line may cover less than the dispatch line when goods
-            # were returned before invoicing. The movement's frozen total still
-            # values the whole dispatch, so take its quantity share.
+            # were returned before invoicing. The line's frozen movement total
+            # still values the whole dispatch, so take its quantity share.
             return func.round(
-                InventoryTransaction.total_cost
-                * quantity
-                / func.nullif(DispatchLine.quantity, ZERO),
+                dispatch_cost * quantity / func.nullif(DispatchLine.quantity, ZERO),
                 4,
             )
 
-        dispatch_movement = and_(
-            InventoryTransaction.id == DispatchLine.inventory_transaction_id,
-            InventoryTransaction.company_id == self._company,
-            InventoryTransaction.transaction_type == TransactionType.DISPATCH,
-        )
         invoice_activity = (
             select(
                 SalesInvoiceLine.item_id.label("item_id"),
@@ -1151,7 +1159,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 zero().label("provisional_revenue_amount"),
                 case(
                     (
-                        InventoryTransaction.id.is_not(None),
+                        dispatch_cost.is_not(None),
                         value_of_billed_quantity(SalesInvoiceLine.quantity),
                     ),
                     else_=ZERO,
@@ -1161,7 +1169,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 zero().label("uninvoiced_quantity"),
                 zero().label("unpriced_quantity"),
                 case(
-                    (InventoryTransaction.id.is_(None), SalesInvoiceLine.quantity),
+                    (dispatch_cost.is_(None), SalesInvoiceLine.quantity),
                     else_=ZERO,
                 ).label("unmatched_cost_quantity"),
             )
@@ -1187,7 +1195,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                     Dispatch.company_id == DispatchLine.company_id,
                 ),
             )
-            .outerjoin(InventoryTransaction, dispatch_movement)
+            .outerjoin(line_dispatch_cost, line_dispatch_cost.c.line_id == DispatchLine.id)
             .where(
                 SalesInvoiceLine.company_id == self._company,
                 SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
@@ -1362,7 +1370,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 zero().label("return_cost_amount"),
                 case(
                     (
-                        InventoryTransaction.id.is_not(None),
+                        dispatch_cost.is_not(None),
                         value_of_billed_quantity(dispatched_quantity),
                     ),
                     else_=ZERO,
@@ -1373,7 +1381,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                     else_=ZERO,
                 ).label("unpriced_quantity"),
                 case(
-                    (InventoryTransaction.id.is_(None), dispatched_quantity),
+                    (dispatch_cost.is_(None), dispatched_quantity),
                     else_=ZERO,
                 ).label("unmatched_cost_quantity"),
             )
@@ -1393,7 +1401,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                     SalesOrderLine.item_id == DispatchLine.item_id,
                 ),
             )
-            .outerjoin(InventoryTransaction, dispatch_movement)
+            .outerjoin(line_dispatch_cost, line_dispatch_cost.c.line_id == DispatchLine.id)
             .where(
                 DispatchLine.company_id == self._company,
                 Dispatch.dispatch_type == DispatchType.SALES,

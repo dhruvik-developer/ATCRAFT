@@ -280,6 +280,46 @@ def test_a_loss_making_item_reports_a_negative_margin_rather_than_zero() -> None
     assert row["margin_percent"] == Decimal("-50.00")
 
 
+def test_pending_return_cost_withholds_cost_and_margin_rather_than_using_an_estimate() -> None:
+    row = _derive(
+        ReportKey.PRODUCT_PROFITABILITY,
+        {
+            "revenue_amount": Decimal("1000"),
+            "cost_amount": Decimal("800"),
+            "cost_pending": True,
+        },
+        _context(),
+    )
+    assert row["cost_amount"] is None
+    assert row["margin_amount"] is None
+    assert row["margin_percent"] is None
+
+
+def test_unpriced_uninvoiced_quantity_withholds_revenue_and_margin() -> None:
+    row = _derive(
+        ReportKey.PRODUCT_PROFITABILITY,
+        {
+            "revenue_amount": Decimal("1000"),
+            "cost_amount": Decimal("800"),
+            "unpriced_quantity": Decimal("2"),
+        },
+        _context(),
+    )
+    assert row["revenue_amount"] is None
+    assert row["margin_amount"] is None
+    assert row["margin_percent"] is None
+
+
+def test_a_credit_only_period_keeps_the_signed_margin_but_has_no_percentage() -> None:
+    row = _derive(
+        ReportKey.PRODUCT_PROFITABILITY,
+        {"revenue_amount": Decimal("-50"), "cost_amount": Decimal("-40")},
+        _context(),
+    )
+    assert row["margin_amount"] == Decimal("-10")
+    assert row["margin_percent"] is None
+
+
 # -----------------------------------------------------------------------------
 # Production and machines
 # -----------------------------------------------------------------------------

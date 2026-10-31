@@ -1467,6 +1467,8 @@ async def consume(
     transaction_type: TransactionType | None = None,
     occurred_at: datetime | None = None,
     serial_ids: Sequence[uuid.UUID] = (),
+    source_line_id: uuid.UUID | None = None,
+    movement_ids: list[uuid.UUID] | None = None,
 ) -> StockReservation:
     """Turn part or all of a reservation into a real stock movement.
 
@@ -1551,6 +1553,7 @@ async def consume(
                         reference_type=reference_type,
                         reference_id=reference_id,
                         reference_code=reference_code,
+                        source_line_id=source_line_id,
                         reason=movement_reason,
                         location_id=reservation.location_id,
                         batch_id=reservation.batch_id,
@@ -1572,6 +1575,7 @@ async def consume(
                     reference_type=reference_type,
                     reference_id=reference_id,
                     reference_code=reference_code,
+                    source_line_id=source_line_id,
                     reason=movement_reason,
                     location_id=reservation.location_id,
                     batch_id=reservation.batch_id,
@@ -1579,6 +1583,8 @@ async def consume(
                 )
             ]
 
+        if movement_ids is not None:
+            movement_ids.extend(row.id for row in posted)
         await engine.audit_reservation(
             reservation,
             summary=(
@@ -1628,6 +1634,8 @@ async def consume_demand_line(
     occurred_at: datetime | None = None,
     batch_id: uuid.UUID | None = None,
     serial_ids: Sequence[uuid.UUID] = (),
+    source_line_id: uuid.UUID | None = None,
+    movement_ids: list[uuid.UUID] | None = None,
 ) -> list[StockReservation]:
     """Draw ``quantity`` down across every open reservation one demand line holds.
 
@@ -1757,6 +1765,8 @@ async def consume_demand_line(
                     transaction_type=transaction_type,
                     occurred_at=occurred_at,
                     serial_ids=named,
+                    source_line_id=source_line_id,
+                    movement_ids=movement_ids,
                 )
             )
     return consumed

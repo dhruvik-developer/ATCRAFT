@@ -412,7 +412,8 @@ Current stock is never computed by summing the ledger on a request path.
 | `reference_type` | `String(48)` | e.g. `goods_receipt`, `material_issue` |
 | `reference_id` | `UUID` | not an FK — the ledger outlives its source |
 | `reference_code` | `String(64)` | human-readable, e.g. `GRN/2026-27/00012` |
-| `reason` | `String(255)` | never null in practice — §83 |
+| `source_line_id` | `UUID` nullable | the document line that posted it (e.g. `dispatch_lines.id`); not an FK, and a dispatch line may post several movements |
+| `reason` | `String(255)` | never null in practice - §83 |
 | `occurred_at` | `TIMESTAMPTZ` | business time, may differ from `created_at` |
 
 Transaction-type vocabulary (§83), each with a fixed sign:
@@ -445,6 +446,7 @@ Indexes:
 (company_id, occurred_at DESC, id DESC)                 -- business-time reports
 (company_id, created_at DESC, id DESC)                  -- keyset ledger paging
 (company_id, reference_type, reference_id)              -- "what did this GRN post?"
+(company_id, source_line_id)                            -- one document line's full cost
 (company_id, transaction_type, occurred_at DESC)
 ```
 

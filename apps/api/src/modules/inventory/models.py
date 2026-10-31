@@ -517,6 +517,14 @@ class InventoryTransaction(ImmutableLedgerEntity):
     reference_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
     reference_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    #: The document line this movement belongs to, when the source document has
+    #: lines that need their own cost back. A dispatch line is the reason this
+    #: exists: one line can post several movements (one per reservation position,
+    #: or one per serial), and profitability has to sum them without guessing
+    #: from item and batch alone. Bare UUID for the same outliving reason as
+    #: ``reference_id``.
+    source_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+
     #: Never blank in practice - section 83 requires a reason for every movement.
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
 
@@ -557,6 +565,7 @@ class InventoryTransaction(ImmutableLedgerEntity):
             "reference_type",
             "reference_id",
         ),
+        Index("ix_inventory_transactions_source_line", "company_id", "source_line_id"),
         Index(
             "ix_inventory_transactions_type",
             "company_id",

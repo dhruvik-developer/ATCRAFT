@@ -15,7 +15,9 @@ from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
 from src.core.pagination import PageParams, SortParams
 from src.core.types import ZERO
 from src.modules.allocation import service as allocation
+from src.modules.audit.models import AuditLog
 from src.modules.dispatch import service as dispatch_service
+from src.modules.dispatch.models import DispatchLine
 from src.modules.dispatch.schemas import DispatchCreate, DispatchRequest
 from src.modules.finance import credit_note_service as credit_notes
 from src.modules.finance import sales_invoice_service as invoices
@@ -23,6 +25,8 @@ from src.modules.finance import service as finance
 from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNoteLineIn
 from src.modules.finance.models import (
     CreditNote,
+    CreditNoteCostAllocation,
+    CreditNoteLine,
     CreditNoteReason,
     CreditNoteStatus,
     LedgerEntry,
@@ -35,13 +39,15 @@ from src.modules.finance.models import (
 from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate, SalesInvoiceFilters
 from src.modules.finance.schemas import AllocationRequest, PaymentAllocationIn, PaymentCreate
 from src.modules.inventory import service as inventory
-from src.modules.inventory.models import TransactionType
+from src.modules.inventory.models import InventoryTransaction, TransactionType
 from src.modules.quality import service as quality
 from src.modules.quality.schemas import DecideRequest
+from src.modules.reports.repository import ReportQueryRepository
+from src.modules.reports.schemas import ReportFilters, ReportPeriod
 from src.modules.sales import service as sales
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.sales_returns import service as returns
-from src.modules.sales_returns.models import SalesReturn, SalesReturnStatus
+from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
 from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
 from tests.seed_support import seed_customer, seed_item, seed_uom, seed_warehouse
 
@@ -891,3 +897,196 @@ async def test_paid_return_credit_cancellation_and_reissue_preserve_counters_and
     assert (
         await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
     ).status == SalesInvoiceStatus.PAID
+
+
+async def _profitability_row(b, item_id):
+    period = ReportPeriod(date_from=today(), date_to=today())
+    stmt = ReportQueryRepository(b.session, b.tenant).product_profitability(
+        period, ReportFilters(item_id=item_id)
+    )
+    return (await b.session.execute(stmt)).mappings().one()
+
+
+async def test_return_credit_freezes_its_receipt_fifo_piece_and_cancellation_releases_it(bench):
+    b = bench
+    dispatch = await make_dispatch(b, "200")
+    invoice = await issue(b, dispatch)
+    returned = await _return_for_invoice(b, dispatch, requires_qc=False, receive=True)
+
+    note = (
+        await b.session.scalars(select(CreditNote).where(CreditNote.sales_return_id == returned.id))
+    ).one()
+    note_line = (
+        await b.session.scalars(
+            select(CreditNoteLine).where(CreditNoteLine.credit_note_id == note.id)
+        )
+    ).one()
+    return_line = await b.session.get(SalesReturnLine, returned.lines[0].id)
+    allocation = (
+        await b.session.scalars(
+            select(CreditNoteCostAllocation).where(
+                CreditNoteCostAllocation.credit_note_line_id == note_line.id
+            )
+        )
+    ).one()
+    receipt = await b.session.get(InventoryTransaction, allocation.receipt_transaction_id)
+
+    assert return_line.receipt_transaction_id == receipt.id
+    assert receipt.transaction_type == TransactionType.CUSTOMER_RETURN
+    assert receipt.reference_id == returned.id
+    assert receipt.total_cost == Decimal("10.0000")
+    assert allocation.sales_return_line_id == return_line.id
+    assert allocation.source_quantity_offset == ZERO
+    assert allocation.quantity == Decimal("2.0000")
+    assert allocation.cost_amount == Decimal("10.0000")
+
+    await credit_notes.cancel_credit_note(
+        b.session, b.tenant, note.id, reason="Reprice the return credit"
+    )
+    replacement = await credit_notes.issue_credit_note(
+        b.session,
+        b.tenant,
+        _return_credit(invoice, returned.id, quantity="2"),
+    )
+    replacement_line = (
+        await b.session.scalars(
+            select(CreditNoteLine).where(CreditNoteLine.credit_note_id == replacement.id)
+        )
+    ).one()
+    replacement_allocation = (
+        await b.session.scalars(
+            select(CreditNoteCostAllocation).where(
+                CreditNoteCostAllocation.credit_note_line_id == replacement_line.id
+            )
+        )
+    ).one()
+
+    # The cancelled note's evidence stays frozen, while its range becomes
+    # available to the replacement without moving or repricing either row.
+    assert replacement_allocation.receipt_transaction_id == receipt.id
+    assert replacement_allocation.source_quantity_offset == allocation.source_quantity_offset
+    assert replacement_allocation.quantity == allocation.quantity
+    assert replacement_allocation.cost_amount == allocation.cost_amount
+    assert await b.session.scalar(select(func.count()).select_from(CreditNoteCostAllocation)) == 2
+
+
+async def test_missing_receipt_anchor_leaves_return_credit_cost_pending_and_audited(bench):
+    b = bench
+    dispatch = await make_dispatch(b, "200")
+    invoice = await issue(b, dispatch)
+    returned = await _return_for_invoice(b, dispatch, requires_qc=False, receive=True)
+    original = (
+        await b.session.scalars(select(CreditNote).where(CreditNote.sales_return_id == returned.id))
+    ).one()
+    await credit_notes.cancel_credit_note(
+        b.session, b.tenant, original.id, reason="Reissue against legacy evidence"
+    )
+
+    # A historic return may predate the receipt anchor. The revenue credit is
+    # still valid, but no FIFO piece can be proven and none may be guessed.
+    return_line = await b.session.get(SalesReturnLine, returned.lines[0].id)
+    return_line.receipt_transaction_id = None
+    await b.session.flush()
+
+    replacement = await credit_notes.issue_credit_note(
+        b.session,
+        b.tenant,
+        _return_credit(invoice, returned.id, quantity="2"),
+    )
+    replacement_line = (
+        await b.session.scalars(
+            select(CreditNoteLine).where(CreditNoteLine.credit_note_id == replacement.id)
+        )
+    ).one()
+
+    assert (
+        await b.session.scalars(
+            select(CreditNoteCostAllocation).where(
+                CreditNoteCostAllocation.credit_note_line_id == replacement_line.id
+            )
+        )
+    ).all() == []
+    assert await b.session.scalar(select(func.count()).select_from(CreditNoteCostAllocation)) == 1
+
+    audit = (
+        await b.session.scalars(
+            select(AuditLog)
+            .where(AuditLog.entity_type == "credit_note", AuditLog.entity_id == replacement.id)
+            .order_by(AuditLog.created_at.desc())
+        )
+    ).first()
+    assert audit is not None
+    assert audit.context is not None
+    assert audit.context["cost_pending_line_ids"] == [str(replacement_line.id)]
+
+    raw = await _profitability_row(b, b.item.id)
+    assert Decimal(raw["invoice_cost_amount"]) == Decimal("1000.0000"), dict(raw)
+    assert Decimal(raw["return_cost_amount"]) == ZERO
+    assert Decimal(raw["unmatched_cost_quantity"]) == Decimal("2.0000")
+    assert raw["cost_pending"] is True
+
+
+async def test_product_profitability_nets_return_cost_and_estimates_uninvoiced_dispatch(bench):
+    b = bench
+    first = await make_dispatch(b, "200")
+    invoice = await issue(b, first)
+
+    await inventory.post_movement(
+        b.session,
+        b.tenant,
+        item_id=b.item.id,
+        warehouse_id=b.warehouse.id,
+        quantity=Decimal("300"),
+        transaction_type=TransactionType.PURCHASE_RECEIPT,
+        reference_type="goods_receipt",
+        reference_id=uuid.uuid4(),
+        reference_code="GRN-PROFITABILITY",
+        reason="Profitability fixture replenishment",
+        unit_cost=Decimal("6"),
+    )
+    await sales.allocate_order(b.session, b.tenant, b.order.id, reason="Reserve replenishment")
+    second = await make_dispatch(b, "100")
+
+    returned = await _return_for_invoice(b, first, requires_qc=False, receive=True)
+    credit = (
+        await b.session.scalars(select(CreditNote).where(CreditNote.sales_return_id == returned.id))
+    ).one()
+
+    raw = await _profitability_row(b, b.item.id)
+    invoice_revenue = invoice.lines[0].taxable_amount
+    credit_line = (
+        await b.session.scalars(
+            select(CreditNoteLine).where(CreditNoteLine.credit_note_id == credit.id)
+        )
+    ).one()
+    credit_revenue = credit_line.taxable_amount
+    provisional_revenue = Decimal("993.3340")
+    expected_cost = Decimal("1590.0000")
+
+    assert Decimal(raw["invoice_revenue_amount"]) == invoice_revenue
+    assert Decimal(raw["credit_amount"]) == credit_revenue
+    assert Decimal(raw["provisional_revenue_amount"]) == provisional_revenue
+    assert Decimal(raw["invoice_cost_amount"]) == Decimal("1000.0000")
+    assert Decimal(raw["return_cost_amount"]) == Decimal("10.0000")
+    assert Decimal(raw["provisional_cost_amount"]) == Decimal("600.0000")
+    assert Decimal(raw["revenue_amount"]) == invoice_revenue - credit_revenue + provisional_revenue
+    assert Decimal(raw["cost_amount"]) == expected_cost
+    assert Decimal(raw["quantity_sold"]) == Decimal("298.0000")
+    assert Decimal(raw["uninvoiced_quantity"]) == Decimal("100.0000")
+    assert Decimal(raw["unpriced_quantity"]) == ZERO
+    assert Decimal(raw["unmatched_cost_quantity"]) == ZERO
+    assert raw["has_provisional_revenue"] is True
+    assert raw["cost_pending"] is False
+
+    # The second dispatch has no invoice, so only its own FIFO movement can
+    # value it. Its agreed order price is the estimate, not a zero.
+    second_line = await b.session.get(DispatchLine, second.lines[0].id)
+    assert second_line is not None
+    assert second_line.inventory_transaction_id is not None
+    second_movement = await b.session.get(
+        InventoryTransaction, second_line.inventory_transaction_id
+    )
+    assert second_movement is not None
+    assert second_movement.source_line_id == second_line.id
+    assert Decimal(second_movement.total_cost) == Decimal("600.0000")
+    assert Decimal(raw["provisional_cost_amount"]) == Decimal(second_movement.total_cost)

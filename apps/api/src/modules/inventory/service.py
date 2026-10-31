@@ -330,6 +330,10 @@ class MovementRequest:
     reason: str
     reference_id: uuid.UUID | None = None
     reference_code: str | None = None
+    #: The source document line, when it has lines that each own their cost.
+    #: A dispatch line posts one movement per reservation position or serial,
+    #: and this is what lets profitability attribute every one of them back.
+    source_line_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
     batch_id: uuid.UUID | None = None
     serial_id: uuid.UUID | None = None
@@ -3418,6 +3422,7 @@ class MovementEngine:
             reference_type=movement.reference_type,
             reference_id=movement.reference_id,
             reference_code=movement.reference_code,
+            source_line_id=movement.source_line_id,
             reason=movement.reason,
             occurred_at=occurred_at,
         )
@@ -3935,6 +3940,7 @@ async def post_movement(
     reference_id: uuid.UUID | None,
     reference_code: str | None,
     reason: str,
+    source_line_id: uuid.UUID | None = None,
     location_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
     serial_id: uuid.UUID | None = None,
@@ -3956,6 +3962,7 @@ async def post_movement(
         reference_id=reference_id,
         reference_code=reference_code,
         reason=reason,
+        source_line_id=source_line_id,
         location_id=location_id,
         batch_id=batch_id,
         serial_id=serial_id,

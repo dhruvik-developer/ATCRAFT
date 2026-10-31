@@ -683,6 +683,7 @@ def build_line_movements(
         "reference_type": MOVEMENT_REFERENCE_DISPATCH,
         "reference_id": dispatch_id,
         "reference_code": dispatch_code,
+        "source_line_id": line.id,
         "reason": reason,
         "batch_id": line.batch_id,
         "stock_state": StockState.AVAILABLE,
@@ -2089,6 +2090,7 @@ async def dispatch_consignment(
             item = items.get(line.item_id)
             if item is None:
                 raise NotFoundError("Item", line.item_id)
+            posted_movement_ids: list[uuid.UUID] = []
 
             order_line = (
                 order_lines.get(line.sales_order_line_id)
@@ -2117,12 +2119,16 @@ async def dispatch_consignment(
                     reference_type=MOVEMENT_REFERENCE_DISPATCH,
                     reference_id=dispatch.id,
                     reference_code=dispatch.code,
+                    source_line_id=line.id,
+                    movement_ids=posted_movement_ids,
                     transaction_type=TransactionType.DISPATCH,
                     occurred_at=occurred_at,
                     batch_id=line.batch_id,
                     serial_ids=list(line.serial_ids) if item.is_serial_tracked else (),
                 )
                 line.reservation_id = reservations[0].id
+                if posted_movement_ids and line.inventory_transaction_id is None:
+                    line.inventory_transaction_id = posted_movement_ids[0]
                 consumed.extend(reservation.id for reservation in reservations)
                 # What the reservation still holds after this drawdown - the
                 # order line's allocated figure follows the live promise.
