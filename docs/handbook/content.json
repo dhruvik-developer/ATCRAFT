@@ -4682,6 +4682,47 @@
           ]
         },
         {
+          "route": "/finance/trial-balance",
+          "title": "Trial Balance",
+          "purpose": "The trial balance shows each ledger account's opening balance, debit and credit movement in the financial year to date, and closing balance. Accounts are grouped by class with subtotals. Its central check is whether total closing debit balances equal total closing credit balances.",
+          "whoUses": "The accountant or financial controller, and the owner reviewing the company's books.",
+          "keyActions": [
+            {
+              "action": "Choose the reporting date",
+              "how": "Trial balance \u2192 As at date",
+              "note": "The page defaults to today and keeps a chosen date in the address."
+            },
+            {
+              "action": "Review account balances and class subtotals",
+              "how": "Trial balance \u2192 review the account-class groups"
+            },
+            {
+              "action": "Check whether the closing ledger balances agree",
+              "how": "Trial balance \u2192 compare Closing debit / credit and the Balanced result",
+              "note": "If they differ, the page warns that the ledger needs reconciliation."
+            },
+            {
+              "action": "Export the figures",
+              "how": "Trial balance \u2192 Export XLSX",
+              "note": "The workbook is generated in the background. Requires both ledger-view and report-export rights."
+            }
+          ],
+          "flow": [
+            "Open Trial balance from Finance.",
+            "Choose the date to report through.",
+            "Review opening balances and period debit and credit movement by account class.",
+            "Confirm that closing debit balances equal closing credit balances, or investigate the warning.",
+            "Export the XLSX workbook if a copy is needed."
+          ],
+          "notes": "The period is the financial year containing the selected date, using the active financial-year record or the company's configured start month. Only posted ledger entries through the selected date are included; future postings are not.",
+          "permission": "Reading the page requires ledger.view. Export additionally requires report.export. The screen is read-only and does not create or alter ledger entries.",
+          "rules": [
+            "The reporting period starts at the beginning of the financial year containing the selected date, not at the start of the calendar year.",
+            "A ledger account's closing balance is its opening balance plus period debits minus period credits. Debit and credit balances are compared by their closing sign.",
+            "An unbalanced result is a warning to reconcile the underlying postings; it is not silently rounded or corrected by the report."
+          ]
+        },
+        {
           "route": "/reports",
           "title": "Reports",
           "purpose": "This is the report room. Every report the system can produce is listed here as a card, split into those that cover a period \u2014 sales, dispatch, rejection, efficiency \u2014 and those that read the position as it stands right now, such as stock availability and dead stock. You pick a report, set its dates and filters, and press Run; a result appears as a table on the screen. You can export any result as XLSX or PDF in the background, and results above the on-screen limit are prepared as a workbook automatically. Nothing is fetched until you ask for it, so opening the page never sets a heavy query running.",
