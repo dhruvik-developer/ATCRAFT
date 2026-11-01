@@ -54,6 +54,10 @@ interface MeResponse {
   branch_id?: string | null
   plant_id?: string | null
   department_id?: string | null
+  phone_e164?: string | null
+  phone_verified_at?: string | null
+  whatsapp_opt_in_at?: string | null
+  sms_opt_in_at?: string | null
   vendor_id?: string | null
   customer_id?: string | null
   /** Both are omitted, not nulled, when empty - never dereference directly. */
@@ -93,6 +97,10 @@ export interface CurrentUser {
   department_id: string | null
   session_id: string | null
   last_login_at: string | null
+  phone_e164: string | null
+  phone_verified_at: string | null
+  whatsapp_opt_in_at: string | null
+  sms_opt_in_at: string | null
   allowed_warehouse_ids: string[]
   allowed_category_ids: string[]
 }
@@ -116,6 +124,10 @@ function toCurrentUser(me: MeResponse): CurrentUser {
     department_id: me.department_id ?? null,
     session_id: me.session_id ?? null,
     last_login_at: me.last_login_at ?? null,
+    phone_e164: me.phone_e164 ?? null,
+    phone_verified_at: me.phone_verified_at ?? null,
+    whatsapp_opt_in_at: me.whatsapp_opt_in_at ?? null,
+    sms_opt_in_at: me.sms_opt_in_at ?? null,
     allowed_warehouse_ids: me.allowed_warehouse_ids ?? [],
     allowed_category_ids: me.allowed_category_ids ?? [],
   }
@@ -396,6 +408,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           department_id: null,
           session_id: result.session_id,
           last_login_at: null,
+          phone_e164: null,
+          phone_verified_at: null,
+          whatsapp_opt_in_at: null,
+          sms_opt_in_at: null,
           allowed_warehouse_ids: [],
           allowed_category_ids: [],
         }

@@ -43,7 +43,13 @@ from src.core.responses import OffsetPagination
 # against the identity master; it never writes to ``users`` outside the narrow
 # credential columns the service updates on the instance it loaded here.
 from src.modules.organization.models import Company
-from src.modules.users.models import LoginAttempt, PasswordResetToken, User, UserSession
+from src.modules.users.models import (
+    LoginAttempt,
+    PasswordResetToken,
+    User,
+    UserPhoneVerificationChallenge,
+    UserSession,
+)
 
 #: Columns of ``users`` the sign-in path actually needs. Selecting the whole row
 #: would drag ``preferences`` (JSONB) into every login for no reason - but the
@@ -54,6 +60,10 @@ _ACCOUNT_SUMMARY_COLUMNS = (
     User.must_change_password,
     User.mfa_enabled,
     User.last_login_at,
+    User.phone_e164,
+    User.phone_verified_at,
+    User.whatsapp_opt_in_at,
+    User.sms_opt_in_at,
 )
 
 
@@ -144,11 +154,24 @@ async def increment_failed_attempts(session: AsyncSession, account: User) -> int
 
 async def get_account_summary(
     session: AsyncSession, user_id: uuid.UUID, company_id: uuid.UUID
-) -> tuple[bool, bool, datetime | None, str] | None:
+) -> (
+    tuple[
+        bool,
+        bool,
+        datetime | None,
+        str | None,
+        datetime | None,
+        datetime | None,
+        datetime | None,
+        str,
+    ]
+    | None
+):
     """The account flags ``/auth/me`` adds to the principal, and the company name.
 
     A column projection rather than the entities: ``/auth/me`` is polled by every
-    page load, and it needs four fields out of two wide rows it will not modify.
+    page load, and needs only the account flags, messaging profile, and company
+    name from two wide rows it will not modify.
 
     The company name is joined here rather than fetched by the browser from
     ``/organization/company``, and the reason is a permission: that endpoint
@@ -167,7 +190,20 @@ async def get_account_summary(
         )
     )
     row = (await session.execute(stmt)).first()
-    return (bool(row[0]), bool(row[1]), row[2], row[3]) if row is not None else None
+    return (
+        (
+            bool(row[0]),
+            bool(row[1]),
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+        )
+        if row is not None
+        else None
+    )
 
 
 async def find_reset_token(session: AsyncSession, token_hash: str) -> PasswordResetToken | None:
@@ -447,6 +483,45 @@ class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
         return record
 
 
+class PhoneVerificationRepository:
+    """Tenant-and-user-scoped profile records for SMS phone verification."""
+
+    def __init__(self, session: AsyncSession, *, company_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        self.session = session
+        self.company_id = company_id
+        self.user_id = user_id
+
+    async def account_for_update(self) -> User | None:
+        stmt = (
+            select(User)
+            .where(
+                User.id == self.user_id,
+                User.company_id == self.company_id,
+                User.is_active.is_(True),
+                User.deleted_at.is_(None),
+            )
+            .with_for_update(of=User)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def challenge_for_update(self) -> UserPhoneVerificationChallenge | None:
+        stmt = (
+            select(UserPhoneVerificationChallenge)
+            .where(
+                UserPhoneVerificationChallenge.company_id == self.company_id,
+                UserPhoneVerificationChallenge.user_id == self.user_id,
+            )
+            .with_for_update(of=UserPhoneVerificationChallenge)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    def add_challenge(
+        self, challenge: UserPhoneVerificationChallenge
+    ) -> UserPhoneVerificationChallenge:
+        self.session.add(challenge)
+        return challenge
+
+
 async def session_ids_for(
     session: AsyncSession, company_id: uuid.UUID, ids: Sequence[uuid.UUID]
 ) -> list[str]:
@@ -461,6 +536,7 @@ async def session_ids_for(
 
 __all__ = [
     "PasswordResetTokenRepository",
+    "PhoneVerificationRepository",
     "UserSessionRepository",
     "find_accounts_by_email",
     "find_reset_token",

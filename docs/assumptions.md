@@ -1321,6 +1321,36 @@ here.
 
 ---
 
+## §D2-n. External messages require verified consent and an active tenant template
+
+**Assumed.** A ten-digit Indian mobile beginning with 6–9, optionally entered
+with a leading zero, is normalised to `+91`; international numbers must include
+their country code. SMS verification codes contain six digits, expire after ten
+minutes, have a sixty-second resend delay, allow at most three sends per hour
+and five guesses per challenge. WhatsApp and SMS notifications require the
+company channel to be enabled, a verified number, current channel consent, the
+notification-type preference and an active tenant template. CRITICAL events
+remain in-app only. Removing or changing a phone number clears verification and
+both channel consents.
+
+**Why.** The proposal specifies Indian DLT registration and explicitly asks for
+India `+91` normalisation, but does not define local-number entry or OTP
+budgets. The conversion is limited to recognizable Indian mobile formats;
+silently assigning a country code to other numbers would risk messaging the
+wrong person. The bounded code lifecycle limits message cost and guessing while
+keeping verification short-lived.
+
+**Where.** `src/modules/auth/schemas.py` normalises the phone; `auth.phone_service`
+owns the OTP lifecycle and consent audit; `notifications.service.resolve_channels`
+requires all delivery gates. D2 messaging settings are disabled by default.
+
+**Impact if wrong.** If the customer wants a different resend or attempt budget,
+change the named constants and their regression tests together. If Indian
+ten-digit entry should not be accepted, require E.164 input and remove the
+country-specific conversions rather than guessing from deployment configuration.
+
+---
+
 ## 41. A cost centre is optional everywhere, and NULL means unallocated
 
 **Assumed.** Every carrier of a cost centre - departments, work centres,

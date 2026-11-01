@@ -309,6 +309,7 @@ export const queryKeys = {
   },
   notifications: {
     all: ['notifications'] as const,
+    channels: ['notifications', 'channels'] as const,
     unreadCount: ['notifications', 'unread-count'] as const,
     pushConfig: ['notifications', 'push-config'] as const,
     pushState: ['notifications', 'push-state'] as const,

@@ -99,6 +99,13 @@ class SmtpSecurity(StrEnum):
     tls = "tls"
 
 
+class SmsProvider(StrEnum):
+    """Supported server-to-server SMS gateway request formats."""
+
+    msg91 = "msg91"
+    generic_json = "generic_json"
+
+
 def _blank_to_none(value: object) -> object:
     """Let optional typed settings be represented by an empty env value."""
     return None if value == "" else value
@@ -389,6 +396,24 @@ class Settings(BaseSettings):
         "notify.windows.com,web.push.apple.com,push.apple.com"
     )
 
+    # Messaging is disabled until the customer supplies approved provider
+    # accounts and templates. Every request is additionally constrained by the
+    # host allow-list in core.messaging.
+    whatsapp_enabled: bool = False
+    whatsapp_api_base: str = "https://graph.facebook.com"
+    whatsapp_api_version: str = "v20.0"
+    whatsapp_phone_number_id: str = ""
+    whatsapp_access_token: SecretStr = Field(default_factory=lambda: SecretStr(""), repr=False)
+    sms_enabled: bool = False
+    sms_provider: SmsProvider = SmsProvider.msg91
+    sms_api_url: str = "https://control.msg91.com/api/v5/flow/"
+    sms_auth_key: SecretStr = Field(default_factory=lambda: SecretStr(""), repr=False)
+    sms_sender_id: str = ""
+    sms_dlt_entity_id: str = ""
+    sms_verification_template_id: str = ""
+    messaging_allowed_hosts: str = "graph.facebook.com,control.msg91.com"
+    messaging_timeout_seconds: Annotated[int, Field(ge=1, le=60)] = 10
+
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> Settings:
         """Refuse to boot a production process with development-grade secrets.
@@ -470,6 +495,58 @@ class Settings(BaseSettings):
             )
         if subject and not (subject.startswith("mailto:") or subject.startswith("https://")):
             raise ValueError("WEB_PUSH_SUBJECT must use mailto: or https:")
+        if (
+            self.whatsapp_enabled
+            and self.is_deployed
+            and (
+                not self.whatsapp_phone_number_id
+                or not self.whatsapp_access_token.get_secret_value()
+            )
+        ):
+            raise ValueError(
+                "WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN are required "
+                "when WhatsApp is enabled"
+            )
+        if (
+            (self.sms_enabled or self.whatsapp_enabled)
+            and self.is_deployed
+            and not (
+                self.sms_auth_key.get_secret_value()
+                and self.sms_sender_id
+                and self.sms_dlt_entity_id
+                and self.sms_verification_template_id
+            )
+        ):
+            raise ValueError(
+                "SMS_AUTH_KEY, SMS_SENDER_ID, SMS_DLT_ENTITY_ID and "
+                "SMS_VERIFICATION_TEMPLATE_ID are required when messaging is enabled "
+                "because phone verification uses SMS OTP"
+            )
+        if self.whatsapp_enabled or self.sms_enabled:
+            allowed = {
+                host.strip().lower().rstrip(".")
+                for host in self.messaging_allowed_hosts.split(",")
+                if host.strip()
+            }
+            configured_urls = [self.whatsapp_api_base] if self.whatsapp_enabled else []
+            if self.sms_enabled or self.whatsapp_enabled:
+                configured_urls.append(self.sms_api_url)
+            for value in configured_urls:
+                parsed = urlsplit(value)
+                if (
+                    parsed.scheme != "https"
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.port not in (None, 443)
+                    or parsed.query
+                    or parsed.fragment
+                    or parsed.hostname.lower().rstrip(".") not in allowed
+                ):
+                    raise ValueError(
+                        "Messaging provider URLs must use HTTPS on an explicitly "
+                        "allow-listed host and the default port"
+                    )
         return self
 
     def ensure_storage_dirs(self) -> None:
@@ -493,6 +570,7 @@ __all__ = [
     "AppEnv",
     "EmailProvider",
     "Settings",
+    "SmsProvider",
     "SmtpSecurity",
     "get_settings",
     "is_placeholder_secret",

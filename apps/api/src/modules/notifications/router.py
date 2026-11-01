@@ -29,10 +29,16 @@ from src.core.responses import (
     ApiResponse,
     CursorPaginatedResponse,
 )
+from src.modules.notifications.channel_service import NotificationChannelService
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.push_router import router as push_router
 from src.modules.notifications.schemas import (
     MarkReadResult,
+    NotificationChannelsRead,
+    NotificationChannelTemplateRead,
+    NotificationChannelTemplatesUpdate,
+    NotificationChannelTestRequest,
+    NotificationDeliveryRead,
     NotificationFilters,
     NotificationPreferenceRead,
     NotificationRead,
@@ -63,6 +69,86 @@ def notification_filters(
 
 
 FilterDep = Annotated[NotificationFilters, Depends(notification_filters)]
+
+
+@router.get(
+    "/channels",
+    response_model=ApiResponse[NotificationChannelsRead],
+    summary="Enabled external notification channels",
+    dependencies=[require_permission(Permission.NOTIFICATION_VIEW)],
+)
+async def notification_channels(
+    session: DbSession, tenant: Tenant
+) -> ApiResponse[NotificationChannelsRead]:
+    result = await NotificationChannelService(session, tenant).channel_status()
+    return ApiResponse[NotificationChannelsRead].ok(result)
+
+
+@router.get(
+    "/channel-templates",
+    response_model=ApiResponse[list[NotificationChannelTemplateRead]],
+    summary="Messaging templates configured for this company",
+    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+)
+async def list_channel_templates(
+    session: DbSession, tenant: Tenant
+) -> ApiResponse[list[NotificationChannelTemplateRead]]:
+    result = await NotificationChannelService(session, tenant).list_templates()
+    return ApiResponse[list[NotificationChannelTemplateRead]].ok(result)
+
+
+@router.get(
+    "/channel-status",
+    response_model=ApiResponse[NotificationChannelsRead],
+    summary="Provider status for messaging administration",
+    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+)
+async def admin_channel_status(
+    session: DbSession, tenant: Tenant
+) -> ApiResponse[NotificationChannelsRead]:
+    result = await NotificationChannelService(session, tenant).channel_status()
+    return ApiResponse[NotificationChannelsRead].ok(result)
+
+
+@router.put(
+    "/channel-templates",
+    response_model=ApiResponse[list[NotificationChannelTemplateRead]],
+    summary="Create or update messaging templates",
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+)
+async def update_channel_templates(
+    session: DbSession, tenant: Tenant, payload: NotificationChannelTemplatesUpdate
+) -> ApiResponse[list[NotificationChannelTemplateRead]]:
+    result = await NotificationChannelService(session, tenant).update_templates(payload)
+    return ApiResponse[list[NotificationChannelTemplateRead]].ok(
+        result, success_message("Messaging templates", "saved")
+    )
+
+
+@router.post(
+    "/channel-templates/test",
+    response_model=ApiResponse[dict[str, bool]],
+    summary="Send a selected template to the signed-in user's verified number",
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+)
+async def test_channel_template(
+    session: DbSession, tenant: Tenant, payload: NotificationChannelTestRequest
+) -> ApiResponse[dict[str, bool]]:
+    await NotificationChannelService(session, tenant).test_send(payload)
+    return ApiResponse[dict[str, bool]].ok({"sent": True}, "Test message sent")
+
+
+@router.get(
+    "/deliveries",
+    response_model=CursorPaginatedResponse[NotificationDeliveryRead],
+    summary="Messaging delivery history",
+    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+)
+async def list_messaging_deliveries(
+    session: DbSession, tenant: Tenant, params: CursorDep
+) -> CursorPaginatedResponse[NotificationDeliveryRead]:
+    items, pagination = await NotificationChannelService(session, tenant).list_deliveries(params)
+    return CursorPaginatedResponse[NotificationDeliveryRead](data=items, pagination=pagination)
 
 
 @router.get(

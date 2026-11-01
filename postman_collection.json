@@ -1828,6 +1828,41 @@
           }
         },
         {
+          "name": "Record messaging consent for the signed-in user",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"channel\": \"WHATSAPP\",\n  \"opt_in\": false\n}"
+            },
+            "description": "Record messaging consent for the signed-in user",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me",
+                "messaging-consent"
+              ],
+              "raw": "{{base_url}}/api/v1/auth/me/messaging-consent"
+            }
+          }
+        },
+        {
           "name": "Redeem a password reset link",
           "request": {
             "body": {
@@ -2001,6 +2036,63 @@
           }
         },
         {
+          "name": "Send a verification code to the signed-in user's mobile number",
+          "request": {
+            "description": "Send a verification code to the signed-in user's mobile number",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me",
+                "phone",
+                "verification"
+              ],
+              "raw": "{{base_url}}/api/v1/auth/me/phone/verification"
+            }
+          }
+        },
+        {
+          "name": "Set the signed-in user's mobile number",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"phone\": \"\"\n}"
+            },
+            "description": "Set the signed-in user's mobile number",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me",
+                "phone"
+              ],
+              "raw": "{{base_url}}/api/v1/auth/me/phone"
+            }
+          }
+        },
+        {
           "event": [
             {
               "listen": "test",
@@ -2084,6 +2176,43 @@
                 "me"
               ],
               "raw": "{{base_url}}/api/v1/auth/me"
+            }
+          }
+        },
+        {
+          "name": "Verify the signed-in user's mobile number",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\"\n}"
+            },
+            "description": "Verify the signed-in user's mobile number",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me",
+                "phone",
+                "verification",
+                "confirm"
+              ],
+              "raw": "{{base_url}}/api/v1/auth/me/phone/verification/confirm"
             }
           }
         }
@@ -12226,6 +12355,40 @@
     {
       "item": [
         {
+          "name": "Create or update messaging templates",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"templates\": [\n    {\n      \"channel\": {},\n      \"notification_type\": {},\n      \"is_active\": {},\n      \"language\": {},\n      \"parameters\": {},\n      \"sms_text\": {},\n      \"template_id\": {},\n      \"template_name\": {}\n    }\n  ]\n}"
+            },
+            "description": "Create or update messaging templates",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "channel-templates"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/channel-templates"
+            }
+          }
+        },
+        {
           "name": "Delete Subscription",
           "request": {
             "description": "Delete Subscription",
@@ -12251,6 +12414,26 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Enabled external notification channels",
+          "request": {
+            "description": "Enabled external notification channels",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "channels"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/channels"
             }
           }
         },
@@ -12389,6 +12572,60 @@
           }
         },
         {
+          "name": "Messaging delivery history",
+          "request": {
+            "description": "Messaging delivery history",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "deliveries"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/deliveries?"
+            }
+          }
+        },
+        {
+          "name": "Messaging templates configured for this company",
+          "request": {
+            "description": "Messaging templates configured for this company",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "channel-templates"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/channel-templates"
+            }
+          }
+        },
+        {
           "name": "My delivery preferences",
           "request": {
             "description": "Returns every notification type with the setting that will actually be applied, including types the user has never configured.",
@@ -12405,6 +12642,26 @@
                 "preferences"
               ],
               "raw": "{{base_url}}/api/v1/notifications/preferences"
+            }
+          }
+        },
+        {
+          "name": "Provider status for messaging administration",
+          "request": {
+            "description": "Provider status for messaging administration",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "channel-status"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/channel-status"
             }
           }
         },
@@ -12426,6 +12683,41 @@
                 "config"
               ],
               "raw": "{{base_url}}/api/v1/notifications/push/config"
+            }
+          }
+        },
+        {
+          "name": "Send a selected template to the signed-in user's verified number",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"channel\": \"WHATSAPP\",\n  \"notification_type\": \"APPROVAL_PENDING\"\n}"
+            },
+            "description": "Send a selected template to the signed-in user's verified number",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "channel-templates",
+                "test"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/channel-templates/test"
             }
           }
         },
@@ -12551,7 +12843,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {},\n      \"push_enabled\": {}\n    }\n  ]\n}"
+              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {},\n      \"push_enabled\": {},\n      \"sms_enabled\": {},\n      \"whatsapp_enabled\": {}\n    }\n  ]\n}"
             },
             "description": "Submits the changed rows in one request. CRITICAL alerts are still delivered in-app regardless of the in-app setting.",
             "header": [

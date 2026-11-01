@@ -287,6 +287,8 @@ MAIL_TASKS = frozenset(
     {
         "notifications.send_email",
         "notifications.send_push",
+        "notifications.send_whatsapp",
+        "notifications.send_sms",
         "notifications.dispatch_pending_deliveries",
         "notifications.send_password_reset_email",
         "notifications.dispatch_pending_password_resets",

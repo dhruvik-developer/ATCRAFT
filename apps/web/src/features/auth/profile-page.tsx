@@ -13,7 +13,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { KeyRound, LogOut, Monitor, ShieldCheck, X } from 'lucide-react'
+import { KeyRound, LogOut, Monitor, Phone, ShieldCheck, X } from 'lucide-react'
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router-dom'
@@ -29,6 +29,7 @@ import {
   Badge,
   Card,
   CardContent,
+  Checkbox,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -48,6 +49,185 @@ import { PASSWORD_MAX_LENGTH, PASSWORD_RULES, passwordField } from './password-p
 
 const SESSION_PAGE_SIZE = 25
 const PushDeviceCard = lazy(() => import('@/features/notifications/push-device-card'))
+
+interface MessagingChannelStatus {
+  whatsapp_enabled: boolean
+  sms_enabled: boolean
+}
+
+function MessagingProfileCard() {
+  const { user, refreshUser } = useAuth()
+  const queryClient = useQueryClient()
+  const [phone, setPhone] = useState(user?.phone_e164 ?? '')
+  const [code, setCode] = useState('')
+  const [codeRequested, setCodeRequested] = useState(false)
+
+  const channels = useQuery({
+    queryKey: queryKeys.notifications.channels,
+    queryFn: () => api.get<MessagingChannelStatus>('/notifications/channels'),
+  })
+
+  useEffect(() => {
+    setPhone(user?.phone_e164 ?? '')
+  }, [user?.phone_e164])
+
+  const savedPhone = user?.phone_e164 ?? ''
+  const phoneVerified = Boolean(user?.phone_verified_at)
+  const profileChanged = phone !== savedPhone
+  const updatePhone = useMutation({
+    mutationFn: () => api.put<{ acknowledged: boolean }>('/auth/me/phone', { phone }),
+    onSuccess: async () => {
+      setCode('')
+      setCodeRequested(false)
+      await refreshUser()
+      toast.success(success.updated('Mobile number'))
+    },
+  })
+  const requestCode = useMutation({
+    mutationFn: () => api.post<{ expires_in_seconds: number }>('/auth/me/phone/verification', {}),
+    onSuccess: () => {
+      setCodeRequested(true)
+      toast.success('Verification code sent')
+    },
+  })
+  const verifyCode = useMutation({
+    mutationFn: () =>
+      api.post<{ acknowledged: boolean }>('/auth/me/phone/verification/confirm', { code }),
+    onSuccess: async () => {
+      setCode('')
+      setCodeRequested(false)
+      await refreshUser()
+      toast.success('Mobile number verified')
+    },
+  })
+  const setConsent = useMutation({
+    mutationFn: (consent: { channel: 'WHATSAPP' | 'SMS'; opt_in: boolean }) =>
+      api.post<{ channel: string; opted_in: boolean }>('/auth/me/messaging-consent', consent),
+    onSuccess: async () => {
+      await refreshUser()
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all })
+      toast.success('Messaging consent updated')
+    },
+  })
+
+  if (channels.isLoading) return null
+  if (channels.isError) {
+    return (
+      <Alert variant="warning">
+        <AlertTitle>Messaging settings unavailable</AlertTitle>
+        <AlertDescription>{describeError(channels.error)}</AlertDescription>
+      </Alert>
+    )
+  }
+  const whatsappEnabled = channels.data?.whatsapp_enabled === true
+  const smsEnabled = channels.data?.sms_enabled === true
+  if (!whatsappEnabled && !smsEnabled) return null
+
+  const toggleConsent = (channel: 'WHATSAPP' | 'SMS', optIn: boolean) =>
+    setConsent.mutate({ channel, opt_in: optIn })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Phone className="h-4 w-4 text-muted-foreground" aria-hidden />
+          Mobile number &amp; messaging
+        </CardTitle>
+        <CardDescription>
+          Verify your number before enabling messages. You can withdraw consent at any time.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex max-w-xl flex-wrap items-end gap-3">
+          <div className="min-w-64 flex-1">
+            <Label htmlFor="messaging-phone">Mobile number</Label>
+            <Input
+              id="messaging-phone"
+              type="tel"
+              autoComplete="tel"
+              maxLength={32}
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              className="mt-1.5"
+              placeholder="+91 98765 43210"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            loading={updatePhone.isPending}
+            disabled={phone === savedPhone}
+            onClick={() => updatePhone.mutate()}
+          >
+            Save number
+          </Button>
+        </div>
+
+        {savedPhone && !phoneVerified && (
+          <div className="flex max-w-xl flex-wrap items-end gap-3">
+            {codeRequested && (
+              <div className="min-w-40">
+                <Label htmlFor="messaging-code">Six-digit code</Label>
+                <Input
+                  id="messaging-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="mt-1.5"
+                />
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              loading={requestCode.isPending}
+              disabled={profileChanged}
+              onClick={() => requestCode.mutate()}
+            >
+              Send verification code
+            </Button>
+            {codeRequested && (
+              <Button
+                type="button"
+                loading={verifyCode.isPending}
+                disabled={code.length !== 6}
+                onClick={() => verifyCode.mutate()}
+              >
+                Verify number
+              </Button>
+            )}
+          </div>
+        )}
+
+        {phoneVerified && <p className="text-sm text-muted-foreground">Mobile number verified</p>}
+        <div className="flex flex-wrap gap-x-8 gap-y-3">
+          {whatsappEnabled && (
+            <Label className="inline-flex items-center gap-2">
+              <Checkbox
+                checked={Boolean(user?.whatsapp_opt_in_at)}
+                disabled={!phoneVerified || profileChanged || setConsent.isPending}
+                onCheckedChange={(checked) => toggleConsent('WHATSAPP', checked === true)}
+              />
+              WhatsApp messages
+            </Label>
+          )}
+          {smsEnabled && (
+            <Label className="inline-flex items-center gap-2">
+              <Checkbox
+                checked={Boolean(user?.sms_opt_in_at)}
+                disabled={!phoneVerified || profileChanged || setConsent.isPending}
+                onCheckedChange={(checked) => toggleConsent('SMS', checked === true)}
+              />
+              SMS messages
+            </Label>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 /**
  * One row of `GET /auth/sessions` (`SessionRead`).
@@ -703,6 +883,7 @@ export default function ProfilePage() {
       )}
 
       <div className="space-y-5">
+        {!mustChangePassword && <MessagingProfileCard />}
         {can(P.NOTIFICATION_VIEW) && !mustChangePassword && (
           <Suspense fallback={null}>
             <PushDeviceCard />

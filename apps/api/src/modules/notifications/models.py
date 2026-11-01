@@ -58,10 +58,10 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import TenantEntity
+from src.core.models import ImmutableLedgerEntity, TenantEntity
 from src.core.types import GUID
 
 
@@ -89,6 +89,16 @@ class NotificationChannel(StrEnum):
     IN_APP = "IN_APP"
     EMAIL = "EMAIL"
     PUSH = "PUSH"
+    WHATSAPP = "WHATSAPP"
+    SMS = "SMS"
+
+
+class NotificationDeliveryOutcome(StrEnum):
+    """Provider result recorded for one outbound delivery attempt."""
+
+    DELIVERED = "DELIVERED"
+    FAILED = "FAILED"
+    RETRY = "RETRY"
 
 
 class NotificationType(StrEnum):
@@ -195,6 +205,7 @@ class Notification(TenantEntity):
     #: user to trust, so an absolute URL here would be an open-redirect primitive
     #: handed to whatever code raised the alert.
     action_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    template_data: Mapped[dict[str, str] | None] = mapped_column(JSONB, nullable=True)
 
     is_read: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
@@ -221,6 +232,8 @@ class Notification(TenantEntity):
         DateTime(timezone=True), nullable=True
     )
     push_delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    whatsapp_delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sms_delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     #: Collapse key. Alerts sharing (recipient, type, group_key) fold into one
     #: unread row - see the module docstring and the partial unique index below.
@@ -242,6 +255,16 @@ class Notification(TenantEntity):
             "ix_notifications_pending_email",
             "created_at",
             postgresql_where=text("email_delivered_at IS NULL AND 'EMAIL' = ANY(channels)"),
+        ),
+        Index(
+            "ix_notifications_pending_whatsapp",
+            "created_at",
+            postgresql_where=text("whatsapp_delivered_at IS NULL AND 'WHATSAPP' = ANY(channels)"),
+        ),
+        Index(
+            "ix_notifications_pending_sms",
+            "created_at",
+            postgresql_where=text("sms_delivered_at IS NULL AND 'SMS' = ANY(channels)"),
         ),
         # The feed index. ``is_read`` leads the sort keys because the list is
         # ordered unread-first, and the DESC pair matches the keyset predicate
@@ -330,12 +353,77 @@ class NotificationPreference(TenantEntity):
     push_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
+    whatsapp_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    sms_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     __table_args__ = (
         # Also the arbiter index for the preferences upsert.
         UniqueConstraint(
             "company_id", "user_id", "notification_type", name="uq_notification_preferences_key"
         ),
+    )
+
+
+class NotificationChannelTemplate(TenantEntity):
+    """One tenant-controlled provider template mapping for a notification type."""
+
+    __tablename__ = "notification_channel_templates"
+
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    notification_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    template_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    template_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    language: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="en", server_default="en"
+    )
+    parameters: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    sms_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "channel",
+            "notification_type",
+            name="uq_notification_channel_template_key",
+        ),
+        CheckConstraint("channel IN ('WHATSAPP', 'SMS')", name="channel_supported"),
+        CheckConstraint(
+            "(channel = 'WHATSAPP' AND template_name IS NOT NULL AND template_id IS NULL) OR "
+            "(channel = 'SMS' AND template_id IS NOT NULL AND template_name IS NULL)",
+            name="channel_template_fields_match",
+        ),
+    )
+
+
+class NotificationDelivery(ImmutableLedgerEntity):
+    """Append-only provider result for one notification/channel attempt."""
+
+    __tablename__ = "notification_deliveries"
+
+    notification_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("notifications.id", ondelete="RESTRICT"), nullable=False
+    )
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    outcome: Mapped[NotificationDeliveryOutcome] = mapped_column(String(16), nullable=False)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("ix_notification_deliveries_notification", "company_id", "notification_id"),
+        CheckConstraint("channel IN ('WHATSAPP', 'SMS')", name="channel_supported"),
+        CheckConstraint("outcome IN ('DELIVERED', 'FAILED', 'RETRY')", name="outcome_known"),
     )
 
 
@@ -364,6 +452,9 @@ class PushSubscription(TenantEntity):
 __all__ = [
     "Notification",
     "NotificationChannel",
+    "NotificationChannelTemplate",
+    "NotificationDelivery",
+    "NotificationDeliveryOutcome",
     "NotificationPreference",
     "NotificationSeverity",
     "NotificationType",

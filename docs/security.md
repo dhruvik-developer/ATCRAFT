@@ -614,6 +614,36 @@ payloads are still encrypted under the root. Root-key rotation therefore also
 requires a deliberate re-encryption procedure or new device subscriptions; a
 stable VAPID key alone does not recover old ciphertext.
 
+## WhatsApp and SMS
+
+WhatsApp and SMS are disabled by default. Enabling either requires the
+company's approved provider account and template configuration. Provider
+credentials remain environment settings (`WHATSAPP_ACCESS_TOKEN` and
+`SMS_AUTH_KEY`); they are never stored in the database. Provider requests use
+HTTPS with a host allow-list, a bounded timeout, no redirects and confidential
+failure logging.
+
+The configured provider processes the recipient's phone number and the
+notification template parameters to deliver the message. For WhatsApp this is
+Meta; SMS is sent through the configured Indian DLT gateway. The company must
+complete the provider's business/DLT registration and maintain approved message
+templates before enabling delivery. Review the provider's data-processing terms
+and applicable consent/retention requirements before activation.
+
+A user's number must be verified by a short-lived SMS code before either
+channel can be opted into. Phone changes invalidate verification and withdraw
+both channel consents. Each consent change is audited in the same transaction;
+the record stores the channel and timestamp, not a copy of the message. The
+user can withdraw either consent in their profile. Notification delivery also
+rechecks the current verified phone, consent, type preference and active
+company template before contacting the provider, so a queued job cannot bypass
+a later opt-out. Critical notifications stay in-app only.
+
+Phone numbers, verification codes, tokens, message bodies and provider
+credentials are redacted from application logs. Delivery history stores the
+channel, provider message identifier, outcome and a stable error code; it does
+not store the phone number or request body.
+
 ## Warehouse assignments on stock documents and movements (A02/A03)
 
 Warehouse assignments use the shared policy in `src/common/warehouse_scope.py`.

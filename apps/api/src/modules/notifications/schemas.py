@@ -17,13 +17,15 @@ Three things are deliberate here.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.modules.notifications.models import (
+    NotificationChannel,
     NotificationSeverity,
     NotificationType,
 )
@@ -95,6 +97,8 @@ class NotificationPreferenceRead(BaseModel):
     in_app_enabled: bool
     email_enabled: bool
     push_enabled: bool = True
+    whatsapp_enabled: bool = False
+    sms_enabled: bool = False
     #: False when this is the module default rather than a stored choice.
     is_customised: bool = False
 
@@ -106,6 +110,8 @@ class NotificationPreferenceUpdate(BaseModel):
     in_app_enabled: bool
     email_enabled: bool
     push_enabled: bool | None = None
+    whatsapp_enabled: bool | None = None
+    sms_enabled: bool | None = None
 
 
 class PreferencesUpdateRequest(BaseModel):
@@ -138,8 +144,97 @@ class PreferencesUpdateRequest(BaseModel):
         return value
 
 
+TemplateParameter = Literal["title", "body", "code", "link", "amount", "date"]
+MessagingChannel = Literal["WHATSAPP", "SMS"]
+
+
+class NotificationChannelsRead(BaseModel):
+    whatsapp_enabled: bool
+    sms_enabled: bool
+
+
+class NotificationChannelTemplateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    channel: MessagingChannel
+    notification_type: NotificationType
+    template_name: str | None
+    template_id: str | None
+    language: str
+    parameters: list[TemplateParameter]
+    sms_text: str | None
+    is_active: bool
+
+
+class NotificationChannelTemplateUpdate(BaseModel):
+    channel: MessagingChannel
+    notification_type: NotificationType
+    template_name: str | None = Field(default=None, max_length=128)
+    template_id: str | None = Field(default=None, max_length=128)
+    language: str = Field(default="en", min_length=2, max_length=16)
+    parameters: list[TemplateParameter] = Field(default_factory=list, max_length=6)
+    sms_text: str | None = Field(default=None, max_length=2000)
+    is_active: bool = True
+
+    @field_validator("template_name", "template_id", "sms_text")
+    @classmethod
+    def _trim_optional(cls, value: str | None) -> str | None:
+        return value.strip() if value and value.strip() else None
+
+    @model_validator(mode="after")
+    def _fields_match_channel(self) -> NotificationChannelTemplateUpdate:
+        if self.channel == NotificationChannel.WHATSAPP.value:
+            if not self.template_name or self.template_id is not None or self.sms_text is not None:
+                raise ValueError("WhatsApp mappings require a template name only.")
+        else:
+            if not self.template_id or self.template_name is not None or self.sms_text is None:
+                raise ValueError("SMS mappings require a DLT template ID and registered text.")
+            if len(re.findall(r"\{#var#\}", self.sms_text)) != len(self.parameters):
+                raise ValueError("SMS text placeholders must match the parameter list.")
+        return self
+
+
+class NotificationChannelTemplatesUpdate(BaseModel):
+    templates: Annotated[
+        list[NotificationChannelTemplateUpdate], Field(min_length=1, max_length=100)
+    ]
+
+    @field_validator("templates")
+    @classmethod
+    def _reject_duplicate_keys(
+        cls, value: list[NotificationChannelTemplateUpdate]
+    ) -> list[NotificationChannelTemplateUpdate]:
+        keys = {(item.channel, item.notification_type) for item in value}
+        if len(keys) != len(value):
+            raise ValueError("Each channel and notification type may appear only once.")
+        return value
+
+
+class NotificationChannelTestRequest(BaseModel):
+    channel: MessagingChannel
+    notification_type: NotificationType
+
+
+class NotificationDeliveryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    notification_id: uuid.UUID
+    channel: MessagingChannel
+    outcome: Literal["DELIVERED", "FAILED", "RETRY"]
+    provider_message_id: str | None
+    attempted_at: datetime
+    error_code: str | None
+
+
 __all__ = [
     "MarkReadResult",
+    "NotificationChannelTemplateRead",
+    "NotificationChannelTemplateUpdate",
+    "NotificationChannelTemplatesUpdate",
+    "NotificationChannelTestRequest",
+    "NotificationChannelsRead",
+    "NotificationDeliveryRead",
     "NotificationFilters",
     "NotificationPreferenceRead",
     "NotificationPreferenceUpdate",

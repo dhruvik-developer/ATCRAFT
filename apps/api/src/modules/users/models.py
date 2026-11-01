@@ -115,6 +115,14 @@ class User(TenantMasterEntity):
     email: Mapped[str] = mapped_column(CIText(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    phone_e164: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    phone_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    whatsapp_opt_in_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sms_opt_in_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     employee_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # Argon2id. Never logged, never serialised - see core.logging.SENSITIVE_KEYS.
@@ -208,6 +216,10 @@ class User(TenantMasterEntity):
         # Email is unique per tenant: the same person may hold accounts in two
         # companies, but never two accounts in one.
         UniqueConstraint("company_id", "email", name="uq_users_company_id_email"),
+        CheckConstraint(
+            "phone_e164 IS NULL OR phone_e164 ~ '^\\+[1-9][0-9]{7,14}$'",
+            name="phone_e164_format",
+        ),
         Index("ix_users_company_active", "company_id", "is_active"),
         Index("ix_users_vendor", "company_id", "vendor_id"),
         Index("ix_users_customer", "company_id", "customer_id"),
@@ -290,6 +302,44 @@ class PasswordResetToken(TenantEntity):
     __table_args__ = (Index("ix_password_reset_active", "user_id", "used_at", "expires_at"),)
 
 
+class UserPhoneVerificationChallenge(TenantEntity):
+    """One bounded SMS OTP challenge for the user's currently saved number."""
+
+    __tablename__ = "user_phone_verification_challenges"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    phone_e164: Mapped[str] = mapped_column(String(16), nullable=False)
+    code_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    send_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    send_window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "phone_e164 IS NULL OR phone_e164 ~ '^\\+[1-9][0-9]{7,14}$'",
+            name="phone_e164_format",
+        ),
+        UniqueConstraint("company_id", "user_id", name="uq_phone_verification_company_user"),
+        Index(
+            "ix_phone_verification_pending",
+            "company_id",
+            "expires_at",
+            postgresql_where=text("consumed_at IS NULL"),
+        ),
+        CheckConstraint("attempt_count >= 0 AND attempt_count <= 5", name="attempt_count_bounded"),
+        CheckConstraint("send_count >= 0 AND send_count <= 3", name="send_count_bounded"),
+    )
+
+
 class LoginAttempt(ImmutableLedgerEntity):
     """Append-only sign-in history.
 
@@ -320,6 +370,7 @@ __all__ = [
     "PasswordResetToken",
     "Role",
     "User",
+    "UserPhoneVerificationChallenge",
     "UserSession",
     "user_roles",
 ]

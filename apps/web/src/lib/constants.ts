@@ -55,6 +55,9 @@ export const CARTON_SCAN_HISTORY_DAYS = 30
 /** Rows fetched per keystroke in a search-as-you-type picker. */
 export const PICKER_PAGE_SIZE = 20
 
+/** Delivery attempts shown at a time on the messaging administration screen. */
+export const MESSAGING_DELIVERIES_PAGE_SIZE = 20
+
 /**
  * Reference lists loaded whole (units, categories, warehouses, roles, users
  * for a select). This is the API's maximum page size; a reference list that

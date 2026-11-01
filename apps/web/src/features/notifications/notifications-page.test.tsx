@@ -11,6 +11,7 @@ describe('notification preferences', () => {
       route: '/notifications?tab=preferences',
       routes: {
         'GET /notifications/push/config': ok({ enabled: false, vapid_public_key: null }),
+        'GET /notifications/channels': ok({ whatsapp_enabled: false, sms_enabled: false }),
         'GET /notifications/preferences': ok([
           {
             notification_type: 'STOCK_BELOW_REORDER',
@@ -49,6 +50,7 @@ describe('notification preferences', () => {
       route: '/notifications?tab=preferences',
       routes: {
         'GET /notifications/push/config': ok({ enabled: false, vapid_public_key: null }),
+        'GET /notifications/channels': ok({ whatsapp_enabled: false, sms_enabled: false }),
         'GET /notifications/preferences': ok([
           {
             notification_type: 'STOCK_BELOW_REORDER',

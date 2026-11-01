@@ -399,6 +399,11 @@ function PreferencesTab() {
     queryFn: () => api.get<NotificationPreference[]>('/notifications/preferences'),
     staleTime: staleTimes.reference,
   })
+  const channelStatus = useQuery({
+    queryKey: queryKeys.notifications.channels,
+    queryFn: () =>
+      api.get<{ whatsapp_enabled: boolean; sms_enabled: boolean }>('/notifications/channels'),
+  })
 
   const stored = preferences.data ?? []
   const current = (type: string): NotificationPreference | undefined =>
@@ -406,7 +411,8 @@ function PreferencesTab() {
 
   const setChannel = (
     preference: NotificationPreference,
-    channel: 'in_app_enabled' | 'email_enabled' | 'push_enabled',
+    channel:
+      'in_app_enabled' | 'email_enabled' | 'push_enabled' | 'whatsapp_enabled' | 'sms_enabled',
     value: boolean,
   ) => {
     setDraft((existing) => {
@@ -420,7 +426,9 @@ function PreferencesTab() {
         original &&
         original.in_app_enabled === changed.in_app_enabled &&
         original.email_enabled === changed.email_enabled &&
-        (original.push_enabled ?? false) === (changed.push_enabled ?? false)
+        (original.push_enabled ?? false) === (changed.push_enabled ?? false) &&
+        (original.whatsapp_enabled ?? false) === (changed.whatsapp_enabled ?? false) &&
+        (original.sms_enabled ?? false) === (changed.sms_enabled ?? false)
       )
         delete next[preference.notification_type]
       return Object.keys(next).length ? next : null
@@ -439,6 +447,8 @@ function PreferencesTab() {
           in_app_enabled: row.in_app_enabled,
           email_enabled: row.email_enabled,
           push_enabled: row.push_enabled ?? false,
+          whatsapp_enabled: row.whatsapp_enabled,
+          sms_enabled: row.sms_enabled,
         })),
       }),
     onMutate: () => setSaveError(null),
@@ -464,6 +474,15 @@ function PreferencesTab() {
           <Skeleton key={index} className="h-12 w-full" />
         ))}
       </div>
+    )
+  }
+
+  if (channelStatus.isError) {
+    return (
+      <Alert variant="warning">
+        <AlertTitle>Channel settings unavailable</AlertTitle>
+        <AlertDescription>{describeError(channelStatus.error)}</AlertDescription>
+      </Alert>
     )
   }
 
@@ -554,6 +573,22 @@ function PreferencesTab() {
               >
                 Push
               </th>
+              {channelStatus.data?.whatsapp_enabled && (
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  WhatsApp
+                </th>
+              )}
+              {channelStatus.data?.sms_enabled && (
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  SMS
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -577,6 +612,12 @@ function PreferencesTab() {
                       ['in_app_enabled', 'in-app', 'in app'],
                       ['email_enabled', 'email', 'by email'],
                       ['push_enabled', 'push', 'by push'],
+                      ...(channelStatus.data?.whatsapp_enabled
+                        ? ([['whatsapp_enabled', 'whatsapp', 'by WhatsApp']] as const)
+                        : []),
+                      ...(channelStatus.data?.sms_enabled
+                        ? ([['sms_enabled', 'sms', 'by SMS']] as const)
+                        : []),
                     ] as const
                   ).map(([channel, prefix, description]) => (
                     <td key={channel} className="px-3 py-2 text-center">

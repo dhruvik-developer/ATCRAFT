@@ -50,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
 from src.core.clock import utcnow
+from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import NotFoundError, ValidationError
@@ -92,6 +93,8 @@ AUDIT_ENTITY = "notification"
 #: The routing rule ``notifications.*`` in ``celery_app`` puts it on the
 #: notifications queue, behind nothing slow.
 NOTIFICATION_EMAIL_TASK = "notifications.send_email"
+NOTIFICATION_WHATSAPP_TASK = "notifications.send_whatsapp"
+NOTIFICATION_SMS_TASK = "notifications.send_sms"
 
 # --- Defaults for a user who has never opened the preferences screen ----------
 #
@@ -103,10 +106,9 @@ NOTIFICATION_EMAIL_TASK = "notifications.send_email"
 DEFAULT_IN_APP_ENABLED = True
 DEFAULT_EMAIL_ENABLED = False
 
-# ASSUMPTION: a CRITICAL alert is always delivered in-app, even to a user who has
-# muted that type. A stock-out or a failed background job that nobody is told
-# about is a silent failure, and section 53 forbids those. Muting still applies
-# to e-mail, and to every other severity. Change it here and nowhere else.
+# CRITICAL alerts are in-app only, regardless of external channel preferences.
+# This also prevents a critical event from bypassing the channel-specific consent
+# and template rules through an external transport.
 SEVERITIES_IGNORING_PREFERENCES = frozenset({NotificationSeverity.CRITICAL})
 
 #: ``notifications.title`` is String(200). A caller that overruns it has produced
@@ -160,6 +162,15 @@ def resolve_channels(
     email_enabled: bool,
     push_enabled: bool = True,
     has_push_device: bool = False,
+    whatsapp_enabled: bool = False,
+    sms_enabled: bool = False,
+    has_verified_phone: bool = False,
+    whatsapp_opted_in: bool = False,
+    sms_opted_in: bool = False,
+    whatsapp_configured: bool = False,
+    sms_configured: bool = False,
+    has_whatsapp_template: bool = False,
+    has_sms_template: bool = False,
 ) -> tuple[str, ...]:
     """Channels one recipient actually gets, after their preferences.
 
@@ -168,6 +179,8 @@ def resolve_channels(
     nowhere is not a record, it is a row nobody can ever see or count.
     """
     forced = severity in SEVERITIES_IGNORING_PREFERENCES
+    if forced:
+        return (NotificationChannel.IN_APP.value,)
     channels: list[str] = []
     if in_app_enabled or forced:
         channels.append(NotificationChannel.IN_APP.value)
@@ -175,6 +188,23 @@ def resolve_channels(
         channels.append(NotificationChannel.EMAIL.value)
     if push_enabled and has_push_device:
         channels.append(NotificationChannel.PUSH.value)
+    if severity is not NotificationSeverity.CRITICAL and has_verified_phone:
+        if (
+            settings.whatsapp_enabled
+            and whatsapp_enabled
+            and whatsapp_opted_in
+            and whatsapp_configured
+            and has_whatsapp_template
+        ):
+            channels.append(NotificationChannel.WHATSAPP.value)
+        if (
+            settings.sms_enabled
+            and sms_enabled
+            and sms_opted_in
+            and sms_configured
+            and has_sms_template
+        ):
+            channels.append(NotificationChannel.SMS.value)
     return tuple(channels)
 
 
@@ -430,6 +460,82 @@ def queue_push_delivery(session: AsyncSession, notifications: Sequence[Notificat
     return len(payloads)
 
 
+_PENDING_MESSAGING_KEY = "notifications.pending_messaging"
+_MESSAGING_HOOK_KEY = "notifications.messaging_hook_installed"
+
+
+def _send_messaging_tasks(payloads: Sequence[dict[str, Any]]) -> int:
+    from src.workers.celery_app import celery_app
+
+    sent = 0
+    for payload in payloads:
+        channel = payload["channel"]
+        task = (
+            NOTIFICATION_WHATSAPP_TASK
+            if channel == NotificationChannel.WHATSAPP.value
+            else NOTIFICATION_SMS_TASK
+        )
+        try:
+            celery_app.send_task(
+                task,
+                kwargs={key: value for key, value in payload.items() if key != "channel"},
+            )
+            sent += 1
+        except Exception as exc:
+            log.error(
+                "notifications.messaging_enqueue_failed",
+                notification_id=payload.get("notification_id"),
+                channel=channel,
+                error_type=type(exc).__name__,
+            )
+    return sent
+
+
+def _flush_pending_messaging(sync_session: SyncSession) -> None:
+    if sync_session.in_nested_transaction():
+        return
+    payloads = sync_session.info.pop(_PENDING_MESSAGING_KEY, None)
+    if not payloads:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _send_messaging_tasks(payloads)
+        return
+    loop.run_in_executor(None, _send_messaging_tasks, payloads)
+
+
+def _drop_pending_messaging(sync_session: SyncSession) -> None:
+    sync_session.info.pop(_PENDING_MESSAGING_KEY, None)
+
+
+def queue_messaging_delivery(session: AsyncSession, notifications: Sequence[Notification]) -> int:
+    payloads = [
+        {
+            "notification_id": str(item.id),
+            "company_id": str(item.company_id),
+            "user_id": str(item.user_id),
+            "channel": channel,
+            "request_id": get_request_id(),
+        }
+        for item in notifications
+        for channel in (
+            NotificationChannel.WHATSAPP.value,
+            NotificationChannel.SMS.value,
+        )
+        if channel in (item.channels or ())
+    ]
+    if not payloads:
+        return 0
+    sync_session = session.sync_session
+    sync_session.info.setdefault(_PENDING_MESSAGING_KEY, []).extend(payloads)
+    if not sync_session.info.get(_MESSAGING_HOOK_KEY):
+        sync_session.info[_MESSAGING_HOOK_KEY] = True
+        event.listen(sync_session, "after_commit", _flush_pending_messaging)
+        event.listen(sync_session, "after_rollback", _drop_pending_messaging)
+    return len(payloads)
+
+
 async def notify(
     session: AsyncSession,
     *,
@@ -444,6 +550,7 @@ async def notify(
     action_url: str | None = None,
     group_key: str | None = None,
     actor_id: uuid.UUID | None = None,
+    template_data: dict[str, str] | None = None,
 ) -> list[Notification]:
     """Raise one notification for each recipient, honouring their preferences.
 
@@ -480,14 +587,35 @@ async def notify(
     repo = NotificationRepository.for_company(session, company_id, actor_id)
     preferences = await repo.preferences_for_type(recipients, notification_type)
     push_devices = await repo.users_with_push_devices(recipients)
+    messaging_profiles = (
+        await repo.messaging_profiles_for_users(recipients)
+        if settings.whatsapp_enabled or settings.sms_enabled
+        else {}
+    )
+    templates = (
+        await repo.active_template_channels(notification_type)
+        if settings.whatsapp_enabled or settings.sms_enabled
+        else set()
+    )
+    whatsapp_configured = settings.whatsapp_enabled
+    sms_configured = settings.sms_enabled
 
     moment = utcnow()
     rows: list[dict[str, Any]] = []
     muted: list[uuid.UUID] = []
 
     for user_id in recipients:
-        in_app_enabled, email_enabled, push_enabled = preferences.get(
-            user_id, (DEFAULT_IN_APP_ENABLED, DEFAULT_EMAIL_ENABLED, True)
+        (
+            in_app_enabled,
+            email_enabled,
+            push_enabled,
+            whatsapp_enabled,
+            sms_enabled,
+        ) = preferences.get(
+            user_id, (DEFAULT_IN_APP_ENABLED, DEFAULT_EMAIL_ENABLED, True, False, False)
+        )
+        phone, verified_at, whatsapp_opt_in_at, sms_opt_in_at = messaging_profiles.get(
+            user_id, (None, None, None, None)
         )
         channels = resolve_channels(
             severity,
@@ -495,6 +623,15 @@ async def notify(
             email_enabled=email_enabled,
             push_enabled=push_enabled,
             has_push_device=user_id in push_devices,
+            whatsapp_enabled=whatsapp_enabled,
+            sms_enabled=sms_enabled,
+            has_verified_phone=phone is not None and verified_at is not None,
+            whatsapp_opted_in=whatsapp_opt_in_at is not None,
+            sms_opted_in=sms_opt_in_at is not None,
+            whatsapp_configured=whatsapp_configured,
+            sms_configured=sms_configured,
+            has_whatsapp_template=NotificationChannel.WHATSAPP.value in templates,
+            has_sms_template=NotificationChannel.SMS.value in templates,
         )
         if not channels:
             muted.append(user_id)
@@ -512,6 +649,17 @@ async def notify(
                 "entity_type": clean_entity_type,
                 "entity_id": clean_entity_id,
                 "action_url": clean_action_url,
+                "template_data": (
+                    {
+                        "title": clean_title,
+                        "body": clean_body,
+                        "link": clean_action_url or "",
+                        **(template_data or {}),
+                    }
+                    if NotificationChannel.WHATSAPP.value in channels
+                    or NotificationChannel.SMS.value in channels
+                    else None
+                ),
                 "is_read": False,
                 "read_at": None,
                 "channels": list(channels),
@@ -577,6 +725,7 @@ async def notify(
         # context exited would miss the commit that should trigger delivery.
         queued = queue_email_delivery(session, written)
         queue_push_delivery(session, written)
+        queue_messaging_delivery(session, written)
 
     log.info(
         "notifications.raised",
@@ -680,6 +829,18 @@ def effective_preferences(
                 if notification_type in by_type
                 and by_type[notification_type].push_enabled is not None
                 else True
+            ),
+            whatsapp_enabled=(
+                by_type[notification_type].whatsapp_enabled
+                if notification_type in by_type
+                and by_type[notification_type].whatsapp_enabled is not None
+                else False
+            ),
+            sms_enabled=(
+                by_type[notification_type].sms_enabled
+                if notification_type in by_type
+                and by_type[notification_type].sms_enabled is not None
+                else False
             ),
             is_customised=notification_type in by_type,
         )
@@ -800,6 +961,8 @@ class NotificationService:
                 "in_app_enabled": preference.in_app_enabled,
                 "email_enabled": preference.email_enabled,
                 "push_enabled": preference.push_enabled,
+                "whatsapp_enabled": preference.whatsapp_enabled,
+                "sms_enabled": preference.sms_enabled,
                 "created_at": moment,
                 "updated_at": moment,
                 "created_by_id": self.tenant.user_id,
@@ -821,6 +984,8 @@ class NotificationService:
                     str(preference.notification_type): {
                         "in_app_enabled": preference.in_app_enabled,
                         "email_enabled": preference.email_enabled,
+                        "whatsapp_enabled": preference.whatsapp_enabled,
+                        "sms_enabled": preference.sms_enabled,
                     }
                     for preference in payload.preferences
                 },
@@ -836,6 +1001,8 @@ __all__ = [
     "MAX_TITLE_LENGTH",
     "NOTIFICATION_EMAIL_TASK",
     "NOTIFICATION_READ_MACHINE",
+    "NOTIFICATION_SMS_TASK",
+    "NOTIFICATION_WHATSAPP_TASK",
     "SEVERITIES_IGNORING_PREFERENCES",
     "NotificationReadState",
     "NotificationService",
@@ -848,6 +1015,7 @@ __all__ = [
     "notify",
     "notify_role",
     "queue_email_delivery",
+    "queue_messaging_delivery",
     "read_state",
     "resolve_channels",
 ]

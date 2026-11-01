@@ -65,7 +65,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | Module | Tables |
 |---|---|
 | `organization` | `companies`, `branches`, `plants`, `departments`, `cost_centres`, `financial_years` |
-| `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `login_attempts` |
+| `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `user_phone_verification_challenges`, `login_attempts` |
 | `audit` | `audit_logs`, `approval_requests` |
 | `warehouses` | `warehouses`, `storage_locations` |
 | `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links`, `specification_attributes`, `category_specifications`, `item_specifications`, `item_accessories` |
@@ -88,7 +88,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
-| `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
+| `notifications` | `notifications`, `notification_preferences`, `notification_channel_templates`, `notification_deliveries`, `push_subscriptions` |
 | `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
 | `dealer_portal` | `dealer_offers`, `dealer_banners`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, banner records, carts and wishlists |
 | `common` | `document_sequences` |

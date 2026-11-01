@@ -963,20 +963,21 @@
             },
             {
               "action": "Choose what reaches you",
-              "how": "The Preferences tab. Tick or clear In app and Email against each event, then Save preferences.",
-              "note": "Discard abandons the changes. A row marked \"Using the default for this event\" has never been changed by you."
+              "how": "The Preferences tab. Tick or clear each available delivery route against an event, then Save preferences.",
+              "note": "In-app, email and push are available where configured; WhatsApp and SMS appear only when enabled. Discard abandons changes. A row marked \"Using the default for this event\" has never been changed by you."
             }
           ],
           "flow": [
             "Click the bell in the header, or open Notifications.",
             "Work down the unread cards, opening the record behind anything that needs action.",
             "Mark all as read once the list has been dealt with.",
-            "Once, at the start: open Preferences and switch off the emails for events you would rather see only in the application."
+            "Once, at the start: open Preferences and choose the delivery routes you want for each event."
           ],
           "rules": [
             "Repeated events are folded into one card with a count on it - \"11 times\" - rather than arriving as eleven separate lines, so a machine that stops repeatedly does not bury everything else.",
             "The unread count on the bell and the count on this screen are the same figure and cannot disagree. Past a certain number the count stops being exact and shows as \"99+\" - that is a floor, not a precise figure.",
             "Email goes to the address on your own profile. Changing where email arrives means changing the account's address, which is an administrator's job.",
+            "WhatsApp and SMS require a verified mobile number, explicit channel consent and an enabled notification preference. Change the number or withdraw consent from your profile; CRITICAL notifications remain in-app only.",
             "The events that can raise a notification include approvals pending, granted and rejected, purchase orders and production orders running late, job work overdue, dispatch delayed, a sales order at risk, stock below reorder level, stock shortages, allocation changes, QC inspections pending and QC failures, goods receipts posted, payments due, MRP runs finishing, reports being ready, and background jobs finishing or failing."
           ],
           "permission": "Everything here needs the right to see notifications, and everything shown is your own. The bell in the header is hidden entirely from an account without that right, rather than shown as a bell that could never fill up.",
@@ -992,6 +993,11 @@
               "action": "Check your own details",
               "how": "The card at the top shows your last sign-in, whether two-factor is on, your roles, your account type, and how many permissions you hold.",
               "note": "Permissions are checked on every request, so a change an administrator makes takes effect at once rather than at your next sign-in."
+            },
+            {
+              "action": "Verify a mobile number and choose messaging consent",
+              "how": "In Mobile number & messaging, save your number, request the SMS verification code, confirm it, then opt in to an enabled channel.",
+              "note": "Changing the number clears verification and both channel consents. You can withdraw consent at any time."
             },
             {
               "action": "Change your password",
@@ -1026,6 +1032,7 @@
           ],
           "flow": [
             "Open the name menu at the top right of any screen and choose Profile & sessions.",
+            "When messaging is enabled for your company, save and verify your mobile number before choosing WhatsApp or SMS consent.",
             "To change a password: type the current one, then the new one twice, watching the checklist tick off.",
             "Press Change password.",
             "Every other signed-in device is signed out; the one you are using stays signed in."
@@ -5191,6 +5198,47 @@
           ],
           "notes": "Only the sales automation switch is on this page today. It is deliberately described as a default rather than a permission: a user who cannot confirm orders is unaffected by it. The setting is stored sparsely, one row per company, so a new company needs no setup before using the default.",
           "permission": "Opening Settings needs settings.view. Save and Restore default need settings.manage; the page disables them for a reader."
+        },
+        {
+          "route": "/admin/messaging",
+          "title": "Messaging templates",
+          "purpose": "Configure the approved WhatsApp and DLT SMS templates used for notifications, check whether providers are enabled, send a test to your own verified number and inspect delivery attempts. The page stores tenant template mappings, not provider credentials.",
+          "whoUses": "Administrators who configure messaging templates. A settings reader can inspect the configuration but cannot change or test it.",
+          "keyActions": [
+            {
+              "action": "Add a notification template",
+              "how": "Choose WhatsApp or SMS and a notification type, then press Add template. Enter the approved template name or DLT template ID and the ordered parameters.",
+              "note": "The template and language must match the provider-approved version. SMS text must match its registered DLT wording and placeholder count."
+            },
+            {
+              "action": "Enable or retire a tenant template",
+              "how": "Change the Active checkbox and save the templates.",
+              "note": "A notification is not sent through a channel unless that channel is enabled, the recipient has current consent and preference, and an active tenant template exists."
+            },
+            {
+              "action": "Test a template",
+              "how": "Press Send test on an active template.",
+              "note": "The test is sent only to your own verified number with current consent; the recipient cannot be entered here."
+            },
+            {
+              "action": "Review provider delivery attempts",
+              "how": "Read Recent delivery attempts at the bottom of the page.",
+              "note": "The history shows the channel, provider outcome and attempt time; transient failures are retried by the worker."
+            }
+          ],
+          "flow": [
+            "Open Messaging templates from Administration.",
+            "Confirm the provider status banner. A disabled provider must be configured by the deployment operator before it can send.",
+            "Add or update only templates already approved by WhatsApp or the DLT operator, then Save templates.",
+            "Verify your own number and consent from Profile & sessions, then send a test and review the delivery history."
+          ],
+          "rules": [
+            "Provider credentials are held in deployment environment settings and are never saved in this screen or the database.",
+            "The API sends no WhatsApp or SMS notification without a verified phone, channel consent, per-type preference, active template and enabled provider.",
+            "CRITICAL notifications remain in-app only.",
+            "A reader with settings.view can inspect templates and delivery attempts. Changes and test sends require settings.manage and are disabled in the read-only UI."
+          ],
+          "permission": "Opening the page and reading delivery history needs settings.view. Editing templates and sending a test need settings.manage."
         }
       ]
     },

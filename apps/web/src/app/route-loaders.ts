@@ -132,6 +132,7 @@ export const routeLoaders = {
   '/admin/users': () => import('@/features/admin/users-page'),
   '/admin/organisation': () => import('@/features/admin/organisation-page'),
   '/admin/settings': () => import('@/features/admin/settings-page'),
+  '/admin/messaging': () => import('@/features/admin/messaging-page'),
   '/profile': () => import('@/features/auth/profile-page'),
   '/change-password': () => import('@/features/auth/change-password-page'),
 } satisfies Record<string, PageLoader>

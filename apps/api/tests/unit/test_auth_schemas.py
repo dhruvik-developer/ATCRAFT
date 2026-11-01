@@ -19,6 +19,7 @@ from src.modules.auth.schemas import (
     MfaVerifyRequest,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
+    PhoneUpdateRequest,
     TokenPair,
 )
 
@@ -111,3 +112,28 @@ def test_mfa_challenge_token_is_bounded() -> None:
     assert payload.challenge_token == "x" * 100
     with pytest.raises(PydanticValidationError):
         MfaVerifyRequest(challenge_token="short", code="123456")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("+91 98765-43210", "+919876543210"),
+        ("09876543210", "+919876543210"),
+        ("919876543210", "+919876543210"),
+        ("00442079460018", "+442079460018"),
+        ("+1 (202) 555-0123", "+12025550123"),
+        ("   ", None),
+    ],
+)
+def test_phone_update_normalises_to_e164(raw: str, expected: str | None) -> None:
+    assert PhoneUpdateRequest(phone=raw).phone == expected
+
+
+@pytest.mark.parametrize("raw", ["12345", "+0123456789", "not a number", "1234567890"])
+def test_phone_update_rejects_invalid_or_ambiguous_numbers(raw: str) -> None:
+    with pytest.raises(PydanticValidationError):
+        PhoneUpdateRequest(phone=raw)
+
+
+def test_phone_update_can_clear_a_number_with_null() -> None:
+    assert PhoneUpdateRequest(phone=None).phone is None

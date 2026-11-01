@@ -73,6 +73,14 @@ def vendor_route_allowed(path: str) -> bool:
         path == f"{prefix}/{root}" or path.startswith(f"{prefix}/{root}/") for root in roots
     ) or path in {
         f"{prefix}/auth/{name}" for name in ("me", "logout", "logout-all", "change-password")
+    } | {
+        f"{prefix}/auth/me/{name}"
+        for name in (
+            "phone",
+            "phone/verification",
+            "phone/verification/confirm",
+            "messaging-consent",
+        )
     }
 
 
@@ -92,6 +100,14 @@ def dealer_route_allowed(path: str) -> bool:
         path == f"{prefix}/{root}" or path.startswith(f"{prefix}/{root}/") for root in roots
     ) or path in {
         f"{prefix}/auth/{name}" for name in ("me", "logout", "logout-all", "change-password")
+    } | {
+        f"{prefix}/auth/me/{name}"
+        for name in (
+            "phone",
+            "phone/verification",
+            "phone/verification/confirm",
+            "messaging-consent",
+        )
     }
 
 

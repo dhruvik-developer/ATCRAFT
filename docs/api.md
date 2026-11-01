@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 736 requests in 31
+Import `postman_collection.json` (Postman v2.1 format, 746 requests in 31
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -553,7 +553,8 @@ aggregate quantity to individual sales lines.
 /reports              catalogue · dashboard · background report jobs · one route per
                       report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
-/notifications        list · unread count · read · preferences · push devices
+/notifications        list · unread count · read · preferences · push devices ·
+                      messaging channel status · tenant templates · delivery history
 /vendor-portal        orders · consignments · shared documents · bills · payments · QC
 /dealer-portal        catalogue · pricing · cart · wishlist · checkout · orders · statement
                       own invoices/credits · return requests · banners/offers · item images
@@ -563,6 +564,29 @@ aggregate quantity to individual sales lines.
 
 Full request and response schemas are generated from the code in
 `openapi.json` and, in development, at `/docs`.
+
+## WhatsApp and SMS
+
+Messaging is disabled by default and notifications are sent only when the
+company channel is enabled, the recipient has a verified phone and current
+consent, the per-type preference is enabled, and the tenant has an active
+provider template. `CRITICAL` notifications remain in-app only.
+
+| Route | Operation | Permission |
+|---|---|---|
+| `PUT /auth/me/phone` | Set the caller's E.164 mobile number; a changed number clears verification and both consents | Signed-in caller, own account |
+| `POST /auth/me/phone/verification` | Send a short-lived SMS verification code | Signed-in caller, own account |
+| `POST /auth/me/phone/verification/confirm` | Verify the caller's number | Signed-in caller, own account |
+| `POST /auth/me/messaging-consent` | Record or withdraw WhatsApp/SMS consent | Signed-in caller, own account |
+| `GET /notifications/channels` | Read globally enabled channel status | `notification.view` |
+| `GET /notifications/channel-templates` | List this company's provider templates | `settings.view` |
+| `PUT /notifications/channel-templates` | Upsert this company's provider templates | `settings.manage` |
+| `POST /notifications/channel-templates/test` | Send a test to the caller's own verified, opted-in number | `settings.manage` |
+| `GET /notifications/deliveries` | Read paginated provider delivery attempts | `settings.view` |
+
+Phone verification uses SMS OTP even when only WhatsApp notifications are
+enabled. Provider credentials remain in deployment environment settings and are
+never stored in the database.
 
 ## Product specifications and accessories
 

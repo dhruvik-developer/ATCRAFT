@@ -125,11 +125,10 @@ def test_push_channel_matrix(severity: NotificationSeverity, push: bool, device:
     channels = service.resolve_channels(
         severity, in_app_enabled=True, email_enabled=True, push_enabled=push, has_push_device=device
     )
-    assert (
-        channels == ("IN_APP", "EMAIL", "PUSH")
-        if push and device
-        else channels == ("IN_APP", "EMAIL")
-    )
+    if severity is NotificationSeverity.CRITICAL:
+        assert channels == ("IN_APP",)
+    else:
+        assert channels == (("IN_APP", "EMAIL", "PUSH") if push and device else ("IN_APP", "EMAIL"))
 
 
 def test_payload_unicode_byte_budget() -> None:

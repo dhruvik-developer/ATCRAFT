@@ -99,6 +99,8 @@ export interface NotificationPreference {
   in_app_enabled: boolean
   email_enabled: boolean
   push_enabled?: boolean
+  whatsapp_enabled?: boolean
+  sms_enabled?: boolean
   /** False when this row is still the system default rather than a choice. */
   is_customised?: boolean
 }

@@ -14,6 +14,7 @@ import pytest
 
 from src.core.errors import ErrorCode, ValidationError
 from src.modules.notifications.models import NotificationChannel, NotificationSeverity
+from src.modules.notifications.schemas import NotificationChannelTemplateUpdate
 from src.modules.notifications.service import (
     MAX_ACTION_URL_LENGTH,
     MAX_GROUP_KEY_LENGTH,
@@ -71,6 +72,91 @@ class TestResolveChannels:
         assert EMAIL not in resolve_channels(
             NotificationSeverity.CRITICAL, in_app_enabled=False, email_enabled=False
         )
+
+    def test_critical_is_in_app_only_when_every_external_channel_is_enabled(self) -> None:
+        assert resolve_channels(
+            NotificationSeverity.CRITICAL,
+            in_app_enabled=True,
+            email_enabled=True,
+            push_enabled=True,
+            has_push_device=True,
+            whatsapp_enabled=True,
+            sms_enabled=True,
+            has_verified_phone=True,
+            whatsapp_opted_in=True,
+            sms_opted_in=True,
+            whatsapp_configured=True,
+            sms_configured=True,
+            has_whatsapp_template=True,
+            has_sms_template=True,
+        ) == (IN_APP,)
+
+    @pytest.mark.parametrize(
+        ("overrides", "expected"),
+        [
+            ({}, (IN_APP, "WHATSAPP", "SMS")),
+            ({"has_verified_phone": False}, (IN_APP,)),
+            ({"whatsapp_opted_in": False}, (IN_APP, "SMS")),
+            ({"whatsapp_configured": False}, (IN_APP, "SMS")),
+            ({"has_whatsapp_template": False}, (IN_APP, "SMS")),
+            ({"whatsapp_enabled": False}, (IN_APP, "SMS")),
+            ({"sms_opted_in": False}, (IN_APP, "WHATSAPP")),
+            ({"sms_configured": False}, (IN_APP, "WHATSAPP")),
+            ({"has_sms_template": False}, (IN_APP, "WHATSAPP")),
+            ({"sms_enabled": False}, (IN_APP, "WHATSAPP")),
+        ],
+    )
+    def test_external_channel_requires_each_gate(
+        self, monkeypatch: pytest.MonkeyPatch, overrides: dict[str, bool], expected: tuple[str, ...]
+    ) -> None:
+        monkeypatch.setattr("src.modules.notifications.service.settings.whatsapp_enabled", True)
+        monkeypatch.setattr("src.modules.notifications.service.settings.sms_enabled", True)
+        gates = {
+            "in_app_enabled": True,
+            "email_enabled": False,
+            "whatsapp_enabled": True,
+            "sms_enabled": True,
+            "has_verified_phone": True,
+            "whatsapp_opted_in": True,
+            "sms_opted_in": True,
+            "whatsapp_configured": True,
+            "sms_configured": True,
+            "has_whatsapp_template": True,
+            "has_sms_template": True,
+        }
+        gates.update(overrides)
+        assert resolve_channels(NotificationSeverity.INFO, **gates) == expected
+
+
+class TestNotificationTemplateValidation:
+    def test_whatsapp_template_requires_name_without_sms_fields(self) -> None:
+        template = NotificationChannelTemplateUpdate(
+            channel="WHATSAPP",
+            notification_type="APPROVAL_PENDING",
+            template_name="approval_pending",
+            parameters=["title", "body"],
+        )
+        assert template.template_name == "approval_pending"
+
+    def test_sms_template_requires_registered_text_placeholders_in_order(self) -> None:
+        template = NotificationChannelTemplateUpdate(
+            channel="SMS",
+            notification_type="APPROVAL_PENDING",
+            template_id="dlt-123",
+            sms_text="Hi {#var#}, {#var#}",
+            parameters=["title", "body"],
+        )
+        assert template.parameters == ["title", "body"]
+
+    def test_sms_template_rejects_placeholder_count_mismatch(self) -> None:
+        with pytest.raises(ValueError, match="placeholders"):
+            NotificationChannelTemplateUpdate(
+                channel="SMS",
+                notification_type="APPROVAL_PENDING",
+                template_id="dlt-123",
+                sms_text="Hi {#var#}",
+                parameters=["title", "body"],
+            )
 
     @pytest.mark.parametrize(
         "severity",

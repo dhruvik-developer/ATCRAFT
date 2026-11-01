@@ -85,6 +85,7 @@ const AuditPage = lazy(routeLoaders['/audit'])
 const UsersPage = lazy(routeLoaders['/admin/users'])
 const OrganisationPage = lazy(routeLoaders['/admin/organisation'])
 const SettingsPage = lazy(routeLoaders['/admin/settings'])
+const MessagingPage = lazy(routeLoaders['/admin/messaging'])
 const NotificationsPage = lazy(routeLoaders['/notifications'])
 const PaymentsPage = lazy(routeLoaders['/finance/payments'])
 const AccountsPage = lazy(routeLoaders['/finance/accounts'])
@@ -553,6 +554,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   {
     path: '/admin/settings',
     element: <SettingsPage />,
+    permissions: [P.SETTINGS_VIEW],
+  },
+  {
+    path: '/admin/messaging',
+    element: <MessagingPage />,
     permissions: [P.SETTINGS_VIEW],
   },
 

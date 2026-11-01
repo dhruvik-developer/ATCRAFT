@@ -184,6 +184,9 @@ class RateLimitPolicy:
         LOGIN_WINDOW_SECONDS,
     )
     PASSWORD_RESET = ("pwd_reset", 3, 3600)
+    PHONE_OTP_SEND = ("phone_otp_send", 3, 3600)
+    PHONE_OTP_SEND_PER_IP = ("phone_otp_send_ip", 1000, 3600)
+    PHONE_OTP_VERIFY = ("phone_otp_verify", 10, 300)
     REFRESH = ("refresh", 30, 300)
     MFA_VERIFY = ("mfa_verify", 5, 300)
     MRP_RUN = ("mrp_run", 5, 300)

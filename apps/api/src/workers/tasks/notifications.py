@@ -45,6 +45,13 @@ from src.core.config import EmailProvider, settings
 from src.core.database import affected_rows, session_scope
 from src.core.logging import get_logger
 from src.core.mail import OutboundEmail, deliver_email
+from src.core.messaging import (
+    MessagingOutcome,
+    MessagingResult,
+    WhatsAppCloudProvider,
+    assert_allowed_url,
+    sms_provider,
+)
 from src.core.security import (
     CredentialDecryptionError,
     constant_time_compare,
@@ -53,7 +60,15 @@ from src.core.security import (
 )
 from src.core.webpush import PushOutcome, PushRetryableError, deliver_push, push_payload, push_topic
 from src.modules.dispatch import service as dispatch_service
-from src.modules.notifications.models import Notification, NotificationChannel, PushSubscription
+from src.modules.notifications.models import (
+    Notification,
+    NotificationChannel,
+    NotificationChannelTemplate,
+    NotificationDelivery,
+    NotificationDeliveryOutcome,
+    NotificationPreference,
+    PushSubscription,
+)
 from src.modules.users.models import PasswordResetToken, User, UserSession
 from src.workers.celery_app import async_task
 
@@ -218,6 +233,264 @@ async def send_push(
     return await _deliver_notification_push(notification_id, company_id, user_id)
 
 
+class MessagingRetryableError(Exception):
+    """A provider asked for a retry without exposing its response body."""
+
+
+async def _deliver_notification_messaging(
+    notification_id: str,
+    company_id: str,
+    user_id: str,
+    *,
+    channel: NotificationChannel,
+) -> dict[str, Any]:
+    nid, cid, uid = uuid.UUID(notification_id), uuid.UUID(company_id), uuid.UUID(user_id)
+    if channel is NotificationChannel.WHATSAPP:
+        enabled = settings.whatsapp_enabled
+        marker_name = "whatsapp_delivered_at"
+        consent_name = "whatsapp_opt_in_at"
+        preference_name = "whatsapp_enabled"
+    else:
+        enabled = settings.sms_enabled
+        marker_name = "sms_delivered_at"
+        consent_name = "sms_opt_in_at"
+        preference_name = "sms_enabled"
+    if not enabled:
+        return {"notification_id": notification_id, "delivered": False, "detail": "disabled"}
+
+    moment = utcnow()
+    async with session_scope() as session:
+        stmt = (
+            select(Notification, User, NotificationPreference, NotificationChannelTemplate)
+            .join(
+                User,
+                and_(
+                    User.id == Notification.user_id,
+                    User.company_id == Notification.company_id,
+                ),
+            )
+            .outerjoin(
+                NotificationPreference,
+                and_(
+                    NotificationPreference.company_id == Notification.company_id,
+                    NotificationPreference.user_id == Notification.user_id,
+                    NotificationPreference.notification_type == Notification.notification_type,
+                ),
+            )
+            .outerjoin(
+                NotificationChannelTemplate,
+                and_(
+                    NotificationChannelTemplate.company_id == Notification.company_id,
+                    NotificationChannelTemplate.notification_type == Notification.notification_type,
+                    NotificationChannelTemplate.channel == channel.value,
+                    NotificationChannelTemplate.is_active.is_(True),
+                ),
+            )
+            .where(
+                Notification.id == nid,
+                Notification.company_id == cid,
+                Notification.user_id == uid,
+                User.is_active.is_(True),
+                User.deleted_at.is_(None),
+            )
+            .with_for_update(of=Notification)
+        )
+        found = (await session.execute(stmt)).one_or_none()
+        if found is None:
+            return {"notification_id": notification_id, "delivered": False, "detail": "missing"}
+
+        notification, account, preference, template = found
+        if channel.value not in (notification.channels or ()):
+            return {
+                "notification_id": notification_id,
+                "delivered": False,
+                "detail": "channel_not_requested",
+            }
+        if getattr(notification, marker_name) is not None:
+            return {
+                "notification_id": notification_id,
+                "delivered": True,
+                "already_delivered": True,
+            }
+
+        opted_in_at = getattr(account, consent_name)
+        preference_enabled = (
+            getattr(preference, preference_name, False) if preference is not None else False
+        )
+        failure_code: str | None = None
+        if account.phone_e164 is None or account.phone_verified_at is None or opted_in_at is None:
+            failure_code = "consent_unavailable"
+        elif not preference_enabled:
+            failure_code = "preference_disabled"
+        elif template is None:
+            failure_code = "template_unavailable"
+        elif notification.severity == "CRITICAL":
+            failure_code = "critical_channel_blocked"
+
+        if failure_code is not None:
+            setattr(notification, marker_name, moment)
+            session.add(
+                NotificationDelivery(
+                    company_id=cid,
+                    notification_id=nid,
+                    channel=channel.value,
+                    outcome=NotificationDeliveryOutcome.FAILED,
+                    attempted_at=moment,
+                    error_code=failure_code,
+                )
+            )
+            return {
+                "notification_id": notification_id,
+                "delivered": False,
+                "detail": failure_code,
+            }
+
+        template_values = notification.template_data or {}
+        if any(name not in template_values for name in template.parameters):
+            failure_code = "template_data_missing"
+            setattr(notification, marker_name, moment)
+            session.add(
+                NotificationDelivery(
+                    company_id=cid,
+                    notification_id=nid,
+                    channel=channel.value,
+                    outcome=NotificationDeliveryOutcome.FAILED,
+                    attempted_at=moment,
+                    error_code=failure_code,
+                )
+            )
+            return {
+                "notification_id": notification_id,
+                "delivered": False,
+                "detail": failure_code,
+            }
+
+        values = [template_values[name] for name in template.parameters]
+        setattr(notification, marker_name, moment)
+        phone = account.phone_e164
+        template_name = template.template_name
+        template_id = template.template_id
+        language = template.language
+
+    try:
+        if channel is NotificationChannel.WHATSAPP:
+            if (
+                not settings.whatsapp_phone_number_id
+                or not settings.whatsapp_api_version
+                or template_name is None
+            ):
+                result = MessagingResult(
+                    MessagingOutcome.FAILED, error_code="invalid_provider_config"
+                )
+            else:
+                url = (
+                    f"{settings.whatsapp_api_base.rstrip('/')}/"
+                    f"{settings.whatsapp_api_version}/"
+                    f"{settings.whatsapp_phone_number_id}/messages"
+                )
+                assert_allowed_url(url)
+                result = await WhatsAppCloudProvider().send_template(
+                    phone, template_name, language, values
+                )
+        elif template_id is None:
+            result = MessagingResult(MessagingOutcome.FAILED, error_code="invalid_template")
+        else:
+            assert_allowed_url(settings.sms_api_url)
+            result = await sms_provider().send_template(phone, template_id, values)
+    except ValueError:
+        result = MessagingResult(MessagingOutcome.FAILED, error_code="invalid_provider_config")
+
+    async with session_scope() as session:
+        values_to_write: dict[str, datetime | None] = {}
+        if result.outcome is MessagingOutcome.RETRY:
+            values_to_write[marker_name] = None
+        elif result.outcome is MessagingOutcome.DELIVERED:
+            values_to_write["delivered_at"] = utcnow()
+        await session.execute(
+            update(Notification)
+            .where(
+                Notification.id == nid,
+                Notification.company_id == cid,
+                Notification.user_id == uid,
+                getattr(Notification, marker_name) == moment,
+            )
+            .values(**values_to_write)
+            .execution_options(synchronize_session=False)
+        )
+        session.add(
+            NotificationDelivery(
+                company_id=cid,
+                notification_id=nid,
+                channel=channel.value,
+                outcome=NotificationDeliveryOutcome(result.outcome.value),
+                provider_message_id=result.provider_message_id,
+                attempted_at=utcnow(),
+                error_code=result.error_code,
+            )
+        )
+
+    if result.outcome is MessagingOutcome.RETRY:
+        raise MessagingRetryableError("Messaging provider temporarily unavailable")
+    log.info(
+        "notifications.messaging_delivery",
+        notification_id=notification_id,
+        company_id=company_id,
+        user_id=user_id,
+        channel=channel.value,
+        outcome=result.outcome.value,
+    )
+    return {
+        "notification_id": notification_id,
+        "delivered": result.outcome is MessagingOutcome.DELIVERED,
+    }
+
+
+@async_task(
+    name="notifications.send_whatsapp",
+    queue="notifications",
+    autoretry_for=(MessagingRetryableError,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+)
+async def send_whatsapp(
+    notification_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    return await _deliver_notification_messaging(
+        notification_id,
+        company_id,
+        user_id,
+        channel=NotificationChannel.WHATSAPP,
+    )
+
+
+@async_task(
+    name="notifications.send_sms",
+    queue="notifications",
+    autoretry_for=(MessagingRetryableError,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+)
+async def send_sms(
+    notification_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    return await _deliver_notification_messaging(
+        notification_id,
+        company_id,
+        user_id,
+        channel=NotificationChannel.SMS,
+    )
+
+
 def pending_deliveries_statement(moment: datetime) -> Any:
     """Recover deliverable rows before limiting, so abandoned devices cannot starve the queue."""
     has_device = (
@@ -230,6 +503,28 @@ def pending_deliveries_statement(moment: datetime) -> Any:
         .correlate(Notification)
         .exists()
     )
+    whatsapp_template = (
+        select(NotificationChannelTemplate.id)
+        .where(
+            NotificationChannelTemplate.company_id == Notification.company_id,
+            NotificationChannelTemplate.notification_type == Notification.notification_type,
+            NotificationChannelTemplate.channel == NotificationChannel.WHATSAPP.value,
+            NotificationChannelTemplate.is_active.is_(True),
+        )
+        .correlate(Notification)
+        .exists()
+    )
+    sms_template = (
+        select(NotificationChannelTemplate.id)
+        .where(
+            NotificationChannelTemplate.company_id == Notification.company_id,
+            NotificationChannelTemplate.notification_type == Notification.notification_type,
+            NotificationChannelTemplate.channel == NotificationChannel.SMS.value,
+            NotificationChannelTemplate.is_active.is_(True),
+        )
+        .correlate(Notification)
+        .exists()
+    )
     return (
         select(
             Notification.id,
@@ -238,6 +533,8 @@ def pending_deliveries_statement(moment: datetime) -> Any:
             Notification.channels,
             Notification.email_delivered_at,
             Notification.push_delivered_at,
+            Notification.whatsapp_delivered_at,
+            Notification.sms_delivered_at,
         )
         .join(
             User,
@@ -263,6 +560,24 @@ def pending_deliveries_statement(moment: datetime) -> Any:
                     recent_push_session(moment),
                     has_device,
                 ),
+                and_(
+                    Notification.whatsapp_delivered_at.is_(None),
+                    literal(NotificationChannel.WHATSAPP.value) == any_(Notification.channels),
+                    literal(settings.whatsapp_enabled),
+                    User.phone_e164.is_not(None),
+                    User.phone_verified_at.is_not(None),
+                    User.whatsapp_opt_in_at.is_not(None),
+                    whatsapp_template,
+                ),
+                and_(
+                    Notification.sms_delivered_at.is_(None),
+                    literal(NotificationChannel.SMS.value) == any_(Notification.channels),
+                    literal(settings.sms_enabled),
+                    User.phone_e164.is_not(None),
+                    User.phone_verified_at.is_not(None),
+                    User.sms_opt_in_at.is_not(None),
+                    sms_template,
+                ),
             ),
         )
         .order_by(Notification.created_at, Notification.id)
@@ -281,10 +596,20 @@ async def dispatch_pending_deliveries(request_id: str | None = None, **_: Any) -
         for channel, marker, task in (
             ("EMAIL", row.email_delivered_at, "notifications.send_email"),
             ("PUSH", row.push_delivered_at, "notifications.send_push"),
+            (
+                "WHATSAPP",
+                row.whatsapp_delivered_at,
+                "notifications.send_whatsapp",
+            ),
+            ("SMS", row.sms_delivered_at, "notifications.send_sms"),
         ):
             enabled = (
                 settings.web_push_enabled
                 if channel == "PUSH"
+                else settings.whatsapp_enabled
+                if channel == "WHATSAPP"
+                else settings.sms_enabled
+                if channel == "SMS"
                 else settings.email_provider is not EmailProvider.disabled
             )
             if enabled and channel in row.channels and marker is None:
@@ -698,8 +1023,11 @@ async def dispatch_pending_password_resets(
 
 
 __all__ = [
+    "dispatch_pending_deliveries",
     "dispatch_pending_password_resets",
     "scan_dispatch_delays",
     "send_email",
     "send_password_reset_email",
+    "send_sms",
+    "send_whatsapp",
 ]

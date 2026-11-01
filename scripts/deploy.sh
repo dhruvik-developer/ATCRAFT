@@ -332,6 +332,8 @@ assert_clean_release_source() {
 assert_deployment_config() {
   local app_env cors hosts email_provider public_web_url email_from smtp_host
   local smtp_username smtp_password smtp_security mode
+  local whatsapp_enabled whatsapp_phone_id whatsapp_token sms_enabled sms_auth_key
+  local sms_sender_id sms_dlt_entity_id sms_verification_template
   app_env="$(env_value APP_ENV)"
   cors="$(env_value CORS_ORIGINS)"
   hosts="$(env_value ALLOWED_HOSTS)"
@@ -342,6 +344,14 @@ assert_deployment_config() {
   smtp_username="$(env_value SMTP_USERNAME)"
   smtp_password="$(env_value SMTP_PASSWORD)"
   smtp_security="$(env_value SMTP_SECURITY)"
+  whatsapp_enabled="$(env_value WHATSAPP_ENABLED)"
+  whatsapp_phone_id="$(env_value WHATSAPP_PHONE_NUMBER_ID)"
+  whatsapp_token="$(env_value WHATSAPP_ACCESS_TOKEN)"
+  sms_enabled="$(env_value SMS_ENABLED)"
+  sms_auth_key="$(env_value SMS_AUTH_KEY)"
+  sms_sender_id="$(env_value SMS_SENDER_ID)"
+  sms_dlt_entity_id="$(env_value SMS_DLT_ENTITY_ID)"
+  sms_verification_template="$(env_value SMS_VERIFICATION_TEMPLATE_ID)"
 
   case "$app_env" in
     production|staging) ;;
@@ -363,6 +373,24 @@ assert_deployment_config() {
   if { [ -n "$smtp_username" ] && [ -z "$smtp_password" ]; } \
       || { [ -z "$smtp_username" ] && [ -n "$smtp_password" ]; }; then
     die "SMTP_USERNAME and SMTP_PASSWORD must either both be set or both be empty"
+  fi
+  case "$whatsapp_enabled" in
+    true|false) ;;
+    *) die "WHATSAPP_ENABLED must be true or false in $ENV_FILE" ;;
+  esac
+  case "$sms_enabled" in
+    true|false) ;;
+    *) die "SMS_ENABLED must be true or false in $ENV_FILE" ;;
+  esac
+  if [ "$whatsapp_enabled" = "true" ] \
+      && { [ -z "$whatsapp_phone_id" ] || [ -z "$whatsapp_token" ]; }; then
+    die "WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN are required when WhatsApp is enabled"
+  fi
+  if [ "$whatsapp_enabled" = "true" ] || [ "$sms_enabled" = "true" ]; then
+    if [ -z "$sms_auth_key" ] || [ -z "$sms_sender_id" ] \
+        || [ -z "$sms_dlt_entity_id" ] || [ -z "$sms_verification_template" ]; then
+      die "SMS_AUTH_KEY, SMS_SENDER_ID, SMS_DLT_ENTITY_ID and SMS_VERIFICATION_TEMPLATE_ID are required when messaging is enabled"
+    fi
   fi
   # One variable at a time, so the refusal names the key that still holds the
   # placeholder. Tested as one concatenated string, the message could only say

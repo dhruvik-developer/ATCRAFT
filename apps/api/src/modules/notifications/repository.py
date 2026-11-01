@@ -42,6 +42,8 @@ from src.core.responses import CursorPagination
 from src.modules.notifications.models import (
     Notification,
     NotificationChannel,
+    NotificationChannelTemplate,
+    NotificationDelivery,
     NotificationPreference,
     NotificationType,
     PushSubscription,
@@ -312,7 +314,7 @@ class NotificationRepository(BaseRepository[Notification]):
 
     async def preferences_for_type(
         self, user_ids: Sequence[uuid.UUID], notification_type: NotificationType
-    ) -> dict[uuid.UUID, tuple[bool, bool, bool]]:
+    ) -> dict[uuid.UUID, tuple[bool, bool, bool, bool, bool]]:
         """``{user_id: (in_app_enabled, email_enabled)}`` for one type.
 
         One query for the whole recipient list - the fan-out must not turn into a
@@ -326,13 +328,48 @@ class NotificationRepository(BaseRepository[Notification]):
             NotificationPreference.in_app_enabled,
             NotificationPreference.email_enabled,
             NotificationPreference.push_enabled,
+            NotificationPreference.whatsapp_enabled,
+            NotificationPreference.sms_enabled,
         ).where(
             NotificationPreference.company_id == self.tenant.company_id,
             NotificationPreference.notification_type == notification_type,
             NotificationPreference.user_id.in_(list(user_ids)),
         )
         rows = (await self.session.execute(stmt)).all()
-        return {row[0]: (row[1], row[2], row[3]) for row in rows}
+        return {row[0]: (row[1], row[2], row[3], row[4], row[5]) for row in rows}
+
+    async def messaging_profiles_for_users(
+        self, user_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[str | None, datetime | None, datetime | None, datetime | None]]:
+        """Return verified-phone and consent facts for one bounded fan-out."""
+        if not user_ids:
+            return {}
+        from src.modules.users.models import User
+
+        stmt = select(
+            User.id,
+            User.phone_e164,
+            User.phone_verified_at,
+            User.whatsapp_opt_in_at,
+            User.sms_opt_in_at,
+        ).where(
+            User.company_id == self.tenant.company_id,
+            User.id.in_(list(user_ids)),
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+        return {
+            row[0]: (row[1], row[2], row[3], row[4])
+            for row in (await self.session.execute(stmt)).all()
+        }
+
+    async def active_template_channels(self, notification_type: NotificationType) -> set[str]:
+        stmt = select(NotificationChannelTemplate.channel).where(
+            NotificationChannelTemplate.company_id == self.tenant.company_id,
+            NotificationChannelTemplate.notification_type == notification_type.value,
+            NotificationChannelTemplate.is_active.is_(True),
+        )
+        return set((await self.session.execute(stmt)).scalars().all())
 
     async def users_with_push_devices(self, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
         from src.core.clock import utcnow
@@ -367,6 +404,8 @@ class NotificationRepository(BaseRepository[Notification]):
         if not rows:
             return []
         push_choices = {row["notification_type"]: row.get("push_enabled") for row in rows}
+        whatsapp_choices = {row["notification_type"]: row.get("whatsapp_enabled") for row in rows}
+        sms_choices = {row["notification_type"]: row.get("sms_enabled") for row in rows}
         insert_stmt = pg_insert(NotificationPreference).values(
             [
                 {
@@ -374,6 +413,12 @@ class NotificationRepository(BaseRepository[Notification]):
                     "push_enabled": row.get("push_enabled")
                     if row.get("push_enabled") is not None
                     else True,
+                    "whatsapp_enabled": row.get("whatsapp_enabled")
+                    if row.get("whatsapp_enabled") is not None
+                    else False,
+                    "sms_enabled": row.get("sms_enabled")
+                    if row.get("sms_enabled") is not None
+                    else False,
                 }
                 for row in rows
             ]
@@ -390,6 +435,23 @@ class NotificationRepository(BaseRepository[Notification]):
                             Boolean,
                         ),
                         NotificationPreference.push_enabled,
+                    ),
+                    "whatsapp_enabled": func.coalesce(
+                        cast(
+                            case(
+                                whatsapp_choices,
+                                value=insert_stmt.excluded.notification_type,
+                            ),
+                            Boolean,
+                        ),
+                        NotificationPreference.whatsapp_enabled,
+                    ),
+                    "sms_enabled": func.coalesce(
+                        cast(
+                            case(sms_choices, value=insert_stmt.excluded.notification_type),
+                            Boolean,
+                        ),
+                        NotificationPreference.sms_enabled,
                     ),
                     "updated_at": insert_stmt.excluded.updated_at,
                     "updated_by_id": insert_stmt.excluded.updated_by_id,
@@ -557,11 +619,114 @@ class NotificationRepository(BaseRepository[Notification]):
         )
 
 
+class NotificationMessagingRepository(BaseRepository[NotificationChannelTemplate]):
+    """Tenant-scoped templates, consent profile and delivery evidence."""
+
+    model = NotificationChannelTemplate
+
+    async def list_templates(self) -> list[NotificationChannelTemplate]:
+        stmt = (
+            select(NotificationChannelTemplate)
+            .where(NotificationChannelTemplate.company_id == self.tenant.company_id)
+            .order_by(
+                NotificationChannelTemplate.channel.asc(),
+                NotificationChannelTemplate.notification_type.asc(),
+            )
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def template(
+        self, channel: str, notification_type: NotificationType
+    ) -> NotificationChannelTemplate | None:
+        stmt = select(NotificationChannelTemplate).where(
+            NotificationChannelTemplate.company_id == self.tenant.company_id,
+            NotificationChannelTemplate.channel == channel,
+            NotificationChannelTemplate.notification_type == notification_type.value,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def upsert_templates(
+        self, rows: Sequence[dict[str, Any]]
+    ) -> list[NotificationChannelTemplate]:
+        if not rows:
+            return []
+        insert_stmt = pg_insert(NotificationChannelTemplate).values(list(rows))
+        stmt = (
+            insert_stmt.on_conflict_do_update(
+                index_elements=["company_id", "channel", "notification_type"],
+                set_={
+                    "template_name": insert_stmt.excluded.template_name,
+                    "template_id": insert_stmt.excluded.template_id,
+                    "language": insert_stmt.excluded.language,
+                    "parameters": insert_stmt.excluded.parameters,
+                    "sms_text": insert_stmt.excluded.sms_text,
+                    "is_active": insert_stmt.excluded.is_active,
+                    "updated_at": insert_stmt.excluded.updated_at,
+                    "updated_by_id": insert_stmt.excluded.updated_by_id,
+                },
+            )
+            .returning(NotificationChannelTemplate)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def own_messaging_profile(
+        self,
+    ) -> tuple[str | None, datetime | None, datetime | None, datetime | None] | None:
+        from src.modules.users.models import User
+
+        stmt = select(
+            User.phone_e164,
+            User.phone_verified_at,
+            User.whatsapp_opt_in_at,
+            User.sms_opt_in_at,
+        ).where(
+            User.company_id == self.tenant.company_id,
+            User.id == self.tenant.user_id,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+        row = (await self.session.execute(stmt)).first()
+        return tuple(row) if row is not None else None
+
+    async def add_delivery(self, delivery: NotificationDelivery) -> None:
+        self.session.add(delivery)
+        await self.session.flush()
+
+    async def list_deliveries(
+        self, params: CursorParams
+    ) -> tuple[list[NotificationDelivery], CursorPagination]:
+        stmt = select(NotificationDelivery).where(
+            NotificationDelivery.company_id == self.tenant.company_id
+        )
+        position = params.decoded
+        if position is not None:
+            stmt = stmt.where(
+                tuple_(NotificationDelivery.created_at, NotificationDelivery.id)
+                < (position.created_at, position.id)
+            )
+        stmt = stmt.order_by(
+            NotificationDelivery.created_at.desc(), NotificationDelivery.id.desc()
+        ).limit(params.limit + 1)
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        has_next = len(rows) > params.limit
+        rows = rows[: params.limit]
+        next_cursor = (
+            Cursor(created_at=rows[-1].created_at, id=rows[-1].id).encode()
+            if has_next and rows
+            else None
+        )
+        return rows, CursorPagination(
+            limit=params.limit, next_cursor=next_cursor, has_next=has_next
+        )
+
+
 __all__ = [
     "INSERT_BATCH_SIZE",
     "MARK_ALL_BATCH",
     "MAX_ROLE_RECIPIENTS",
     "SYSTEM_ACTOR_ID",
     "UNREAD_COUNT_CEILING",
+    "NotificationMessagingRepository",
     "NotificationRepository",
 ]

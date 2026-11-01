@@ -18,6 +18,7 @@ Three conventions here exist for security reasons rather than tidiness:
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -32,6 +33,28 @@ PasswordField = Field(min_length=1, max_length=128)
 #: A reset token is a 32-byte urlsafe secret; anything much shorter cannot be
 #: one, and rejecting it early keeps a probing loop off the database.
 ResetTokenField = Field(min_length=20, max_length=256)
+
+
+def normalise_phone_e164(value: str) -> str:
+    """Normalise an international number or a ten-digit Indian mobile to E.164."""
+    compact = re.sub(r"[\s().-]", "", value)
+    if not re.fullmatch(r"\+?\d{8,16}", compact):
+        raise ValueError("Enter a valid phone number in E.164 format.")
+    if compact.startswith("00"):
+        compact = "+" + compact[2:]
+    elif compact.startswith("+"):
+        pass
+    elif len(compact) == 10 and compact[0] in "6789":
+        compact = "+91" + compact
+    elif len(compact) == 11 and compact.startswith("0") and compact[1] in "6789":
+        compact = "+91" + compact[1:]
+    elif len(compact) == 12 and compact.startswith("91") and compact[2] in "6789":
+        compact = "+" + compact
+    else:
+        raise ValueError("Use +country-code and phone number, or a ten-digit Indian mobile.")
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", compact):
+        raise ValueError("Enter a valid phone number in E.164 format.")
+    return compact
 
 
 def _normalise_email(value: str) -> str:
@@ -179,8 +202,42 @@ class MeResponse(BaseModel):
     branch_id: uuid.UUID | None = None
     plant_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
+    phone_e164: str | None = None
+    phone_verified_at: datetime | None = None
+    whatsapp_opt_in_at: datetime | None = None
+    sms_opt_in_at: datetime | None = None
     allowed_category_ids: list[uuid.UUID] = Field(default_factory=list)
     allowed_warehouse_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class PhoneUpdateRequest(BaseModel):
+    phone: str | None = Field(default=None, max_length=32)
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _normalise_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return normalise_phone_e164(cleaned) if cleaned else None
+
+
+class PhoneVerificationRequest(BaseModel):
+    code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class PhoneVerificationStarted(BaseModel):
+    expires_in_seconds: int
+
+
+class MessagingConsentRequest(BaseModel):
+    channel: Literal["WHATSAPP", "SMS"]
+    opt_in: bool
+
+
+class MessagingConsentRead(BaseModel):
+    channel: Literal["WHATSAPP", "SMS"]
+    opted_in: bool
 
 
 # -----------------------------------------------------------------------------
@@ -298,6 +355,8 @@ __all__ = [
     "LoginResponse",
     "LogoutResult",
     "MeResponse",
+    "MessagingConsentRead",
+    "MessagingConsentRequest",
     "MfaChallengeResponse",
     "MfaChangeResult",
     "MfaCodeRequest",
@@ -307,6 +366,10 @@ __all__ = [
     "MfaVerifyRequest",
     "PasswordResetConfirmPayload",
     "PasswordResetRequestPayload",
+    "PhoneUpdateRequest",
+    "PhoneVerificationRequest",
+    "PhoneVerificationStarted",
     "SessionRead",
     "TokenPair",
+    "normalise_phone_e164",
 ]

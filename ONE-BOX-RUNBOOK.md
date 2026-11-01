@@ -392,6 +392,48 @@ correspond to a deliverable link, so `doctor` also requires
 empty. The templates already carry the right `EMAIL_PROVIDER`, `SMTP_PORT` and
 `SMTP_SECURITY`.
 
+### Optional WhatsApp and SMS
+
+Keep both channels disabled until the customer's legal basis, provider account
+and approved templates are ready. Before enabling:
+
+1. Complete Meta Business verification and register the WhatsApp Business phone
+   number. Submit and obtain approval for each WhatsApp message template.
+2. Register the SMS sender and message templates with the Indian DLT operator,
+   and obtain the provider auth key, entity ID and approved verification-code
+   template. Confirm the provider's data-processing terms and consent process.
+3. Add the provider settings to the deployment env file. Keep credentials only
+   in this file or the deployment secret manager; never put them in the database
+   or source control. The provider host must be included in
+   `MESSAGING_ALLOWED_HOSTS`.
+4. Start with `SMS_ENABLED=false` and `WHATSAPP_ENABLED=false`; run
+   `./scripts/deploy.sh <name> doctor`, then deploy. Afterward verify an
+   operator's number with the SMS OTP from their profile, record their explicit
+   channel consent, and configure each tenant's templates at
+   **Administration → Messaging templates**.
+5. Test only to the signed-in administrator's own verified, opted-in phone.
+   Review the delivery log and provider account before enabling notifications
+   for users. WhatsApp activation also requires the SMS OTP settings because
+   phone verification is SMS-based.
+
+Example (values are placeholders; the secret fields must be supplied securely):
+
+```ini
+WHATSAPP_ENABLED=false
+WHATSAPP_API_BASE=https://graph.facebook.com
+WHATSAPP_API_VERSION=v20.0
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_ACCESS_TOKEN=
+SMS_ENABLED=false
+SMS_PROVIDER=msg91
+SMS_API_URL=https://control.msg91.com/api/v5/flow/
+SMS_AUTH_KEY=
+SMS_SENDER_ID=
+SMS_DLT_ENTITY_ID=
+SMS_VERIFICATION_TEMPLATE_ID=
+MESSAGING_ALLOWED_HOSTS=graph.facebook.com,control.msg91.com
+```
+
 Check the result without starting anything:
 
 ```bash

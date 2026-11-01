@@ -42,6 +42,7 @@ from src.modules.auth.cookies import (
     require_refresh_csrf,
     set_refresh_cookies,
 )
+from src.modules.auth.phone_service import PhoneProfileService
 from src.modules.auth.schemas import (
     AccessTokenResponse,
     AcknowledgedResult,
@@ -51,6 +52,8 @@ from src.modules.auth.schemas import (
     LoginRequest,
     LogoutResult,
     MeResponse,
+    MessagingConsentRead,
+    MessagingConsentRequest,
     MfaChallengeResponse,
     MfaChangeResult,
     MfaCodeRequest,
@@ -60,6 +63,9 @@ from src.modules.auth.schemas import (
     MfaVerifyRequest,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
+    PhoneUpdateRequest,
+    PhoneVerificationRequest,
+    PhoneVerificationStarted,
     SessionRead,
 )
 from src.modules.auth.service import AuthService
@@ -223,6 +229,64 @@ async def logout_all(
 )
 async def me(session: DbSession, principal: CurrentUser) -> ApiResponse[MeResponse]:
     return ApiResponse.ok(await AuthService(session).me(principal))
+
+
+@router.put(
+    "/me/phone",
+    response_model=ApiResponse[AcknowledgedResult],
+    summary="Set the signed-in user's mobile number",
+)
+async def update_phone(
+    session: DbSession,
+    principal: CurrentUser,
+    payload: PhoneUpdateRequest,
+) -> ApiResponse[AcknowledgedResult]:
+    await PhoneProfileService(session, principal).update_phone(payload)
+    return ApiResponse.ok(AcknowledgedResult(), "Mobile number updated")
+
+
+@router.post(
+    "/me/phone/verification",
+    response_model=ApiResponse[PhoneVerificationStarted],
+    summary="Send a verification code to the signed-in user's mobile number",
+)
+async def request_phone_verification(
+    request: Request,
+    session: DbSession,
+    principal: CurrentUser,
+) -> ApiResponse[PhoneVerificationStarted]:
+    result = await PhoneProfileService(session, principal).request_verification(
+        ip_address=client_ip(request)
+    )
+    return ApiResponse.ok(result, "Verification code sent")
+
+
+@router.post(
+    "/me/phone/verification/confirm",
+    response_model=ApiResponse[AcknowledgedResult],
+    summary="Verify the signed-in user's mobile number",
+)
+async def verify_phone(
+    session: DbSession,
+    principal: CurrentUser,
+    payload: PhoneVerificationRequest,
+) -> ApiResponse[AcknowledgedResult]:
+    await PhoneProfileService(session, principal).verify_phone(payload.code)
+    return ApiResponse.ok(AcknowledgedResult(), "Mobile number verified")
+
+
+@router.post(
+    "/me/messaging-consent",
+    response_model=ApiResponse[MessagingConsentRead],
+    summary="Record messaging consent for the signed-in user",
+)
+async def set_messaging_consent(
+    session: DbSession,
+    principal: CurrentUser,
+    payload: MessagingConsentRequest,
+) -> ApiResponse[MessagingConsentRead]:
+    result = await PhoneProfileService(session, principal).set_consent(payload)
+    return ApiResponse.ok(result, "Messaging consent updated")
 
 
 # -----------------------------------------------------------------------------

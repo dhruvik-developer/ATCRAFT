@@ -7,6 +7,7 @@ import { fail, ok, page, renderScreen } from '@/test/harness'
 import ProfilePage from './profile-page'
 
 const sessions = page([])
+const messagingChannels = ok({ whatsapp_enabled: false, sms_enabled: false })
 
 describe('changing the password', () => {
   it('renders a policy refusal once, under the field it describes', async () => {
@@ -19,6 +20,7 @@ describe('changing the password', () => {
       user: { mfa_enabled: false, must_change_password: false },
       routes: {
         'GET /auth/sessions': sessions,
+        'GET /notifications/channels': messagingChannels,
         'POST /auth/change-password': fail(422, 'PASSWORD_POLICY', 'Password is too common.', {
           requirements: ['is too common'],
           fields: { new_password: ['Password is too common.'] },
@@ -54,6 +56,7 @@ describe('changing the password', () => {
         user: { mfa_enabled: false, must_change_password: false },
         routes: {
           'GET /auth/sessions': sessions,
+          'GET /notifications/channels': messagingChannels,
           'POST /auth/change-password': fail(
             422,
             'INVALID_CREDENTIALS',
@@ -89,6 +92,7 @@ describe('profile two-factor authentication', () => {
       user: { mfa_enabled: false, must_change_password: false },
       routes: {
         'GET /auth/sessions': sessions,
+        'GET /notifications/channels': messagingChannels,
         'POST /auth/mfa/setup': ok({
           secret: 'JBSWY3DPEHPK3PXP',
           provisioning_uri: 'otpauth://totp/ATCRAFT:test?secret=JBSWY3DPEHPK3PXP',
@@ -121,6 +125,7 @@ describe('profile two-factor authentication', () => {
       user: { mfa_enabled: true, must_change_password: false },
       routes: {
         'GET /auth/sessions': sessions,
+        'GET /notifications/channels': messagingChannels,
         'POST /auth/mfa/disable': ok({ mfa_enabled: false, revoked_sessions: 1 }),
       },
     })
@@ -138,5 +143,41 @@ describe('profile two-factor authentication', () => {
         code: '654321',
       }),
     )
+  })
+})
+
+describe('messaging profile', () => {
+  it('requires an enabled channel and verified number before recording consent', async () => {
+    const { fetch, user } = renderScreen(<ProfilePage />, {
+      user: {
+        mfa_enabled: false,
+        must_change_password: false,
+        phone_e164: '+919876543210',
+        phone_verified_at: '2026-01-01T00:00:00Z',
+        whatsapp_opt_in_at: null,
+        sms_opt_in_at: null,
+      },
+      routes: {
+        'GET /auth/sessions': sessions,
+        'GET /notifications/channels': ok({
+          whatsapp_enabled: true,
+          sms_enabled: false,
+        }),
+        'POST /auth/me/messaging-consent': ok({
+          channel: 'WHATSAPP',
+          opted_in: true,
+        }),
+      },
+    })
+
+    await user.click(await screen.findByRole('checkbox', { name: 'WhatsApp messages' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/auth/me/messaging-consent')).toEqual({
+        channel: 'WHATSAPP',
+        opt_in: true,
+      }),
+    )
+    expect(screen.queryByRole('checkbox', { name: 'SMS messages' })).not.toBeInTheDocument()
   })
 })

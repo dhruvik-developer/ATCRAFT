@@ -116,6 +116,7 @@ const ROUTES = [
   ['/admin/users', 'user.view'],
   ['/admin/organisation', 'company.view'],
   ['/admin/settings', 'settings.view'],
+  ['/admin/messaging', 'settings.view'],
   ['/notifications', 'notification.view'],
 ]
 
