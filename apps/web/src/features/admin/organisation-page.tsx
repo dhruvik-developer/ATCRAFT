@@ -673,7 +673,6 @@ function DepartmentsTab({
             open={formOpen}
             onOpenChange={setFormOpen}
             department={editing}
-            siblings={list.data}
             canSeeUsers={canSeeUsers}
             canSeeCostCentres={canSeeCostCentres}
           />

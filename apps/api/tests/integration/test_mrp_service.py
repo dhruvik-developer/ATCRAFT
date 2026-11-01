@@ -79,6 +79,12 @@ from src.modules.mrp.schemas import (
     SuggestionConvertRequest,
     SuggestionFilters,
 )
+from src.modules.packing.models import (
+    ItemPackingSpec,
+    PackingOrder,
+    PackingOrderLine,
+    PackingOrderStatus,
+)
 from src.modules.procurement import service as procurement_service
 from src.modules.procurement.models import PurchaseRequisition
 
@@ -496,6 +502,161 @@ async def test_a_small_run_completes_inline_and_persists_its_plan(ctx: Ctx) -> N
     assert screw is not None
     assert screw.gross_requirement == D("600.0000")
     assert screw.level == 1
+
+
+@pytest.mark.asyncio
+async def test_default_packing_specs_net_sales_and_unfinished_packing_demand(ctx: Ctx) -> None:
+    material = _item(
+        ctx,
+        "BOX-MRP",
+        item_group=ItemGroup.PACKING_MATERIAL,
+        can_sell=False,
+        can_manufacture=False,
+    )
+    ctx.session.add(material)
+    await ctx.session.flush()
+    ctx.session.add(
+        ItemPackingSpec(
+            company_id=ctx.tenant.company_id,
+            item_id=ctx.handle.id,
+            packing_material_item_id=material.id,
+            units_per_carton=6,
+            is_default=True,
+        )
+    )
+    await ctx.session.flush()
+
+    sales_order = await add_sales_order(ctx, code="SO/PACKING", lines=[(ctx.handle, "13")])
+    sales_line = (
+        await ctx.session.execute(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == sales_order.id)
+        )
+    ).scalar_one()
+    packing_order = PackingOrder(
+        company_id=ctx.tenant.company_id,
+        code="PK/PACKING",
+        customer_id=ctx.customer.id,
+        warehouse_id=ctx.main_warehouse.id,
+        sales_order_id=sales_order.id,
+        planned_date=today() + timedelta(days=10),
+        status=PackingOrderStatus.IN_PROGRESS,
+    )
+    ctx.session.add(packing_order)
+    await ctx.session.flush()
+    ctx.session.add(
+        PackingOrderLine(
+            company_id=ctx.tenant.company_id,
+            packing_order_id=packing_order.id,
+            line_number=1,
+            sales_order_line_id=sales_line.id,
+            item_id=ctx.handle.id,
+            quantity_to_pack=D("5"),
+            packed_quantity=D("2"),
+            uom_id=ctx.uom.id,
+        )
+    )
+    await ctx.session.flush()
+
+    run = await run_plan(ctx)
+    material_requirement = await requirement_for(ctx, run.id, material)
+
+    assert material_requirement is not None
+    assert material_requirement.gross_requirement == D("3.0000")
+    material_demands = (
+        (
+            await ctx.session.execute(
+                select(MrpDemand)
+                .where(MrpDemand.run_id == run.id, MrpDemand.item_id == material.id)
+                .order_by(MrpDemand.demand_source, MrpDemand.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [(row.demand_source, row.quantity) for row in material_demands] == [
+        (MrpDemandSource.PACKING_ORDER, D("1.0000")),
+        (MrpDemandSource.SALES_ORDER, D("2.0000")),
+    ]
+    assert (
+        next(
+            row for row in material_demands if row.demand_source is MrpDemandSource.PACKING_ORDER
+        ).source_id
+        == packing_order.id
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_packing_order_does_not_reduce_sales_packing_demand(ctx: Ctx) -> None:
+    material = _item(
+        ctx,
+        "BOX-CANCELLED",
+        item_group=ItemGroup.PACKING_MATERIAL,
+        can_sell=False,
+        can_manufacture=False,
+    )
+    ctx.session.add(material)
+    await ctx.session.flush()
+    ctx.session.add(
+        ItemPackingSpec(
+            company_id=ctx.tenant.company_id,
+            item_id=ctx.handle.id,
+            packing_material_item_id=material.id,
+            units_per_carton=6,
+            is_default=True,
+        )
+    )
+    sales_order = await add_sales_order(
+        ctx, code="SO/CANCELLED-PACKING", lines=[(ctx.handle, "13")]
+    )
+    sales_line = (
+        await ctx.session.execute(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == sales_order.id)
+        )
+    ).scalar_one()
+    packing_order = PackingOrder(
+        company_id=ctx.tenant.company_id,
+        code="PK/CANCELLED-PACKING",
+        customer_id=ctx.customer.id,
+        warehouse_id=ctx.main_warehouse.id,
+        sales_order_id=sales_order.id,
+        planned_date=today() + timedelta(days=10),
+        status=PackingOrderStatus.CANCELLED,
+    )
+    ctx.session.add(packing_order)
+    await ctx.session.flush()
+    ctx.session.add(
+        PackingOrderLine(
+            company_id=ctx.tenant.company_id,
+            packing_order_id=packing_order.id,
+            line_number=1,
+            sales_order_line_id=sales_line.id,
+            item_id=ctx.handle.id,
+            quantity_to_pack=D("5"),
+            packed_quantity=D("0"),
+            uom_id=ctx.uom.id,
+        )
+    )
+    await ctx.session.flush()
+
+    run = await run_plan(ctx)
+    material_requirement = await requirement_for(ctx, run.id, material)
+
+    assert material_requirement is not None
+    assert material_requirement.gross_requirement == D("3.0000")
+    material_demands = (
+        (
+            await ctx.session.execute(
+                select(MrpDemand).where(
+                    MrpDemand.run_id == run.id, MrpDemand.item_id == material.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [(row.demand_source, row.quantity) for row in material_demands] == [
+        (MrpDemandSource.SALES_ORDER, D("3.0000"))
+    ]
 
 
 @pytest.mark.asyncio

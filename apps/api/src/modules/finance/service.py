@@ -1521,7 +1521,13 @@ async def post_journal(
     year_repo = FinancialYearRepository(session, tenant)
 
     async with transaction(session):
-        known = await account_repo.posting_accounts([line.account_id for line in lines])
+        reversal_account_ids = {line.account_id for line in lines if line.reverses_entry_id}
+        ordinary_account_ids = {line.account_id for line in lines if not line.reverses_entry_id}
+        allow_inactive_ids = reversal_account_ids - ordinary_account_ids
+        known = await account_repo.posting_accounts(
+            [line.account_id for line in lines],
+            allow_inactive_ids=sorted(allow_inactive_ids),
+        )
         unknown = {line.account_id for line in lines} - set(known)
         if unknown:
             raise NotFoundError(

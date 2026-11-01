@@ -206,6 +206,34 @@ class PackingOrderFilters(BaseModel):
     planned_to: date | None = None
 
 
+class ItemPackingSpecWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    packing_material_item_id: uuid.UUID
+    quantity_per_unit: PositiveQuantity | None = None
+    units_per_carton: Annotated[int, Field(gt=0, le=100_000)] | None = None
+    is_default: bool = True
+
+    @model_validator(mode="after")
+    def _one_quantity_rule(self) -> ItemPackingSpecWrite:
+        if (self.quantity_per_unit is None) == (self.units_per_carton is None):
+            raise ValueError("Provide exactly one of quantity_per_unit or units_per_carton.")
+        return self
+
+
+class ItemPackingSpecRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    item_id: uuid.UUID
+    packing_material_item_id: uuid.UUID
+    packing_material_item_code: str | None = None
+    packing_material_item_name: str | None = None
+    quantity_per_unit: Decimal | None
+    units_per_carton: int | None
+    is_default: bool
+
+
 # -----------------------------------------------------------------------------
 # Cartons
 # -----------------------------------------------------------------------------

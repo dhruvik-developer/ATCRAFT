@@ -83,7 +83,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `assembly` | `assembly_orders`, `assembly_order_components` |
 | `job_work` | `job_work_orders`, `job_work_order_lines`, `job_work_challans`, `job_work_challan_lines`, `job_work_receipts`, `job_work_receipt_lines` |
 | `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results`, `qc_inspection_decisions`, `qc_rework_records` |
-| `packing` | `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
+| `packing` | `item_packing_specs`, `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
@@ -838,8 +838,9 @@ planning lock and rate policy. Completed runs notify active internal users with
 `mrp.view`.
 
 `mrp_demands`: the demand snapshot the run planned against, one row per source
-line. `demand_source` is `SALES_ORDER`, `MANUAL` or `REORDER`; manual rows have no
-`source_id`, while a reorder row names its tenant-owned item in `source_id`.
+line. `demand_source` is `SALES_ORDER`, `MANUAL`, `REORDER` or `PACKING_ORDER`;
+manual rows have no `source_id`, while reorder rows name their tenant-owned
+item and packing-order rows name their tenant-owned packing order in `source_id`.
 `expected_available_date` is stamped when the run completes: the date the item's
 merged requirement is expected to be fully covered, after child slippage has
 been rolled up through the demand's BOM provenance. Reorder demand is raised
@@ -850,10 +851,22 @@ conversion uses `PurchaseSourceType.REORDER` only when the sole causal root is
 the same item being purchased; BOM-component and mixed-root suggestions retain
 `MRP_SUGGESTION`.
 
-Packing-material demand from open sales orders and packing orders is not yet
-generated. The packing-specification owner (`item_packing_specs`) is not
-implemented; planning must not guess packaging quantities from carton history.
-This work is deferred until E9 supplies that source.
+`item_packing_specs` stores the default material recipe for an item. Exactly one
+of `quantity_per_unit` or `units_per_carton` is positive. For open sales-order
+demand, MRP first nets the quantities assigned to non-cancelled packing lines
+that are linked to that order and item, then multiplies the remaining source
+line by `quantity_per_unit` or rounds it up to whole cartons using
+`units_per_carton`. Unlinked packing lines (for example, samples or
+replacements) remain independent demand. DRAFT and IN_PROGRESS packing orders
+planned within the run horizon contribute the same recipe applied to
+`quantity_to_pack - packed_quantity`; the assigned quantity is removed from the
+sales-derived demand so it is counted once. Packed, handed-over or closed work continues
+to suppress duplicate sales-derived material demand because its packing material
+has already been consumed. Cancelled orders do not suppress it. Warehouse-scoped
+runs only net assignments at included packing warehouses. Only default specs
+feed planning; alternative non-default recipes are not assumed to be
+simultaneously required. Carton history is not used to invent future packaging
+requirements.
 
 `mrp_requirements`: `run_id`, `item_id`, `gross_requirement`, the direct and
 dependent split, free stock, in-time and late incoming/in-production/assembly/

@@ -50,6 +50,7 @@ from src.modules.finance.models import (
 from src.modules.finance.schemas import (
     InvoiceApproval,
     LedgerAccountCreate,
+    LedgerAccountUpdate,
     VendorInvoiceCreate,
     VendorInvoiceFilters,
     VendorInvoiceLineIn,
@@ -947,9 +948,9 @@ class TestLedger:
     async def test_a_reversal_copies_the_centre_even_after_it_was_retired(
         self, session: AsyncSession, tenant: TenantContext
     ) -> None:
-        """Retiring a centre must not make the journals posted to it irreversible."""
+        """Retiring a centre or deactivating an account must not erase history."""
         centre = await _centre(session, tenant)
-        expense = await _expense_account(session, tenant)
+        expense = await _account(session, tenant, LedgerAccountType.EXPENSE)
         bank = await _account(session, tenant, LedgerAccountType.ASSET)
         original = await finance.post_journal(
             session,
@@ -962,6 +963,7 @@ class TestLedger:
             reference_type="test_journal",
         )
         journal_id = original[0].journal_id
+        await finance.update_account(session, tenant, expense, LedgerAccountUpdate(is_active=False))
         await _deactivate(session, tenant, centre.id)
         await _archive(session, tenant, centre.id)
 

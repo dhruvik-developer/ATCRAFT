@@ -143,7 +143,7 @@ suggestions where warehouses represent independent plants.
 
 ---
 
-## §E3b-6. Reorder points create demand; packing demand waits for E9
+## §E3b-6. Reorder points and default packing recipes create demand
 
 **Confirmed for this delivery.** An active item with `reorder_level > 0` triggers when scoped
 available stock (on hand less reserved, QC-held and damaged quantities) is at or
@@ -154,28 +154,39 @@ warehouse is attached only when it belongs to the run's warehouse scope; if it
 does not, the demand remains unassigned so the run cannot plan against an
 excluded warehouse.
 
-Packing-material demand for open sales orders and packing orders is deferred
-until E9 provides `item_packing_specs`. Existing carton records describe
-materials already selected for cartons and are not a per-item packaging recipe;
-they are not used to invent future demand.
+Packing demand uses only default `item_packing_specs`. `quantity_per_unit`
+multiplies each source quantity; `units_per_carton` rounds each source line up
+to a whole carton independently. Packing lines linked to a sales order and item
+reduce sales-derived demand by their assigned quantity, while unlinked lines
+(such as samples or replacements) remain independent. DRAFT and IN_PROGRESS
+packing orders planned within the run horizon contribute
+`quantity_to_pack - packed_quantity`; their assigned quantity is removed from
+sales-derived demand so it is not counted twice. Packed, handed-over and closed work
+continues to suppress sales-derived packing demand because its material has
+already been consumed. Cancelled orders do not suppress demand, and a
+warehouse-scoped run only nets assignments at included packing warehouses.
+Alternative non-default recipes are not counted together, and existing carton
+records never determine a future recipe.
 
 **Why.** Reorder replenishment belongs in the same engine as sales and manual
 demand, so it nets against stock and dated supply rather than producing a
-duplicate direct suggestion. A packing quantity without an approved item
-specification would be an invented business rule.
+duplicate direct suggestion. Packaging demand uses an explicit item recipe
+rather than inferring a ratio from prior cartons.
 
-**Where.** `src/modules/mrp/repository.py` collects reorder demand;
-`src/modules/mrp/engine.py` nets it and carries its root provenance;
+**Where.** `src/modules/mrp/repository.py` collects reorder and recipe-derived
+packing demand; `src/modules/mrp/engine.py` nets it and carries its root provenance;
 `src/modules/procurement/service.py` writes a purchase as
 `PurchaseSourceType.REORDER` only when its sole root is the purchased item
 itself. BOM-component and mixed-root purchases remain `MRP_SUGGESTION`.
-Migration `20261110_0100` allows the persisted `REORDER` demand source. Packing
-demand remains outside MRP until E9.
+Migrations `20261110_0100` and `20261113_0100` allow the persisted `REORDER` and
+`PACKING_ORDER` demand sources; migration `20261113_0100` creates
+`item_packing_specs`.
 
 **Impact if wrong.** If `reorder_quantity` is intended as a target on-hand
 level rather than a replenishment amount, the demand calculation must change
-before relying on the resulting purchase quantities. Until E9 lands, plans do
-not include boxes or other packing materials.
+before relying on the resulting purchase quantities. If default packaging
+recipes are meant to be alternatives rather than cumulative requirements, the
+default selection model must be revised before planning against those items.
 
 ---
 

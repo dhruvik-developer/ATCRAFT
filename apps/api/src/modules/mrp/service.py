@@ -91,6 +91,7 @@ from src.modules.mrp.repository import (
     MrpRunRepository,
     MrpScheduleSettingsRepository,
     MrpSuggestionRepository,
+    PackingDemandRepository,
     ReorderDemandRepository,
     SalesDemandRepository,
     ScheduledMrpConfiguration,
@@ -444,6 +445,20 @@ async def _collect_demand(
     warehouse_ids = payload.warehouse_ids or None
     demand = await SalesDemandRepository(session, tenant).open_demand(
         horizon_end=horizon_end, warehouse_ids=warehouse_ids
+    )
+    packing_demand = PackingDemandRepository(session, tenant)
+    demand.extend(
+        await packing_demand.from_sales_demand(
+            demand,
+            horizon_end=horizon_end,
+            warehouse_ids=warehouse_ids,
+        )
+    )
+    demand.extend(
+        await packing_demand.open_packing_order_demand(
+            horizon_end=horizon_end,
+            warehouse_ids=warehouse_ids,
+        )
     )
     demand.extend(
         await ReorderDemandRepository(session, tenant).open_demand(

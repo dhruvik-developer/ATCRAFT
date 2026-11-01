@@ -387,6 +387,11 @@ export default function PurchaseOrdersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={SELECT_ALL}>All categories</SelectItem>
+                  {categoryId && !categoryById.has(categoryId) && (
+                    <SelectItem value={categoryId}>
+                      {categoryFilterName ?? 'Current category'}
+                    </SelectItem>
+                  )}
                   {(categories.data ?? []).map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.code} - {category.name}

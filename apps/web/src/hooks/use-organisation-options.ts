@@ -52,6 +52,7 @@ export const organisationOptionKeys = {
   branches: ['organization', 'branches', 'options'] as const,
   plants: ['organization', 'plants', 'options'] as const,
   departments: ['organization', 'departments', 'options'] as const,
+  departmentTree: ['organization', 'departments', 'tree'] as const,
   costCentres: ['organization', 'cost-centres', 'options'] as const,
 } as const
 
@@ -98,6 +99,16 @@ export function useDepartmentOptions<T = OrganisationOption>(enabled = true) {
     '/organization/departments',
     organisationOptionKeys.departments,
     enabled,
+  )
+}
+
+/** Every live department, including inactive nodes, for the organisation tree editor. */
+export function useDepartmentTreeOptions<T = OrganisationOption>(enabled = true) {
+  return useOrganisationOptions<T>(
+    '/organization/departments',
+    organisationOptionKeys.departmentTree,
+    enabled,
+    REFERENCE_PARAMS,
   )
 }
 

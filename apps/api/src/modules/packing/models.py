@@ -331,6 +331,48 @@ class PackingOrderLine(TenantEntity):
     )
 
 
+class ItemPackingSpec(TenantEntity):
+    """Default packing-material requirements for one sellable item."""
+
+    __tablename__ = "item_packing_specs"
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    packing_material_item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    quantity_per_unit: Mapped[Decimal | None] = mapped_column(Quantity, nullable=True)
+    units_per_carton: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "(quantity_per_unit IS NOT NULL AND quantity_per_unit > 0 "
+            "AND units_per_carton IS NULL) OR "
+            "(quantity_per_unit IS NULL AND units_per_carton IS NOT NULL "
+            "AND units_per_carton > 0)",
+            name="packing_spec_has_one_positive_ratio",
+        ),
+        Index(
+            "uq_item_packing_specs_default_material",
+            "company_id",
+            "item_id",
+            "packing_material_item_id",
+            unique=True,
+            postgresql_where=text("is_default"),
+        ),
+        Index(
+            "ix_item_packing_specs_item_default",
+            "company_id",
+            "item_id",
+            postgresql_where=text("is_default"),
+        ),
+    )
+
+
 class Carton(TenantEntity):
     """One physical box: its barcode, its weight and whether it is closed."""
 
@@ -528,6 +570,7 @@ __all__ = [
     "Carton",
     "CartonContent",
     "CartonType",
+    "ItemPackingSpec",
     "PackingOrder",
     "PackingOrderLine",
     "PackingOrderStatus",

@@ -13836,6 +13836,49 @@
     {
       "item": [
         {
+          "name": "Add an item packing specification",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"packing_material_item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"is_default\": true,\n  \"quantity_per_unit\": 0,\n  \"units_per_carton\": 0\n}"
+            },
+            "description": "Add an item packing specification",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "items",
+                ":item_id",
+                "packing-specs"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/items/{item_id}/packing-specs",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Amend a draft packing order",
           "request": {
             "body": {
@@ -14174,6 +14217,55 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/packing/packing-materials?"
+            }
+          }
+        },
+        {
+          "name": "List item packing specifications",
+          "request": {
+            "description": "List item packing specifications",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "items",
+                ":item_id",
+                "packing-specs"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/packing/items/{item_id}/packing-specs?",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -14743,6 +14835,42 @@
           }
         },
         {
+          "name": "Remove an item packing specification",
+          "request": {
+            "description": "Remove an item packing specification",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "packing-specs",
+                ":spec_id"
+              ],
+              "query": [
+                {
+                  "description": "Why this is being removed",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/packing/packing-specs/{spec_id}?",
+              "variable": [
+                {
+                  "description": "spec_id of the record",
+                  "key": "spec_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Remove an unsealed carton",
           "request": {
             "description": "Remove an unsealed carton",
@@ -14778,6 +14906,48 @@
                 {
                   "description": "carton_id of the record",
                   "key": "carton_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replace an item packing specification",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"packing_material_item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"is_default\": true,\n  \"quantity_per_unit\": 0,\n  \"units_per_carton\": 0\n}"
+            },
+            "description": "Replace an item packing specification",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "packing-specs",
+                ":spec_id"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/packing-specs/{spec_id}",
+              "variable": [
+                {
+                  "description": "spec_id of the record",
+                  "key": "spec_id",
                   "value": ""
                 }
               ]

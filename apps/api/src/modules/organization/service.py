@@ -1145,7 +1145,9 @@ class CostCentreService:
             raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
-            centre = await self.repo.get_or_404(cost_centre_id)
+            centre = await self.repo.lock_for_update(cost_centre_id)
+            if centre is None:
+                raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
             before = snapshot(centre, _COST_CENTRE_AUDITED_FIELDS)
             current_state = lifecycle_state(centre)
 
@@ -1230,7 +1232,9 @@ class CostCentreService:
     async def delete_cost_centre(self, cost_centre_id: uuid.UUID, *, reason: str) -> None:
         """Retire (soft-delete) a cost centre nothing but posted history names."""
         async with transaction(self.session):
-            centre = await self.repo.get_or_404(cost_centre_id)
+            centre = await self.repo.lock_for_update(cost_centre_id)
+            if centre is None:
+                raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
             current = lifecycle_state(centre)
             COST_CENTRE_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
@@ -1378,7 +1382,7 @@ async def require_cost_centre(
     should come through here: a document re-saving the centre it already holds
     is not allocating anything, and keeps its reference after deactivation.
     """
-    centre = await CostCentreRepository(session, tenant).get(cost_centre_id)
+    centre = await CostCentreRepository(session, tenant).get_for_assignment(cost_centre_id)
     if centre is None:
         raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
     if not centre.is_active:
@@ -1426,7 +1430,9 @@ async def require_cost_centres(
     if not references:
         return {}
     facts = await CostCentreRepository(session, tenant).facts(
-        (cost_centre_id for _, cost_centre_id in references), include_archived=False
+        (cost_centre_id for _, cost_centre_id in references),
+        include_archived=False,
+        for_assignment=True,
     )
     for _, cost_centre_id in references:
         if cost_centre_id not in facts:

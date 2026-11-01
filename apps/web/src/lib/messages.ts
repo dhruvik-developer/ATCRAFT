@@ -220,10 +220,12 @@ export const empty = {
   loadFailedTitle: 'Could not load this list',
   loadFailedAction: 'Try again',
   /**
-   * A stored reference the lookup list cannot name - a value retired since it
-   * was assigned, or one this account may not read. Shown instead of the raw id.
+   * A stored reference missing from the active lookup list, shown instead of
+   * the raw id when the viewer may read that list.
    */
   unlistedReference: 'Not in the active list',
+  /** A stored reference whose master list the viewer is not allowed to read. */
+  referenceNotVisible: 'Not visible to your account',
 } as const
 
 // ------------------------------------------------------------ prompts ------

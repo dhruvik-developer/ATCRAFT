@@ -4215,7 +4215,9 @@ def _conversion_result(
         groups=groups,
         unresolved_lines=plan.unresolved,
         skipped_line_count=plan.skipped_line_count,
+        po_date=plan.po_date,
         max_orders=MAX_ORDERS_PER_CONVERSION,
+        max_lines_per_order=MAX_LINES_PER_DOCUMENT,
         requires_acknowledgement=any(duplicates),
         converted=converted,
     )

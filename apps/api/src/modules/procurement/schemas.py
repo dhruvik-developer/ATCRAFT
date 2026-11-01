@@ -1144,8 +1144,12 @@ class RequisitionConversionResult(BaseModel):
     #: Lines left out because nothing is left to order on them, they are
     #: cancelled, or the buyer excluded them.
     skipped_line_count: int
+    #: The date used when each proposed order is raised.
+    po_date: date
     #: The most purchase orders one conversion may raise.
     max_orders: int
+    #: The most lines one proposed purchase order may contain.
+    max_lines_per_order: int
     #: Creating the orders would be refused without an acknowledgement.
     requires_acknowledgement: bool
     #: ``False`` on a preview, ``True`` once the orders exist.

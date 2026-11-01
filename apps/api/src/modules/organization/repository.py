@@ -632,6 +632,30 @@ class CostCentreRepository(_OrgRepositoryMixin, BaseRepository[CostCentre]):
     }
     searchable_fields = ("code", "name")
 
+    async def get_for_assignment(self, cost_centre_id: uuid.UUID) -> CostCentre | None:
+        """Read a centre about to be assigned, ``FOR SHARE``.
+
+        A lifecycle change locks the same row ``FOR NO KEY UPDATE``. The locks
+        serialize the active-state check with deactivation and archiving.
+        """
+        stmt = (
+            self._scoped()
+            .where(CostCentre.id == cost_centre_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_for_update(self, cost_centre_id: uuid.UUID) -> CostCentre | None:
+        """Read a centre being changed, ``FOR NO KEY UPDATE``, and refresh it."""
+        stmt = (
+            self._scoped()
+            .where(CostCentre.id == cost_centre_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     def build_list_stmt(self, filters: CostCentreFilters, sort: SortParams) -> Select[Any]:
         stmt = self._scoped(include_deleted=filters.include_deleted)
         stmt = self._apply_search(stmt, filters.search)
@@ -800,13 +824,19 @@ class CostCentreRepository(_OrgRepositoryMixin, BaseRepository[CostCentre]):
         return await self._carrier_references(COST_CENTRE_REFERENCE_PROBES, cost_centre_id)
 
     async def facts(
-        self, cost_centre_ids: Iterable[uuid.UUID], *, include_archived: bool
+        self,
+        cost_centre_ids: Iterable[uuid.UUID],
+        *,
+        include_archived: bool,
+        for_assignment: bool = False,
     ) -> dict[uuid.UUID, CostCentreFacts]:
         """Tenant-scoped facts for a set of ids, in one statement.
 
         An id from another company is simply absent from the answer, exactly as
         an id that never existed is - the caller reports both as "not found",
         because confirming that a row exists elsewhere is itself a disclosure.
+        ``for_assignment`` takes ``FOR SHARE`` on every found row, serializing
+        the active check with a lifecycle change for batch document writes.
         """
         wanted = {cost_centre_id for cost_centre_id in cost_centre_ids if cost_centre_id}
         if not wanted:
@@ -823,6 +853,8 @@ class CostCentreRepository(_OrgRepositoryMixin, BaseRepository[CostCentre]):
         )
         if not include_archived:
             stmt = stmt.where(CostCentre.deleted_at.is_(None))
+        if for_assignment:
+            stmt = stmt.with_for_update(read=True)
         return {
             row.id: CostCentreFacts(
                 id=row.id,

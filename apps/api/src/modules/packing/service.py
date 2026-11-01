@@ -81,6 +81,7 @@ from typing import Any, Protocol, TypedDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.core.actors import actor_id
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -109,6 +110,7 @@ from src.modules.packing.models import (
     Carton,
     CartonContent,
     CartonType,
+    ItemPackingSpec,
     PackingOrder,
     PackingOrderLine,
     PackingOrderStatus,
@@ -122,6 +124,7 @@ from src.modules.packing.repository import (
     PackingItem,
     PackingOrderLineRepository,
     PackingOrderRepository,
+    PackingSpecRepository,
     SalesOrderLookupRepository,
     SerialLookupRepository,
     WarehouseLookupRepository,
@@ -138,6 +141,8 @@ from src.modules.packing.schemas import (
     CartonLabelLine,
     CartonScanResult,
     CompleteRequest,
+    ItemPackingSpecRead,
+    ItemPackingSpecWrite,
     PackingCompletionResult,
     PackingFromAssemblyCreate,
     PackingMaterialRow,
@@ -160,7 +165,7 @@ from src.modules.packing.serial_tracking import (
     requires_named_final,
     select_final_units,
 )
-from src.modules.products.models import ItemGroup
+from src.modules.products.models import Item, ItemGroup
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.repository import ReportSnapshotRepository
@@ -1078,6 +1083,189 @@ def _released_quantities(contents: Sequence[CartonContent]) -> dict[uuid.UUID, D
             row.packing_order_line_id, ZERO
         ) + Decimal(row.quantity)
     return released
+
+
+async def list_item_packing_specs(
+    session: AsyncSession,
+    tenant: TenantContext,
+    item_id: uuid.UUID,
+    params: PageParams,
+) -> tuple[list[ItemPackingSpecRead], OffsetPagination]:
+    repo = PackingSpecRepository(session, tenant)
+    if await repo.item(item_id) is None:
+        raise NotFoundError("Item", item_id)
+    rows, pagination = await repo.list_for_item(item_id, params)
+    material_facts = await repo.material_facts(list({row.packing_material_item_id for row in rows}))
+    return [
+        _packing_spec_read(row, material_facts.get(row.packing_material_item_id)) for row in rows
+    ], pagination
+
+
+async def _validate_packing_spec_items(
+    repo: PackingSpecRepository, item_id: uuid.UUID, material_item_id: uuid.UUID
+) -> Item:
+    if item_id == material_item_id:
+        raise ValidationError("An item cannot be its own packing material.")
+    material = await repo.item(material_item_id)
+    if material is None or not material.is_active:
+        raise NotFoundError("Packing material item", material_item_id)
+    if not material.can_purchase:
+        raise ValidationError("The selected packing material item must be purchasable.")
+    return material
+
+
+def _packing_spec_read(
+    spec: ItemPackingSpec, material: Item | tuple[str, str] | None
+) -> ItemPackingSpecRead:
+    read = ItemPackingSpecRead.model_validate(spec)
+    if material is None:
+        return read
+    code, name = (material.code, material.name) if isinstance(material, Item) else material
+    return read.model_copy(
+        update={
+            "packing_material_item_code": code,
+            "packing_material_item_name": name,
+        }
+    )
+
+
+async def _write_packing_spec_audit(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    action: AuditAction,
+    spec: ItemPackingSpec,
+    old: dict[str, Any] | None = None,
+    new: dict[str, Any] | None = None,
+) -> None:
+    await record_audit(
+        session,
+        company_id=tenant.company_id,
+        user_id=tenant.user_id,
+        action=action,
+        entity_type="item_packing_spec",
+        entity_id=spec.id,
+        summary=f"{action.value.title()} packing specification for item {spec.item_id}",
+        old_values=old,
+        new_values=new,
+    )
+
+
+async def create_item_packing_spec(
+    session: AsyncSession,
+    tenant: TenantContext,
+    item_id: uuid.UUID,
+    payload: ItemPackingSpecWrite,
+) -> ItemPackingSpecRead:
+    repo = PackingSpecRepository(session, tenant)
+    async with transaction(session):
+        item = await repo.item(item_id, lock=True)
+        if item is None:
+            raise NotFoundError("Item", item_id)
+        if not item.is_active:
+            raise ValidationError("Packing specifications can only be added to active items.")
+        material = await _validate_packing_spec_items(
+            repo, item_id, payload.packing_material_item_id
+        )
+        if payload.is_default and await repo.default_for_material(
+            item_id, payload.packing_material_item_id
+        ):
+            raise BusinessRuleError(
+                "A default packing specification already exists for this item and material."
+            )
+        spec = ItemPackingSpec(
+            company_id=tenant.company_id,
+            created_by_id=actor_id(tenant.user_id),
+            item_id=item_id,
+            **payload.model_dump(),
+        )
+        session.add(spec)
+        await session.flush()
+        read = _packing_spec_read(spec, material)
+        await _write_packing_spec_audit(
+            session,
+            tenant,
+            action=AuditAction.CREATE,
+            spec=spec,
+            new=read.model_dump(mode="json"),
+        )
+    return read
+
+
+async def update_item_packing_spec(
+    session: AsyncSession,
+    tenant: TenantContext,
+    spec_id: uuid.UUID,
+    payload: ItemPackingSpecWrite,
+) -> ItemPackingSpecRead:
+    repo = PackingSpecRepository(session, tenant)
+    async with transaction(session):
+        initial = await repo.get(spec_id)
+        if initial is None:
+            raise NotFoundError("Packing specification", spec_id)
+        item = await repo.item(initial.item_id, lock=True)
+        if item is None:
+            raise NotFoundError("Item", initial.item_id)
+        if not item.is_active:
+            raise ValidationError("Packing specifications can only be edited for active items.")
+        spec = await repo.get(spec_id, lock=True)
+        if spec is None:
+            raise NotFoundError("Packing specification", spec_id)
+        old_material = await repo.item(spec.packing_material_item_id)
+        material = await _validate_packing_spec_items(
+            repo, spec.item_id, payload.packing_material_item_id
+        )
+        old = _packing_spec_read(spec, old_material)
+        if payload.is_default:
+            previous = await repo.default_for_material(
+                spec.item_id, payload.packing_material_item_id, excluding=spec.id
+            )
+            if previous is not None:
+                previous_read = _packing_spec_read(previous, material)
+                previous.is_default = False
+                await session.flush()
+                await _write_packing_spec_audit(
+                    session,
+                    tenant,
+                    action=AuditAction.UPDATE,
+                    spec=previous,
+                    old=previous_read.model_dump(mode="json"),
+                    new=_packing_spec_read(previous, material).model_dump(mode="json"),
+                )
+        for key, value in payload.model_dump().items():
+            setattr(spec, key, value)
+        await session.flush()
+        read = _packing_spec_read(spec, material)
+        await _write_packing_spec_audit(
+            session,
+            tenant,
+            action=AuditAction.UPDATE,
+            spec=spec,
+            old=old.model_dump(mode="json"),
+            new=read.model_dump(mode="json"),
+        )
+    return read
+
+
+async def delete_item_packing_spec(
+    session: AsyncSession, tenant: TenantContext, spec_id: uuid.UUID, *, reason: str
+) -> None:
+    repo = PackingSpecRepository(session, tenant)
+    async with transaction(session):
+        spec = await repo.get(spec_id, lock=True)
+        if spec is None:
+            raise NotFoundError("Packing specification", spec_id)
+        old = _packing_spec_read(spec, await repo.item(spec.packing_material_item_id))
+        await session.delete(spec)
+        await session.flush()
+        await _write_packing_spec_audit(
+            session,
+            tenant,
+            action=AuditAction.DELETE,
+            spec=spec,
+            old=old.model_dump(mode="json"),
+            new={"reason": reason},
+        )
 
 
 # -----------------------------------------------------------------------------

@@ -10,11 +10,10 @@
  * must land on the Cost centres tab, and must not be shown a Company tab whose
  * request could only 403.
  *
- * **A parent comes from the whole tree.** The department form offers the
- * current page of departments as candidate parents; the cost-centre form must
- * not repeat that, because a parent two pages away is still a parent. The
- * picker reads the full reference list, offers only active centres, and never
- * a centre's own subtree.
+ * **A parent comes from the whole tree.** Both department and cost-centre
+ * forms use the full reference list, not the current page of the register.
+ * The cost-centre picker offers only active centres and never a centre's own
+ * subtree.
  *
  * **A hidden control never clears a saved value.** An account without
  * `cost_centre.view` is shown no cost-centre picker, and an edit it makes must
@@ -324,6 +323,39 @@ describe("a department's default cost centre", () => {
     created_at: STAMP,
     updated_at: STAMP,
   }
+  const PRODUCTION_DEPARTMENT: DepartmentRow = {
+    id: 'dept-prod',
+    code: 'PROD',
+    name: 'Production',
+    plant_id: null,
+    parent_id: null,
+    head_user_id: null,
+    cost_centre_id: null,
+    is_active: true,
+    created_at: STAMP,
+    updated_at: STAMP,
+  }
+
+  it('offers a parent from outside the department register page', async () => {
+    const { user } = renderScreen(<OrganisationPage />, {
+      permissions: [P.DEPARTMENT_VIEW, P.DEPARTMENT_MANAGE],
+      route: '/admin/organisation?tab=departments',
+      routes: {
+        'GET /organization/departments': ({ url }) =>
+          url.searchParams.has('page')
+            ? page([DEPARTMENT])
+            : page([DEPARTMENT, PRODUCTION_DEPARTMENT]),
+        'GET /organization/plants': page([]),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Actions for BUFF' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Parent department' }))
+
+    expect(await screen.findByRole('option', { name: 'PROD - Production' })).toBeVisible()
+  })
 
   it('is named on the register and sent from the form to an account that may read centres', async () => {
     const { user, fetch } = renderScreen(<OrganisationPage />, {

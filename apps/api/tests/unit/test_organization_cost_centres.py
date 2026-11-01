@@ -14,8 +14,10 @@ import uuid
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy.dialects import postgresql
 
 from src.common.banking import IFSC_SHAPE_MESSAGE, mask_account_number
+from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
 from src.core.models import Base
 from src.core.registry import import_all_models
@@ -26,6 +28,7 @@ from src.modules.organization.repository import (
     DEPARTMENT_REFERENCE_PROBES,
     PLANT_REFERENCE_PROBES,
     CostCentreFacts,
+    CostCentreRepository,
     ReferenceProbe,
     reference_labels,
 )
@@ -80,6 +83,64 @@ class TestLifecycle:
         assert COST_CENTRE_LIFECYCLE.is_terminal(ARCHIVED)
         with pytest.raises(InvalidStateTransitionError):
             COST_CENTRE_LIFECYCLE.assert_transition(ARCHIVED, target)
+
+
+class TestLifecycleLocks:
+    class _Result:
+        @staticmethod
+        def scalar_one_or_none() -> None:
+            return None
+
+        @staticmethod
+        def all() -> list[object]:
+            return []
+
+    class _Session:
+        def __init__(self) -> None:
+            self.statement = None
+
+        async def execute(self, statement: object) -> TestLifecycleLocks._Result:
+            self.statement = statement
+            return TestLifecycleLocks._Result()
+
+    @staticmethod
+    def _sql(statement: object) -> str:
+        return str(statement.compile(dialect=postgresql.dialect()))  # type: ignore[attr-defined]
+
+    async def test_new_assignments_take_for_share(self) -> None:
+        session = self._Session()
+        repository = CostCentreRepository(
+            session, TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+        )
+
+        await repository.get_for_assignment(uuid.uuid4())  # type: ignore[arg-type]
+
+        assert self.statement_sql(session).endswith("FOR SHARE")
+
+    async def test_deactivation_and_archive_take_for_no_key_update(self) -> None:
+        session = self._Session()
+        repository = CostCentreRepository(
+            session, TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+        )
+
+        await repository.lock_for_update(uuid.uuid4())  # type: ignore[arg-type]
+
+        assert self.statement_sql(session).endswith("FOR NO KEY UPDATE")
+
+    async def test_batch_assignments_take_for_share(self) -> None:
+        session = self._Session()
+        repository = CostCentreRepository(
+            session, TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+        )
+
+        await repository.facts([uuid.uuid4()], include_archived=False, for_assignment=True)
+
+        assert self.statement_sql(session).endswith("FOR SHARE")
+
+    @classmethod
+    def statement_sql(cls, session: _Session) -> str:
+        assert session.statement is not None
+        return cls._sql(session.statement)
 
 
 # -----------------------------------------------------------------------------

@@ -49,6 +49,7 @@ import { asId, asText } from '@/lib/utils'
 import {
   orgKeys,
   useBranchOptions,
+  useDepartmentTreeOptions,
   usePlantOptions,
   type BranchRow,
   type DepartmentRow,
@@ -599,15 +600,12 @@ export function DepartmentFormDialog({
   open,
   onOpenChange,
   department,
-  siblings,
   canSeeUsers = true,
   canSeeCostCentres = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   department?: DepartmentRow | null
-  /** Candidate parents - the current page of departments. */
-  siblings: DepartmentRow[]
   /**
    * Whether the caller holds `user.view`, which `GET /users` enforces. Without
    * it the head-of-department picker is not offered: it could only ever list
@@ -620,6 +618,7 @@ export function DepartmentFormDialog({
   const queryClient = useQueryClient()
   const isEdit = Boolean(department)
   const plants = usePlantOptions(open)
+  const departmentTree = useDepartmentTreeOptions(open)
   const users = useUserOptions({ enabled: open && canSeeUsers })
 
   const {
@@ -765,7 +764,7 @@ export function DepartmentFormDialog({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={SELECT_NONE}>Top level</SelectItem>
-                      {siblings
+                      {(departmentTree.data ?? [])
                         .filter((candidate) => candidate.id !== department?.id)
                         .map((candidate) => (
                           <SelectItem key={candidate.id} value={candidate.id}>

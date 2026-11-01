@@ -57,6 +57,7 @@ from src.modules.packing.schemas import (
     CartonContentsReplace,
     CartonCreate,
     CompleteRequest,
+    ItemPackingSpecWrite,
     PackingOrderCreate,
     PackingOrderLineIn,
     SealCartonRequest,
@@ -1127,3 +1128,86 @@ async def test_the_packing_material_pick_list_shows_live_availability(
     assert offered.get(bench.box_item_id) == Decimal("500.0000")
     # Finished goods are not offered as boxes: item_group selects the list.
     assert bench.goods_item_id not in offered
+
+
+async def test_item_packing_specs_are_validated_audited_and_defaulted_safely(
+    ctx: tuple[AsyncSession, TenantContext],
+) -> None:
+    session, tenant = ctx
+    uom_id = await seed_uom(session, tenant.company_id)
+    item_id = await seed_item(
+        session, tenant.company_id, uom_id, code=_code("FINISHED"), group="FINISHED_GOOD"
+    )
+    material = await seed_support.seed_item(
+        session,
+        company_id=tenant.company_id,
+        code=_code("BOX"),
+        base_uom_id=uom_id,
+        item_group=ItemGroup.PACKING_MATERIAL,
+        production_type=ProductionType.BUY,
+        can_purchase=True,
+    )
+    first = await service.create_item_packing_spec(
+        session,
+        tenant,
+        item_id,
+        ItemPackingSpecWrite(
+            packing_material_item_id=material.id,
+            quantity_per_unit=Decimal("0.5"),
+        ),
+    )
+
+    with pytest.raises(BusinessRuleError, match="default packing specification"):
+        await service.create_item_packing_spec(
+            session,
+            tenant,
+            item_id,
+            ItemPackingSpecWrite(
+                packing_material_item_id=material.id,
+                units_per_carton=10,
+            ),
+        )
+
+    alternative = await service.create_item_packing_spec(
+        session,
+        tenant,
+        item_id,
+        ItemPackingSpecWrite(
+            packing_material_item_id=material.id,
+            units_per_carton=10,
+            is_default=False,
+        ),
+    )
+    promoted = await service.update_item_packing_spec(
+        session,
+        tenant,
+        alternative.id,
+        ItemPackingSpecWrite(
+            packing_material_item_id=material.id,
+            units_per_carton=10,
+            is_default=True,
+        ),
+    )
+    rows, _ = await service.list_item_packing_specs(
+        session, tenant, item_id, PageParams(page=1, limit=50)
+    )
+    assert promoted.is_default
+    assert {row.id: row.is_default for row in rows} == {
+        first.id: False,
+        alternative.id: True,
+    }
+    assert promoted.packing_material_item_code == material.code
+    assert promoted.packing_material_item_name == material.name
+
+    await service.delete_item_packing_spec(
+        session, tenant, alternative.id, reason="Packaging changed"
+    )
+    audit_count = (
+        await session.execute(
+            select(func.count(AuditLog.id)).where(
+                AuditLog.company_id == tenant.company_id,
+                AuditLog.entity_type == "item_packing_spec",
+            )
+        )
+    ).scalar_one()
+    assert audit_count == 5

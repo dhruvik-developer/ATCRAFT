@@ -50,8 +50,8 @@ export function useManufacturerOptions(enabled = true) {
  * A lookup from id to display name. Like `brandLabeller`, a value missing from
  * the active list reads as a sentence rather than as a raw id.
  */
-export function manufacturerLabeller(options: ManufacturerOption[] | undefined) {
+export function manufacturerLabeller(options: ManufacturerOption[] | undefined, canView = true) {
   const byId = new Map((options ?? []).map((option) => [option.id, option.name]))
   return (id: string | null | undefined): string =>
-    id ? (byId.get(id) ?? empty.unlistedReference) : '-'
+    id ? (byId.get(id) ?? (canView ? empty.unlistedReference : empty.referenceNotVisible)) : '-'
 }

@@ -27,6 +27,7 @@ from src.modules.mrp.engine import (
     order_date_for,
     planning_available,
 )
+from src.modules.mrp.repository import packing_material_quantity
 
 D = Decimal
 
@@ -112,6 +113,29 @@ def test_net_after_stock(gross: str, available: str, expected: str) -> None:
 def test_net_after_stock_keeps_fractional_quantities_exact() -> None:
     """Quantities are Decimal end to end - 0.1 + 0.2 must not become 0.30000000004."""
     assert net_after_stock(D("10.5"), D("3.25")) == D("7.2500")
+
+
+@pytest.mark.parametrize(
+    ("quantity", "per_unit", "per_carton", "expected"),
+    [
+        ("12", "0.5", None, "6.0000"),
+        ("13", None, 6, "3.0000"),
+        ("12", None, 6, "2.0000"),
+    ],
+)
+def test_packing_material_demand_uses_default_specification(
+    quantity: str, per_unit: str | None, per_carton: int | None, expected: str
+) -> None:
+    assert packing_material_quantity(
+        D(quantity),
+        quantity_per_unit=D(per_unit) if per_unit is not None else None,
+        units_per_carton=per_carton,
+    ) == D(expected)
+
+
+def test_packing_material_demand_refuses_an_invalid_specification_shape() -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        packing_material_quantity(D("1"), quantity_per_unit=None, units_per_carton=None)
 
 
 # -----------------------------------------------------------------------------

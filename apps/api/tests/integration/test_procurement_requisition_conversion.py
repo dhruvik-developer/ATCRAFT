@@ -52,6 +52,7 @@ from src.modules.procurement.models import (
     RequisitionStatus,
 )
 from src.modules.procurement.schemas import (
+    MAX_LINES_PER_DOCUMENT,
     PurchaseOrderCreate,
     PurchaseOrderFilters,
     PurchaseOrderLineIn,
@@ -1189,6 +1190,8 @@ class TestPreview:
             db, tenant, [requisition_id], RequisitionConversionRequest()
         )
         assert not preview.converted
+        assert preview.po_date == today()
+        assert preview.max_lines_per_order == MAX_LINES_PER_DOCUMENT
         assert await order_count(db, tenant) == before
         assert all(group.purchase_order_id is None for group in preview.groups)
         detail = await service.get_requisition_detail(db, tenant, requisition_id)

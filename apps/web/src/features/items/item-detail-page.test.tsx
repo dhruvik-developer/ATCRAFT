@@ -880,10 +880,24 @@ describe('the brand and the maker', () => {
     })
 
     await screen.findByRole('heading', { name: /^RM-001/ })
-    expect(screen.getAllByText('Not in the active list')).toHaveLength(2)
+    expect(screen.getAllByText('Not visible to your account')).toHaveLength(2)
     expect(screen.queryByText('brand-partner')).not.toBeInTheDocument()
     // The part number is the item's own text, not a reference, so it shows.
     expect(screen.getByText('SCW-PC60-5P')).toBeVisible()
+  })
+
+  it('uses active-list wording when the viewer can read an empty list', async () => {
+    renderDetail({
+      permissions: [P.ITEM_VIEW, P.BRAND_VIEW, P.MANUFACTURER_VIEW],
+      routes: baseRoutes({
+        [`GET /products/items/${ITEM_ID}`]: ok(BRANDED),
+        'GET /products/brands': page([]),
+        'GET /products/manufacturers': page([]),
+      }),
+    })
+
+    await screen.findByRole('heading', { name: /^RM-001/ })
+    expect(screen.getAllByText('Not in the active list')).toHaveLength(2)
   })
 
   it('shows each source with the maker part number it supplies', async () => {
@@ -1163,6 +1177,46 @@ describe('vendor link management', () => {
     await waitFor(() => fetch.requestFor('PATCH', '/products/item-vendors/link-b'))
     expect(fetch.requestFor('PATCH', '/products/item-vendors/link-b')).toEqual({
       is_preferred: true,
+    })
+  })
+
+  describe('packing specifications', () => {
+    const packingSpecs = page([
+      {
+        id: 'spec-1',
+        item_id: ITEM_ID,
+        packing_material_item_id: 'box-item',
+        packing_material_item_code: 'BOX-01',
+        packing_material_item_name: 'Carton box',
+        quantity_per_unit: null,
+        units_per_carton: 6,
+        is_default: true,
+      },
+    ])
+    const packingRoutes = {
+      [`GET /packing/items/${ITEM_ID}/packing-specs`]: packingSpecs,
+    }
+
+    it('shows the packing recipe by material name and keeps editing behind packing.manage', async () => {
+      renderDetail({
+        permissions: [P.ITEM_VIEW],
+        tab: 'packing',
+        routes: baseRoutes(packingRoutes),
+      })
+
+      expect(await screen.findByText('BOX-01 - Carton box')).toBeVisible()
+      expect(screen.queryByRole('button', { name: /add specification/i })).not.toBeInTheDocument()
+    })
+
+    it('offers recipe changes to packing.manage', async () => {
+      renderDetail({
+        permissions: [P.ITEM_VIEW, P.PACKING_MANAGE],
+        tab: 'packing',
+        routes: baseRoutes(packingRoutes),
+      })
+
+      expect(await screen.findByRole('button', { name: /add specification/i })).toBeVisible()
+      expect(await screen.findByRole('button', { name: /edit specification/i })).toBeVisible()
     })
   })
 

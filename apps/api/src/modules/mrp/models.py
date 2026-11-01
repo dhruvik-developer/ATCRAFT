@@ -128,6 +128,8 @@ class MrpDemandSource(StrEnum):
     MANUAL = "MANUAL"
     #: ``source_id`` is the item whose reorder point fired, not a document.
     REORDER = "REORDER"
+    #: ``source_id`` is a packing order whose unfinished lines require materials.
+    PACKING_ORDER = "PACKING_ORDER"
 
 
 class MrpSuggestionType(StrEnum):
@@ -329,8 +331,8 @@ class MrpDemand(TenantEntity):
         CheckConstraint(
             f"demand_source IN ({sql_in_list(MrpDemandSource)})", name="demand_source_known"
         ),
-        # Manual demand has no source row; sales-order demand names its order,
-        # and reorder demand names the item whose reorder point fired.
+        # Manual demand has no source row; sales-order and packing-order demand
+        # name their documents, and reorder demand names the item whose trigger fired.
         CheckConstraint(
             "(demand_source = 'MANUAL') = (source_id IS NULL)",
             name="source_id_matches_demand_source",

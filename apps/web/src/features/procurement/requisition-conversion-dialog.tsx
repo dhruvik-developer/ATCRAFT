@@ -348,6 +348,15 @@ export default function RequisitionConversionDialog({
   // rest back - and its fields are no longer on screen to be corrected.
   const invalid = Object.values(edits).some((edit) => !edit.exclude && hasInvalidText(edit))
   const overLimit = result ? groups.length > result.max_orders : false
+  const deliveryDateIssues = result
+    ? groups.filter(
+        (group) =>
+          group.expected_delivery_date !== null && group.expected_delivery_date < result.po_date,
+      )
+    : []
+  const lineLimitIssues = result
+    ? groups.filter((group) => group.lines.length > result.max_lines_per_order)
+    : []
   const lineCount = groups.reduce((sum, group) => sum + group.lines.length, 0)
   const selectedLineIds = [
     ...new Set(groups.flatMap((group) => group.lines.map((line) => line.requisition_line_id))),
@@ -390,7 +399,9 @@ export default function RequisitionConversionDialog({
     !invalid &&
     groups.length > 0 &&
     unresolved.length === 0 &&
-    !overLimit
+    !overLimit &&
+    deliveryDateIssues.length === 0 &&
+    lineLimitIssues.length === 0
 
   const title =
     target.kind === 'single'
@@ -473,6 +484,41 @@ export default function RequisitionConversionDialog({
                       This would raise {groups.length} purchase orders; at most {result.max_orders}{' '}
                       can be raised at once. Leave some lines out, or convert fewer requisitions,
                       and raise the rest afterwards.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {deliveryDateIssues.length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertTitle>
+                      Expected delivery date is before the purchase order date
+                    </AlertTitle>
+                    <AlertDescription>
+                      <ul className="space-y-1">
+                        {deliveryDateIssues.map((group) => (
+                          <li key={`${group.vendor_id}:${group.warehouse_id}`}>
+                            {group.vendor_code}: expected delivery{' '}
+                            {formatDate(group.expected_delivery_date)} must be on or after the
+                            purchase order date {formatDate(result.po_date)}.
+                          </li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {lineLimitIssues.length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Purchase order line limit exceeded</AlertTitle>
+                    <AlertDescription>
+                      <ul className="space-y-1">
+                        {lineLimitIssues.map((group) => (
+                          <li key={`${group.vendor_id}:${group.warehouse_id}`}>
+                            {group.vendor_code}: {group.lines.length} lines; purchase orders allow
+                            at most {result.max_lines_per_order}.
+                          </li>
+                        ))}
+                      </ul>
                     </AlertDescription>
                   </Alert>
                 )}

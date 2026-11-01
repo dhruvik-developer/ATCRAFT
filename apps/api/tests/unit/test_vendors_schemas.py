@@ -173,6 +173,9 @@ class TestVendorPayload:
     def test_valid_ifsc_is_upper_cased(self) -> None:
         assert _vendor(bank_ifsc="hdfc0001234").bank_ifsc == "HDFC0001234"
 
+    def test_spaced_ifsc_is_normalised_before_the_length_check(self) -> None:
+        assert _vendor(bank_ifsc="hdfc 000 1234").bank_ifsc == "HDFC0001234"
+
     def test_update_rejects_unknown_fields(self) -> None:
         """extra="forbid" is what stops a client writing is_approved by hand."""
         with pytest.raises(PydanticValidationError):

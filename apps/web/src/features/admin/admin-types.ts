@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   useBranchOptions as useSharedBranchOptions,
   useDepartmentOptions as useSharedDepartmentOptions,
+  useDepartmentTreeOptions as useSharedDepartmentTreeOptions,
   usePlantOptions as useSharedPlantOptions,
 } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
@@ -185,6 +186,10 @@ export function usePlantOptions(enabled = true) {
 
 export function useDepartmentOptions(enabled = true) {
   return useSharedDepartmentOptions<DepartmentRow>(enabled)
+}
+
+export function useDepartmentTreeOptions(enabled = true) {
+  return useSharedDepartmentTreeOptions<DepartmentRow>(enabled)
 }
 
 /** Every role, for the assignment checklist. Bounded by design. */

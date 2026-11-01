@@ -102,6 +102,11 @@ const ItemSpecificationsPanel = lazy(() =>
 const ItemAccessoriesPanel = lazy(() =>
   import('./item-accessories-panel').then((module) => ({ default: module.ItemAccessoriesPanel })),
 )
+const ItemPackingSpecsPanel = lazy(() =>
+  import('./item-packing-specs-panel').then((module) => ({
+    default: module.ItemPackingSpecsPanel,
+  })),
+)
 
 /**
  * Server-paged read for one panel inside a tab.
@@ -187,10 +192,18 @@ function OverviewPanel({
   // Brand and maker are separate rights. Without one the list is not fetched,
   // and a recorded value reads as a sentence rather than as a raw id.
   const { can } = useAuth()
-  const brands = useBrandOptions(can(P.BRAND_VIEW))
-  const makers = useManufacturerOptions(can(P.MANUFACTURER_VIEW))
-  const brandLabel = useMemo(() => brandLabeller(brands.data), [brands.data])
-  const makerLabel = useMemo(() => manufacturerLabeller(makers.data), [makers.data])
+  const canViewBrands = can(P.BRAND_VIEW)
+  const canViewMakers = can(P.MANUFACTURER_VIEW)
+  const brands = useBrandOptions(canViewBrands)
+  const makers = useManufacturerOptions(canViewMakers)
+  const brandLabel = useMemo(
+    () => brandLabeller(brands.data, canViewBrands),
+    [brands.data, canViewBrands],
+  )
+  const makerLabel = useMemo(
+    () => manufacturerLabeller(makers.data, canViewMakers),
+    [makers.data, canViewMakers],
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -944,7 +957,10 @@ function VendorsPanel({
   // Which maker's part a source supplies. Displayed from the cached maker
   // list; edited through the link dialog, not from this table.
   const makers = useManufacturerOptions(canViewMakers)
-  const makerLabel = useMemo(() => manufacturerLabeller(makers.data), [makers.data])
+  const makerLabel = useMemo(
+    () => manufacturerLabeller(makers.data, canViewMakers),
+    [makers.data, canViewMakers],
+  )
 
   const columns = useMemo<ColumnDef<ItemVendorLink, unknown>[]>(() => {
     const defs: ColumnDef<ItemVendorLink, unknown>[] = [
@@ -1309,6 +1325,7 @@ export default function ItemDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="images">Images</TabsTrigger>
           <TabsTrigger value="specifications">Specifications</TabsTrigger>
+          <TabsTrigger value="packing">Packing</TabsTrigger>
           <TabsTrigger value="accessories">Accessories</TabsTrigger>
         </TabsList>
 
@@ -1371,6 +1388,11 @@ export default function ItemDetailPage() {
         <TabsContent value="specifications">
           <Suspense fallback={<PanelLoader />}>
             <ItemSpecificationsPanel itemId={item.id} />
+          </Suspense>
+        </TabsContent>
+        <TabsContent value="packing">
+          <Suspense fallback={<PanelLoader />}>
+            <ItemPackingSpecsPanel itemId={item.id} />
           </Suspense>
         </TabsContent>
         <TabsContent value="accessories">

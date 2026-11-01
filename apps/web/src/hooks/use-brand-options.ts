@@ -53,8 +53,8 @@ export function useBrandOptions(enabled = true) {
  * active list is a brand retired or deactivated since it was assigned, or one
  * this account may not read - and a UUID on screen says neither.
  */
-export function brandLabeller(options: BrandOption[] | undefined) {
+export function brandLabeller(options: BrandOption[] | undefined, canView = true) {
   const byId = new Map((options ?? []).map((option) => [option.id, option.name]))
   return (id: string | null | undefined): string =>
-    id ? (byId.get(id) ?? empty.unlistedReference) : '-'
+    id ? (byId.get(id) ?? (canView ? empty.unlistedReference : empty.referenceNotVisible)) : '-'
 }

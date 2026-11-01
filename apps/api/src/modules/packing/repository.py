@@ -34,11 +34,13 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Select, and_, delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.deps import TenantContext
+from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import Customer
 from src.modules.inventory.models import (
@@ -52,6 +54,7 @@ from src.modules.packing.models import (
     OPEN_STATUSES,
     Carton,
     CartonContent,
+    ItemPackingSpec,
     PackingOrder,
     PackingOrderLine,
     PackingOrderStatus,
@@ -65,6 +68,80 @@ from src.modules.packing.schemas import (
 from src.modules.products.models import Item, ItemGroup
 from src.modules.sales.models import SalesOrder, SalesOrderLine
 from src.modules.warehouses.models import Warehouse
+
+
+class PackingSpecRepository:
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session, self.tenant = session, tenant
+
+    async def item(self, item_id: uuid.UUID, *, lock: bool = False) -> Item | None:
+        stmt = select(Item).where(
+            Item.company_id == self.tenant.company_id,
+            Item.id == item_id,
+            Item.deleted_at.is_(None),
+        )
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get(self, spec_id: uuid.UUID, *, lock: bool = False) -> ItemPackingSpec | None:
+        stmt = select(ItemPackingSpec).where(
+            ItemPackingSpec.company_id == self.tenant.company_id,
+            ItemPackingSpec.id == spec_id,
+        )
+        if lock:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def list_for_item(
+        self, item_id: uuid.UUID, params: PageParams
+    ) -> tuple[list[ItemPackingSpec], OffsetPagination]:
+        stmt = (
+            select(ItemPackingSpec)
+            .where(
+                ItemPackingSpec.company_id == self.tenant.company_id,
+                ItemPackingSpec.item_id == item_id,
+            )
+            .order_by(
+                ItemPackingSpec.is_default.desc(),
+                ItemPackingSpec.packing_material_item_id,
+                ItemPackingSpec.id,
+            )
+        )
+        return await paginate(self.session, stmt, params)
+
+    async def material_facts(
+        self, item_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[str, str]]:
+        if not item_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(Item.id, Item.code, Item.name).where(
+                    Item.company_id == self.tenant.company_id,
+                    Item.id.in_(list(item_ids)),
+                    Item.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        return {row.id: (row.code, row.name) for row in rows}
+
+    async def default_for_material(
+        self,
+        item_id: uuid.UUID,
+        material_item_id: uuid.UUID,
+        *,
+        excluding: uuid.UUID | None = None,
+    ) -> ItemPackingSpec | None:
+        stmt = select(ItemPackingSpec).where(
+            ItemPackingSpec.company_id == self.tenant.company_id,
+            ItemPackingSpec.item_id == item_id,
+            ItemPackingSpec.packing_material_item_id == material_item_id,
+            ItemPackingSpec.is_default.is_(True),
+        )
+        if excluding is not None:
+            stmt = stmt.where(ItemPackingSpec.id != excluding)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
 
 @dataclass(frozen=True, slots=True)

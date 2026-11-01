@@ -369,6 +369,36 @@ describe('the book by item category', () => {
     await settled(fetch)
     expect(screen.getByRole('combobox', { name: 'Filter by item category' })).toBeVisible()
   })
+
+  it('keeps an inactive category from the URL visible in the filter', async () => {
+    const inactiveId = '01a00000-0000-7000-8000-00000000oldc'
+    const inactiveOrder = order({
+      item_category_id: inactiveId,
+      item_category_code: 'OLD-FIX',
+      item_category_name: 'Archived fixtures',
+    })
+    const { fetch } = renderScreen(<PurchaseOrdersPage />, {
+      permissions: [P.PURCHASE_ORDER_VIEW, P.VENDOR_VIEW, P.CATEGORY_VIEW],
+      route: `/procurement/purchase-orders?item_category_id=${inactiveId}`,
+      routes: bookRoutes([inactiveOrder], {
+        'GET /products/categories': page([
+          {
+            id: LOCKS,
+            code: 'LOCK-MORT',
+            name: 'Mortise Locks',
+            path: `/${LOCKS}/`,
+            depth: 0,
+            is_active: true,
+          },
+        ]),
+      }),
+    })
+
+    await settled(fetch)
+    expect(screen.getByRole('combobox', { name: 'Filter by item category' })).toHaveTextContent(
+      'Archived fixtures',
+    )
+  })
 })
 
 describe('what the order form sends', () => {

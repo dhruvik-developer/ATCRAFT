@@ -17,6 +17,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
@@ -132,7 +133,9 @@ function result(overrides: Partial<RequisitionConversionResult> = {}): Requisiti
     groups: [group(), BOX_GROUP],
     unresolved_lines: [],
     skipped_line_count: 0,
+    po_date: '2026-11-01',
     max_orders: 20,
+    max_lines_per_order: 200,
     requires_acknowledgement: false,
     converted: false,
     ...overrides,
@@ -215,6 +218,41 @@ describe('the proposal', () => {
       lines: [],
       acknowledge_duplicates: false,
     })
+  })
+
+  it('blocks an expected delivery date earlier than the purchase order date', async () => {
+    renderDialog({
+      [`POST ${PREVIEW_PATH}`]: ok(
+        result({
+          po_date: '2026-11-16',
+          groups: [group({ expected_delivery_date: '2026-11-15' })],
+        }),
+      ),
+    })
+
+    expect(
+      await screen.findByText(
+        /expected delivery 15 Nov 2026 must be on or after the purchase order date/i,
+      ),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Raise 1 purchase order' })).toBeDisabled()
+  })
+
+  it('blocks a proposed purchase order above the API line limit', async () => {
+    const lines = [line(), line({ requisition_line_id: `${LINE_LOCK}-extra` })]
+    renderDialog({
+      [`POST ${PREVIEW_PATH}`]: ok(
+        result({
+          groups: [group({ lines })],
+          max_lines_per_order: 1,
+        }),
+      ),
+    })
+
+    expect(
+      await screen.findByText(/VEN-FAST: 2 lines; purchase orders allow at most 1/i),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Raise 1 purchase order' })).toBeDisabled()
   })
 
   it('names the open orders a proposed order would duplicate', async () => {
@@ -624,5 +662,48 @@ describe('the batch picker', () => {
 
     await screen.findByRole('checkbox', { name: 'Select PR-0001' })
     expect(screen.getByRole('button', { name: 'Review purchase orders' })).toBeDisabled()
+  })
+
+  it('marks select-all indeterminate when the 50-item cap leaves part of a page unselected', async () => {
+    const { user } = renderScreen(
+      <RequisitionBatchPicker open onOpenChange={() => undefined} onContinue={() => undefined} />,
+      {
+        permissions: BUYER,
+        routes: {
+          'GET /procurement/purchase-requisitions': ({ url }) => {
+            const pageNumber = Number(url.searchParams.get('page') ?? '1')
+            const rows = Array.from({ length: PICKER_PAGE_SIZE }, (_, index) => {
+              const number = (pageNumber - 1) * PICKER_PAGE_SIZE + index + 1
+              return convertible({
+                id: `01a00000-0000-7000-8000-${number.toString().padStart(12, '0')}`,
+                code: `PR-${number.toString().padStart(4, '0')}`,
+              })
+            })
+            return page(rows, {
+              page: pageNumber,
+              limit: PICKER_PAGE_SIZE,
+              total: PICKER_PAGE_SIZE * 3,
+              total_pages: 3,
+              has_next: pageNumber < 3,
+              has_previous: pageNumber > 1,
+            })
+          },
+        },
+      },
+    )
+
+    const selectPage = () =>
+      screen.getByRole('checkbox', { name: 'Select every requisition on this page' })
+    await user.click(await screen.findByRole('checkbox', { name: 'Select PR-0001' }))
+    await user.click(selectPage())
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Select PR-0021' }))
+    await user.click(selectPage())
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'Select PR-0041' }))
+    await user.click(selectPage())
+
+    expect(screen.getByText('50 selected - the most one conversion can take')).toBeVisible()
+    expect(selectPage()).toHaveAttribute('aria-checked', 'mixed')
   })
 })

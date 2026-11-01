@@ -370,7 +370,10 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
         return list((await self.session.execute(stmt)).scalars().all())
 
     async def posting_accounts(
-        self, account_ids: Sequence[uuid.UUID]
+        self,
+        account_ids: Sequence[uuid.UUID],
+        *,
+        allow_inactive_ids: Sequence[uuid.UUID] = (),
     ) -> dict[uuid.UUID, PostingAccount]:
         """Which of these accounts exist and are active, with their code and class.
 
@@ -378,15 +381,23 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
         per leg - a twelve-leg posting would otherwise be twelve round trips. The
         class comes back with it because the cost-centre rule needs it, and a
         second lookup for the same rows would be the round trip this avoids.
+        ``allow_inactive_ids`` is limited to accounts used only by reversal legs:
+        history must remain reversible after an account is deactivated.
         """
         if not account_ids:
             return {}
         stmt = select(LedgerAccount.id, LedgerAccount.code, LedgerAccount.account_type).where(
             LedgerAccount.company_id == self.tenant.company_id,
             LedgerAccount.deleted_at.is_(None),
-            LedgerAccount.is_active.is_(True),
             LedgerAccount.id.in_(set(account_ids)),
         )
+        inactive_allowed = set(allow_inactive_ids)
+        if inactive_allowed:
+            stmt = stmt.where(
+                LedgerAccount.is_active.is_(True) | LedgerAccount.id.in_(inactive_allowed)
+            )
+        else:
+            stmt = stmt.where(LedgerAccount.is_active.is_(True))
         return {
             row.id: PostingAccount(
                 id=row.id, code=row.code, account_type=LedgerAccountType(row.account_type)

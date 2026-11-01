@@ -41,6 +41,8 @@ from src.modules.packing.schemas import (
     CartonScanResult,
     CompleteRequest,
     DispatchHandoverRequest,
+    ItemPackingSpecRead,
+    ItemPackingSpecWrite,
     PackingCompletionResult,
     PackingFromAssemblyCreate,
     PackingMaterialRow,
@@ -157,6 +159,62 @@ async def packing_materials(
         session, tenant, warehouse_id=warehouse_id, params=params, search=search
     )
     return PaginatedResponse[PackingMaterialRow](data=rows, pagination=pagination)
+
+
+@router.get(
+    "/items/{item_id}/packing-specs",
+    response_model=PaginatedResponse[ItemPackingSpecRead],
+    summary="List item packing specifications",
+    dependencies=[require_permission(Permission.ITEM_VIEW)],
+)
+async def list_item_packing_specs(
+    session: DbSession, tenant: Tenant, item_id: uuid.UUID, params: PageDep
+) -> PaginatedResponse[ItemPackingSpecRead]:
+    rows, pagination = await service.list_item_packing_specs(session, tenant, item_id, params)
+    return PaginatedResponse[ItemPackingSpecRead](data=rows, pagination=pagination)
+
+
+@router.post(
+    "/items/{item_id}/packing-specs",
+    response_model=ApiResponse[ItemPackingSpecRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Add an item packing specification",
+    dependencies=[require_permission(Permission.PACKING_MANAGE)],
+)
+async def create_item_packing_spec(
+    session: DbSession,
+    tenant: Tenant,
+    item_id: uuid.UUID,
+    payload: ItemPackingSpecWrite,
+) -> ApiResponse[ItemPackingSpecRead]:
+    spec = await service.create_item_packing_spec(session, tenant, item_id, payload)
+    return ApiResponse.ok(spec, success_message("Packing specification", "created"))
+
+
+@router.put(
+    "/packing-specs/{spec_id}",
+    response_model=ApiResponse[ItemPackingSpecRead],
+    summary="Replace an item packing specification",
+    dependencies=[require_permission(Permission.PACKING_MANAGE)],
+)
+async def update_item_packing_spec(
+    session: DbSession, tenant: Tenant, spec_id: uuid.UUID, payload: ItemPackingSpecWrite
+) -> ApiResponse[ItemPackingSpecRead]:
+    spec = await service.update_item_packing_spec(session, tenant, spec_id, payload)
+    return ApiResponse.ok(spec, success_message("Packing specification", "updated"))
+
+
+@router.delete(
+    "/packing-specs/{spec_id}",
+    response_model=ApiResponse[None],
+    summary="Remove an item packing specification",
+    dependencies=[require_permission(Permission.PACKING_MANAGE)],
+)
+async def delete_item_packing_spec(
+    session: DbSession, tenant: Tenant, spec_id: uuid.UUID, reason: ReasonQuery
+) -> ApiResponse[None]:
+    await service.delete_item_packing_spec(session, tenant, spec_id, reason=reason)
+    return ApiResponse.ok(None, success_message("Packing specification", "removed"))
 
 
 @router.get(

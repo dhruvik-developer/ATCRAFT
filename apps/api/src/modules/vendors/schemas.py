@@ -22,7 +22,7 @@ import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
@@ -80,8 +80,10 @@ def _optional_pan(value: str | None) -> str | None:
     return validate_pan(stripped) if stripped else None
 
 
-def _optional_ifsc(value: str | None) -> str | None:
-    return validate_optional_ifsc(value)
+def _optional_ifsc(value: Any) -> Any:
+    if value is None or isinstance(value, str):
+        return validate_optional_ifsc(value)
+    return value
 
 
 def _optional_swift(value: str | None) -> str | None:
@@ -229,7 +231,7 @@ class VendorCreate(_StatutoryConsistency):
     _types = field_validator("vendor_types")(_normalise_vendor_types)
     _gstin = field_validator("gstin")(_optional_gstin)
     _pan = field_validator("pan")(_optional_pan)
-    _ifsc = field_validator("bank_ifsc")(_optional_ifsc)
+    _ifsc = field_validator("bank_ifsc", mode="before")(_optional_ifsc)
     _swift = field_validator("bank_swift")(_optional_swift)
     _upper = field_validator("msme_number", "state_code", "currency")(_upper_optional)
     _strip = field_validator(
@@ -302,7 +304,7 @@ class VendorUpdate(_StatutoryConsistency):
     _legal_name = field_validator("legal_name")(_clean_optional_name)
     _gstin = field_validator("gstin")(_optional_gstin)
     _pan = field_validator("pan")(_optional_pan)
-    _ifsc = field_validator("bank_ifsc")(_optional_ifsc)
+    _ifsc = field_validator("bank_ifsc", mode="before")(_optional_ifsc)
     _swift = field_validator("bank_swift")(_optional_swift)
     _upper = field_validator("msme_number", "state_code", "currency")(_upper_optional)
     _strip = field_validator(

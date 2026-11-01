@@ -61,7 +61,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
 from sqlalchemy import Select, and_, case, func, or_, select, update
@@ -105,6 +105,12 @@ from src.modules.mrp.models import (
     MrpSuggestionType,
 )
 from src.modules.organization.models import Company
+from src.modules.packing.models import (
+    ItemPackingSpec,
+    PackingOrder,
+    PackingOrderLine,
+    PackingOrderStatus,
+)
 from src.modules.products.models import Item, ItemVendorLink
 from src.modules.routing import service as routing_service
 from src.modules.sales.models import (
@@ -237,6 +243,239 @@ class SalesDemandRepository(BaseRepository[SalesOrderLine]):
                 source_code=row.order_code,
                 warehouse_id=row.warehouse_id,
                 priority=int(row.priority),
+            )
+            for row in rows
+        ]
+
+
+def packing_material_quantity(
+    finished_quantity: Decimal,
+    *,
+    quantity_per_unit: Decimal | None,
+    units_per_carton: int | None,
+) -> Decimal:
+    """Convert finished-item demand to its required default packing material."""
+    if quantity_per_unit is not None and units_per_carton is None:
+        return to_quantity(finished_quantity * quantity_per_unit)
+    if quantity_per_unit is None and units_per_carton is not None:
+        cartons = (finished_quantity / Decimal(units_per_carton)).to_integral_value(
+            rounding=ROUND_CEILING
+        )
+        return to_quantity(cartons)
+    raise ValueError("A packing specification must define exactly one quantity rule.")
+
+
+class PackingDemandRepository:
+    """Default material demand generated from sales and unfinished packing lines."""
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session, self.tenant = session, tenant
+
+    async def from_sales_demand(
+        self,
+        lines: Sequence[DemandLine],
+        *,
+        horizon_end: date,
+        warehouse_ids: Sequence[uuid.UUID] | None = None,
+    ) -> list[DemandLine]:
+        if not lines:
+            return []
+        item_ids = list({line.item_id for line in lines})
+        sales_order_item_keys = {
+            (line.source_id, line.item_id)
+            for line in lines
+            if line.source is MrpDemandSource.SALES_ORDER and line.source_id is not None
+        }
+        sales_order_ids = list({order_id for order_id, _ in sales_order_item_keys})
+        allocated_by_order_item: dict[tuple[uuid.UUID, uuid.UUID], Decimal] = {}
+        if sales_order_ids:
+            allocation_stmt = (
+                select(
+                    PackingOrder.sales_order_id,
+                    PackingOrderLine.item_id,
+                    func.sum(PackingOrderLine.quantity_to_pack).label("allocated_quantity"),
+                )
+                .join(
+                    PackingOrder,
+                    and_(
+                        PackingOrder.id == PackingOrderLine.packing_order_id,
+                        PackingOrder.company_id == PackingOrderLine.company_id,
+                    ),
+                )
+                .where(
+                    PackingOrderLine.company_id == self.tenant.company_id,
+                    PackingOrderLine.sales_order_line_id.is_not(None),
+                    PackingOrder.sales_order_id.in_(sales_order_ids),
+                    PackingOrder.status != PackingOrderStatus.CANCELLED,
+                    or_(
+                        PackingOrder.status.not_in(
+                            (
+                                PackingOrderStatus.DRAFT,
+                                PackingOrderStatus.IN_PROGRESS,
+                            )
+                        ),
+                        and_(
+                            PackingOrder.status.in_(
+                                (
+                                    PackingOrderStatus.DRAFT,
+                                    PackingOrderStatus.IN_PROGRESS,
+                                )
+                            ),
+                            PackingOrder.planned_date <= horizon_end,
+                        ),
+                    ),
+                )
+                .group_by(PackingOrder.sales_order_id, PackingOrderLine.item_id)
+            )
+            if warehouse_ids:
+                allocation_stmt = allocation_stmt.where(
+                    PackingOrder.warehouse_id.in_(list(warehouse_ids))
+                )
+            allocation_rows = (await self.session.execute(allocation_stmt)).all()
+            allocated_by_order_item = {
+                (row.sales_order_id, row.item_id): to_quantity(row.allocated_quantity)
+                for row in allocation_rows
+            }
+        specs = (
+            await self.session.execute(
+                select(
+                    ItemPackingSpec.item_id,
+                    ItemPackingSpec.packing_material_item_id,
+                    ItemPackingSpec.quantity_per_unit,
+                    ItemPackingSpec.units_per_carton,
+                )
+                .where(
+                    ItemPackingSpec.company_id == self.tenant.company_id,
+                    ItemPackingSpec.item_id.in_(item_ids),
+                    ItemPackingSpec.is_default.is_(True),
+                )
+                .order_by(
+                    ItemPackingSpec.item_id,
+                    ItemPackingSpec.packing_material_item_id,
+                    ItemPackingSpec.id,
+                )
+            )
+        ).all()
+        by_item: dict[uuid.UUID, list[Any]] = {}
+        for spec in specs:
+            by_item.setdefault(spec.item_id, []).append(spec)
+        material_demand: list[DemandLine] = []
+        packing_allocated: dict[tuple[uuid.UUID, uuid.UUID], Decimal] = {}
+        for line in lines:
+            order_item = (
+                (line.source_id, line.item_id)
+                if line.source is MrpDemandSource.SALES_ORDER and line.source_id is not None
+                else None
+            )
+            if order_item is not None:
+                available_allocation = packing_allocated.get(order_item, ZERO)
+                planned_for_order = allocated_by_order_item.get(order_item, ZERO)
+                allocated_quantity = min(
+                    to_quantity(line.quantity),
+                    max(ZERO, to_quantity(planned_for_order) - available_allocation),
+                )
+                packing_allocated[order_item] = to_quantity(
+                    available_allocation + allocated_quantity
+                )
+                quantity = max(
+                    ZERO,
+                    to_quantity(line.quantity) - allocated_quantity,
+                )
+            else:
+                quantity = to_quantity(line.quantity)
+            if quantity <= ZERO:
+                continue
+            for spec in by_item.get(line.item_id, []):
+                material_demand.append(
+                    DemandLine(
+                        item_id=spec.packing_material_item_id,
+                        quantity=packing_material_quantity(
+                            quantity,
+                            quantity_per_unit=spec.quantity_per_unit,
+                            units_per_carton=spec.units_per_carton,
+                        ),
+                        required_date=line.required_date,
+                        source=MrpDemandSource.SALES_ORDER,
+                        source_id=line.source_id,
+                        source_line_id=line.source_line_id,
+                        source_code=line.source_code,
+                        warehouse_id=line.warehouse_id,
+                        priority=line.priority,
+                        notes="Packing material for sales-order demand",
+                    )
+                )
+        return material_demand
+
+    async def open_packing_order_demand(
+        self,
+        *,
+        horizon_end: date,
+        warehouse_ids: Sequence[uuid.UUID] | None = None,
+        limit: int = MAX_DEMAND_LINES + 1,
+    ) -> list[DemandLine]:
+        """One bounded query for the remaining quantities on open packing orders."""
+        stmt = (
+            select(
+                ItemPackingSpec.packing_material_item_id,
+                ItemPackingSpec.quantity_per_unit,
+                ItemPackingSpec.units_per_carton,
+                PackingOrderLine.quantity_to_pack,
+                PackingOrderLine.packed_quantity,
+                PackingOrderLine.id.label("packing_line_id"),
+                PackingOrder.id.label("packing_order_id"),
+                PackingOrder.code.label("packing_order_code"),
+                PackingOrder.planned_date,
+                PackingOrder.warehouse_id,
+            )
+            .join(
+                PackingOrderLine,
+                and_(
+                    PackingOrderLine.item_id == ItemPackingSpec.item_id,
+                    PackingOrderLine.company_id == ItemPackingSpec.company_id,
+                ),
+            )
+            .join(
+                PackingOrder,
+                and_(
+                    PackingOrder.id == PackingOrderLine.packing_order_id,
+                    PackingOrder.company_id == PackingOrderLine.company_id,
+                ),
+            )
+            .where(
+                ItemPackingSpec.company_id == self.tenant.company_id,
+                ItemPackingSpec.is_default.is_(True),
+                PackingOrderLine.company_id == self.tenant.company_id,
+                PackingOrder.company_id == self.tenant.company_id,
+                PackingOrder.status.in_((PackingOrderStatus.DRAFT, PackingOrderStatus.IN_PROGRESS)),
+                PackingOrder.planned_date <= horizon_end,
+                PackingOrderLine.quantity_to_pack > PackingOrderLine.packed_quantity,
+            )
+            .order_by(
+                PackingOrder.planned_date,
+                PackingOrder.code,
+                PackingOrderLine.line_number,
+                ItemPackingSpec.packing_material_item_id,
+            )
+            .limit(limit)
+        )
+        if warehouse_ids:
+            stmt = stmt.where(PackingOrder.warehouse_id.in_(list(warehouse_ids)))
+        rows = (await self.session.execute(stmt)).all()
+        return [
+            DemandLine(
+                item_id=row.packing_material_item_id,
+                quantity=packing_material_quantity(
+                    to_quantity(row.quantity_to_pack - row.packed_quantity),
+                    quantity_per_unit=row.quantity_per_unit,
+                    units_per_carton=row.units_per_carton,
+                ),
+                required_date=row.planned_date,
+                source=MrpDemandSource.PACKING_ORDER,
+                source_id=row.packing_order_id,
+                source_line_id=row.packing_line_id,
+                source_code=row.packing_order_code,
+                warehouse_id=row.warehouse_id,
+                notes="Packing material for unfinished packing-order quantity",
             )
             for row in rows
         ]
