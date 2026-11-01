@@ -40,12 +40,8 @@ import { formatDate, formatMoney, formatNumber, formatPercent, toDecimal } from 
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
-import {
-  financeKeys,
-  RETURN_PERIOD_PATTERN,
-  type GstSection,
-  type GstSummary,
-} from './finance-types'
+import { financeKeys, type GstSection, type GstSummary } from './finance-types'
+import { periodBounds } from './gst-period'
 
 const COMPONENTS: { key: keyof GstSection; label: string; emphasis?: boolean }[] = [
   { key: 'taxable_amount', label: 'Taxable value' },
@@ -59,29 +55,6 @@ const COMPONENTS: { key: keyof GstSection; label: string; emphasis?: boolean }[]
 function amountOf(section: GstSection | undefined, key: keyof GstSection): string {
   const value = section?.[key]
   return typeof value === 'string' ? value : '0'
-}
-
-/**
- * The first and last day of the month a return is filed for.
- *
- * Computed from the `YYYY-MM` text itself rather than through a local `Date`. A
- * return period is a calendar fact about a filing, not an instant: routing it
- * through a `Date` puts the browser's clock and zone - and the parser's habit of
- * filling unspecified units from a reference date - between the month the
- * accountant chose and the dates the API is asked for. Two strings in, two
- * strings out, and the same bounds on every machine.
- */
-function periodBounds(period: string): { from: string; to: string } | null {
-  const match = RETURN_PERIOD_PATTERN.exec(period)
-  if (!match) return null
-  const [, year, month] = match
-  // Day zero of the following month is the last day of this one, and `Date.UTC`
-  // keeps even that one piece of arithmetic out of the local zone.
-  const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate()
-  return {
-    from: `${year}-${month}-01`,
-    to: `${year}-${month}-${String(lastDay).padStart(2, '0')}`,
-  }
 }
 
 export function GstSummaryTab({

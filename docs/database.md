@@ -1437,6 +1437,42 @@ cancelled credits do not reduce output GST. Dispatched not yet invoiced goods
 form a separate operational figure. Invoice PDF jobs and REPORT documents never
 expire.
 
+### Finance statements, registers and GST returns
+
+`GET /finance/ledger/account/{account_id}` returns an opening balance, account
+entries with cost-centre and party context, and closing totals for the requested
+date window. Its running balance is computed over the complete window before
+the `(entry_date, id)` keyset cursor is applied, so every page carries the true
+balance. The query is tenant-scoped and uses the account/date index.
+
+`GET /finance/trial-balance?as_of=...` groups account opening, period debit,
+period credit and closing balances by account type. The opening period begins
+at the company's configured financial-year start month. Its export is an
+authorized report job, not an inline file.
+
+`SALES_REGISTER` nets issued invoices against issued credit notes by month,
+customer, HSN and rate. `PURCHASE_REGISTER` nets approved vendor invoices
+(purchase, job-work and service) against posted debit notes at the same grain.
+The debit-note tax split remains unknown where its source line cannot establish
+the heads; the report marks that state instead of assigning the tax to a guessed
+head. Both registers are tenant-scoped and bypass the response cache.
+
+`GET /finance/gstr-3b` reads issued sales invoices less issued credit notes for
+outward supplies, and approved vendor/job-work invoices less posted debit notes
+for input tax credit, by document date. Debit-note tax without a stored head
+split is carried as `unallocated_tax_amount`, not apportioned. `POST
+/finance/gstr-1/export` snapshots the B2B, B2C-large, B2C-small, CDNR, HSN and
+document-series sections in an XLSX report job. Both endpoints require
+`gst_report.view`; the workbook additionally requires `report.export`. They are
+filing preparation aids only, not a GSTN/GSP connection (§E10b-n).
+
+Product profitability uses issued invoice taxable value less issued credit
+notes, and FIFO cost from the posted dispatch movements net of the cost piece
+frozen to each return credit. A dispatched quantity without an invoice may show
+provisional revenue at its agreed order price and is labelled as such. Missing
+price or movement cost remains explicitly unknown; it is never replaced with
+standard cost or zero to manufacture a margin.
+
 ### Named FINAL QC at packing
 
 For a serial-tracked item requiring FINAL QC, `POST /packing/{id}/start` accepts

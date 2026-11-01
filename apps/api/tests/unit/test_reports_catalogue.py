@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -29,14 +30,19 @@ from src.modules.reports.models import (
     REPORT_JOB_LIFECYCLE,
     ReportJobStatus,
     ReportKey,
+    ReportSnapshot,
 )
 from src.modules.reports.schemas import (
     REPORT_MAX_RANGE_DAYS,
+    DeadStockRow,
     ReportFilters,
     ReportPeriod,
+    StockAvailabilityRow,
 )
 from src.modules.reports.service import (
     REPORT_CATALOGUE,
+    _job_sensitive_fields_accessible,
+    _redact_rows,
     build_context,
     columns_for,
     definition_for,
@@ -132,6 +138,82 @@ def test_production_cost_is_hidden_without_item_cost_permission() -> None:
     assert Permission.ITEM_COST_VIEW is definition_for(ReportKey.PRODUCTION_COST).permission
     assert ReportKey.PRODUCTION_COST not in {d.key for d in descriptors(report_reader)}
     assert ReportKey.PRODUCTION_COST in {d.key for d in descriptors(cost_reader)}
+
+
+def test_valuation_columns_are_hidden_and_values_redacted_without_valuation_permission() -> None:
+    base = {
+        "user_id": uuid.uuid4(),
+        "company_id": uuid.uuid4(),
+        "email": "reporter@example.test",
+        "full_name": "Report User",
+        "is_superuser": False,
+    }
+    report_reader = Principal(**base, permissions=frozenset({str(Permission.REPORT_VIEW)}))
+    valuation_reader = Principal(
+        **base,
+        permissions=frozenset(
+            {str(Permission.REPORT_VIEW), str(Permission.INVENTORY_VALUATION_VIEW)}
+        ),
+    )
+    stock = definition_for(ReportKey.STOCK_AVAILABILITY)
+    dead_stock = definition_for(ReportKey.DEAD_STOCK)
+
+    for key in (ReportKey.STOCK_AVAILABILITY, ReportKey.DEAD_STOCK):
+        assert key in {descriptor.key for descriptor in descriptors(report_reader)}
+        assert "valuation_amount" not in {
+            column.name
+            for descriptor in descriptors(report_reader)
+            if descriptor.key is key
+            for column in descriptor.columns
+        }
+        assert "valuation_amount" in {
+            column.name
+            for descriptor in descriptors(valuation_reader)
+            if descriptor.key is key
+            for column in descriptor.columns
+        }
+
+    row = StockAvailabilityRow(
+        item_id=uuid.uuid4(),
+        item_code="ITEM-1",
+        item_name="Item",
+        warehouse_id=uuid.uuid4(),
+        warehouse_code="WH-1",
+        warehouse_name="Warehouse",
+        on_hand=Decimal("3"),
+        reserved=Decimal("1"),
+        available=Decimal("2"),
+        valuation_amount=Decimal("125.00"),
+        reorder_level=Decimal("1"),
+        refreshed_at=NOW,
+    )
+    dead_row = DeadStockRow(
+        item_id=row.item_id,
+        item_code=row.item_code,
+        item_name=row.item_name,
+        warehouse_id=row.warehouse_id,
+        warehouse_code=row.warehouse_code,
+        on_hand=Decimal("3"),
+        valuation_amount=Decimal("125.00"),
+    )
+
+    assert _redact_rows(stock, [row], report_reader)[0].valuation_amount is None
+    assert _redact_rows(stock, [row], valuation_reader)[0].valuation_amount == Decimal("125.00")
+    assert _redact_rows(dead_stock, [dead_row], report_reader)[0].valuation_amount is None
+
+    hidden_job = ReportSnapshot(
+        report_key=ReportKey.STOCK_AVAILABILITY,
+        parameters={"visible_fields": ["item_code", "available"]},
+    )
+    visible_job = ReportSnapshot(
+        report_key=ReportKey.STOCK_AVAILABILITY,
+        parameters={"visible_fields": ["item_code", "available", "valuation_amount"]},
+    )
+    legacy_job = ReportSnapshot(report_key=ReportKey.STOCK_AVAILABILITY, parameters={})
+    assert _job_sensitive_fields_accessible(hidden_job, stock, report_reader)
+    assert not _job_sensitive_fields_accessible(visible_job, stock, report_reader)
+    assert not _job_sensitive_fields_accessible(legacy_job, stock, report_reader)
+    assert _job_sensitive_fields_accessible(visible_job, stock, valuation_reader)
 
 
 def test_a_reports_columns_are_exactly_its_row_schema() -> None:

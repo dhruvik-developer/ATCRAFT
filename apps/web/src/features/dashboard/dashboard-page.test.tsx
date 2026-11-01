@@ -128,3 +128,89 @@ describe('the approval queue is offered on the rights its endpoint accepts', () 
     )
   })
 })
+
+describe('the finance and operations tiles', () => {
+  const FINANCE_SUMMARY = {
+    ...SUMMARY,
+    open_sales_orders: 3,
+    pending_purchase_orders: 11,
+    purchase_orders_awaiting_approval: 4,
+    inbound_purchase_orders_late: 5,
+    payables_due_amount: '50000.00',
+    payables_overdue_amount: '25000.00',
+    receivables_amount: '900000.00',
+    invoiced_sales_mtd: '400000.00',
+    collections_mtd: '150000.00',
+    mrp_shortage_count: 7,
+    job_work_overdue: 1,
+  }
+
+  const allRights = [
+    P.DASHBOARD_VIEW,
+    P.PURCHASE_ORDER_VIEW,
+    P.VENDOR_INVOICE_VIEW,
+    P.SALES_INVOICE_VIEW,
+    P.PAYMENT_VIEW,
+    P.MRP_VIEW,
+    P.JOB_WORK_VIEW,
+  ]
+
+  it('labels each purchase figure for what it counts', async () => {
+    // The tile called "POs awaiting approval" counted every open order, so a
+    // committed pipeline read as a decision queue. The two counts are separate
+    // now and the labels say which is which.
+    renderDashboard(allRights, {
+      'GET /reports/dashboard': ok(FINANCE_SUMMARY),
+    })
+
+    expect(await screen.findByText('Open purchase orders')).toBeVisible()
+    expect(screen.getByText('POs awaiting approval')).toBeVisible()
+    // The labels exist while the payload is still in flight (skeletons); the
+    // figures prove it has arrived.
+    expect(await screen.findByText('11')).toBeVisible()
+    expect(screen.getByText('4')).toBeVisible()
+  })
+
+  it('drops a tile whose figure the API withheld, instead of drawing a zero', async () => {
+    // The permission is held, but the payload says `null`: the API decided the
+    // figure is not this caller's to read. Zero would be a business fact; the
+    // tile must disappear.
+    renderDashboard([P.DASHBOARD_VIEW, P.PURCHASE_ORDER_VIEW, P.VENDOR_INVOICE_VIEW], {
+      'GET /reports/dashboard': ok({ ...FINANCE_SUMMARY, payables_due_amount: null }),
+    })
+
+    expect(await screen.findByText('POs awaiting approval')).toBeVisible()
+    // Wait for the payload: while it is in flight every permitted tile is a
+    // skeleton, so an immediate absence check would pass for the wrong reason.
+    expect(await screen.findByText('₹25K')).toBeVisible()
+    expect(screen.queryByText('Payables due')).toBeNull()
+    expect(screen.getByText('Payables overdue')).toBeVisible()
+  })
+
+  it('draws a sparkline for each series the API returned, and none for the rest', async () => {
+    renderDashboard(allRights, {
+      'GET /reports/dashboard': ok(FINANCE_SUMMARY),
+      'GET /reports/dashboard/trends': ok({
+        date_from: '2026-09-03',
+        date_to: '2026-09-04',
+        series: [
+          {
+            series: 'sales_invoiced',
+            points: [
+              { day: '2026-09-03', value: '100.00' },
+              { day: '2026-09-04', value: '300.00' },
+            ],
+          },
+        ],
+        generated_at: '2026-09-04T06:15:00Z',
+      }),
+    })
+
+    expect(await screen.findByText('Last 30 days')).toBeVisible()
+    expect(
+      await screen.findByRole('img', { name: /^Sales invoiced: .* over the last 2 days$/ }),
+    ).toBeVisible()
+    // Collections was not returned, so it is absent rather than drawn flat.
+    expect(screen.queryByRole('img', { name: /^Collections:/ })).toBeNull()
+  })
+})

@@ -296,6 +296,7 @@ export const queryKeys = {
   },
   reports: {
     dashboard: ['reports', 'dashboard'] as const,
+    trends: ['reports', 'dashboard', 'trends'] as const,
     catalogue: ['reports', 'catalogue'] as const,
     report: (key: string, params: unknown) => ['reports', key, params] as const,
   },

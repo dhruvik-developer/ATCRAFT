@@ -59,6 +59,7 @@ export const financeKeys = {
   valuation: (params: unknown) => ['finance', 'inventory-valuation', params] as const,
   gstSummary: (dateFrom: string, dateTo: string) =>
     ['finance', 'gst-summary', dateFrom, dateTo] as const,
+  gstr3b: (dateFrom: string, dateTo: string) => ['finance', 'gstr-3b', dateFrom, dateTo] as const,
   vendorInvoices: (params: unknown) => ['finance', 'vendor-invoices', params] as const,
   vendorInvoice: (id: string) => ['finance', 'vendor-invoices', 'detail', id] as const,
   vendorInvoiceMatch: (id: string) => ['finance', 'vendor-invoices', 'match', id] as const,
@@ -121,6 +122,9 @@ export type AgeingCurrencyBlock = SchemaOf<'AgeingCurrencyBlock'>
  * that block rather than being a second figure.
  */
 export type AgeingReport = SchemaOf<'AgeingReport'>
+
+/** GSTR-3B outward supplies and input-tax-credit summary. */
+export type Gstr3b = SchemaOf<'Gstr3b'>
 
 // ------------------------------------------------------------- ledger ------
 

@@ -66,6 +66,7 @@ from src.modules.reports.schemas import (
     CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
+    DashboardTrendsRead,
     DeadStockRow,
     DispatchRow,
     InventoryValuationRow,
@@ -80,6 +81,7 @@ from src.modules.reports.schemas import (
     ProductionPendingRow,
     ProductProfitabilityRow,
     PurchasePendingRow,
+    PurchaseRegisterRow,
     QcRejectionRow,
     ReportDescriptorRead,
     ReportFilters,
@@ -87,6 +89,7 @@ from src.modules.reports.schemas import (
     ReportPeriod,
     ReworkRateRow,
     SalesOrderStatusRow,
+    SalesRegisterRow,
     ScrapRegisterRow,
     ShiftProductionRow,
     StockAvailabilityRow,
@@ -203,6 +206,7 @@ async def _run(
         filters=filters,
         params=page,
         may_export=principal.has(Permission.REPORT_EXPORT),
+        principal=principal,
     )
 
     if isinstance(result, service.QueuedReport):
@@ -242,6 +246,56 @@ async def list_reports(principal: CurrentUser) -> ApiResponse[list[ReportDescrip
     return ApiResponse[list[ReportDescriptorRead]].ok(service.descriptors(principal))
 
 
+@router.post(
+    "/export",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AcceptedJobResponse,
+    summary="Export any report as XLSX or PDF",
+    description=(
+        "Queue a catalogue report as a file at any size. The same period and filter "
+        "parameters as the report's own route are accepted, plus `format`. Export waits "
+        "for the job: once it completes, `GET /reports/jobs/{id}` carries the download "
+        "link, and no row ceiling applies."
+    ),
+    dependencies=[
+        require_permission(Permission.REPORT_VIEW),
+        require_permission(Permission.REPORT_EXPORT),
+    ],
+)
+async def export_report(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    report_key: Annotated[ReportKey, Query(description="Which report to export")],
+    period: PeriodDep,
+    filters: FilterDep,
+    file_format: Annotated[
+        str,
+        Query(alias="format", pattern="^(xlsx|pdf)$", description="xlsx or pdf"),
+    ] = "xlsx",
+) -> AcceptedJobResponse:
+    if report_key not in service.REPORT_CATALOGUE:
+        raise ValidationError(
+            f"'{report_key}' is a rendered document, not an exportable tabular report.",
+            details={"report_key": str(report_key)},
+        )
+    principal.require(service.definition_for(report_key).permission)
+    snapshot = await service.queue_report_export(
+        session,
+        tenant,
+        key=report_key,
+        period=period,
+        filters=filters,
+        file_format=file_format,
+        principal=principal,
+    )
+    return AcceptedJobResponse.create(
+        job_id=str(snapshot.id),
+        status_url=service.job_status_url(snapshot.id),
+        message=f"The {file_format.upper()} is being generated",
+    )
+
+
 @router.get(
     "/dashboard",
     response_model=ApiResponse[DashboardRead],
@@ -250,12 +304,36 @@ async def list_reports(principal: CurrentUser) -> ApiResponse[list[ReportDescrip
         "Open sales orders, stock value, pending purchase orders, production in "
         "progress, QC pending, consignments in transit and overdue deliveries. "
         "Assembled from summary tables in a single statement and cached briefly; "
-        "the stock figure carries the time its summary was last refreshed."
+        "the stock figure carries the time its summary was last refreshed. Finance "
+        "and operations tiles are `null` when the caller lacks the permission that "
+        "owns them."
     ),
     dependencies=[require_permission(Permission.DASHBOARD_VIEW)],
 )
-async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[DashboardRead]:
-    return ApiResponse[DashboardRead].ok(await service.dashboard(session, tenant))
+async def dashboard(
+    session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[DashboardRead]:
+    return ApiResponse[DashboardRead].ok(await service.dashboard(session, tenant, principal))
+
+
+@router.get(
+    "/dashboard/trends",
+    response_model=ApiResponse[DashboardTrendsRead],
+    summary="Thirty-day dashboard trends",
+    description=(
+        "One daily figure per series for sales invoiced, collections, dispatches and "
+        "production output, covering today and the twenty-nine days before it. Days "
+        "with no activity are returned as zero. A series the caller may not read is "
+        "absent rather than empty."
+    ),
+    dependencies=[require_permission(Permission.DASHBOARD_VIEW)],
+)
+async def dashboard_trends(
+    session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[DashboardTrendsRead]:
+    return ApiResponse[DashboardTrendsRead].ok(
+        await service.dashboard_trends(session, tenant, principal)
+    )
 
 
 @router.get(
@@ -272,6 +350,8 @@ async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[Dashboard
             Permission.INVENTORY_VALUATION_VIEW,
             Permission.JOB_WORK_VIEW,
             Permission.PURCHASE_RETURN_VIEW,
+            Permission.LEDGER_VIEW,
+            Permission.GST_REPORT_VIEW,
             mode="any",
         ),
         Depends(forbid_vendor_users),
@@ -304,6 +384,8 @@ async def get_job(
             Permission.INVENTORY_VALUATION_VIEW,
             Permission.JOB_WORK_VIEW,
             Permission.PURCHASE_RETURN_VIEW,
+            Permission.LEDGER_VIEW,
+            Permission.GST_REPORT_VIEW,
             mode="any",
         ),
         Depends(forbid_vendor_users),
@@ -966,6 +1048,58 @@ async def consumption_by_department(
         period,
         filters,
         page,
+    )
+
+
+@router.get(
+    "/sales-register",
+    response_model=None,
+    summary="Sales register",
+    description=(
+        "Issued invoices less issued credit notes, grouped by month, customer, HSN and "
+        "rate. Taxable and tax columns are signed: a credit note subtracts from the "
+        "month it was issued in, not the month of the invoice it corrects."
+    ),
+    responses=_report_responses(PaginatedResponse[SalesRegisterRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def sales_register(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[SalesRegisterRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.SALES_REGISTER, period, filters, page
+    )
+
+
+@router.get(
+    "/purchase-register",
+    response_model=None,
+    summary="Purchase register",
+    description=(
+        "Accepted vendor invoices less posted debit notes, grouped by month, vendor, "
+        "HSN and rate. Debit notes carry one tax figure and no CGST/SGST/IGST split, so "
+        "their split columns are null and `tax_split_pending` is true."
+    ),
+    responses=_report_responses(PaginatedResponse[PurchaseRegisterRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def purchase_register(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[PurchaseRegisterRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.PURCHASE_REGISTER, period, filters, page
     )
 
 

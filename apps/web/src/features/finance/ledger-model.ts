@@ -61,6 +61,9 @@ export const ledgerKeys = {
   account: (id: string) => ['finance', 'ledger', 'accounts', 'detail', id] as const,
   statement: (kind: PartyKind, partyId: string, params: unknown) =>
     ['finance', 'ledger', kind, partyId, params] as const,
+  accountStatement: (accountId: string, params: unknown) =>
+    ['finance', 'ledger', 'account', accountId, params] as const,
+  trialBalance: (params: unknown) => ['finance', 'ledger', 'trial-balance', params] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----
@@ -76,6 +79,21 @@ export type LedgerStatement = SchemaOf<'LedgerStatement'>
 
 /** One posting on a statement, with the balance after it. */
 export type LedgerStatementRow = SchemaOf<'LedgerStatementRow'>
+
+/** `GET /finance/ledger/account/{id}` - one general-ledger account statement. */
+export type AccountStatement = SchemaOf<'AccountStatement'>
+
+/** One posting on an account statement, with its dimensions. */
+export type AccountStatementRow = SchemaOf<'AccountStatementRow'>
+
+/** `GET /finance/trial-balance` - every account in the financial year to date. */
+export type TrialBalance = SchemaOf<'TrialBalance'>
+
+/** Accounts of one class, with that class's subtotal. */
+export type TrialBalanceGroup = SchemaOf<'TrialBalanceGroup'>
+
+/** One account in the trial balance, in debit-positive signs. */
+export type TrialBalanceRow = SchemaOf<'TrialBalanceRow'>
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -163,6 +181,13 @@ export function statementPath(kind: PartyKind, partyId: string): string {
 
 /** `rows` defaults to an empty list on the server, so it is optional on the wire. */
 export function statementRows(statement: LedgerStatement | undefined): LedgerStatementRow[] {
+  return statement?.rows ?? []
+}
+
+/** The rows of one account statement. Same optional-list contract as above. */
+export function accountStatementRows(
+  statement: AccountStatement | undefined,
+): AccountStatementRow[] {
   return statement?.rows ?? []
 }
 

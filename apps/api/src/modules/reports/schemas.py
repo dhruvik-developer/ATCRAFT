@@ -151,7 +151,7 @@ class StockAvailabilityRow(ReportRowBase):
     on_hand: Decimal
     reserved: Decimal
     available: Decimal
-    valuation_amount: Decimal
+    valuation_amount: Decimal | None = None
     reorder_level: Decimal
     last_movement_at: datetime | None = None
     refreshed_at: datetime
@@ -352,7 +352,7 @@ class DeadStockRow(ReportRowBase):
     warehouse_id: uuid.UUID
     warehouse_code: str
     on_hand: Decimal
-    valuation_amount: Decimal
+    valuation_amount: Decimal | None = None
     last_movement_at: datetime | None = None
     #: Null when the position has never moved at all, which is not the same as
     #: "moved zero days ago" - the ageing bucket reads it as the oldest state.
@@ -593,6 +593,46 @@ class ConsumptionByDepartmentRow(ReportRowBase):
     total_cost: Decimal
 
 
+class TaxRegisterRow(ReportRowBase):
+    """One month, party, HSN and rate slab in a sales or purchase register.
+
+    ``month`` is the first day of the month and ``taxable_amount`` is signed:
+    invoices add to the register and credit notes subtract from it, so summing
+    the column gives the net taxable turnover for the slab.
+
+    ``cgst_amount``, ``sgst_amount`` and ``igst_amount`` are nullable on
+    purpose. A purchase debit note stores one ``tax_amount`` and no split, so
+    the split is derived from the invoice line it reverses where that exists
+    and reported as unknown - with ``tax_split_pending`` true - where it does
+    not. Putting the whole figure into one head would be an invented return.
+    """
+
+    month: date
+    party_id: uuid.UUID
+    party_type: str
+    party_code: str
+    party_name: str
+    party_gstin: str | None
+    hsn_code: str | None
+    tax_rate: Decimal
+    taxable_amount: Decimal
+    cgst_amount: Decimal | None
+    sgst_amount: Decimal | None
+    igst_amount: Decimal | None
+    tax_amount: Decimal
+    total_amount: Decimal
+    document_count: int
+    tax_split_pending: bool = False
+
+
+class SalesRegisterRow(TaxRegisterRow):
+    """A sales-register row: invoices less credit notes."""
+
+
+class PurchaseRegisterRow(TaxRegisterRow):
+    """A purchase-register row: vendor invoices less debit notes."""
+
+
 # -----------------------------------------------------------------------------
 # Dashboard and jobs
 # -----------------------------------------------------------------------------
@@ -621,6 +661,42 @@ class DashboardRead(BaseModel):
     #: When the underlying summary table was last refreshed. A tile drawn from a
     #: stale summary must be able to say so rather than looking live.
     stock_refreshed_at: datetime | None = None
+    # --- finance and operations tiles added by E10b -------------------------
+    #: Every new field is optional so a cached payload written before the field
+    #: existed still validates; ``None`` also means "not shown to this principal",
+    #: which is why the cache key includes the visible tile set.
+    purchase_orders_awaiting_approval: int | None = None
+    inbound_purchase_orders_late: int | None = None
+    payables_due_amount: Decimal | None = None
+    payables_overdue_amount: Decimal | None = None
+    receivables_amount: Decimal | None = None
+    invoiced_sales_mtd: Decimal | None = None
+    collections_mtd: Decimal | None = None
+    mrp_shortage_count: int | None = None
+    job_work_overdue: int | None = None
+    generated_at: datetime
+
+
+class DashboardTrendPoint(BaseModel):
+    """One day of one series. A day with no activity is reported as zero."""
+
+    day: date
+    value: Decimal
+
+
+class DashboardTrendSeries(BaseModel):
+    """One sparkline: a named daily series over the trend window."""
+
+    series: str
+    points: list[DashboardTrendPoint] = Field(default_factory=list)
+
+
+class DashboardTrendsRead(BaseModel):
+    """The 30-day trend set behind the dashboard sparklines."""
+
+    date_from: date
+    date_to: date
+    series: list[DashboardTrendSeries] = Field(default_factory=list)
     generated_at: datetime
 
 
@@ -666,6 +742,9 @@ __all__ = [
     "CostCentreExpenseRow",
     "CourierTrackingRow",
     "DashboardRead",
+    "DashboardTrendPoint",
+    "DashboardTrendSeries",
+    "DashboardTrendsRead",
     "DeadStockRow",
     "DispatchRow",
     "InventoryValuationRow",

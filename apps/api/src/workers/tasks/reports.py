@@ -42,9 +42,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
 from reportlab.platypus import (
     KeepTogether,
     PageBreak,
@@ -55,6 +56,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
 from src.core.database import session_scope, transaction
@@ -81,8 +83,15 @@ from src.modules.finance.sales_invoice_repository import (
     SalesInvoiceRepository,
     SalesInvoiceSourceRepository,
 )
-from src.modules.finance.schemas import ValuationFilters
-from src.modules.finance.service import VALUATION_TASK_NAME, valuation_row
+from src.modules.finance.schemas import Gstr1Return, TrialBalance, ValuationFilters
+from src.modules.finance.service import (
+    GSTR1_TASK_NAME,
+    TRIAL_BALANCE_TASK_NAME,
+    VALUATION_TASK_NAME,
+    gstr1_return,
+    trial_balance,
+    valuation_row,
+)
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify
 from src.modules.packing import service as packing_service
@@ -1777,10 +1786,487 @@ def render_report_xlsx(
     return buffer.getvalue()
 
 
-def _report_file_name(report_key: str, moment: datetime) -> str:
+def _report_file_name(report_key: str, moment: datetime, file_format: str = "xlsx") -> str:
     """A display file name. The storage path is built server-side, not from this."""
     slug = report_key.lower().replace("_", "-")
-    return f"{slug}-{moment.strftime('%Y%m%d-%H%M%S')}.xlsx"
+    return f"{slug}-{moment.strftime('%Y%m%d-%H%M%S')}.{file_format}"
+
+
+#: Landscape A4 is the only page geometry that fits a twenty-column register.
+#: Margins are small because the content, not the white space, is what the
+#: reader needs; the footer still sits inside the bottom margin.
+REPORT_PDF_MARGIN = 10 * mm
+
+#: A cell longer than this is truncated in the PDF. A paragraph that overflows
+#: its column pushes the whole table off the page, and the alternative - letting
+#: reportlab shrink it - makes every other column unreadable instead.
+REPORT_PDF_CELL_LIMIT = 240
+
+
+class _NumberedCanvas(canvas.Canvas):
+    """A canvas that can print "Page x of y".
+
+    ReportLab draws a page before it knows how many pages follow, so the total
+    is only available at ``save`` time. Buffering each page's state and drawing
+    the footer once the count is known is the standard remedy: the reader gets a
+    page number that means something rather than "page 3" on a document of
+    unknown length.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._page_states: list[dict[str, Any]] = []
+
+    def showPage(self) -> None:  # noqa: N802 - ReportLab's spelling
+        self._page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self) -> None:
+        total = len(self._page_states)
+        for state in self._page_states:
+            self.__dict__.update(state)
+            self._draw_footer(total)
+            super().showPage()
+        super().save()
+
+    def _draw_footer(self, total: int) -> None:
+        self.setFont("Helvetica", 7)
+        self.setFillColor(colors.HexColor("#555555"))
+        self.drawRightString(
+            self._pagesize[0] - REPORT_PDF_MARGIN,
+            6 * mm,
+            f"Page {self._pageNumber} of {total}",
+        )
+
+
+def _pdf_text(value: Any) -> str:
+    """One cell as escaped paragraph text, with Decimal digits preserved."""
+    if value is None:
+        return ""
+    if isinstance(value, Decimal):
+        text = format(value, "f")
+    elif isinstance(value, datetime):
+        text = value.astimezone(UTC).strftime("%Y-%m-%d %H:%M")
+    elif isinstance(value, date):
+        text = value.isoformat()
+    else:
+        text = str(value)
+    text = text[:REPORT_PDF_CELL_LIMIT]
+    return escape(text).replace("\n", "<br/>")
+
+
+def _pdf_styles() -> dict[str, ParagraphStyle]:
+    base = getSampleStyleSheet()
+    return {
+        "title": ParagraphStyle(
+            "ReportTitle",
+            parent=base["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=13,
+            leading=16,
+            spaceAfter=2,
+            alignment=0,
+        ),
+        "meta": ParagraphStyle(
+            "ReportMeta",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.5,
+            leading=10,
+            textColor=colors.HexColor("#444444"),
+            spaceAfter=3,
+        ),
+        "warn": ParagraphStyle(
+            "ReportWarn",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.5,
+            leading=10,
+            textColor=colors.HexColor("#a00000"),
+            spaceAfter=3,
+        ),
+        "header": ParagraphStyle(
+            "ReportHeader",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=6.5,
+            leading=8,
+        ),
+        "cell": ParagraphStyle(
+            "ReportCell",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=6.5,
+            leading=8,
+        ),
+        "cell_right": ParagraphStyle(
+            "ReportCellRight",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=6.5,
+            leading=8,
+            alignment=TA_RIGHT,
+        ),
+    }
+
+
+def render_report_pdf(
+    title: str,
+    columns: list[dict[str, str]],
+    rows: list[dict[str, Any]],
+    meta: dict[str, Any],
+) -> bytes:
+    """Render any report to a landscape PDF.
+
+    The same mapping the XLSX renderer takes, so the two formats can never show
+    different columns. The header row repeats on every page because a register
+    page that starts without column names is unreadable, and the footer numbers
+    the pages because a statutory printout is argued over page by page.
+    """
+    styles = _pdf_styles()
+    page_width, _ = landscape(A4)
+    available = page_width - 2 * REPORT_PDF_MARGIN
+
+    weights = [max(6, min(len(str(column["label"])) + 2, 30)) for column in columns]
+    total_weight = sum(weights) or 1
+    widths = [available * weight / total_weight for weight in weights]
+
+    table_rows: list[list[Paragraph]] = [
+        [Paragraph(_pdf_text(column["label"]), styles["header"]) for column in columns]
+    ]
+    for row in rows:
+        table_rows.append(
+            [
+                Paragraph(
+                    _pdf_text(row.get(column["name"])),
+                    styles["cell_right"]
+                    if column.get("kind") in ("number", "int")
+                    else styles["cell"],
+                )
+                for column in columns
+            ]
+        )
+
+    story: list[Any] = [Paragraph(escape(title), styles["title"])]
+    story.append(
+        Paragraph(
+            "Generated (UTC): {generated} &nbsp;|&nbsp; Period: {period} "
+            "&nbsp;|&nbsp; Rows: {rows}".format(
+                generated=_pdf_text(meta.get("generated_at")),
+                period=_pdf_text(meta.get("period") or "not applicable"),
+                rows=len(rows),
+            ),
+            styles["meta"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "Filters: {filters}".format(filters=_pdf_text(meta.get("filters") or "none")),
+            styles["meta"],
+        )
+    )
+    if meta.get("truncated"):
+        story.append(
+            Paragraph(
+                "This export reached the row ceiling and is incomplete. Narrow the period "
+                "or the filters and run it again.",
+                styles["warn"],
+            )
+        )
+    story.append(
+        Table(
+            table_rows,
+            colWidths=widths,
+            repeatRows=1,
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6e6e6")),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#b0b0b0")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+                ]
+            ),
+        )
+    )
+
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        leftMargin=REPORT_PDF_MARGIN,
+        rightMargin=REPORT_PDF_MARGIN,
+        topMargin=REPORT_PDF_MARGIN,
+        bottomMargin=REPORT_PDF_MARGIN,
+        title=title,
+    )
+    document.build(story, canvasmaker=_NumberedCanvas)
+    return buffer.getvalue()
+
+
+#: The workbook section headers of the GSTR-1, in the order the return presents
+#: them. Declared here rather than inline so the Summary sheet and the writer
+#: cannot disagree about which sections exist.
+GSTR1_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("B2B", "B2B invoices"),
+    ("B2C large", "B2C large invoices"),
+    ("B2C small", "B2C small supplies"),
+    ("CDNR", "Credit notes to registered buyers"),
+    ("HSN", "HSN summary"),
+    ("Documents", "Document summary"),
+)
+
+#: The B2C-large threshold the workbook states on its face. Kept in the finance
+#: service as the single source of truth and repeated in the Summary sheet so a
+#: reader reconciling the return sees the rule it was cut with.
+_GSTR1_NOTE = (
+    "B2C large: inter-state supplies to unregistered buyers where the invoice "
+    "value exceeds the rupees two lakh fifty thousand threshold in Rule 1 of the "
+    "GST (Return) Rules, 2022 and the GSTR-1 instructions. Everything else "
+    "unregistered is summarised as B2C small."
+)
+
+
+def _write_sheet(
+    workbook: Workbook,
+    name: str,
+    columns: tuple[tuple[str, str], ...],
+    rows: list[dict[str, Any]],
+) -> None:
+    """One worksheet of a document-only workbook, headers frozen on row one.
+
+    ``columns`` is a tuple of (label, key) rather than a schema: these workbooks
+    are statutory layouts laid out by hand, not the reflection of a report row
+    model, so the GSTR-1 can place a buyer GSTIN where the form expects it.
+    """
+    sheet = workbook.create_sheet(name)
+    sheet.freeze_panes = "A2"
+    for index, (label, _) in enumerate(columns, start=1):
+        cell = sheet.cell(row=1, column=index, value=label)
+        cell.font = Font(bold=True)
+        sheet.column_dimensions[cell.column_letter].width = max(
+            REPORT_COLUMN_WIDTH_MIN,
+            min(len(label) + 4, REPORT_COLUMN_WIDTH_LIMIT),
+        )
+    for offset, row in enumerate(rows, start=2):
+        for index, (_, key) in enumerate(columns, start=1):
+            sheet.cell(row=offset, column=index, value=_cell_value(row.get(key)))
+
+
+def render_trial_balance_xlsx(report: TrialBalance) -> bytes:
+    """The trial balance as a workbook, grouped and subtotalled by account type.
+
+    A schedule that states per-account figures without its group subtotals and
+    its closing debit/credit totals is not a trial balance - it is an account
+    list. The totals at the foot are the arithmetic the report exists to prove,
+    and the workbook states whether they balance rather than leaving the reader
+    to add a column of decimals.
+    """
+    columns: tuple[tuple[str, str], ...] = (
+        ("Account code", "account_code"),
+        ("Account name", "account_name"),
+        ("Account type", "account_type"),
+        ("Opening", "opening_balance"),
+        ("Period debit", "period_debit"),
+        ("Period credit", "period_credit"),
+        ("Closing", "closing_balance"),
+    )
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Trial balance"
+    sheet.freeze_panes = "A5"
+
+    sheet.cell(
+        row=1, column=1, value=f"Trial balance as at {report.as_of.isoformat()}"
+    ).font = Font(bold=True, size=13)
+    sheet.cell(
+        row=2,
+        column=1,
+        value=f"Period {report.period_start.isoformat()} to {report.period_end.isoformat()}",
+    )
+    for index, (label, _) in enumerate(columns, start=1):
+        cell = sheet.cell(row=4, column=index, value=label)
+        cell.font = Font(bold=True)
+        sheet.column_dimensions[cell.column_letter].width = max(
+            REPORT_COLUMN_WIDTH_MIN, min(len(label) + 8, REPORT_COLUMN_WIDTH_LIMIT)
+        )
+
+    line = 5
+    for group in report.groups:
+        label = group.account_type.value.replace("_", " ").title()
+        sheet.cell(row=line, column=1, value=label).font = Font(bold=True)
+        line += 1
+        for row in group.rows:
+            values = row.model_dump()
+            values["account_type"] = row.account_type.value
+            for index, (_, key) in enumerate(columns, start=1):
+                sheet.cell(row=line, column=index, value=_cell_value(values.get(key)))
+            line += 1
+        subtotal = group.model_dump()
+        for index, key in (
+            (4, "opening_balance"),
+            (5, "period_debit"),
+            (6, "period_credit"),
+            (7, "closing_balance"),
+        ):
+            cell = sheet.cell(row=line, column=index, value=_cell_value(subtotal[key]))
+            cell.font = Font(bold=True)
+        sheet.cell(row=line, column=1, value=f"{label} subtotal").font = Font(bold=True)
+        line += 2
+
+    for label, key in (
+        ("Total opening", "total_opening_balance"),
+        ("Total period debit", "total_period_debit"),
+        ("Total period credit", "total_period_credit"),
+        ("Total closing debit balances", "total_debit_balance"),
+        ("Total closing credit balances", "total_credit_balance"),
+    ):
+        sheet.cell(row=line, column=1, value=label).font = Font(bold=True)
+        sheet.cell(row=line, column=7, value=_cell_value(getattr(report, key))).font = Font(
+            bold=True
+        )
+        line += 1
+    sheet.cell(row=line, column=1, value="Balanced").font = Font(bold=True)
+    sheet.cell(row=line, column=7, value="yes" if report.balanced else "no")
+
+    summary = workbook.create_sheet("Summary")
+    summary.column_dimensions["A"].width = 30
+    summary.column_dimensions["B"].width = 80
+    for index, (label, value) in enumerate(
+        (
+            ("Report", "Trial balance"),
+            ("As at", report.as_of.isoformat()),
+            ("Period start", report.period_start.isoformat()),
+            ("Period end", report.period_end.isoformat()),
+            ("Accounts", str(sum(len(group.rows) for group in report.groups))),
+            ("Balanced", "yes" if report.balanced else "no"),
+        ),
+        start=1,
+    ):
+        summary.cell(row=index, column=1, value=label).font = Font(bold=True)
+        summary.cell(row=index, column=2, value=value)
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def render_gstr1_xlsx(return_period: Gstr1Return) -> bytes:
+    """The GSTR-1 workbook: one sheet per section, and a Summary that cites the rule.
+
+    The return is a filing artefact, so it states its own period and the B2C
+    threshold it was cut with. Nothing here recomputes a tax figure: every amount
+    is the one the documents stored, so the workbook reconciles to the invoices
+    a reader can open.
+    """
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+
+    sections: dict[str, list[dict[str, Any]]] = {
+        "B2B": [row.model_dump() for row in return_period.b2b],
+        "B2C large": [row.model_dump() for row in return_period.b2c_large],
+        "B2C small": [row.model_dump() for row in return_period.b2c_small],
+        "CDNR": [row.model_dump() for row in return_period.cdnr],
+        "HSN": [row.model_dump() for row in return_period.hsn],
+        "Documents": [row.model_dump() for row in return_period.documents],
+    }
+
+    invoice_columns: tuple[tuple[str, str], ...] = (
+        ("Invoice number", "invoice_number"),
+        ("Invoice date", "invoice_date"),
+        ("Buyer GSTIN", "buyer_gstin"),
+        ("Buyer name", "buyer_name"),
+        ("POS", "place_of_supply_state_code"),
+        ("Invoice value", "invoice_value"),
+        ("Rate", "rate"),
+        ("Taxable", "taxable_amount"),
+        ("CGST", "cgst_amount"),
+        ("SGST", "sgst_amount"),
+        ("IGST", "igst_amount"),
+    )
+    _write_sheet(workbook, "B2B", invoice_columns, sections["B2B"])
+    _write_sheet(workbook, "B2C large", invoice_columns, sections["B2C large"])
+    _write_sheet(
+        workbook,
+        "B2C small",
+        (
+            ("POS", "place_of_supply_state_code"),
+            ("Rate", "rate"),
+            ("Taxable", "taxable_amount"),
+            ("CGST", "cgst_amount"),
+            ("SGST", "sgst_amount"),
+            ("IGST", "igst_amount"),
+            ("Invoices", "invoice_count"),
+        ),
+        sections["B2C small"],
+    )
+    _write_sheet(
+        workbook,
+        "CDNR",
+        (
+            ("Note number", "note_number"),
+            ("Note date", "note_date"),
+            ("Buyer GSTIN", "buyer_gstin"),
+            ("Buyer name", "buyer_name"),
+            ("POS", "place_of_supply_state_code"),
+            ("Note value", "note_value"),
+            ("Rate", "rate"),
+            ("Taxable", "taxable_amount"),
+            ("CGST", "cgst_amount"),
+            ("SGST", "sgst_amount"),
+            ("IGST", "igst_amount"),
+        ),
+        sections["CDNR"],
+    )
+    _write_sheet(
+        workbook,
+        "HSN",
+        (
+            ("HSN", "hsn_code"),
+            ("UOM", "uom_code"),
+            ("Rate", "rate"),
+            ("Quantity", "quantity"),
+            ("Taxable", "taxable_amount"),
+            ("CGST", "cgst_amount"),
+            ("SGST", "sgst_amount"),
+            ("IGST", "igst_amount"),
+            ("Documents", "document_count"),
+        ),
+        sections["HSN"],
+    )
+    _write_sheet(
+        workbook,
+        "Documents",
+        (
+            ("Document type", "document_type"),
+            ("Series", "series"),
+            ("From", "from_number"),
+            ("To", "to_number"),
+            ("Total", "total_documents"),
+            ("Cancelled", "cancelled_documents"),
+        ),
+        sections["Documents"],
+    )
+
+    summary = workbook.create_sheet("Summary")
+    summary.column_dimensions["A"].width = 34
+    summary.column_dimensions["B"].width = 90
+    rows: list[tuple[str, Any]] = [
+        ("Return", "GSTR-1"),
+        ("Period start", return_period.date_from.isoformat()),
+        ("Period end", return_period.date_to.isoformat()),
+        ("B2C large threshold", _GSTR1_NOTE),
+    ]
+    rows.extend((label, str(len(sections[key]))) for key, label in GSTR1_SECTIONS)
+    for index, (label, value) in enumerate(rows, start=1):
+        summary.cell(row=index, column=1, value=label).font = Font(bold=True)
+        summary.cell(row=index, column=2, value=_cell_value(value))
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
 
 
 def _describe(parameters: dict[str, Any] | None) -> tuple[str, str]:
@@ -1889,11 +2375,26 @@ async def generate_report(
 
             definition, rows = await reports_service.snapshot_rows(session, tenant, snapshot)
             period_text, filter_text = _describe(snapshot.parameters)
+            parameters = snapshot.parameters or {}
+            visible_fields = parameters.get(reports_service.REPORT_VISIBLE_FIELDS_PARAMETER)
+            if isinstance(visible_fields, list):
+                allowed_fields = {str(name) for name in visible_fields}
+            else:
+                allowed_fields = set(definition.row_model.model_fields)
             columns = [
-                column.model_dump() for column in reports_service.columns_for(definition.row_model)
+                column.model_dump()
+                for column in reports_service.columns_for(definition.row_model)
+                if column.name in allowed_fields
             ]
+            file_format = str(
+                (snapshot.parameters or {}).get(reports_service.REPORT_FORMAT_PARAMETER, "xlsx")
+            )
+            if file_format not in reports_service.REPORT_EXPORT_FORMATS:
+                raise BusinessRuleError(
+                    f"This job asks for an unsupported file format: '{file_format}'."
+                )
             payload = await anyio.to_thread.run_sync(
-                render_report_xlsx,
+                render_report_pdf if file_format == "pdf" else render_report_xlsx,
                 definition.title,
                 columns,
                 [row.model_dump() for row in rows],
@@ -1906,7 +2407,8 @@ async def generate_report(
             )
             checksum = hashlib.sha256(payload).hexdigest()
 
-            rule = KNOWN_TYPES[XLSX_MIME_TYPE]
+            mime_type = PDF_MIME_TYPE if file_format == "pdf" else XLSX_MIME_TYPE
+            rule = KNOWN_TYPES[mime_type]
             storage_key = build_storage_key(
                 category=DocumentCategory.REPORT,
                 company_id=tenant.company_id,
@@ -1919,9 +2421,9 @@ async def generate_report(
 
             try:
                 document = Document(
-                    file_name=_report_file_name(str(definition.key), moment),
+                    file_name=_report_file_name(str(definition.key), moment, file_format),
                     storage_key=storage_key,
-                    mime_type=XLSX_MIME_TYPE,
+                    mime_type=mime_type,
                     size_bytes=len(payload),
                     checksum_sha256=checksum,
                     category=DocumentCategory.REPORT,
@@ -1952,7 +2454,7 @@ async def generate_report(
                         title=f"{definition.title} is ready",
                         body=(
                             f"{len(rows)} rows covering {period_text}. "
-                            "Open the job to download the spreadsheet."
+                            f"Open the job to download the {file_format.upper()}."
                         ),
                         entity_type=GENERATED_REPORT_ENTITY,
                         entity_id=snapshot.id,
@@ -1992,6 +2494,264 @@ async def generate_report(
         "row_count": row_count,
         "size_bytes": size_bytes,
         "checksum_sha256": checksum,
+    }
+
+
+async def _file_document_workbook(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    snapshot_id: uuid.UUID,
+    moment: datetime,
+    file_name: str,
+    payload: bytes,
+    row_count: int,
+    title: str,
+    notification_body: str,
+) -> Document:
+    """Write one document-only workbook, complete its job and tell the owner.
+
+    The bytes are written first because the ``documents`` row records their size
+    and checksum; if the row then fails to commit the file is unlinked, because
+    nothing would ever reference it again. Shared by the trial balance and the
+    GSTR-1 so the two cannot drift in how a job is completed.
+    """
+    checksum = hashlib.sha256(payload).hexdigest()
+    rule = KNOWN_TYPES[XLSX_MIME_TYPE]
+    storage_key = build_storage_key(
+        category=DocumentCategory.REPORT,
+        company_id=tenant.company_id,
+        rule=rule,
+        moment=moment,
+        file_id=new_id(),
+    )
+    destination = resolve_storage_path(storage_key)
+    await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+    try:
+        document = Document(
+            file_name=file_name,
+            storage_key=storage_key,
+            mime_type=XLSX_MIME_TYPE,
+            size_bytes=len(payload),
+            checksum_sha256=checksum,
+            category=DocumentCategory.REPORT,
+            entity_type=GENERATED_REPORT_ENTITY,
+            entity_id=snapshot_id,
+            uploaded_by_id=tenant.user_id,
+            is_public=False,
+            expires_at=default_expiry(DocumentCategory.REPORT, moment),
+        )
+        DocumentRepository(session, tenant).add(document)
+        await session.flush()
+
+        await reports_service.complete_snapshot(
+            session,
+            tenant,
+            snapshot_id=snapshot_id,
+            row_count=row_count,
+            document_id=document.id,
+        )
+
+        async with transaction(session):
+            await notify(
+                session,
+                company_id=tenant.company_id,
+                user_ids=[tenant.user_id],
+                notification_type=NotificationType.REPORT_READY,
+                severity=NotificationSeverity.INFO,
+                title=title,
+                body=notification_body,
+                entity_type=GENERATED_REPORT_ENTITY,
+                entity_id=snapshot_id,
+                action_url=reports_service.job_status_url(snapshot_id),
+            )
+    except Exception:
+        await anyio.to_thread.run_sync(_unlink, destination)
+        raise
+    return document
+
+
+@async_task(name=TRIAL_BALANCE_TASK_NAME, queue="reports")
+async def generate_trial_balance(
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render the trial balance named by a queued job and file the workbook.
+
+    The job parameters, not the request, decide the reporting date: a task that
+    read the clock here would produce a different balance sheet from the one the
+    person asked for, and a re-delivery would disagree with the job's own hash.
+    """
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+    row_count = 0
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.trial_balance_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            parameters = snapshot.parameters or {}
+            if parameters.get("task") != TRIAL_BALANCE_TASK_NAME:
+                raise BusinessRuleError("This report job is not a trial balance export.")
+            try:
+                as_of = date.fromisoformat(str(parameters.get("as_of", "")))
+            except ValueError as exc:
+                raise BusinessRuleError(
+                    "The trial balance job does not name a valid reporting date."
+                ) from exc
+
+            report = await trial_balance(session, tenant, as_of=as_of)
+            payload = await anyio.to_thread.run_sync(render_trial_balance_xlsx, report)
+            row_count = sum(len(group.rows) for group in report.groups)
+            document = await _file_document_workbook(
+                session,
+                tenant,
+                snapshot_id=snapshot.id,
+                moment=moment,
+                file_name=_report_file_name(str(ReportKey.TRIAL_BALANCE), moment, "xlsx"),
+                payload=payload,
+                row_count=row_count,
+                title="The trial balance is ready",
+                notification_body=(
+                    f"{row_count} accounts as at {as_of.isoformat()}. "
+                    "Open the job to download the workbook."
+                ),
+            )
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.trial_balance_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
+        )
+        raise
+
+    log.info(
+        "reports.trial_balance_generated",
+        snapshot_id=snapshot_id,
+        document_id=document_id,
+        rows=row_count,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "document_id": document_id,
+        "row_count": row_count,
+        "size_bytes": size_bytes,
+    }
+
+
+@async_task(name=GSTR1_TASK_NAME, queue="reports")
+async def generate_gstr1(
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render the GSTR-1 workbook named by a queued job and file it.
+
+    The return period comes from the job's stored parameters, so the workbook
+    describes the period the filer asked for even if the job is retried days
+    later.
+    """
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+    row_count = 0
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.gstr1_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            parameters = snapshot.parameters or {}
+            if parameters.get("task") != GSTR1_TASK_NAME:
+                raise BusinessRuleError("This report job is not a GSTR-1 export.")
+            stored = parameters.get("period")
+            if not isinstance(stored, dict):
+                raise BusinessRuleError("The GSTR-1 job does not name a valid return period.")
+            try:
+                date_from = date.fromisoformat(str(stored["date_from"]))
+                date_to = date.fromisoformat(str(stored["date_to"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise BusinessRuleError(
+                    "The GSTR-1 job does not name a valid return period."
+                ) from exc
+
+            report = await gstr1_return(session, tenant, date_from=date_from, date_to=date_to)
+            payload = await anyio.to_thread.run_sync(render_gstr1_xlsx, report)
+            row_count = (
+                len(report.b2b)
+                + len(report.b2c_large)
+                + len(report.b2c_small)
+                + len(report.cdnr)
+                + len(report.hsn)
+                + len(report.documents)
+            )
+            document = await _file_document_workbook(
+                session,
+                tenant,
+                snapshot_id=snapshot.id,
+                moment=moment,
+                file_name=_report_file_name(str(ReportKey.GSTR1), moment, "xlsx"),
+                payload=payload,
+                row_count=row_count,
+                title="The GSTR-1 workbook is ready",
+                notification_body=(
+                    f"{row_count} rows covering {date_from.isoformat()} to "
+                    f"{date_to.isoformat()}. Open the job to download the workbook."
+                ),
+            )
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error("reports.gstr1_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc)
+        raise
+
+    log.info(
+        "reports.gstr1_generated",
+        snapshot_id=snapshot_id,
+        document_id=document_id,
+        rows=row_count,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "document_id": document_id,
+        "row_count": row_count,
+        "size_bytes": size_bytes,
     }
 
 

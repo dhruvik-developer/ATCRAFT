@@ -4344,7 +4344,12 @@
             {
               "action": "Read the GST position for a month",
               "how": "Finance \u2192 GST summary tab \u2192 Return period box",
-              "note": "Output tax, input credit, the net figure, and a table for each side broken down by HSN code and rate."
+              "note": "Output tax, input credit, the net figure, and a table for each side broken down by HSN code and rate. The same month also shows the GSTR-3B preparation summary."
+            },
+            {
+              "action": "Prepare the GSTR-1 workbook",
+              "how": "Finance \u2192 GST summary tab \u2192 Export GSTR-1 XLSX",
+              "note": "The workbook is generated in the background. It needs both GST-report view and report-export permission; review it before filing."
             },
             {
               "action": "Go to the supplier bill register",
@@ -4362,8 +4367,8 @@
             "Move to Inventory valuation for the closing stock value, and to GST summary for the month's return figures."
           ],
           "keyActions_note": null,
-          "notes": "Deliberately read-only: nothing on this screen creates or changes a document. Screenshot advice \u2014 take the Outstanding tab and the Ageing tab separately, since the Ageing tab is the only one with a chart. Three tabs (Ledger, Inventory valuation, GST summary) are hidden from an account that lacks their right, so a screenshot taken as a limited user will show only two tabs. Thin spots worth knowing: the Outstanding tab has no sort or search box, because the system always returns those bills oldest-due-first and offers no other order; and it has no currency selector even though rows carry their own currency. The Ageing report returns party-by-party detail for at most five currencies at a time and up to 200 parties in each, though the totals for every currency are always shown. Receivable ageing uses sales-invoice due dates and legacy posting dates, FIFO within each customer/currency. GST output uses issued invoice HSN snapshots by invoice date; uninvoiced dispatch GST is shown separately.",
-          "permission": "Anyone with the right to view finance can open the page and use Outstanding and Ageing. The Ledger tab needs the right to view the general ledger; Inventory valuation needs the right to view stock valuation; GST summary needs the right to view GST reports. Exporting the full valuation additionally needs the right to export reports.",
+          "notes": "Deliberately read-only: nothing on this screen creates or changes a document. Screenshot advice \u2014 take the Outstanding tab and the Ageing tab separately, since the Ageing tab is the only one with a chart. Three tabs (Ledger, Inventory valuation, GST summary) are hidden from an account that lacks their right, so a screenshot taken as a limited user will show only two tabs. Thin spots worth knowing: the Outstanding tab has no sort or search box, because the system always returns those bills oldest-due-first and offers no other order; and it has no currency selector even though rows carry their own currency. The Ageing report returns party-by-party detail for at most five currencies at a time and up to 200 parties in each, though the totals for every currency are always shown. Receivable ageing uses sales-invoice due dates and legacy posting dates, FIFO within each customer/currency. GST output uses issued invoice HSN snapshots by invoice date; uninvoiced dispatch GST is shown separately. GSTR-1 and GSTR-3B are preparation aids from posted documents, not filing integrations.",
+          "permission": "Anyone with the right to view finance can open the page and use Outstanding and Ageing. The Ledger tab needs the right to view the general ledger; Inventory valuation needs the right to view stock valuation; GST summary needs the right to view GST reports. Exporting the full valuation additionally needs the right to export reports. GSTR-1 workbook export additionally needs report.export.",
           "rules": [
             "Amounts in two different currencies are never added together, and no total spans them. There is no exchange-rate table in this system, so a combined figure would be a number with no meaning. Each currency is reported in its own block, and the screen tells you plainly when money is outstanding in a currency other than the one you are looking at.",
             "Ageing buckets are 0-30, 31-60, 61-90 and 90+ days, with anything still inside its terms shown as \"not due\". The same boundaries are used everywhere in the system, so the Outstanding list and the Ageing report can never disagree.",
@@ -4679,7 +4684,7 @@
         {
           "route": "/reports",
           "title": "Reports",
-          "purpose": "This is the report room. Every report the system can produce is listed here as a card, split into those that cover a period \u2014 sales, dispatch, rejection, efficiency \u2014 and those that read the position as it stands right now, such as stock availability and dead stock. You pick a report, set its dates and filters, and press Run; a small result appears as a table on the screen, and a large one is prepared in the background as an Excel file you download when it is ready. Nothing is fetched until you ask for it, so opening the page never sets a heavy query running.",
+          "purpose": "This is the report room. Every report the system can produce is listed here as a card, split into those that cover a period \u2014 sales, dispatch, rejection, efficiency \u2014 and those that read the position as it stands right now, such as stock availability and dead stock. You pick a report, set its dates and filters, and press Run; a result appears as a table on the screen. You can export any result as XLSX or PDF in the background, and results above the on-screen limit are prepared as a workbook automatically. Nothing is fetched until you ask for it, so opening the page never sets a heavy query running.",
           "whoUses": "The owner, and any manager reviewing their area \u2014 the buyer, the production supervisor, the QC lead, the dispatch manager, the accountant.",
           "keyActions": [
             {
@@ -4701,9 +4706,9 @@
               "how": "Reports \u2192 after running \u2192 search box above the table"
             },
             {
-              "action": "Collect a large report as a spreadsheet",
-              "how": "Reports \u2192 run it \u2192 the download strip appears when the file is ready",
-              "note": "You can carry on working while it is generated. Needs the right to export reports."
+              "action": "Export a report as XLSX or PDF",
+              "how": "Reports \u2192 run it \u2192 choose Export XLSX or Export PDF",
+              "note": "You can carry on working while the file is generated. Needs the right to export reports."
             },
             {
               "action": "Go back to the full list of reports",
@@ -4722,7 +4727,7 @@
             {
               "action": "Run Product profitability",
               "how": "Reports \u2192 Product profitability",
-              "note": "What each item earned \u2014 revenue after discount, against its standard cost."
+              "note": "Issued invoice revenue less credit notes, against FIFO dispatch cost net of return cost. Uninvoiced dispatch revenue is an estimate and is labelled."
             },
             {
               "action": "Run Stock availability",
@@ -4849,11 +4854,11 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "The catalogue currently contains 26 tabular reports and is filtered by the permissions held by the account. The common toolbar has eight filter types; a category filter is accepted by the API but has no picker here, and Status expects an exact code. The dashboard is a separate screen. Packing, invoice, credit-note and delivery-challan PDFs are requested from their owning operational screens.",
+          "notes": "The catalogue is filtered by the permissions held by the account. The common toolbar has eight filter types; a category filter is accepted by the API but has no picker here, and Status expects an exact code. The dashboard is a separate screen. Packing, invoice, credit-note and delivery-challan PDFs are requested from their owning operational screens.",
           "permission": "Opening Reports needs report.view. Product profitability, Production cost and Job-work cost additionally need item_cost.view; Inventory valuation needs inventory_valuation.view. The catalogue hides reports the account cannot read. Downloadable exports also need report.export, and cost-sensitive export polling and downloads retain their cost permission checks.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",
-            "A result of up to 5,000 rows is shown on screen. Anything larger is prepared in the background as an Excel file, because no screen and no waiting user should sit on a query of that size.",
+            "A result of up to 5,000 rows is shown on screen. Anything larger is prepared in the background as a workbook automatically. Smaller results may also be exported as XLSX or PDF with the matching button.",
             "A generated file is reused for 24 hours for the same report and the same parameters. Five people opening the same link do not queue five identical exports \u2014 the later ones simply collect the file the first one produced.",
             "Stock availability and current valuation reports bypass the response cache. The tabular stock reports read the refreshed inventory summary and are indicative; allocation and shipment decisions re-read live locked stock. The transport tracking report also bypasses the response cache.",
             "The list of reports is served by the system itself rather than being written into the screen, so a report added later appears here without anything else changing.",

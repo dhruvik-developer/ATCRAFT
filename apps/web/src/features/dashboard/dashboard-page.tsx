@@ -2,10 +2,16 @@ import { describeError } from '@/lib/messages'
 /**
  * Management dashboard.
  *
- * Every number here comes from `GET /reports/dashboard`, which reads the summary
- * tables Celery refreshes (docs/database.md section 9). The page never
- * aggregates hot transactional tables itself, and it never recomputes a tile in
- * the browser.
+ * Every number here comes from `GET /reports/dashboard`, which reads indexed
+ * counts and the summary tables Celery refreshes (docs/database.md section 9).
+ * The page never aggregates hot transactional tables itself, and it never
+ * recomputes a tile in the browser.
+ *
+ * The 30-day sparklines come from `GET /reports/dashboard/trends`, a separate
+ * request so the tiles paint without waiting for four aggregate series. Both
+ * endpoints are gated on `dashboard.view`; the finance and operations tiles are
+ * additionally scoped by the API to the permission that owns their documents,
+ * and a withheld tile arrives as `null` rather than as a zero.
  */
 
 import { useQuery } from '@tanstack/react-query'
@@ -13,17 +19,24 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  Banknote,
   Boxes,
   CalendarClock,
+  CircleDollarSign,
   ClipboardCheck,
   ClipboardList,
+  Clock,
   Factory,
   Inbox,
+  PackageSearch,
   PackageX,
+  Receipt,
   RefreshCw,
   ShieldCheck,
   ShoppingCart,
   Truck,
+  Wallet,
+  Wrench,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -43,7 +56,15 @@ import {
 import { entityLink } from '@/features/audit/audit-types'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
-import { formatDateTime, formatMoney, formatNumber, formatRelative, humanise } from '@/lib/format'
+import {
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+  formatQuantity,
+  formatRelative,
+  humanise,
+  toDecimal,
+} from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
@@ -51,12 +72,17 @@ import type { DecimalString } from '@/types/api'
 // ---------------------------------------------------------- wire shapes ----
 
 /**
- * `GET /reports/dashboard` (`DashboardSummary`), verbatim.
+ * `GET /reports/dashboard` (`DashboardRead`), verbatim.
  *
  * The payload is flat. It carried a `metrics` object and two chart series in an
- * earlier shape; both are gone, and there is no other endpoint that serves the
- * daily stock-movement or open-order-value series, so the two chart cards that
- * read them were removed rather than left permanently empty.
+ * earlier shape; both are gone. The 30-day series now has its own endpoint,
+ * `GET /reports/dashboard/trends`, so the counts and the sparklines can be
+ * cached and permission-scoped independently.
+ *
+ * The finance and operations fields are `null` when this account lacks the
+ * permission that owns the documents behind them. `null` is not zero: a zero is
+ * a fact about the business, a null is "not shown to you", and the tiles below
+ * are dropped rather than drawn as an empty queue.
  */
 interface DashboardPayload {
   open_sales_orders: number
@@ -70,7 +96,35 @@ interface DashboardPayload {
   stock_value: DecimalString
   /** When the stock valuation summary behind `stock_value` was last rebuilt. */
   stock_refreshed_at?: string | null
+  /** Exactly `PENDING_APPROVAL`: the queue that actually blocks buying. */
+  purchase_orders_awaiting_approval?: number | null
+  inbound_purchase_orders_late?: number | null
+  payables_due_amount?: DecimalString | null
+  payables_overdue_amount?: DecimalString | null
+  receivables_amount?: DecimalString | null
+  invoiced_sales_mtd?: DecimalString | null
+  collections_mtd?: DecimalString | null
+  mrp_shortage_count?: number | null
+  job_work_overdue?: number | null
   /** When these figures were computed. */
+  generated_at: string
+}
+
+interface DashboardTrendPoint {
+  day: string
+  value: DecimalString
+}
+
+interface DashboardTrendSeries {
+  series: string
+  points: DashboardTrendPoint[]
+}
+
+/** `GET /reports/dashboard/trends` (`DashboardTrendsRead`). */
+interface DashboardTrendsPayload {
+  date_from: string
+  date_to: string
+  series: DashboardTrendSeries[]
   generated_at: string
 }
 
@@ -144,6 +198,187 @@ function documentLink(entityType: string, entityId: string | null): string {
   return `/audit?${params.toString()}`
 }
 
+// --------------------------------------------------------------- trends ----
+
+/**
+ * The four sparkline series, in display order, with the label and formatter each
+ * one needs. The API returns the series it thinks this caller may read, so this
+ * table is presentation only - a series missing from the payload is not drawn,
+ * and never drawn as an empty line.
+ */
+const TREND_SERIES: {
+  key: string
+  label: string
+  format: (value: DecimalString) => string
+}[] = [
+  {
+    key: 'sales_invoiced',
+    label: 'Sales invoiced',
+    format: (value) => formatMoney(value, { compact: true }),
+  },
+  {
+    key: 'collections',
+    label: 'Collections',
+    format: (value) => formatMoney(value, { compact: true }),
+  },
+  {
+    key: 'dispatches',
+    label: 'Dispatches',
+    format: (value) => formatQuantity(value),
+  },
+  {
+    key: 'production_output',
+    label: 'Production output',
+    format: (value) => formatQuantity(value),
+  },
+]
+
+const SPARK_WIDTH = 132
+const SPARK_HEIGHT = 34
+const SPARK_PADDING = 2
+
+/**
+ * A small inline SVG line chart.
+ *
+ * Not `recharts`: this is thirty points and one path, and the chart library
+ * costs a chunk boundary for a shape a dozen lines of SVG draw. It is also the
+ * version that can be read by a test without a canvas or a resize observer.
+ *
+ * A flat series - thirty days of zero - is drawn along the middle rather than
+ * the bottom, because a line pinned to the axis reads as missing data. The
+ * `aria-label` carries the range and the total, which is what a reader who
+ * cannot see the line needs from it.
+ */
+function Sparkline({
+  points,
+  label,
+  total,
+}: {
+  points: DashboardTrendPoint[]
+  label: string
+  total: string
+}) {
+  const values = points.map((point) => toDecimal(point.value))
+  const highest = values.reduce(
+    (max, value) => (value.greaterThan(max) ? value : max),
+    toDecimal(0),
+  )
+  const lowest = values.reduce((min, value) => (value.lessThan(min) ? value : min), toDecimal(0))
+  const span = highest.minus(lowest)
+  const step = values.length > 1 ? (SPARK_WIDTH - SPARK_PADDING * 2) / (values.length - 1) : 0
+
+  const path = values
+    .map((value, index) => {
+      const ratio = span.isZero() ? 0.5 : value.minus(lowest).dividedBy(span).toNumber()
+      const x = SPARK_PADDING + index * step
+      const y = SPARK_HEIGHT - SPARK_PADDING - ratio * (SPARK_HEIGHT - SPARK_PADDING * 2)
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+
+  return (
+    <svg
+      viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
+      className="h-9 w-full text-primary"
+      role="img"
+      aria-label={`${label}: ${total} over the last ${points.length} days`}
+      preserveAspectRatio="none"
+    >
+      <path
+        d={path}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
+
+function TrendCards({
+  trends,
+  isLoading,
+}: {
+  trends: DashboardTrendsPayload | undefined
+  isLoading: boolean
+}) {
+  const series = trends?.series ?? []
+  const bySeries = new Map(series.map((entry) => [entry.series, entry]))
+
+  if (isLoading && series.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Last 30 days</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
+            {TREND_SERIES.map((config) => (
+              <div key={config.key}>
+                <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {config.label}
+                </p>
+                <Skeleton className="mt-1 h-9 w-full" />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // No series at all means this account may read none of the four. The card is
+  // absent rather than a wall of four empty lines.
+  if (series.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Last 30 days</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          One figure per day, from the documents posted on that day. A day with no activity is zero,
+          not missing.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
+          {TREND_SERIES.map((config) => {
+            const entry = bySeries.get(config.key)
+            if (!entry) return null
+            const total = entry.points.reduce(
+              (sum, point) => sum.plus(toDecimal(point.value)),
+              toDecimal(0),
+            )
+            const latest =
+              entry.points.length > 0 ? (entry.points[entry.points.length - 1]?.value ?? '0') : '0'
+            const totalText = total.toDecimalPlaces(2).toFixed()
+            return (
+              <div key={config.key}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {config.label}
+                  </p>
+                  <p className="shrink-0 text-sm font-semibold tabular-nums">
+                    {config.format(latest)}
+                  </p>
+                </div>
+                <Sparkline
+                  points={entry.points}
+                  label={config.label}
+                  total={config.format(totalText)}
+                />
+                <p className="text-2xs text-muted-foreground">
+                  Latest day, {config.format(totalText)} in total
+                </p>
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ------------------------------------------------------------------ page ----
 
 export default function DashboardPage() {
@@ -160,6 +395,22 @@ export default function DashboardPage() {
   const dashboard = useQuery({
     queryKey: queryKeys.reports.dashboard,
     queryFn: () => api.get<DashboardPayload>('/reports/dashboard'),
+    staleTime: staleTimes.dashboard,
+    enabled: canSeeSummary,
+  })
+
+  /**
+   * The 30-day series behind the sparklines.
+   *
+   * A separate request because it is a different question with a different
+   * cache key and its own permission mask - and because the tiles must not wait
+   * for thirty days of aggregates to be assembled. It is fetched under the same
+   * `dashboard.view` right; the API decides which series this caller may read
+   * and omits the rest.
+   */
+  const trends = useQuery({
+    queryKey: queryKeys.reports.trends,
+    queryFn: () => api.get<DashboardTrendsPayload>('/reports/dashboard/trends'),
     staleTime: staleTimes.dashboard,
     enabled: canSeeSummary,
   })
@@ -192,9 +443,22 @@ export default function DashboardPage() {
   // `refetch()` ignores `enabled`, so every gate is restated here.
   const refreshAll = () => {
     if (canSeeSummary) void dashboard.refetch()
+    if (canSeeSummary) void trends.refetch()
     if (showApprovals) void approvals.refetch()
     if (canSeeActivity) void activity.refetch()
   }
+
+  /**
+   * Whether a gated tile has a figure to draw.
+   *
+   * Before the payload arrives the tile is a skeleton, which is honest: the
+   * figure exists, it just has not been read yet. Once it has arrived, `null`
+   * means the API withheld the figure because this account lacks the right that
+   * owns the documents, so the tile is dropped. A cached payload that predates
+   * the field also reads as absent, which drops the tile rather than inventing
+   * a zero.
+   */
+  const shows = (value: unknown) => isLoading || (value !== null && value !== undefined)
 
   const tiles = [
     {
@@ -206,6 +470,7 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/sales-orders',
       permissions: [P.SALES_ORDER_VIEW],
+      visible: true,
     },
     {
       key: 'stock-value',
@@ -221,20 +486,103 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/inventory',
       permissions: [P.INVENTORY_VALUATION_VIEW, P.INVENTORY_VIEW],
+      visible: true,
+    },
+    {
+      // This tile used to be labelled "POs awaiting approval" while counting
+      // every open order, so a store keeper read a committed pipeline as a
+      // decision queue. It now says what it counts; the queue has its own tile
+      // below, fed by `purchase_orders_awaiting_approval`.
+      key: 'open-purchase-orders',
+      label: 'Open purchase orders',
+      value: formatNumber(metrics?.pending_purchase_orders),
+      // The committed value is the number that decides whether this pipeline is
+      // urgent: six orders worth a lakh is not six worth a crore.
+      hint: metrics
+        ? `${formatMoney(metrics.pending_purchase_value, { compact: true })} committed`
+        : 'Approved and not yet fully received',
+      icon: ShoppingCart,
+      tone: 'default' as const,
+      to: '/procurement/purchase-orders',
+      permissions: [P.PURCHASE_ORDER_VIEW],
+      visible: true,
     },
     {
       key: 'po-approvals',
       label: 'POs awaiting approval',
-      value: formatNumber(metrics?.pending_purchase_orders),
-      // The committed value is the number that decides whether this queue is
-      // urgent: six orders worth a lakh is not six worth a crore.
-      hint: metrics
-        ? `${formatMoney(metrics.pending_purchase_value, { compact: true })} committed`
-        : 'Blocking procurement',
-      icon: ShoppingCart,
+      value: formatNumber(metrics?.purchase_orders_awaiting_approval ?? undefined),
+      hint: 'Waiting on a decision before they can be sent',
+      icon: ShieldCheck,
       tone: 'warning' as const,
       to: '/procurement/purchase-orders',
       permissions: [P.PURCHASE_ORDER_VIEW],
+      visible: shows(metrics?.purchase_orders_awaiting_approval),
+    },
+    {
+      key: 'inbound-purchase-orders-late',
+      label: 'Inbound POs late',
+      value: formatNumber(metrics?.inbound_purchase_orders_late ?? undefined),
+      hint: 'Past the promised delivery date',
+      icon: Clock,
+      tone: 'destructive' as const,
+      to: '/procurement/inbound-tracking',
+      permissions: [P.PURCHASE_ORDER_VIEW],
+      visible: shows(metrics?.inbound_purchase_orders_late),
+    },
+    {
+      key: 'payables-due',
+      label: 'Payables due',
+      value: formatMoney(metrics?.payables_due_amount, { compact: true }),
+      hint: 'Due in the next seven days',
+      icon: Wallet,
+      tone: 'warning' as const,
+      to: '/finance/vendor-invoices',
+      permissions: [P.VENDOR_INVOICE_VIEW],
+      visible: shows(metrics?.payables_due_amount),
+    },
+    {
+      key: 'payables-overdue',
+      label: 'Payables overdue',
+      value: formatMoney(metrics?.payables_overdue_amount, { compact: true }),
+      hint: 'Past their due date',
+      icon: AlertTriangle,
+      tone: 'destructive' as const,
+      to: '/finance/vendor-invoices',
+      permissions: [P.VENDOR_INVOICE_VIEW],
+      visible: shows(metrics?.payables_overdue_amount),
+    },
+    {
+      key: 'receivables',
+      label: 'Receivables',
+      value: formatMoney(metrics?.receivables_amount, { compact: true }),
+      hint: 'Outstanding from customers',
+      icon: CircleDollarSign,
+      tone: 'default' as const,
+      to: '/finance',
+      permissions: [P.SALES_INVOICE_VIEW],
+      visible: shows(metrics?.receivables_amount),
+    },
+    {
+      key: 'invoiced-sales-mtd',
+      label: 'Invoiced sales MTD',
+      value: formatMoney(metrics?.invoiced_sales_mtd, { compact: true }),
+      hint: 'Month to date, by invoice date',
+      icon: Receipt,
+      tone: 'default' as const,
+      to: '/finance/sales-invoices',
+      permissions: [P.SALES_INVOICE_VIEW],
+      visible: shows(metrics?.invoiced_sales_mtd),
+    },
+    {
+      key: 'collections-mtd',
+      label: 'Collections MTD',
+      value: formatMoney(metrics?.collections_mtd, { compact: true }),
+      hint: 'Month to date, by receipt date',
+      icon: Banknote,
+      tone: 'success' as const,
+      to: '/finance/payments',
+      permissions: [P.PAYMENT_VIEW],
+      visible: shows(metrics?.collections_mtd),
     },
     {
       key: 'production-in-progress',
@@ -245,6 +593,29 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/production',
       permissions: [P.PRODUCTION_ORDER_VIEW],
+      visible: true,
+    },
+    {
+      key: 'mrp-shortages',
+      label: 'MRP shortages',
+      value: formatNumber(metrics?.mrp_shortage_count ?? undefined),
+      hint: 'Items short in the last MRP run',
+      icon: PackageSearch,
+      tone: 'warning' as const,
+      to: '/mrp',
+      permissions: [P.MRP_VIEW],
+      visible: shows(metrics?.mrp_shortage_count),
+    },
+    {
+      key: 'job-work-overdue',
+      label: 'Job work overdue',
+      value: formatNumber(metrics?.job_work_overdue ?? undefined),
+      hint: 'Challans past their expected return',
+      icon: Wrench,
+      tone: 'destructive' as const,
+      to: '/job-work',
+      permissions: [P.JOB_WORK_VIEW],
+      visible: shows(metrics?.job_work_overdue),
     },
     {
       key: 'qc-pending',
@@ -255,6 +626,7 @@ export default function DashboardPage() {
       tone: 'warning' as const,
       to: '/quality',
       permissions: [P.QC_VIEW],
+      visible: true,
     },
     {
       key: 'dispatches-in-transit',
@@ -265,6 +637,7 @@ export default function DashboardPage() {
       tone: 'default' as const,
       to: '/dispatch',
       permissions: [P.DISPATCH_VIEW],
+      visible: true,
     },
     {
       key: 'overdue-deliveries',
@@ -275,9 +648,9 @@ export default function DashboardPage() {
       tone: 'destructive' as const,
       to: '/dispatch',
       permissions: [P.DISPATCH_VIEW],
+      visible: true,
     },
     {
-      // Replaces the MRP shortage count, which the summary no longer carries.
       key: 'overdue-sales-orders',
       label: 'Overdue sales orders',
       value: formatNumber(metrics?.overdue_sales_orders),
@@ -286,12 +659,13 @@ export default function DashboardPage() {
       tone: 'destructive' as const,
       to: '/sales-orders',
       permissions: [P.SALES_ORDER_VIEW],
+      visible: true,
     },
     // A tile linking to a screen the user cannot open is a dead end, so tiles
     // follow the same view permissions as the sidebar. UX, not security. Every
     // figure comes from the gated summary, so without `dashboard.view` a tile
     // could only ever show a dash.
-  ].filter((tile) => canSeeSummary && canAny(...tile.permissions))
+  ].filter((tile) => canSeeSummary && tile.visible && canAny(...tile.permissions))
 
   const firstName = user?.full_name?.split(' ')[0]
 
@@ -350,6 +724,9 @@ export default function DashboardPage() {
           </div>
         </section>
       )}
+
+      {/* ---------------------------------------------------------- trends -- */}
+      {canSeeSummary && <TrendCards trends={trends.data} isLoading={trends.isLoading} />}
 
       {/* -------------------------------------------------------- approvals -- */}
       {showApprovals && (

@@ -92,9 +92,9 @@ from src.core.errors import (
 from src.core.ids import new_id
 from src.core.logging import get_logger
 from src.core.messages import date_before, inactive_record
-from src.core.pagination import PageParams, SortParams
+from src.core.pagination import DateCursor, DateCursorParams, PageParams, SortParams
 from src.core.permissions import Permission
-from src.core.responses import OffsetPagination
+from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
@@ -166,13 +166,25 @@ from src.modules.finance.repository import (
     ranked_ageing_rows_stmt,
 )
 from src.modules.finance.schemas import (
+    GSTR1_B2C_LARGE_THRESHOLD,
     NONCASH_ADJUSTMENT_UNSUPPORTED,
+    AccountStatement,
+    AccountStatementRow,
     AgeingCurrencyBlock,
     AgeingReport,
     AgeingRow,
     AllocationRequest,
     CustomerAdjustmentCreate,
     CustomerAdjustmentRead,
+    Gstr1B2cSmallRow,
+    Gstr1CdnrRow,
+    Gstr1DocumentSeriesRow,
+    Gstr1HsnRow,
+    Gstr1InvoiceRow,
+    Gstr1Return,
+    Gstr3b,
+    Gstr3bAmounts,
+    Gstr3bSide,
     GstRateRow,
     GstSection,
     GstSummary,
@@ -198,6 +210,9 @@ from src.modules.finance.schemas import (
     PurchaseReturnDebitAllocationRequest,
     PurchaseReturnDebitAllocationResult,
     StatementFilters,
+    TrialBalance,
+    TrialBalanceGroup,
+    TrialBalanceRow,
     ValuationFilters,
     VendorInvoiceCreate,
     VendorInvoiceDetail,
@@ -249,6 +264,10 @@ CUSTOMER_ADJUSTMENT_LABELS: dict[CustomerAdjustmentType, str] = {
 #: the API process never imports the worker package.
 VALUATION_TASK_NAME = "reports.inventory_valuation"
 VALUATION_QUEUE = "reports"
+#: Rendered finance artefacts that travel through the same job row and status
+#: route as every other background report.
+TRIAL_BALANCE_TASK_NAME = "reports.generate_trial_balance"
+GSTR1_TASK_NAME = "reports.generate_gstr1"
 
 #: Label used on an open item that is not yet due. Kept out of
 #: :data:`AGEING_BUCKET_LABELS` because "not due" is not an age.
@@ -275,6 +294,11 @@ MAX_AGEING_ROW_CURRENCIES = 5
 #: understate a statutory return - a period spanning more slabs than this is
 #: refused and has to be narrowed, which is wrong-shaped rather than wrong.
 MAX_GST_ROWS = 1000
+
+#: Upper bound on any one GSTR-1 section. A return is a document, not a paged
+#: list, so the rows are all read and then refused if the period produced more
+#: than this: a truncated return would understate a statutory filing.
+MAX_GSTR1_ROWS = 50_000
 
 #: Header fields snapshotted around an edit so the audit diff names what moved
 #: rather than reprinting the whole row.
@@ -1764,6 +1788,189 @@ async def _party_facts(
             raise NotFoundError("Vendor", party_id)
         return facts
     raise ValidationError("A statement is drawn for a customer or a vendor.")
+
+
+async def account_statement(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    account_id: uuid.UUID,
+    filters: StatementFilters,
+    params: DateCursorParams,
+) -> AccountStatement:
+    """One general-ledger account's statement, keyset paged forwards.
+
+    Unlike the party statement, this is ordered by business date ascending and
+    paged by cursor. The running balance is computed over the whole window by
+    PostgreSQL and the cursor is applied outside that window, so page two starts
+    at the balance page one ended on - never at zero.
+    """
+    repo = LedgerEntryRepository(session, tenant)
+    account = await repo.account_facts(account_id)
+    if account is None:
+        raise NotFoundError("Ledger account", account_id)
+
+    date_to = filters.date_to or today()
+    totals = await repo.account_statement_totals(
+        account_id=account_id, date_from=filters.date_from, date_to=date_to
+    )
+    position = params.decoded
+    stmt = repo.account_statement_stmt(
+        account_id=account_id,
+        date_from=filters.date_from,
+        date_to=date_to,
+        after=(position.entry_date, position.id) if position is not None else None,
+    )
+    rows = list((await session.execute(stmt.limit(params.limit + 1))).all())
+    has_next = len(rows) > params.limit
+    rows = rows[: params.limit]
+    next_cursor = (
+        DateCursor(entry_date=rows[-1].entry_date, id=rows[-1].entry_id).encode()
+        if has_next and rows
+        else None
+    )
+
+    return AccountStatement(
+        account_id=account.id,
+        account_code=account.code,
+        account_name=account.name,
+        account_type=LedgerAccountType(account.account_type),
+        date_from=filters.date_from,
+        date_to=date_to,
+        opening_balance=to_money(totals.opening_balance),
+        total_debit=to_money(totals.total_debit),
+        total_credit=to_money(totals.total_credit),
+        closing_balance=to_money(totals.closing_balance),
+        rows=[
+            AccountStatementRow(
+                entry_id=row.entry_id,
+                journal_id=row.journal_id,
+                entry_date=row.entry_date,
+                reference_type=row.reference_type,
+                reference_code=row.reference_code,
+                narration=row.narration,
+                debit_amount=to_money(row.debit_amount),
+                credit_amount=to_money(row.credit_amount),
+                running_balance=to_money(row.running_balance),
+                cost_centre_id=row.cost_centre_id,
+                cost_centre_code=row.cost_centre_code,
+                cost_centre_name=row.cost_centre_name,
+                party_type=PartyType(row.party_type),
+                party_id=row.party_id,
+                party_code=row.party_code,
+                party_name=row.party_name,
+                is_reversal=row.is_reversal,
+            )
+            for row in rows
+        ],
+        pagination=CursorPagination(limit=params.limit, next_cursor=next_cursor, has_next=has_next),
+    )
+
+
+def _financial_year_start(as_of: date, start_month: int) -> date:
+    """First day of the accounting year containing ``as_of``.
+
+    The month is the company's configured ``financial_year_start_month``. A
+    March date in a company whose year opens in April belongs to the year that
+    opened the previous April - not to the March eleven months later.
+    """
+    year = as_of.year if as_of.month >= start_month else as_of.year - 1
+    return date(year, start_month, 1)
+
+
+async def trial_balance(
+    session: AsyncSession, tenant: TenantContext, *, as_of: date
+) -> TrialBalance:
+    """Every account's opening, period movement and closing for the year to date.
+
+    Period start is the active ``financial_years`` row containing ``as_of``, or
+    the company's configured start month when no year has been opened. The
+    period ends at ``as_of`` - a trial balance cannot include postings that have
+    not happened yet.
+
+    The figures are grouped by account type and each group carries its own
+    subtotal. ``balanced`` is the arithmetic the report exists to prove: the
+    closing debit balances equal the closing credit balances.
+    """
+    year = await FinancialYearRepository(session, tenant).containing(as_of)
+    if year is not None:
+        period_start = year.start_date
+    else:
+        start_month = await ReportingCurrencyRepository(
+            session, tenant
+        ).financial_year_start_month()
+        period_start = _financial_year_start(as_of, start_month)
+
+    rows = list(
+        (
+            await session.execute(
+                LedgerEntryRepository(session, tenant).trial_balance_stmt(
+                    period_start=period_start, period_end=as_of
+                )
+            )
+        ).all()
+    )
+
+    grouped: dict[LedgerAccountType, list[TrialBalanceRow]] = {
+        account_type: [] for account_type in LedgerAccountType
+    }
+    exact_closing: list[Decimal] = []
+    total_opening = ZERO
+    total_period_debit = ZERO
+    total_period_credit = ZERO
+
+    for row in rows:
+        opening = Decimal(row.opening_balance or 0)
+        debit = Decimal(row.period_debit or 0)
+        credit = Decimal(row.period_credit or 0)
+        closing = opening + debit - credit
+        total_opening += opening
+        total_period_debit += debit
+        total_period_credit += credit
+        exact_closing.append(closing)
+        grouped[LedgerAccountType(row.account_type)].append(
+            TrialBalanceRow(
+                account_id=row.account_id,
+                account_code=row.account_code,
+                account_name=row.account_name,
+                account_type=LedgerAccountType(row.account_type),
+                opening_balance=to_money(opening),
+                period_debit=to_money(debit),
+                period_credit=to_money(credit),
+                closing_balance=to_money(closing),
+            )
+        )
+
+    closing_debits = sum((value for value in exact_closing if value > 0), ZERO)
+    closing_credits = -sum((value for value in exact_closing if value < 0), ZERO)
+
+    groups: list[TrialBalanceGroup] = []
+    for account_type, account_rows in grouped.items():
+        if not account_rows:
+            continue
+        groups.append(
+            TrialBalanceGroup(
+                account_type=account_type,
+                rows=account_rows,
+                opening_balance=to_money(sum((row.opening_balance for row in account_rows), ZERO)),
+                period_debit=to_money(sum((row.period_debit for row in account_rows), ZERO)),
+                period_credit=to_money(sum((row.period_credit for row in account_rows), ZERO)),
+                closing_balance=to_money(sum((row.closing_balance for row in account_rows), ZERO)),
+            )
+        )
+
+    return TrialBalance(
+        as_of=as_of,
+        period_start=period_start,
+        period_end=as_of,
+        groups=groups,
+        total_opening_balance=to_money(total_opening),
+        total_period_debit=to_money(total_period_debit),
+        total_period_credit=to_money(total_period_credit),
+        total_debit_balance=to_money(closing_debits),
+        total_credit_balance=to_money(closing_credits),
+        balanced=closing_debits == closing_credits,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -5214,6 +5421,100 @@ async def queue_inventory_valuation(
     return str(job.id)
 
 
+def trial_balance_export_parameters(as_of: date) -> dict[str, Any]:
+    """What a trial-balance workbook is a report *of*.
+
+    ``task`` is part of the stored parameters so this job can never collide with
+    a catalogue report's hash, and the worker can refuse a row it does not own.
+    """
+    return {
+        "report_key": str(ReportKey.TRIAL_BALANCE),
+        "task": TRIAL_BALANCE_TASK_NAME,
+        "as_of": as_of.isoformat(),
+    }
+
+
+def gstr1_export_parameters(date_from: date, date_to: date) -> dict[str, Any]:
+    """What a GSTR-1 workbook covers."""
+    return {
+        "report_key": str(ReportKey.GSTR1),
+        "task": GSTR1_TASK_NAME,
+        "period": {"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
+    }
+
+
+async def _queue_document_export(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    report_key: ReportKey,
+    parameters: dict[str, Any],
+    task_name: str,
+    summary: str,
+    subject: str,
+) -> str:
+    """Create one document-only job row and hand it to Celery.
+
+    A document artefact is never reused from an earlier job: a trial balance is
+    a position at a date and a GSTR-1 is a filing snapshot, so the same question
+    asked after a posting has a different answer even though the parameters are
+    identical. This mirrors the valuation export rather than the catalogue
+    runner's reuse.
+    """
+    snapshots = ReportSnapshotRepository(session, tenant)
+    async with transaction(session):
+        job = reports_service.new_job_snapshot(report_key, parameters, now=utcnow())
+        snapshots.add(job)
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.JOB_STARTED,
+            entity_type=report_key.value.lower(),
+            entity_id=job.id,
+            summary=summary,
+            user_id=tenant.user_id,
+            context={"task": task_name, "job_id": str(job.id)},
+        )
+
+    await reports_service.dispatch_job(
+        session, tenant, job, task_name=task_name, queue=VALUATION_QUEUE, subject=subject
+    )
+    return str(job.id)
+
+
+async def queue_trial_balance_export(
+    session: AsyncSession, tenant: TenantContext, *, as_of: date
+) -> str:
+    """Queue the trial balance at ``as_of`` as a workbook and return the job id."""
+    return await _queue_document_export(
+        session,
+        tenant,
+        report_key=ReportKey.TRIAL_BALANCE,
+        parameters=trial_balance_export_parameters(as_of),
+        task_name=TRIAL_BALANCE_TASK_NAME,
+        summary=f"Queued the trial balance at {as_of.isoformat()}",
+        subject="The trial balance",
+    )
+
+
+async def queue_gstr1_export(
+    session: AsyncSession, tenant: TenantContext, *, date_from: date, date_to: date
+) -> str:
+    """Queue the GSTR-1 workbook for a return period and return the job id."""
+    if date_to < date_from:
+        raise ValidationError(date_before("period end", "period start"))
+    return await _queue_document_export(
+        session,
+        tenant,
+        report_key=ReportKey.GSTR1,
+        parameters=gstr1_export_parameters(date_from, date_to),
+        task_name=GSTR1_TASK_NAME,
+        summary=(f"Queued GSTR-1 for {date_from.isoformat()} to {date_to.isoformat()}"),
+        subject="The GSTR-1 workbook",
+    )
+
+
 async def gst_summary(
     session: AsyncSession, tenant: TenantContext, *, date_from: date, date_to: date
 ) -> GstSummary:
@@ -5318,6 +5619,155 @@ def summarise_gst_rows(rows: Sequence[Any]) -> GstSection:
     )
 
 
+# -----------------------------------------------------------------------------
+# GST returns - GSTR-3B and GSTR-1
+# -----------------------------------------------------------------------------
+
+
+def _gstr3b_amounts(values: Any) -> Gstr3bAmounts:
+    """One row of tax totals, rounded once and stated with its pending bucket."""
+    return Gstr3bAmounts(
+        taxable_amount=to_money(values.taxable_amount or 0),
+        cgst_amount=to_money(values.cgst_amount or 0),
+        sgst_amount=to_money(values.sgst_amount or 0),
+        igst_amount=to_money(values.igst_amount or 0),
+        tax_amount=to_money(values.tax_amount or 0),
+        unallocated_tax_amount=to_money(values.unallocated_tax_amount or 0),
+    )
+
+
+def _gstr3b_net(documents: Gstr3bAmounts, notes: Gstr3bAmounts) -> Gstr3bAmounts:
+    """Documents less notes, head by head.
+
+    The unallocated bucket is subtracted the same way: a debit note's tax is
+    real even though its head is not recorded. The head totals and the bucket
+    therefore still add up to ``tax_amount``.
+    """
+    return Gstr3bAmounts(
+        taxable_amount=to_money(documents.taxable_amount - notes.taxable_amount),
+        cgst_amount=to_money(documents.cgst_amount - notes.cgst_amount),
+        sgst_amount=to_money(documents.sgst_amount - notes.sgst_amount),
+        igst_amount=to_money(documents.igst_amount - notes.igst_amount),
+        tax_amount=to_money(documents.tax_amount - notes.tax_amount),
+        unallocated_tax_amount=to_money(
+            documents.unallocated_tax_amount - notes.unallocated_tax_amount
+        ),
+    )
+
+
+async def gstr3b_summary(
+    session: AsyncSession, tenant: TenantContext, *, date_from: date, date_to: date
+) -> Gstr3b:
+    """The GSTR-3B summary for one return period.
+
+    Outward supplies are issued invoices less issued credit notes. Input tax
+    credit is accepted vendor and job-work invoices less posted debit notes.
+    Everything is read by document date, from posted documents only; a draft is
+    not a supply and a cancelled document is not one either.
+
+    A purchase return stores one ``tax_amount`` and no CGST/SGST/IGST split, so
+    its tax is reported in ``unallocated_tax_amount`` rather than apportioned
+    across heads on a guess.
+    """
+    if date_to < date_from:
+        raise ValidationError(date_before("period end", "period start"))
+
+    repo = GstRepository(session, tenant)
+
+    async def read(stmt: Any) -> Gstr3bAmounts:
+        return _gstr3b_amounts((await session.execute(stmt)).one())
+
+    outward_documents = await read(
+        repo.gstr3b_outward_documents_stmt(date_from=date_from, date_to=date_to)
+    )
+    outward_notes = await read(repo.gstr3b_outward_notes_stmt(date_from=date_from, date_to=date_to))
+    itc_documents = await read(repo.gstr3b_itc_documents_stmt(date_from=date_from, date_to=date_to))
+    itc_notes = await read(repo.gstr3b_itc_notes_stmt(date_from=date_from, date_to=date_to))
+
+    outward_net = _gstr3b_net(outward_documents, outward_notes)
+    itc_net = _gstr3b_net(itc_documents, itc_notes)
+
+    return Gstr3b(
+        date_from=date_from,
+        date_to=date_to,
+        outward=Gstr3bSide(documents=outward_documents, notes=outward_notes, net=outward_net),
+        itc=Gstr3bSide(documents=itc_documents, notes=itc_notes, net=itc_net),
+        net_cgst=to_money(outward_net.cgst_amount - itc_net.cgst_amount),
+        net_sgst=to_money(outward_net.sgst_amount - itc_net.sgst_amount),
+        net_igst=to_money(outward_net.igst_amount - itc_net.igst_amount),
+        net_tax_payable=to_money(outward_net.tax_amount - itc_net.tax_amount),
+        unallocated_tax_amount=to_money(
+            outward_net.unallocated_tax_amount - itc_net.unallocated_tax_amount
+        ),
+    )
+
+
+async def _gstr1_section(session: AsyncSession, stmt: Any, section: str) -> list[Any]:
+    """Read one GSTR-1 section whole, refusing rather than truncating it."""
+    rows = list((await session.execute(stmt.limit(MAX_GSTR1_ROWS + 1))).all())
+    if len(rows) > MAX_GSTR1_ROWS:
+        raise BusinessRuleError(
+            f"The {section} section of this GSTR-1 spans more than {MAX_GSTR1_ROWS:,} rows, "
+            "which is more than one return can carry without truncating it. Narrow the "
+            "period and run it again.",
+            details={"section": section, "maximum_rows": MAX_GSTR1_ROWS},
+        )
+    return rows
+
+
+async def gstr1_return(
+    session: AsyncSession, tenant: TenantContext, *, date_from: date, date_to: date
+) -> Gstr1Return:
+    """Every GSTR-1 section for one return period, from posted documents only.
+
+    Invoices are non-cancelled sales invoices by invoice date. Credit notes are
+    issued notes by note date and subtract from the HSN summary. B2C large is
+    the inter-state, unregistered invoice above the named threshold; B2C small
+    is every other unregistered supply, summarised by place of supply and rate.
+    """
+    if date_to < date_from:
+        raise ValidationError(date_before("period end", "period start"))
+
+    repo = GstRepository(session, tenant)
+    threshold = GSTR1_B2C_LARGE_THRESHOLD
+
+    b2b = await _gstr1_section(
+        session, repo.gstr1_b2b_rows_stmt(date_from=date_from, date_to=date_to), "B2B"
+    )
+    b2c_large = await _gstr1_section(
+        session,
+        repo.gstr1_b2c_large_rows_stmt(date_from=date_from, date_to=date_to, threshold=threshold),
+        "B2C large",
+    )
+    b2c_small = await _gstr1_section(
+        session,
+        repo.gstr1_b2c_small_rows_stmt(date_from=date_from, date_to=date_to, threshold=threshold),
+        "B2C small",
+    )
+    cdnr = await _gstr1_section(
+        session, repo.gstr1_cdnr_rows_stmt(date_from=date_from, date_to=date_to), "CDNR"
+    )
+    hsn = await _gstr1_section(
+        session, repo.gstr1_hsn_rows_stmt(date_from=date_from, date_to=date_to), "HSN"
+    )
+    documents = await _gstr1_section(
+        session,
+        repo.gstr1_document_series_stmt(date_from=date_from, date_to=date_to),
+        "document summary",
+    )
+
+    return Gstr1Return(
+        date_from=date_from,
+        date_to=date_to,
+        b2b=[Gstr1InvoiceRow.model_validate(dict(row._mapping)) for row in b2b],
+        b2c_large=[Gstr1InvoiceRow.model_validate(dict(row._mapping)) for row in b2c_large],
+        b2c_small=[Gstr1B2cSmallRow.model_validate(dict(row._mapping)) for row in b2c_small],
+        cdnr=[Gstr1CdnrRow.model_validate(dict(row._mapping)) for row in cdnr],
+        hsn=[Gstr1HsnRow.model_validate(dict(row._mapping)) for row in hsn],
+        documents=[Gstr1DocumentSeriesRow.model_validate(dict(row._mapping)) for row in documents],
+    )
+
+
 __all__ = [
     "AUDIT_CUSTOMER_ADJUSTMENT",
     "AUDIT_JOURNAL",
@@ -5326,9 +5776,11 @@ __all__ = [
     "AUDIT_VENDOR_INVOICE",
     "CUSTOMER_ADJUSTMENT_LABELS",
     "DEFAULT_CHART",
+    "GSTR1_TASK_NAME",
     "MAX_AGEING_PARTIES",
     "MAX_AGEING_ROW_CURRENCIES",
     "MAX_CODE_PICKER_STEPS",
+    "MAX_GSTR1_ROWS",
     "MAX_GST_ROWS",
     "NOT_DUE_LABEL",
     "PAYMENT_LIFECYCLE",
@@ -5337,6 +5789,7 @@ __all__ = [
     "REFERENCE_PAYMENT",
     "REFERENCE_PURCHASE_RETURN",
     "REFERENCE_VENDOR_INVOICE",
+    "TRIAL_BALANCE_TASK_NAME",
     "VALUATION_QUEUE",
     "VALUATION_TASK_NAME",
     "VENDOR_INVOICE_LIFECYCLE",
@@ -5348,6 +5801,7 @@ __all__ = [
     "MatchLineInput",
     "MatchVarianceError",
     "UnbalancedJournalError",
+    "account_statement",
     "ageing_bucket",
     "ageing_report",
     "allocate_payment",
@@ -5374,6 +5828,9 @@ __all__ = [
     "get_invoice_detail",
     "get_payment_detail",
     "gst_summary",
+    "gstr1_export_parameters",
+    "gstr1_return",
+    "gstr3b_summary",
     "inventory_valuation",
     "invoice_detail",
     "invoice_status_after_payment",
@@ -5395,7 +5852,9 @@ __all__ = [
     "post_purchase_return_debit_note",
     "price_invoice_line",
     "primary_report_currency",
+    "queue_gstr1_export",
     "queue_inventory_valuation",
+    "queue_trial_balance_export",
     "reporting_currency",
     "resolve_dispute",
     "reverse_journal",
@@ -5403,6 +5862,8 @@ __all__ = [
     "statement_direction",
     "submit_invoice",
     "summarise_gst_rows",
+    "trial_balance",
+    "trial_balance_export_parameters",
     "update_account",
     "update_invoice",
     "update_payment",

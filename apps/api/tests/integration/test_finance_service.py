@@ -40,7 +40,7 @@ from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
 from src.core.models import Base
-from src.core.pagination import PageParams
+from src.core.pagination import DateCursorParams, PageParams
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.customers.models import Customer, CustomerType
@@ -1272,6 +1272,95 @@ class TestLedger:
         assert statement.rows[0].running_balance == Decimal("2000.00")
         assert statement.closing_balance == Decimal("2000.00")
 
+    async def test_account_statement_keeps_its_opening_and_running_balance_across_pages(
+        self, ctx
+    ) -> None:
+        session, tenant, _ = ctx
+        accounts = await service.ensure_system_accounts(session, tenant)
+        bank = accounts[str(SystemAccount.BANK)]
+        cash = accounts[str(SystemAccount.CASH)]
+        revenue = accounts[str(SystemAccount.SALES_REVENUE)]
+
+        for entry_date, amount, counter_account in (
+            (date(2026, 4, 1), "100", cash),
+            (date(2026, 4, 2), "50", revenue),
+            (date(2026, 4, 3), "25", revenue),
+        ):
+            await service.post_journal(
+                session,
+                tenant,
+                [
+                    service.JournalLine(account_id=bank.id, debit=Decimal(amount)),
+                    service.JournalLine(account_id=counter_account.id, credit=Decimal(amount)),
+                ],
+                entry_date=entry_date,
+                reference_type="test",
+            )
+
+        filters = StatementFilters(date_from=date(2026, 4, 2), date_to=date(2026, 4, 3))
+        first = await service.account_statement(
+            session,
+            tenant,
+            account_id=bank.id,
+            filters=filters,
+            params=DateCursorParams(limit=1),
+        )
+        second = await service.account_statement(
+            session,
+            tenant,
+            account_id=bank.id,
+            filters=filters,
+            params=DateCursorParams(limit=1, cursor=first.pagination.next_cursor),
+        )
+
+        assert first.opening_balance == Decimal("100.00")
+        assert first.rows[0].running_balance == Decimal("150.00")
+        assert first.pagination.has_next
+        assert second.rows[0].running_balance == Decimal("175.00")
+        assert not second.pagination.has_next
+        assert second.closing_balance == Decimal("175.00")
+        assert second.total_debit == Decimal("75.00")
+
+    async def test_trial_balance_includes_opening_and_period_movements(self, ctx) -> None:
+        session, tenant, _ = ctx
+        accounts = await service.ensure_system_accounts(session, tenant)
+        bank = accounts[str(SystemAccount.BANK)]
+        cash = accounts[str(SystemAccount.CASH)]
+        revenue = accounts[str(SystemAccount.SALES_REVENUE)]
+
+        await service.post_journal(
+            session,
+            tenant,
+            [
+                service.JournalLine(account_id=bank.id, debit=Decimal("100")),
+                service.JournalLine(account_id=cash.id, credit=Decimal("100")),
+            ],
+            entry_date=date(2026, 3, 31),
+            reference_type="test",
+        )
+        await service.post_journal(
+            session,
+            tenant,
+            [
+                service.JournalLine(account_id=bank.id, debit=Decimal("30")),
+                service.JournalLine(account_id=revenue.id, credit=Decimal("30")),
+            ],
+            entry_date=date(2026, 4, 15),
+            reference_type="test",
+        )
+
+        report = await service.trial_balance(session, tenant, as_of=date(2026, 4, 30))
+        rows = {row.account_id: row for group in report.groups for row in group.rows}
+
+        assert report.period_start == date(2026, 4, 1)
+        assert rows[bank.id].opening_balance == Decimal("100.00")
+        assert rows[bank.id].period_debit == Decimal("30.00")
+        assert rows[bank.id].closing_balance == Decimal("130.00")
+        assert report.total_period_debit == Decimal("30.00")
+        assert report.total_period_credit == Decimal("30.00")
+        assert report.total_debit_balance == report.total_credit_balance == Decimal("130.00")
+        assert report.balanced
+
 
 class TestReports:
     async def test_ageing_buckets_a_debt_by_how_late_it_is(self, ctx) -> None:
@@ -1355,6 +1444,21 @@ class TestReports:
         )
 
         assert summary.input.total_tax == Decimal("0.00")
+
+    async def test_gstr3b_reads_input_tax_splits_from_approved_invoice_lines(self, ctx) -> None:
+        session, tenant, principal = ctx
+        fixture = await seed(session, tenant.company_id)
+        await approved_invoice(session, tenant, principal, fixture)
+
+        report = await service.gstr3b_summary(
+            session, tenant, date_from=date(2026, 4, 1), date_to=date(2026, 4, 30)
+        )
+
+        assert report.itc.documents.taxable_amount == Decimal("2500.00")
+        assert report.itc.documents.cgst_amount == Decimal("225.00")
+        assert report.itc.documents.sgst_amount == Decimal("225.00")
+        assert report.itc.documents.igst_amount == Decimal("0.00")
+        assert report.itc.documents.tax_amount == Decimal("450.00")
 
 
 class TestReceivableAgeing:

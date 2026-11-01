@@ -27,11 +27,11 @@ import { describeError } from '@/lib/messages'
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { differenceInCalendarDays, subDays } from 'date-fns'
 import Decimal from 'decimal.js'
-import { ArrowLeft, FileBarChart, Play } from 'lucide-react'
+import { ArrowLeft, FileBarChart, FileSpreadsheet, FileText, Play } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router-dom'
@@ -448,6 +448,27 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     setDismissed(false)
   }, [accepted, start])
 
+  /**
+   * Exports are jobs at *any* size, not only above the inline row limit.
+   *
+   * They use the parameters of the run on screen (`applied`, which is read back
+   * from the URL) rather than the form's unsaved values: a file must answer the
+   * same question as the table beside it. The endpoint always accepts with 202,
+   * so there is no inline/file decision to make here - it queues, and the same
+   * job strip that shows an automatic overflow shows this.
+   */
+  const canExport = can(P.REPORT_EXPORT)
+  const queueExport = useMutation({
+    mutationFn: (format: 'xlsx' | 'pdf') =>
+      api.post<AcceptedJobData>('/reports/export', undefined, {
+        params: { report_key: definition.key, ...applied, format },
+      }),
+    onSuccess: (jobAccepted) => {
+      setDismissed(false)
+      start(jobAccepted)
+    },
+  })
+
   const dismiss = () => {
     setDismissed(true)
     job.reset()
@@ -571,11 +592,41 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
                 <Play />
                 Run report
               </Button>
+              {canExport && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!hasRun}
+                    loading={queueExport.isPending && queueExport.variables === 'xlsx'}
+                    onClick={() => queueExport.mutate('xlsx')}
+                  >
+                    <FileSpreadsheet />
+                    Export XLSX
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!hasRun}
+                    loading={queueExport.isPending && queueExport.variables === 'pdf'}
+                    onClick={() => queueExport.mutate('pdf')}
+                  >
+                    <FileText />
+                    Export PDF
+                  </Button>
+                </>
+              )}
               <span className="text-2xs text-muted-foreground">
-                A result too large to answer inline is generated as a file instead - the download
-                appears below when it is ready.
+                A result too large to answer inline is generated as a file instead, and an export
+                can be asked for at any size. Either way the download appears below when it is
+                ready.
               </span>
             </div>
+            {canExport && !hasRun && (
+              <p className="text-2xs text-muted-foreground">
+                Run the report first: an export uses the parameters of the run on screen.
+              </p>
+            )}
           </form>
         </CardContent>
       </Card>

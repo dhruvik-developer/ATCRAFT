@@ -85,7 +85,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, case, func, literal, select, union_all
+from sqlalchemy import Select, and_, case, func, literal, select, tuple_, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 
@@ -119,6 +119,7 @@ from src.modules.finance.models import (
     PaymentStatus,
     SalesInvoice,
     SalesInvoiceLine,
+    SalesInvoiceStatus,
     SystemAccount,
     VendorInvoice,
     VendorInvoiceLine,
@@ -131,12 +132,14 @@ from src.modules.finance.schemas import (
 )
 from src.modules.inventory.models import CostLayerPool, InventoryBalance, InventoryCostLayer
 from src.modules.job_work.models import JobWorkOrder, JobWorkReceipt, JobWorkReceiptLine
-from src.modules.organization.models import Company, FinancialYear
+from src.modules.organization.models import Company, CostCentre, FinancialYear
 from src.modules.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
     PurchaseOrder,
     PurchaseOrderLine,
+    PurchaseReturn,
+    PurchaseReturnStatus,
 )
 from src.modules.products.models import Item, UnitOfMeasure
 from src.modules.sales.models import SalesOrderLine
@@ -592,6 +595,253 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
             total_debit=debit,
             total_credit=credit,
             closing_balance=opening + movement,
+        )
+
+    # -- General-ledger account statement ------------------------------------
+
+    def _account_scope(self, account_id: uuid.UUID) -> list[Any]:
+        return [
+            LedgerEntry.company_id == self.tenant.company_id,
+            LedgerEntry.account_id == account_id,
+        ]
+
+    async def account_facts(self, account_id: uuid.UUID) -> Any | None:
+        """The account's code, name and type, or ``None`` when it is not ours."""
+        stmt = (
+            select(
+                LedgerAccount.id,
+                LedgerAccount.code,
+                LedgerAccount.name,
+                LedgerAccount.account_type,
+            )
+            .where(
+                LedgerAccount.company_id == self.tenant.company_id,
+                LedgerAccount.deleted_at.is_(None),
+                LedgerAccount.id == account_id,
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first()
+
+    def account_statement_stmt(
+        self,
+        *,
+        account_id: uuid.UUID,
+        date_from: date | None,
+        date_to: date,
+        after: tuple[date, uuid.UUID] | None = None,
+    ) -> Select[Any]:
+        """One account's postings, each with its debit-positive running balance.
+
+        The window function is computed *inside* a subquery and the keyset
+        predicate is applied outside it. Putting the cursor in the inner WHERE
+        would drop every row before the page and restart the running total at
+        the page boundary - the bug this shape exists to prevent. ``ROWS``
+        rather than the default ``RANGE`` keeps several same-day postings in
+        posting order.
+        """
+        opening = (
+            select(
+                func.coalesce(func.sum(LedgerEntry.debit_amount - LedgerEntry.credit_amount), ZERO)
+            )
+            .where(*self._account_scope(account_id), LedgerEntry.entry_date < date_from)
+            .scalar_subquery()
+            if date_from is not None
+            else literal(ZERO)
+        )
+        movement = LedgerEntry.debit_amount - LedgerEntry.credit_amount
+        running = opening + func.sum(movement).over(
+            order_by=(LedgerEntry.entry_date, LedgerEntry.id), rows=(None, 0)
+        )
+
+        inner_filters = [*self._account_scope(account_id), LedgerEntry.entry_date <= date_to]
+        if date_from is not None:
+            inner_filters.append(LedgerEntry.entry_date >= date_from)
+
+        inner = (
+            select(
+                LedgerEntry.id.label("entry_id"),
+                LedgerEntry.journal_id.label("journal_id"),
+                LedgerEntry.entry_date.label("entry_date"),
+                LedgerEntry.reference_type.label("reference_type"),
+                LedgerEntry.reference_code.label("reference_code"),
+                LedgerEntry.narration.label("narration"),
+                LedgerEntry.debit_amount.label("debit_amount"),
+                LedgerEntry.credit_amount.label("credit_amount"),
+                running.label("running_balance"),
+                LedgerEntry.cost_centre_id.label("cost_centre_id"),
+                LedgerEntry.party_type.label("party_type"),
+                LedgerEntry.party_id.label("party_id"),
+                LedgerEntry.is_reversal.label("is_reversal"),
+            )
+            .where(*inner_filters)
+            .subquery("account_statement_rows")
+        )
+        cost_centre = aliased(CostCentre)
+        customer = aliased(Customer)
+        vendor = aliased(Vendor)
+        stmt = (
+            select(
+                inner.c.entry_id,
+                inner.c.journal_id,
+                inner.c.entry_date,
+                inner.c.reference_type,
+                inner.c.reference_code,
+                inner.c.narration,
+                inner.c.debit_amount,
+                inner.c.credit_amount,
+                inner.c.running_balance,
+                inner.c.cost_centre_id,
+                cost_centre.code.label("cost_centre_code"),
+                cost_centre.name.label("cost_centre_name"),
+                inner.c.party_type,
+                inner.c.party_id,
+                func.coalesce(customer.code, vendor.code).label("party_code"),
+                func.coalesce(customer.name, vendor.name).label("party_name"),
+                inner.c.is_reversal,
+            )
+            .select_from(inner)
+            .outerjoin(
+                cost_centre,
+                and_(
+                    cost_centre.id == inner.c.cost_centre_id,
+                    cost_centre.company_id == self.tenant.company_id,
+                ),
+            )
+            .outerjoin(
+                customer,
+                and_(
+                    customer.id == inner.c.party_id,
+                    customer.company_id == self.tenant.company_id,
+                    inner.c.party_type == PartyType.CUSTOMER,
+                ),
+            )
+            .outerjoin(
+                vendor,
+                and_(
+                    vendor.id == inner.c.party_id,
+                    vendor.company_id == self.tenant.company_id,
+                    inner.c.party_type == PartyType.VENDOR,
+                ),
+            )
+            .order_by(inner.c.entry_date.asc(), inner.c.entry_id.asc())
+        )
+        if after is not None:
+            stmt = stmt.where(tuple_(inner.c.entry_date, inner.c.entry_id) > after)
+        return stmt
+
+    async def account_statement_totals(
+        self, *, account_id: uuid.UUID, date_from: date | None, date_to: date
+    ) -> StatementTotals:
+        """Opening, period movement and closing for one account."""
+        window = [LedgerEntry.entry_date <= date_to]
+        if date_from is not None:
+            window.append(LedgerEntry.entry_date >= date_from)
+        in_window = and_(*window)
+        opening_expr = (
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            LedgerEntry.entry_date < date_from,
+                            LedgerEntry.debit_amount - LedgerEntry.credit_amount,
+                        ),
+                        else_=ZERO,
+                    )
+                ),
+                ZERO,
+            )
+            if date_from is not None
+            else literal(ZERO)
+        )
+        stmt = select(
+            opening_expr.label("opening"),
+            func.coalesce(
+                func.sum(case((in_window, LedgerEntry.debit_amount), else_=ZERO)), ZERO
+            ).label("debit"),
+            func.coalesce(
+                func.sum(case((in_window, LedgerEntry.credit_amount), else_=ZERO)), ZERO
+            ).label("credit"),
+        ).where(*self._account_scope(account_id), LedgerEntry.entry_date <= date_to)
+        row = (await self.session.execute(stmt)).one()
+        opening = Decimal(row.opening or 0)
+        debit = Decimal(row.debit or 0)
+        credit = Decimal(row.credit or 0)
+        return StatementTotals(
+            opening_balance=opening,
+            total_debit=debit,
+            total_credit=credit,
+            closing_balance=opening + debit - credit,
+        )
+
+    def trial_balance_stmt(self, *, period_start: date, period_end: date) -> Select[Any]:
+        """Every account with its opening and period movement, in one scan.
+
+        Starts from the chart and left-joins the movement aggregate, so an
+        account with no postings still appears at zero rather than vanishing
+        from a balance sheet that is supposed to reconcile.
+        """
+        movement = (
+            select(
+                LedgerEntry.account_id.label("account_id"),
+                func.sum(
+                    case(
+                        (
+                            LedgerEntry.entry_date < period_start,
+                            LedgerEntry.debit_amount - LedgerEntry.credit_amount,
+                        ),
+                        else_=ZERO,
+                    )
+                ).label("opening_balance"),
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                LedgerEntry.entry_date >= period_start,
+                                LedgerEntry.entry_date <= period_end,
+                            ),
+                            LedgerEntry.debit_amount,
+                        ),
+                        else_=ZERO,
+                    )
+                ).label("period_debit"),
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                LedgerEntry.entry_date >= period_start,
+                                LedgerEntry.entry_date <= period_end,
+                            ),
+                            LedgerEntry.credit_amount,
+                        ),
+                        else_=ZERO,
+                    )
+                ).label("period_credit"),
+            )
+            .where(
+                LedgerEntry.company_id == self.tenant.company_id,
+                LedgerEntry.entry_date <= period_end,
+            )
+            .group_by(LedgerEntry.account_id)
+            .subquery("trial_balance_movement")
+        )
+        return (
+            select(
+                LedgerAccount.id.label("account_id"),
+                LedgerAccount.code.label("account_code"),
+                LedgerAccount.name.label("account_name"),
+                LedgerAccount.account_type.label("account_type"),
+                func.coalesce(movement.c.opening_balance, ZERO).label("opening_balance"),
+                func.coalesce(movement.c.period_debit, ZERO).label("period_debit"),
+                func.coalesce(movement.c.period_credit, ZERO).label("period_credit"),
+            )
+            .select_from(LedgerAccount)
+            .outerjoin(movement, movement.c.account_id == LedgerAccount.id)
+            .where(
+                LedgerAccount.company_id == self.tenant.company_id,
+                LedgerAccount.deleted_at.is_(None),
+            )
+            .order_by(LedgerAccount.account_type.asc(), LedgerAccount.code.asc())
         )
 
     async def journal_lines(self, journal_id: uuid.UUID) -> list[LedgerEntry]:
@@ -1785,6 +2035,20 @@ class ReportingCurrencyRepository(BaseRepository[Company]):
         # silently.
         return str(found) if found else DEFAULT_CURRENCY
 
+    async def financial_year_start_month(self) -> int:
+        """The month the company's accounting year opens in.
+
+        Used only when no ``financial_years`` row covers the reporting date -
+        the schema lets a company run before an administrator has opened a
+        named year, and a trial balance that refused to run in that window
+        would be least useful exactly when the books are youngest.
+        """
+        stmt = select(Company.financial_year_start_month).where(
+            Company.id == self.tenant.company_id
+        )
+        found = (await self.session.execute(stmt.limit(1))).scalar_one_or_none()
+        return int(found) if found is not None else 4
+
 
 # -----------------------------------------------------------------------------
 # Reports
@@ -2106,6 +2370,418 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
             )
             .group_by(VendorInvoiceLine.hsn_code, VendorInvoiceLine.tax_rate)
             .order_by(VendorInvoiceLine.tax_rate.asc(), VendorInvoiceLine.hsn_code.asc())
+        )
+
+    # --- GSTR-1 sections -----------------------------------------------------
+
+    def _gstr1_invoice_rows(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+        registered: bool,
+        b2c_large_threshold: Decimal | None = None,
+    ) -> Select[Any]:
+        """Invoice-wise rows for B2B or B2C large, one per rate line.
+
+        B2C large is the inter-state supply to an unregistered buyer whose
+        *invoice* value exceeds the threshold; the comparison is against the
+        header total, which is what the rule names, not the rate-line taxable
+        value. B2C small takes the complement.
+        """
+        stmt = (
+            select(
+                SalesInvoice.code.label("invoice_number"),
+                SalesInvoice.invoice_date.label("invoice_date"),
+                SalesInvoice.buyer_gstin.label("buyer_gstin"),
+                SalesInvoice.buyer_name.label("buyer_name"),
+                SalesInvoice.place_of_supply_state_code.label("place_of_supply_state_code"),
+                SalesInvoice.total_amount.label("invoice_value"),
+                SalesInvoiceLine.tax_rate.label("rate"),
+                func.sum(SalesInvoiceLine.taxable_amount).label("taxable_amount"),
+                func.sum(SalesInvoiceLine.cgst_amount).label("cgst_amount"),
+                func.sum(SalesInvoiceLine.sgst_amount).label("sgst_amount"),
+                func.sum(SalesInvoiceLine.igst_amount).label("igst_amount"),
+            )
+            .select_from(SalesInvoice)
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.sales_invoice_id == SalesInvoice.id,
+                    SalesInvoiceLine.company_id == SalesInvoice.company_id,
+                ),
+            )
+            .where(
+                SalesInvoice.company_id == self.tenant.company_id,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+        )
+        if registered:
+            stmt = stmt.where(SalesInvoice.buyer_gstin.is_not(None))
+        else:
+            stmt = stmt.where(SalesInvoice.buyer_gstin.is_(None))
+            if b2c_large_threshold is not None:
+                stmt = stmt.where(
+                    SalesInvoice.is_interstate.is_(True),
+                    SalesInvoice.total_amount > b2c_large_threshold,
+                )
+        return stmt.group_by(
+            SalesInvoice.id,
+            SalesInvoice.code,
+            SalesInvoice.invoice_date,
+            SalesInvoice.buyer_gstin,
+            SalesInvoice.buyer_name,
+            SalesInvoice.place_of_supply_state_code,
+            SalesInvoice.total_amount,
+            SalesInvoiceLine.tax_rate,
+        ).order_by(
+            SalesInvoice.invoice_date.asc(),
+            SalesInvoice.code.asc(),
+            SalesInvoiceLine.tax_rate.asc(),
+        )
+
+    def gstr1_b2b_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        return self._gstr1_invoice_rows(date_from=date_from, date_to=date_to, registered=True)
+
+    def gstr1_b2c_large_rows_stmt(
+        self, *, date_from: date, date_to: date, threshold: Decimal
+    ) -> Select[Any]:
+        return self._gstr1_invoice_rows(
+            date_from=date_from,
+            date_to=date_to,
+            registered=False,
+            b2c_large_threshold=threshold,
+        )
+
+    def gstr1_b2c_small_rows_stmt(
+        self, *, date_from: date, date_to: date, threshold: Decimal
+    ) -> Select[Any]:
+        """B2C small: every unregistered supply that is not B2C large."""
+        not_large = ~(
+            (SalesInvoice.is_interstate.is_(True)) & (SalesInvoice.total_amount > threshold)
+        )
+        return (
+            select(
+                SalesInvoice.place_of_supply_state_code.label("place_of_supply_state_code"),
+                SalesInvoiceLine.tax_rate.label("rate"),
+                func.sum(SalesInvoiceLine.taxable_amount).label("taxable_amount"),
+                func.sum(SalesInvoiceLine.cgst_amount).label("cgst_amount"),
+                func.sum(SalesInvoiceLine.sgst_amount).label("sgst_amount"),
+                func.sum(SalesInvoiceLine.igst_amount).label("igst_amount"),
+                func.count(func.distinct(SalesInvoice.id)).label("invoice_count"),
+            )
+            .select_from(SalesInvoice)
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.sales_invoice_id == SalesInvoice.id,
+                    SalesInvoiceLine.company_id == SalesInvoice.company_id,
+                ),
+            )
+            .where(
+                SalesInvoice.company_id == self.tenant.company_id,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+                SalesInvoice.buyer_gstin.is_(None),
+                not_large,
+            )
+            .group_by(SalesInvoice.place_of_supply_state_code, SalesInvoiceLine.tax_rate)
+            .order_by(
+                SalesInvoice.place_of_supply_state_code.asc().nulls_last(),
+                SalesInvoiceLine.tax_rate.asc(),
+            )
+        )
+
+    def gstr1_cdnr_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        """Credit notes to registered buyers, one row per rate line."""
+        return (
+            select(
+                CreditNote.code.label("note_number"),
+                CreditNote.note_date.label("note_date"),
+                CreditNote.buyer_gstin.label("buyer_gstin"),
+                CreditNote.buyer_name.label("buyer_name"),
+                CreditNote.place_of_supply_state_code.label("place_of_supply_state_code"),
+                CreditNote.total_amount.label("note_value"),
+                CreditNoteLine.tax_rate.label("rate"),
+                func.sum(CreditNoteLine.taxable_amount).label("taxable_amount"),
+                func.sum(CreditNoteLine.cgst_amount).label("cgst_amount"),
+                func.sum(CreditNoteLine.sgst_amount).label("sgst_amount"),
+                func.sum(CreditNoteLine.igst_amount).label("igst_amount"),
+            )
+            .select_from(CreditNote)
+            .join(
+                CreditNoteLine,
+                and_(
+                    CreditNoteLine.credit_note_id == CreditNote.id,
+                    CreditNoteLine.company_id == CreditNote.company_id,
+                ),
+            )
+            .where(
+                CreditNote.company_id == self.tenant.company_id,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+                CreditNote.note_date >= date_from,
+                CreditNote.note_date <= date_to,
+                CreditNote.buyer_gstin.is_not(None),
+            )
+            .group_by(
+                CreditNote.id,
+                CreditNote.code,
+                CreditNote.note_date,
+                CreditNote.buyer_gstin,
+                CreditNote.buyer_name,
+                CreditNote.place_of_supply_state_code,
+                CreditNote.total_amount,
+                CreditNoteLine.tax_rate,
+            )
+            .order_by(
+                CreditNote.note_date.asc(),
+                CreditNote.code.asc(),
+                CreditNoteLine.tax_rate.asc(),
+            )
+        )
+
+    def gstr1_hsn_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        """HSN summary net of credit notes, with quantity where it is known.
+
+        Credit-note lines carry no UOM of their own, so the unit is read from the
+        invoice line the note reverses. A note line with no quantity contributes
+        its value but not its quantity, which is the honest answer.
+        """
+        invoice_lines = (
+            select(
+                SalesInvoiceLine.hsn_code.label("hsn_code"),
+                SalesInvoiceLine.uom_code.label("uom_code"),
+                SalesInvoiceLine.tax_rate.label("rate"),
+                SalesInvoiceLine.quantity.label("quantity"),
+                SalesInvoiceLine.taxable_amount.label("taxable_amount"),
+                SalesInvoiceLine.cgst_amount.label("cgst_amount"),
+                SalesInvoiceLine.sgst_amount.label("sgst_amount"),
+                SalesInvoiceLine.igst_amount.label("igst_amount"),
+                SalesInvoice.id.label("document_id"),
+            )
+            .select_from(SalesInvoiceLine)
+            .join(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.id == SalesInvoiceLine.sales_invoice_id,
+                    SalesInvoice.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .where(
+                SalesInvoiceLine.company_id == self.tenant.company_id,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+        )
+        note_lines = (
+            select(
+                CreditNoteLine.hsn_code.label("hsn_code"),
+                SalesInvoiceLine.uom_code.label("uom_code"),
+                CreditNoteLine.tax_rate.label("rate"),
+                (-func.coalesce(CreditNoteLine.quantity, 0)).label("quantity"),
+                (-CreditNoteLine.taxable_amount).label("taxable_amount"),
+                (-CreditNoteLine.cgst_amount).label("cgst_amount"),
+                (-CreditNoteLine.sgst_amount).label("sgst_amount"),
+                (-CreditNoteLine.igst_amount).label("igst_amount"),
+                CreditNote.id.label("document_id"),
+            )
+            .select_from(CreditNoteLine)
+            .join(
+                CreditNote,
+                and_(
+                    CreditNote.id == CreditNoteLine.credit_note_id,
+                    CreditNote.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.id == CreditNoteLine.sales_invoice_line_id,
+                    SalesInvoiceLine.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .where(
+                CreditNoteLine.company_id == self.tenant.company_id,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+                CreditNote.note_date >= date_from,
+                CreditNote.note_date <= date_to,
+            )
+        )
+        legs = union_all(invoice_lines, note_lines).subquery("gstr1_hsn_legs")
+        return (
+            select(
+                legs.c.hsn_code,
+                legs.c.uom_code,
+                legs.c.rate,
+                func.sum(legs.c.quantity).label("quantity"),
+                func.sum(legs.c.taxable_amount).label("taxable_amount"),
+                func.sum(legs.c.cgst_amount).label("cgst_amount"),
+                func.sum(legs.c.sgst_amount).label("sgst_amount"),
+                func.sum(legs.c.igst_amount).label("igst_amount"),
+                func.count(func.distinct(legs.c.document_id)).label("document_count"),
+            )
+            .select_from(legs)
+            .group_by(legs.c.hsn_code, legs.c.uom_code, legs.c.rate)
+            .order_by(legs.c.hsn_code.asc().nulls_last(), legs.c.rate.asc())
+        )
+
+    def gstr1_document_series_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        """Document series ranges for the period, invoices and credit notes.
+
+        The series is the code with its final numeric segment removed
+        (``SI/2026-27/00042`` -> ``SI/2026-27``), which is how the sequence is
+        reset each financial year. Lexicographic ``min``/``max`` are the true
+        first and last number because the numeric segment is zero-padded.
+        """
+
+        def series(column: InstrumentedAttribute[str]) -> Any:
+            return func.regexp_replace(column, r"/[^/]+$", "")
+
+        invoice_series = series(SalesInvoice.code)
+        invoices = (
+            select(
+                literal("INVOICE").label("document_type"),
+                invoice_series.label("series"),
+                func.min(SalesInvoice.code).label("from_number"),
+                func.max(SalesInvoice.code).label("to_number"),
+                func.count(SalesInvoice.id).label("total_documents"),
+                func.count(SalesInvoice.id)
+                .filter(SalesInvoice.status == SalesInvoiceStatus.CANCELLED)
+                .label("cancelled_documents"),
+            )
+            .where(
+                SalesInvoice.company_id == self.tenant.company_id,
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(invoice_series)
+        )
+        credit_note_series = series(CreditNote.code)
+        notes = (
+            select(
+                literal("CREDIT_NOTE").label("document_type"),
+                credit_note_series.label("series"),
+                func.min(CreditNote.code).label("from_number"),
+                func.max(CreditNote.code).label("to_number"),
+                func.count(CreditNote.id).label("total_documents"),
+                func.count(CreditNote.id)
+                .filter(CreditNote.status == CreditNoteStatus.CANCELLED)
+                .label("cancelled_documents"),
+            )
+            .where(
+                CreditNote.company_id == self.tenant.company_id,
+                CreditNote.note_date >= date_from,
+                CreditNote.note_date <= date_to,
+            )
+            .group_by(credit_note_series)
+        )
+        merged = union_all(invoices, notes).subquery("gstr1_document_series")
+        return select(merged).order_by(merged.c.document_type.asc(), merged.c.series.asc())
+
+    # --- GSTR-3B sections ----------------------------------------------------
+
+    @staticmethod
+    def _tax_totals(
+        taxable: Any,
+        cgst: Any,
+        sgst: Any,
+        igst: Any,
+        tax: Any,
+        *,
+        unallocated: Any | None = None,
+    ) -> tuple[Any, ...]:
+        """Zero-filled money totals, so an empty period answers zeros not NULL."""
+        return (
+            func.coalesce(func.sum(taxable), 0).label("taxable_amount"),
+            func.coalesce(func.sum(cgst), 0).label("cgst_amount"),
+            func.coalesce(func.sum(sgst), 0).label("sgst_amount"),
+            func.coalesce(func.sum(igst), 0).label("igst_amount"),
+            func.coalesce(func.sum(tax), 0).label("tax_amount"),
+            (
+                func.coalesce(func.sum(unallocated), 0) if unallocated is not None else literal(0)
+            ).label("unallocated_tax_amount"),
+        )
+
+    def gstr3b_outward_documents_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        return select(
+            *self._tax_totals(
+                SalesInvoice.taxable_amount,
+                SalesInvoice.cgst_amount,
+                SalesInvoice.sgst_amount,
+                SalesInvoice.igst_amount,
+                SalesInvoice.tax_amount,
+            )
+        ).where(
+            SalesInvoice.company_id == self.tenant.company_id,
+            SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            SalesInvoice.invoice_date >= date_from,
+            SalesInvoice.invoice_date <= date_to,
+        )
+
+    def gstr3b_outward_notes_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        return select(
+            *self._tax_totals(
+                CreditNote.taxable_amount,
+                CreditNote.cgst_amount,
+                CreditNote.sgst_amount,
+                CreditNote.igst_amount,
+                CreditNote.tax_amount,
+            )
+        ).where(
+            CreditNote.company_id == self.tenant.company_id,
+            CreditNote.status == CreditNoteStatus.ISSUED,
+            CreditNote.note_date >= date_from,
+            CreditNote.note_date <= date_to,
+        )
+
+    def gstr3b_itc_documents_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        return (
+            select(
+                *self._tax_totals(
+                    VendorInvoiceLine.taxable_amount,
+                    VendorInvoiceLine.cgst_amount,
+                    VendorInvoiceLine.sgst_amount,
+                    VendorInvoiceLine.igst_amount,
+                    VendorInvoiceLine.tax_amount,
+                )
+            )
+            .select_from(VendorInvoiceLine)
+            .join(
+                VendorInvoice,
+                and_(
+                    VendorInvoice.id == VendorInvoiceLine.vendor_invoice_id,
+                    VendorInvoice.company_id == VendorInvoiceLine.company_id,
+                ),
+            )
+            .where(
+                VendorInvoiceLine.company_id == self.tenant.company_id,
+                VendorInvoice.company_id == self.tenant.company_id,
+                VendorInvoice.status.in_(INPUT_TAX_STATUSES),
+                VendorInvoice.invoice_date >= date_from,
+                VendorInvoice.invoice_date <= date_to,
+            )
+        )
+
+    def gstr3b_itc_notes_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        """Posted debit notes. Their tax has no head, so it lands in the bucket."""
+        return select(
+            *self._tax_totals(
+                PurchaseReturn.subtotal,
+                literal(0),
+                literal(0),
+                literal(0),
+                PurchaseReturn.tax_amount,
+                unallocated=PurchaseReturn.tax_amount,
+            )
+        ).where(
+            PurchaseReturn.company_id == self.tenant.company_id,
+            PurchaseReturn.status == PurchaseReturnStatus.POSTED,
+            PurchaseReturn.return_date >= date_from,
+            PurchaseReturn.return_date <= date_to,
         )
 
 

@@ -377,3 +377,59 @@ describe('actual product profitability', () => {
     expect(screen.queryByText('Invoice and credit date basis')).not.toBeInTheDocument()
   })
 })
+
+describe('exporting a report as a file', () => {
+  const EXPORT_JOB_ID = 'jb000000-0000-7000-8000-000000000002'
+  const EXPORT_JOB_PATH = `/reports/jobs/${EXPORT_JOB_ID}`
+  const ACCEPTED_EXPORT = {
+    job_id: EXPORT_JOB_ID,
+    status: 'queued',
+    status_url: `/api/v1${EXPORT_JOB_PATH}`,
+  }
+
+  it('offers no export to an account without report.export', async () => {
+    renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW],
+      route: '/reports?report=STOCK_AVAILABILITY&run=1',
+      routes: { ...routes, [`GET ${REPORT_PATH}`]: page([]) },
+    })
+
+    expect(await screen.findByText('No rows for these parameters')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Export XLSX' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Export PDF' })).toBeNull()
+  })
+
+  it('queues the format asked for with the parameters of the run on screen', async () => {
+    const asked: URL[] = []
+    const { user } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW, P.REPORT_EXPORT],
+      route: '/reports?report=STOCK_AVAILABILITY&run=1&warehouse_id=wh-1',
+      routes: {
+        ...routes,
+        [`GET ${REPORT_PATH}`]: page([]),
+        'POST /reports/export': ({ url }) => {
+          asked.push(url)
+          return ok(ACCEPTED_EXPORT)
+        },
+        [`GET ${EXPORT_JOB_PATH}`]: ok({ ...job('COMPLETED'), id: EXPORT_JOB_ID }),
+      },
+    })
+
+    await screen.findByText('No rows for these parameters')
+    await user.click(screen.getByRole('button', { name: 'Export XLSX' }))
+
+    expect(await screen.findByText('Stock availability is ready')).toBeVisible()
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.searchParams.get('report_key')).toBe('STOCK_AVAILABILITY')
+    expect(asked[0]!.searchParams.get('format')).toBe('xlsx')
+    // A file must answer the same question as the table beside it, so the
+    // applied filter travels with the request rather than the bare report key.
+    expect(asked[0]!.searchParams.get('warehouse_id')).toBe('wh-1')
+
+    await user.click(screen.getByRole('button', { name: 'Export PDF' }))
+
+    await expect.poll(() => asked.length).toBe(2)
+    expect(asked[1]!.searchParams.get('format')).toBe('pdf')
+    expect(asked[1]!.searchParams.get('report_key')).toBe('STOCK_AVAILABILITY')
+  })
+})

@@ -123,6 +123,7 @@ export const routeLoaders = {
   '/finance/vendor-invoices': () => import('@/features/finance/vendor-invoices-page'),
   '/finance/payments': () => import('@/features/finance/payments-page'),
   '/finance/accounts': () => import('@/features/finance/accounts-page'),
+  '/finance/trial-balance': () => import('@/features/finance/trial-balance-page'),
   '/reports': () => import('@/features/reports/reports-page'),
   '/audit': () => import('@/features/audit/audit-page'),
   '/documents': () => import('@/features/documents/documents-page'),

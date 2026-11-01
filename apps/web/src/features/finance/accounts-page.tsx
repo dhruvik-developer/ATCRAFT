@@ -32,7 +32,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { ListTree, Lock, Scale, X } from 'lucide-react'
+import { BookOpen, ListTree, Lock, Scale, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
@@ -75,6 +75,7 @@ import {
   type LedgerAccountType,
   type PartyKind,
 } from './ledger-model'
+import { AccountStatementPanel } from './account-statement-panel'
 import { PartyLedgerPanel } from './party-ledger-panel'
 
 /**
@@ -151,11 +152,13 @@ function AccountDetailDialog({
   onOpenChange,
   onShowChildren,
   onOpenPartyLedger,
+  onOpenLedger,
 }: {
   account: LedgerAccount | null
   onOpenChange: (open: boolean) => void
   onShowChildren: (accountId: string) => void
   onOpenPartyLedger: (kind: PartyKind) => void
+  onOpenLedger: (accountId: string) => void
 }) {
   const { can } = useAuth()
 
@@ -270,6 +273,12 @@ function AccountDetailDialog({
 
         <DialogFooter>
           {shown && (
+            <Button variant="outline" onClick={() => onOpenLedger(shown.id)}>
+              <BookOpen />
+              Ledger
+            </Button>
+          )}
+          {shown && (
             <Button variant="outline" onClick={() => onShowChildren(shown.id)}>
               <ListTree />
               Accounts beneath this one
@@ -307,6 +316,7 @@ export default function AccountsPage() {
 
   const partyKind = toPartyKind(searchParams.get('party_kind'))
   const partyId = searchParams.get('party_id') ?? ''
+  const accountId = searchParams.get('account_id') ?? ''
 
   const list = useListQuery<LedgerAccount>({
     path: '/finance/accounts',
@@ -379,7 +389,21 @@ export default function AccountsPage() {
       setSelected(null)
       // A party chosen on the customer side is not a vendor, so the id goes
       // with the side it was picked on.
-      updateParams({ party_kind: kind, party_id: undefined })
+      updateParams({ party_kind: kind, party_id: undefined, account_id: undefined })
+    },
+    [updateParams],
+  )
+
+  const openLedger = useCallback(
+    (openedAccountId: string) => {
+      setSelected(null)
+      // The two drill-downs read different statements; opening one closes the
+      // other rather than leaving two statements below the table.
+      updateParams({
+        account_id: openedAccountId,
+        party_kind: undefined,
+        party_id: undefined,
+      })
     },
     [updateParams],
   )
@@ -612,7 +636,33 @@ export default function AccountsPage() {
         onOpenChange={(open) => !open && setSelected(null)}
         onShowChildren={showChildren}
         onOpenPartyLedger={openPartyLedger}
+        onOpenLedger={openLedger}
       />
+
+      {accountId && (
+        <section className="mt-8 space-y-4 border-t pt-6" aria-label="Account statement">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-3xl">
+              <h2 className="text-base font-semibold">Account statement</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Every posting against this one account, with the balance after each. The balance is
+                debit-positive: a negative figure is the credit side of the account. The cost centre
+                and party columns say what each posting was collected against.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => updateParams({ account_id: undefined })}
+            >
+              <X />
+              Close
+            </Button>
+          </div>
+
+          <AccountStatementPanel accountId={accountId} />
+        </section>
+      )}
 
       {partyKind && (
         <section className="mt-8 space-y-4 border-t pt-6" aria-label="Party ledger">

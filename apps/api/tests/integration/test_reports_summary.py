@@ -27,9 +27,10 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.deps import TenantContext
+from src.core.deps import Principal, TenantContext
 from src.core.errors import InvalidStateTransitionError, NotFoundError
 from src.core.pagination import PageParams
+from src.core.permissions import Permission
 from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.reports import service
@@ -358,8 +359,81 @@ async def test_stock_availability_reports_the_refreshed_position(
     assert row.warehouse_code == stock["warehouse"].code
     assert row.on_hand == Decimal("40.0000")
     assert row.available == Decimal("35.0000")
+    assert row.valuation_amount == Decimal("400.0000")
     # Reorder level is 50 and only 35 can be promised.
     assert row.below_reorder_level is True
+
+
+async def test_stock_availability_withholds_valuation_from_report_only_readers(
+    session: AsyncSession, tenant: TenantContext, company, stock
+) -> None:
+    await _balance(
+        session,
+        company_id=company.id,
+        item_id=stock["first"].id,
+        warehouse_id=stock["warehouse"].id,
+        on_hand="40",
+        stock_value="400.0000",
+    )
+    await service.refresh_inventory_summary(session, tenant, now=NOW)
+    reader = Principal(
+        user_id=tenant.user_id,
+        company_id=tenant.company_id,
+        email="reports@example.test",
+        full_name="Report reader",
+        is_superuser=False,
+        permissions=frozenset({str(Permission.REPORT_VIEW)}),
+        role_codes=("REPORT_READER",),
+    )
+
+    result = await service.run_report(
+        session,
+        tenant,
+        key=ReportKey.STOCK_AVAILABILITY,
+        period=None,
+        filters=ReportFilters(),
+        params=PageParams(page=1, limit=50),
+        may_export=True,
+        principal=reader,
+        now=NOW,
+    )
+
+    assert isinstance(result, service.InlineReport)
+    assert result.rows[0].available == Decimal("40.0000")
+    assert result.rows[0].valuation_amount is None
+
+
+async def test_report_export_captures_only_the_fields_the_requester_can_read(
+    session: AsyncSession, tenant: TenantContext, company, monkeypatch
+) -> None:
+    async def skip_dispatch(*args, **kwargs) -> str:
+        return "test-task"
+
+    monkeypatch.setattr(service, "dispatch_job", skip_dispatch)
+    reader = Principal(
+        user_id=tenant.user_id,
+        company_id=tenant.company_id,
+        email="reports@example.test",
+        full_name="Report reader",
+        is_superuser=False,
+        permissions=frozenset({str(Permission.REPORT_VIEW), str(Permission.REPORT_EXPORT)}),
+        role_codes=("REPORT_READER",),
+    )
+
+    snapshot = await service.queue_report_export(
+        session,
+        tenant,
+        key=ReportKey.STOCK_AVAILABILITY,
+        period=None,
+        filters=ReportFilters(),
+        file_format="pdf",
+        principal=reader,
+        now=NOW,
+    )
+
+    visible_fields = snapshot.parameters[service.REPORT_VISIBLE_FIELDS_PARAMETER]
+    assert "valuation_amount" not in visible_fields
+    assert snapshot.parameters[service.REPORT_FORMAT_PARAMETER] == "pdf"
 
 
 async def test_stock_summary_reports_respect_assigned_warehouses(
@@ -679,6 +753,28 @@ async def test_the_dashboard_renders_for_a_company_with_no_data_at_all(
     assert tiles.dispatches_in_transit == 0
     assert tiles.overdue_deliveries == 0
     assert tiles.stock_refreshed_at is None
+
+
+async def test_dashboard_trends_fill_thirty_days_and_only_return_permitted_series(
+    session: AsyncSession, tenant: TenantContext
+) -> None:
+    reader = Principal(
+        user_id=tenant.user_id,
+        company_id=tenant.company_id,
+        email="trend-reader@example.test",
+        full_name="Trend reader",
+        is_superuser=False,
+        permissions=frozenset({str(Permission.SALES_INVOICE_VIEW), str(Permission.DISPATCH_VIEW)}),
+        role_codes=("TREND_READER",),
+    )
+
+    trends = await service.dashboard_trends(session, tenant, reader, now=NOW)
+
+    assert trends.date_from.isoformat() == "2026-08-12"
+    assert trends.date_to.isoformat() == "2026-09-10"
+    assert [series.series for series in trends.series] == ["sales_invoiced", "dispatches"]
+    assert all(len(series.points) == 30 for series in trends.series)
+    assert all(point.value == 0 for series in trends.series for point in series.points)
 
 
 # -----------------------------------------------------------------------------

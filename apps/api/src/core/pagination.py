@@ -24,7 +24,7 @@ import binascii
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal, TypeVar
 
 from fastapi import Query
@@ -385,6 +385,33 @@ class Cursor:
             raise ValidationError("Invalid pagination cursor.") from exc
 
 
+@dataclass(frozen=True, slots=True)
+class DateCursor:
+    """Opaque position marker: ``(entry_date, id)`` of the last row returned.
+
+    The ledger statement is ordered *ascending* by business date, not descending
+    by ``created_at``: its running balance only means anything read forwards. So
+    it needs its own position marker - the generic :class:`Cursor` is a datetime
+    and the statement pages on a ``date``.
+    """
+
+    entry_date: date
+    id: uuid.UUID
+
+    def encode(self) -> str:
+        raw = json.dumps({"d": self.entry_date.isoformat(), "i": str(self.id)})
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    @classmethod
+    def decode(cls, value: str) -> DateCursor:
+        try:
+            padded = value + "=" * (-len(value) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+            return cls(entry_date=date.fromisoformat(payload["d"]), id=uuid.UUID(payload["i"]))
+        except (ValueError, KeyError, TypeError, binascii.Error) as exc:
+            raise ValidationError("Invalid pagination cursor.") from exc
+
+
 class CursorParams(BaseModel):
     cursor: str | None = None
     limit: Annotated[int, Field(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE
@@ -394,12 +421,31 @@ class CursorParams(BaseModel):
         return Cursor.decode(self.cursor) if self.cursor else None
 
 
+class DateCursorParams(BaseModel):
+    """Keyset parameters for a statement ordered by business date."""
+
+    cursor: str | None = None
+    limit: Annotated[int, Field(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE
+
+    @property
+    def decoded(self) -> DateCursor | None:
+        return DateCursor.decode(self.cursor) if self.cursor else None
+
+
 def cursor_params(
     cursor: Annotated[str | None, Query(description="Opaque cursor from the previous page")] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
 ) -> CursorParams:
     """FastAPI dependency for keyset pagination."""
     return CursorParams(cursor=cursor, limit=limit)
+
+
+def date_cursor_params(
+    cursor: Annotated[str | None, Query(description="Opaque cursor from the previous page")] = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
+) -> DateCursorParams:
+    """FastAPI dependency for a statement ordered by ``(date, id)`` ascending."""
+    return DateCursorParams(cursor=cursor, limit=limit)
 
 
 async def paginate_keyset(
@@ -446,11 +492,14 @@ __all__ = [
     "MAX_PAGE_SIZE",
     "Cursor",
     "CursorParams",
+    "DateCursor",
+    "DateCursorParams",
     "PageParams",
     "SortParams",
     "bind_query_filters",
     "cursor_paginated",
     "cursor_params",
+    "date_cursor_params",
     "page_params",
     "paginate",
     "paginate_keyset",

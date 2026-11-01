@@ -82,6 +82,9 @@ from src.modules.reports.schemas import (
     CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
+    DashboardTrendPoint,
+    DashboardTrendSeries,
+    DashboardTrendsRead,
     DeadStockRow,
     DispatchRow,
     InventoryValuationRow,
@@ -96,6 +99,7 @@ from src.modules.reports.schemas import (
     ProductionPendingRow,
     ProductProfitabilityRow,
     PurchasePendingRow,
+    PurchaseRegisterRow,
     QcRejectionRow,
     ReportColumnRead,
     ReportDescriptorRead,
@@ -105,6 +109,7 @@ from src.modules.reports.schemas import (
     ReportRowBase,
     ReworkRateRow,
     SalesOrderStatusRow,
+    SalesRegisterRow,
     ScrapRegisterRow,
     ShiftProductionRow,
     StockAvailabilityRow,
@@ -392,6 +397,7 @@ class ReportDefinition:
     permission: Permission = Permission.REPORT_VIEW
     derive: Deriver | None = None
     calculation_version: int = 1
+    field_permissions: tuple[tuple[str, Permission], ...] = ()
 
 
 def _column_kind(annotation: Any) -> str:
@@ -617,6 +623,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         # Section 34: availability is never served from cache.
         cacheable=False,
         derive=_derive_stock_availability,
+        field_permissions=(("valuation_amount", Permission.INVENTORY_VALUATION_VIEW),),
     ),
     ReportKey.MRP_SHORTAGE: ReportDefinition(
         key=ReportKey.MRP_SHORTAGE,
@@ -737,6 +744,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=False,
         cacheable=False,
         derive=_derive_dead_stock,
+        field_permissions=(("valuation_amount", Permission.INVENTORY_VALUATION_VIEW),),
     ),
     ReportKey.ORDER_DELAY: ReportDefinition(
         key=ReportKey.ORDER_DELAY,
@@ -902,6 +910,35 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=True,
         cacheable=False,
     ),
+    ReportKey.SALES_REGISTER: ReportDefinition(
+        key=ReportKey.SALES_REGISTER,
+        title="Sales register",
+        description=(
+            "Issued invoices less issued credit notes per month, customer, HSN and rate, "
+            "with taxable value and the CGST/SGST/IGST split."
+        ),
+        row_model=SalesRegisterRow,
+        build=lambda repo, ctx: repo.sales_register(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        # A period still open takes documents, and a register that lagged the
+        # invoices it lists would be the one number nobody could reconcile.
+        cacheable=False,
+        permission=Permission.GST_REPORT_VIEW,
+    ),
+    ReportKey.PURCHASE_REGISTER: ReportDefinition(
+        key=ReportKey.PURCHASE_REGISTER,
+        title="Purchase register",
+        description=(
+            "Accepted vendor invoices less posted debit notes per month, vendor, HSN and "
+            "rate. Debit notes carry a single tax figure, so their tax split is reported "
+            "as pending rather than guessed."
+        ),
+        row_model=PurchaseRegisterRow,
+        build=lambda repo, ctx: repo.purchase_register(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        permission=Permission.GST_REPORT_VIEW,
+    ),
 }
 
 # Every member of the catalogue enum has exactly one definition, and no
@@ -936,7 +973,11 @@ def descriptors(principal: Principal | None = None) -> list[ReportDescriptorRead
             title=definition.title,
             description=definition.description,
             requires_period=definition.requires_period,
-            columns=list(columns_for(definition.row_model)),
+            columns=[
+                column
+                for column in columns_for(definition.row_model)
+                if column.name in _visible_fields(definition, principal)
+            ],
         )
         for definition in REPORT_CATALOGUE.values()
         if principal is None or principal.has(definition.permission)
@@ -964,6 +1005,35 @@ class QueuedReport:
 
     definition: ReportDefinition
     snapshot: ReportSnapshot
+
+
+def _visible_fields(definition: ReportDefinition, principal: Principal | None) -> frozenset[str]:
+    """Fields the caller may see in a row or generated artefact."""
+    permissions = dict(definition.field_permissions)
+    return frozenset(
+        name
+        for name in definition.row_model.model_fields
+        if name not in permissions or principal is None or principal.has(permissions[name])
+    )
+
+
+def _redact_rows(
+    definition: ReportDefinition,
+    rows: list[ReportRowBase],
+    principal: Principal | None,
+) -> list[ReportRowBase]:
+    """Remove protected values after shaping, before a response can serialize them."""
+    if principal is None or not definition.field_permissions:
+        return rows
+    hidden = {name for name, _ in definition.field_permissions} - _visible_fields(
+        definition, principal
+    )
+    if not hidden:
+        return rows
+    return [
+        definition.row_model.model_validate({**row.model_dump(), **dict.fromkeys(hidden)})
+        for row in rows
+    ]
 
 
 def build_context(
@@ -1108,6 +1178,7 @@ async def run_report(
     filters: ReportFilters,
     params: PageParams,
     may_export: bool,
+    principal: Principal | None = None,
     now: datetime | None = None,
 ) -> InlineReport | QueuedReport:
     """Run one report, inline or in the background - the server decides which.
@@ -1124,7 +1195,9 @@ async def run_report(
 
     total = await count_rows(session, stmt, cap=REPORT_INLINE_ROW_LIMIT)
     if total > REPORT_INLINE_ROW_LIMIT:
-        return await _queue_report(session, tenant, definition, ctx, may_export=may_export)
+        return await _queue_report(
+            session, tenant, definition, ctx, may_export=may_export, principal=principal
+        )
 
     parameters = parameters_of(definition, ctx)
     digest = parameters_hash(parameters)
@@ -1136,7 +1209,11 @@ async def run_report(
             _, ttl = CacheNamespace.REPORT
             return InlineReport(
                 definition=definition,
-                rows=[definition.row_model.model_validate(r) for r in cached["rows"]],
+                rows=_redact_rows(
+                    definition,
+                    [definition.row_model.model_validate(r) for r in cached["rows"]],
+                    principal,
+                ),
                 pagination=OffsetPagination.model_validate(cached["pagination"]),
                 generated_at=datetime.fromisoformat(cached["generated_at"]),
             )
@@ -1157,7 +1234,10 @@ async def run_report(
         )
 
     return InlineReport(
-        definition=definition, rows=shaped, pagination=pagination, generated_at=ctx.now
+        definition=definition,
+        rows=_redact_rows(definition, shaped, principal),
+        pagination=pagination,
+        generated_at=ctx.now,
     )
 
 
@@ -1168,6 +1248,7 @@ async def _queue_report(
     ctx: ReportContext,
     *,
     may_export: bool,
+    principal: Principal | None,
 ) -> QueuedReport:
     """Create or reuse the background job for a report too large to serve inline."""
     if not may_export:
@@ -1179,6 +1260,8 @@ async def _queue_report(
         )
 
     parameters = parameters_of(definition, ctx)
+    if definition.field_permissions:
+        parameters[REPORT_VISIBLE_FIELDS_PARAMETER] = sorted(_visible_fields(definition, principal))
     if definition.key in REPORT_WAREHOUSE_SCOPED_KEYS:
         parameters[REPORT_WAREHOUSE_SCOPE_PARAMETER] = _effective_report_warehouse_ids(tenant)
     digest = parameters_hash(parameters)
@@ -1220,6 +1303,96 @@ async def _queue_report(
 
     await dispatch_job(session, tenant, snapshot, task_name=REPORT_TASK_NAME, queue=REPORT_QUEUE)
     return QueuedReport(definition=definition, snapshot=snapshot)
+
+
+#: The formats the generic export endpoint can produce. The chosen format is
+#: stored in the job's parameters, so the XLSX and the PDF of one report are two
+#: different jobs rather than two callers racing over one artefact.
+REPORT_EXPORT_FORMATS = ("xlsx", "pdf")
+REPORT_FORMAT_PARAMETER = "format"
+REPORT_VISIBLE_FIELDS_PARAMETER = "visible_fields"
+
+
+async def queue_report_export(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    key: ReportKey,
+    period: ReportPeriod | None,
+    filters: ReportFilters,
+    file_format: str,
+    principal: Principal | None = None,
+    now: datetime | None = None,
+) -> ReportSnapshot:
+    """Queue any catalogue report as an XLSX or PDF file and return its job.
+
+    The row ceiling does not apply: this is the answer for a report of any size,
+    so it materialises the same bounded row set the automatic background path
+    does (``REPORT_MAX_EXPORT_ROWS``). The permission checks happen in the route,
+    where the principal is available; this function only decides what the job is
+    and dispatches it.
+
+    Reuse follows the report's own cache policy. A completed-period report is a
+    fact, so two people asking for the same file get one artefact. A report that
+    was deliberately marked uncacheable - a register over a period still taking
+    documents - gets a fresh job every time, because a reused file would be a
+    stale answer that looks authoritative.
+    """
+    if file_format not in REPORT_EXPORT_FORMATS:
+        raise ValidationError(
+            f"Unsupported export format '{file_format}'.",
+            details={"supported": list(REPORT_EXPORT_FORMATS)},
+        )
+
+    definition = definition_for(key)
+    ctx = build_context(definition, period, filters, now=now)
+    parameters = parameters_of(definition, ctx)
+    parameters[REPORT_FORMAT_PARAMETER] = file_format
+    if definition.field_permissions:
+        parameters[REPORT_VISIBLE_FIELDS_PARAMETER] = sorted(_visible_fields(definition, principal))
+    if definition.key in REPORT_WAREHOUSE_SCOPED_KEYS:
+        parameters[REPORT_WAREHOUSE_SCOPE_PARAMETER] = _effective_report_warehouse_ids(tenant)
+    digest = parameters_hash(parameters)
+    snapshots = ReportSnapshotRepository(session, tenant)
+
+    if definition.cacheable:
+        existing = await snapshots.find_reusable(definition.key, digest, now=ctx.now)
+        if existing is not None:
+            log.info(
+                "reports.export_reused",
+                report_key=str(definition.key),
+                snapshot_id=str(existing.id),
+                file_format=file_format,
+            )
+            return existing
+
+    async with transaction(session):
+        snapshot = new_job_snapshot(definition.key, parameters, now=ctx.now)
+        snapshots.add(snapshot)
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.JOB_STARTED,
+            entity_type=AUDIT_ENTITY,
+            entity_id=snapshot.id,
+            entity_code=str(definition.key),
+            summary=(
+                f"Queued '{definition.title}' as {file_format.upper()} for background generation"
+            ),
+            user_id=tenant.user_id,
+            new_values={"report_key": str(definition.key), "parameters": parameters},
+        )
+
+    await dispatch_job(
+        session,
+        tenant,
+        snapshot,
+        task_name=REPORT_TASK_NAME,
+        queue=REPORT_QUEUE,
+        subject=f"The {file_format.upper()} of '{definition.title}'",
+    )
+    return snapshot
 
 
 def new_job_snapshot(
@@ -1332,6 +1505,8 @@ def job_read(snapshot: ReportSnapshot) -> ReportJobRead:
                 if _is_valuation_export(snapshot)
                 or snapshot.report_key == ReportKey.JOB_WORK_CHALLAN
                 or snapshot.report_key == ReportKey.PURCHASE_RETURN_DEBIT_NOTE
+                or _is_trial_balance_export(snapshot)
+                or _is_gstr1_export(snapshot)
                 else document_download_url(snapshot.document_id)
             )
             if snapshot.document_id
@@ -1466,6 +1641,50 @@ def _owns_purchase_return_debit_note_export(snapshot: ReportSnapshot, principal:
     )
 
 
+def _is_trial_balance_export(snapshot: ReportSnapshot) -> bool:
+    """True only for the finance server's trial-balance task, not a lookalike."""
+    from src.modules.finance.service import TRIAL_BALANCE_TASK_NAME
+
+    return (
+        snapshot.report_key == ReportKey.TRIAL_BALANCE
+        and (snapshot.parameters or {}).get("task") == TRIAL_BALANCE_TASK_NAME
+    )
+
+
+def _owns_trial_balance_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
+    """Let a ledger reader retrieve the workbook they queued, without report view."""
+    return (
+        not principal.is_vendor_user
+        and not principal.is_dealer_user
+        and snapshot.company_id == principal.company_id
+        and snapshot.created_by_id == principal.user_id
+        and principal.has_all(Permission.LEDGER_VIEW, Permission.REPORT_EXPORT)
+        and _is_trial_balance_export(snapshot)
+    )
+
+
+def _is_gstr1_export(snapshot: ReportSnapshot) -> bool:
+    """True only for the finance server's GSTR-1 task, not a lookalike."""
+    from src.modules.finance.service import GSTR1_TASK_NAME
+
+    return (
+        snapshot.report_key == ReportKey.GSTR1
+        and (snapshot.parameters or {}).get("task") == GSTR1_TASK_NAME
+    )
+
+
+def _owns_gstr1_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
+    """Let a GST reader retrieve the return they queued, without report view."""
+    return (
+        not principal.is_vendor_user
+        and not principal.is_dealer_user
+        and snapshot.company_id == principal.company_id
+        and snapshot.created_by_id == principal.user_id
+        and principal.has_all(Permission.GST_REPORT_VIEW, Permission.REPORT_EXPORT)
+        and _is_gstr1_export(snapshot)
+    )
+
+
 async def _accessible_job(
     session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
 ) -> ReportSnapshot:
@@ -1489,17 +1708,43 @@ async def _accessible_job(
             and REPORT_CATALOGUE[snapshot.report_key].permission != Permission.REPORT_VIEW
             and not principal.has(REPORT_CATALOGUE[snapshot.report_key].permission)
         )
+        or (
+            snapshot is not None
+            and snapshot.report_key in REPORT_CATALOGUE
+            and not _job_sensitive_fields_accessible(
+                snapshot, REPORT_CATALOGUE[snapshot.report_key], principal
+            )
+        )
         or not (
             principal.has(Permission.REPORT_VIEW)
             or _owns_valuation_export(snapshot, principal)
             or _owns_job_work_challan_export(snapshot, principal)
             or _owns_purchase_return_debit_note_export(snapshot, principal)
+            or _owns_trial_balance_export(snapshot, principal)
+            or _owns_gstr1_export(snapshot, principal)
         )
     ):
         # A job outside this principal's scope must not reveal its parameters,
         # error, document id or even whether another user's job exists.
         raise NotFoundError("Report job", job_id, code=ErrorCode.JOB_NOT_FOUND)
     return snapshot
+
+
+def _job_sensitive_fields_accessible(
+    snapshot: ReportSnapshot, definition: ReportDefinition, principal: Principal
+) -> bool:
+    """A report job cannot expose a protected field after that right is absent."""
+    if not definition.field_permissions:
+        return True
+    parameters = snapshot.parameters or {}
+    visible = parameters.get(REPORT_VISIBLE_FIELDS_PARAMETER)
+    if not isinstance(visible, list):
+        visible = list(definition.row_model.model_fields)
+    return all(
+        principal.has(permission)
+        for name, permission in definition.field_permissions
+        if name in visible
+    )
 
 
 async def get_accessible_job(
@@ -1523,6 +1768,8 @@ async def open_job_download(
         _owns_valuation_export(snapshot, principal)
         or _owns_job_work_challan_export(snapshot, principal)
         or _owns_purchase_return_debit_note_export(snapshot, principal)
+        or _owns_trial_balance_export(snapshot, principal)
+        or _owns_gstr1_export(snapshot, principal)
     )
     if not owns_export and not principal.has(Permission.DOCUMENT_VIEW):
         raise PermissionDeniedError(str(Permission.DOCUMENT_VIEW))
@@ -1681,32 +1928,184 @@ async def purge_expired_snapshots(
 # Dashboard
 # -----------------------------------------------------------------------------
 
+#: The dashboard cache key version. Bumped whenever the tile set or its meaning
+#: changes, because the payload is a plain JSON document in Redis: a payload
+#: written before a field existed would validate with the field missing and the
+#: screen would show a blank tile until the TTL expired.
+DASHBOARD_CACHE_VERSION = "v2"
+
+#: Which permission shows which finance and operations tile. A tile the caller
+#: may not see is returned as ``None`` rather than omitted, so the shape of the
+#: response is stable and the client can tell "not shown to you" from "zero".
+#: The cache key carries a digest of the visible set: two principals with
+#: different permissions must never share one cached payload.
+DASHBOARD_TILE_PERMISSIONS: dict[str, Permission] = {
+    "purchase_orders_awaiting_approval": Permission.PURCHASE_ORDER_VIEW,
+    "inbound_purchase_orders_late": Permission.PURCHASE_ORDER_VIEW,
+    "payables_due_amount": Permission.VENDOR_INVOICE_VIEW,
+    "payables_overdue_amount": Permission.VENDOR_INVOICE_VIEW,
+    "receivables_amount": Permission.SALES_INVOICE_VIEW,
+    "invoiced_sales_mtd": Permission.SALES_INVOICE_VIEW,
+    "collections_mtd": Permission.PAYMENT_VIEW,
+    "mrp_shortage_count": Permission.MRP_VIEW,
+    "job_work_overdue": Permission.JOB_WORK_VIEW,
+}
+
+#: The sparkline series, in display order, each behind the permission that owns
+#: its underlying documents. A principal who cannot read dispatches does not get
+#: a dispatch line, and the trends payload simply lacks that series.
+DASHBOARD_TREND_SERIES: tuple[tuple[str, Permission], ...] = (
+    ("sales_invoiced", Permission.SALES_INVOICE_VIEW),
+    ("collections", Permission.PAYMENT_VIEW),
+    ("dispatches", Permission.DISPATCH_VIEW),
+    ("production_output", Permission.PRODUCTION_ORDER_VIEW),
+)
+
+#: The trend window: today and the twenty-nine days before it.
+DASHBOARD_TREND_DAYS = 30
+
+
+def _visible_dashboard_tiles(principal: Principal | None) -> tuple[str, ...]:
+    """The finance tiles this caller may see, in a stable order.
+
+    ``None`` means an internal caller - the same convention ``descriptors``
+    uses - and sees everything. Stated once so the cache key, the query mask and
+    the tests all read the same rule.
+    """
+    return tuple(
+        field
+        for field, permission in DASHBOARD_TILE_PERMISSIONS.items()
+        if principal is None or principal.has(permission)
+    )
+
+
+def _visible_trend_series(principal: Principal | None) -> tuple[str, ...]:
+    return tuple(
+        series
+        for series, permission in DASHBOARD_TREND_SERIES
+        if principal is None or principal.has(permission)
+    )
+
+
+def _scope_digest(visible: tuple[str, ...]) -> str:
+    """Short, stable digest of a visible-field set for the cache key."""
+    return hashlib.sha256(",".join(visible).encode()).hexdigest()[:16]
+
 
 async def dashboard(
-    session: AsyncSession, tenant: TenantContext, *, now: datetime | None = None
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal | None = None,
+    *,
+    now: datetime | None = None,
 ) -> DashboardRead:
     """The management tile set, from one statement and a short-lived cache.
 
     Cached for the dashboard TTL because every tile here is a headline a person
     reads, not a number a decision is taken from - and because the alternative is
-    ten indexed counts every time somebody leaves the page open on a wall screen.
-    The stock figure comes from the summary table and carries its own refresh
-    time, so a stale summary is visible rather than disguised.
+    a dozen indexed counts every time somebody leaves the page open on a wall
+    screen. The stock figure comes from the summary table and carries its own
+    refresh time, so a stale summary is visible rather than disguised.
+
+    Each finance and operations tile is gated on the permission that owns its
+    documents. A caller without the permission gets ``None``, not a zero: zero
+    is a fact and ``None`` is "not shown to you", and confusing the two would
+    let somebody read an absence as a business position.
     """
     moment = now or utcnow()
+    visible = _visible_dashboard_tiles(principal)
     namespace, ttl = CacheNamespace.DASHBOARD
-    cache_key = make_key(namespace, tenant.company_id, "tiles")
+    cache_key = make_key(
+        namespace,
+        tenant.company_id,
+        "tiles",
+        DASHBOARD_CACHE_VERSION,
+        _scope_digest(visible),
+    )
 
     cached = await cache_get(cache_key)
     if cached is not None:
         return DashboardRead.model_validate(cached)
 
-    stmt = ReportQueryRepository(session, tenant).dashboard(as_of=moment.date())
+    as_of = moment.date()
+    stmt = ReportQueryRepository(session, tenant).dashboard(
+        as_of=as_of, month_start=as_of.replace(day=1)
+    )
     row = (await session.execute(stmt)).one()
-    tiles = DashboardRead.model_validate({**dict(row._mapping), "generated_at": moment})
+    values = {**dict(row._mapping), "generated_at": moment}
+    for field in DASHBOARD_TILE_PERMISSIONS:
+        if field not in visible:
+            values[field] = None
+    tiles = DashboardRead.model_validate(values)
 
     await cache_set(cache_key, tiles.model_dump(mode="json"), ttl=ttl)
     return tiles
+
+
+async def dashboard_trends(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal | None = None,
+    *,
+    now: datetime | None = None,
+) -> DashboardTrendsRead:
+    """Thirty days of daily figures behind the dashboard sparklines.
+
+    One statement, one aggregate per series, and the days with no activity are
+    filled with zero here rather than in SQL: a sparkline needs a point for every
+    day, and generating thirty rows per series in the database to say "nothing
+    happened" is work the query should not do.
+
+    Series are permission-gated exactly like the tiles they sit beside; an
+    invisible series is absent from the list rather than returned empty, because
+    an empty line would read as "no dispatches in thirty days".
+    """
+    moment = now or utcnow()
+    date_to = moment.date()
+    date_from = date_to - timedelta(days=DASHBOARD_TREND_DAYS - 1)
+    days = [date_from + timedelta(days=offset) for offset in range(DASHBOARD_TREND_DAYS)]
+    visible = _visible_trend_series(principal)
+    namespace, ttl = CacheNamespace.DASHBOARD
+    cache_key = make_key(
+        namespace,
+        tenant.company_id,
+        "trends",
+        DASHBOARD_CACHE_VERSION,
+        date_from.isoformat(),
+        date_to.isoformat(),
+        _scope_digest(visible),
+    )
+
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return DashboardTrendsRead.model_validate(cached)
+
+    stmt = ReportQueryRepository(session, tenant).dashboard_trends(
+        date_from=date_from, date_to=date_to
+    )
+    observed: dict[tuple[str, date], Decimal] = {}
+    for row in (await session.execute(stmt)).all():
+        observed[(str(row.series), row.day)] = Decimal(row.value or 0)
+
+    series = [
+        DashboardTrendSeries(
+            series=series_name,
+            points=[
+                DashboardTrendPoint(
+                    day=day,
+                    value=observed.get((series_name, day), Decimal("0")),
+                )
+                for day in days
+            ],
+        )
+        for series_name in visible
+    ]
+    trends = DashboardTrendsRead(
+        date_from=date_from, date_to=date_to, series=series, generated_at=moment
+    )
+
+    await cache_set(cache_key, trends.model_dump(mode="json"), ttl=ttl)
+    return trends
 
 
 # -----------------------------------------------------------------------------
@@ -1889,6 +2288,10 @@ __all__ = [
     "AGEING_BUCKETS",
     "AUDIT_ENTITY",
     "CURRENT_BUCKET",
+    "DASHBOARD_CACHE_VERSION",
+    "DASHBOARD_TILE_PERMISSIONS",
+    "DASHBOARD_TREND_DAYS",
+    "DASHBOARD_TREND_SERIES",
     "DEAD_STOCK_DAYS",
     "DOCUMENT_DOWNLOAD_URL_TEMPLATE",
     "JOB_DOWNLOAD_URL_TEMPLATE",
@@ -1897,11 +2300,14 @@ __all__ = [
     "OVER_AGE_BUCKET",
     "REPORT_CALCULATION_VERSION_PARAMETER",
     "REPORT_CATALOGUE",
+    "REPORT_EXPORT_FORMATS",
+    "REPORT_FORMAT_PARAMETER",
     "REPORT_INLINE_ROW_LIMIT",
     "REPORT_MAX_EXPORT_ROWS",
     "REPORT_QUEUE",
     "REPORT_SNAPSHOT_TTL_HOURS",
     "REPORT_TASK_NAME",
+    "REPORT_VISIBLE_FIELDS_PARAMETER",
     "URGENCY_LATER",
     "URGENCY_OVERDUE",
     "URGENCY_THIS_MONTH",
@@ -1920,6 +2326,7 @@ __all__ = [
     "complete_snapshot",
     "context_from_parameters",
     "dashboard",
+    "dashboard_trends",
     "days_between",
     "definition_for",
     "delivery_delay_days",
@@ -1939,6 +2346,7 @@ __all__ = [
     "parameters_of",
     "percent",
     "purge_expired_snapshots",
+    "queue_report_export",
     "ratio",
     "refresh_inventory_summary",
     "run_report",

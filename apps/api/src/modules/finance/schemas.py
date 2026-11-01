@@ -30,7 +30,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from src.core.messages import date_before
-from src.core.responses import OffsetPagination
+from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.finance.models import (
     JOB_WORK_ALLOW_FREE_LINES,
     MAX_INVOICE_LINES,
@@ -213,6 +213,106 @@ class StatementFilters(BaseModel):
         if value is not None and lower is not None and value < lower:
             raise ValueError(date_before("period end", "period start"))
         return value
+
+
+# -----------------------------------------------------------------------------
+# General-ledger account statement and trial balance
+# -----------------------------------------------------------------------------
+
+
+class AccountStatementRow(BaseModel):
+    """One account posting, with the balance after it and its dimensions."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    entry_id: uuid.UUID
+    journal_id: uuid.UUID
+    entry_date: date
+    reference_type: str
+    reference_code: str | None
+    narration: str | None
+    debit_amount: Decimal
+    credit_amount: Decimal
+    #: Signed debit-positive: the balance of this account after this posting.
+    running_balance: Decimal
+    cost_centre_id: uuid.UUID | None
+    cost_centre_code: str | None
+    cost_centre_name: str | None
+    party_type: PartyType
+    party_id: uuid.UUID | None
+    party_code: str | None
+    party_name: str | None
+    is_reversal: bool
+
+
+class AccountStatement(BaseModel):
+    """A general-ledger account statement over a bounded window.
+
+    ``pagination`` is carried inside the statement rather than beside it: the
+    opening and closing figures belong to the page contract, and splitting them
+    into two envelopes would let a client render a header without the rows it
+    describes.
+    """
+
+    account_id: uuid.UUID
+    account_code: str
+    account_name: str
+    account_type: LedgerAccountType
+    date_from: date | None
+    date_to: date
+    opening_balance: Decimal
+    total_debit: Decimal
+    total_credit: Decimal
+    closing_balance: Decimal
+    rows: list[AccountStatementRow] = Field(default_factory=list)
+    pagination: CursorPagination = Field(default_factory=CursorPagination)
+
+
+class TrialBalanceRow(BaseModel):
+    """One account in the trial balance, in debit-positive signs."""
+
+    account_id: uuid.UUID
+    account_code: str
+    account_name: str
+    account_type: LedgerAccountType
+    opening_balance: Decimal
+    period_debit: Decimal
+    period_credit: Decimal
+    closing_balance: Decimal
+
+
+class TrialBalanceGroup(BaseModel):
+    """Accounts of one type, with the subtotal for that class."""
+
+    account_type: LedgerAccountType
+    rows: list[TrialBalanceRow] = Field(default_factory=list)
+    opening_balance: Decimal
+    period_debit: Decimal
+    period_credit: Decimal
+    closing_balance: Decimal
+
+
+class TrialBalance(BaseModel):
+    """A trial balance for the financial year containing ``as_of``.
+
+    The period is the *whole* financial year to date, not a calendar month: the
+    balance sheet only balances when every posting since the year opened is
+    included. ``total_debit_balance`` and ``total_credit_balance`` are the sums
+    of the closing balances on each side, and ``balanced`` is false only when
+    the ledger itself does not balance - which a test asserts against a real
+    database.
+    """
+
+    as_of: date
+    period_start: date
+    period_end: date
+    groups: list[TrialBalanceGroup] = Field(default_factory=list)
+    total_opening_balance: Decimal
+    total_period_debit: Decimal
+    total_period_credit: Decimal
+    total_debit_balance: Decimal
+    total_credit_balance: Decimal
+    balanced: bool
 
 
 # -----------------------------------------------------------------------------
@@ -1120,6 +1220,151 @@ class GstSummary(BaseModel):
     net_payable: Decimal
 
 
+# -----------------------------------------------------------------------------
+# GSTR-3B
+# -----------------------------------------------------------------------------
+
+
+class Gstr3bAmounts(BaseModel):
+    """One block of the GSTR-3B, signed in the direction of the return.
+
+    ``unallocated_tax_amount`` exists because a purchase return stores a single
+    ``tax_amount`` and no CGST/SGST/IGST split. That tax is real and is subtracted
+    from the net liability, but it cannot be assigned to a head without inventing
+    one, so it is carried here and left out of the three head totals. A reader
+    reconciling the return sees the heads plus this bucket equal the total.
+    """
+
+    taxable_amount: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    igst_amount: Decimal
+    tax_amount: Decimal
+    unallocated_tax_amount: Decimal = Decimal("0")
+
+
+class Gstr3bSide(BaseModel):
+    """The documents, the notes that correct them, and the net."""
+
+    documents: Gstr3bAmounts
+    notes: Gstr3bAmounts
+    net: Gstr3bAmounts
+
+
+class Gstr3b(BaseModel):
+    """The GSTR-3B summary for one return period.
+
+    3.1 outward supplies are issued invoices less issued credit notes; 4 input
+    tax credit is accepted vendor and job-work invoices less posted debit notes.
+    Both are read from posted documents by document date, never from drafts.
+    """
+
+    date_from: date
+    date_to: date
+    outward: Gstr3bSide
+    itc: Gstr3bSide
+    net_cgst: Decimal
+    net_sgst: Decimal
+    net_igst: Decimal
+    #: Outward tax less ITC: positive is payable, negative is credit carried.
+    net_tax_payable: Decimal
+    #: The part of ``net_tax_payable`` whose head is unknown (debit-note tax).
+    unallocated_tax_amount: Decimal = Decimal("0")
+
+
+# -----------------------------------------------------------------------------
+# GSTR-1
+# -----------------------------------------------------------------------------
+
+#: Invoice value above which an inter-state supply to an unregistered buyer is
+#: reported invoice-wise as B2C large. Rule 1 of the GST (Return) Rules, 2022,
+#: read with the GSTR-1 instructions: the threshold is rupees two lakh fifty
+#: thousand. Intra-state B2C supplies are B2C small at any value.
+GSTR1_B2C_LARGE_THRESHOLD = Decimal("250000")
+
+
+class Gstr1InvoiceRow(BaseModel):
+    """One rate line of an invoice in the B2B or B2C-large section."""
+
+    invoice_number: str
+    invoice_date: date
+    buyer_gstin: str | None
+    buyer_name: str
+    place_of_supply_state_code: str | None
+    invoice_value: Decimal
+    rate: Decimal
+    taxable_amount: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    igst_amount: Decimal
+
+
+class Gstr1B2cSmallRow(BaseModel):
+    """B2C small supplies summarised by place of supply and rate."""
+
+    place_of_supply_state_code: str | None
+    rate: Decimal
+    taxable_amount: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    igst_amount: Decimal
+    invoice_count: int
+
+
+class Gstr1CdnrRow(BaseModel):
+    """One rate line of a credit note issued to a registered buyer."""
+
+    note_number: str
+    note_date: date
+    buyer_gstin: str | None
+    buyer_name: str
+    place_of_supply_state_code: str | None
+    note_value: Decimal
+    rate: Decimal
+    taxable_amount: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    igst_amount: Decimal
+
+
+class Gstr1HsnRow(BaseModel):
+    """One HSN and rate slab, net of credit notes."""
+
+    hsn_code: str | None
+    uom_code: str | None
+    rate: Decimal
+    quantity: Decimal | None
+    taxable_amount: Decimal
+    cgst_amount: Decimal
+    sgst_amount: Decimal
+    igst_amount: Decimal
+    document_count: int
+
+
+class Gstr1DocumentSeriesRow(BaseModel):
+    """One document series: how many were issued and how many cancelled."""
+
+    document_type: str
+    series: str
+    from_number: str
+    to_number: str
+    total_documents: int
+    cancelled_documents: int
+
+
+class Gstr1Return(BaseModel):
+    """Every GSTR-1 section, ready for the workbook."""
+
+    date_from: date
+    date_to: date
+    b2b: list[Gstr1InvoiceRow] = Field(default_factory=list)
+    b2c_large: list[Gstr1InvoiceRow] = Field(default_factory=list)
+    b2c_small: list[Gstr1B2cSmallRow] = Field(default_factory=list)
+    cdnr: list[Gstr1CdnrRow] = Field(default_factory=list)
+    hsn: list[Gstr1HsnRow] = Field(default_factory=list)
+    documents: list[Gstr1DocumentSeriesRow] = Field(default_factory=list)
+
+
 class PeriodFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1139,6 +1384,7 @@ class PeriodFilters(BaseModel):
 
 
 __all__ = [
+    "GSTR1_B2C_LARGE_THRESHOLD",
     "MAX_STATEMENT_ROWS",
     "MAX_VALUATION_ROWS",
     "AgeingCurrencyBlock",
@@ -1151,6 +1397,15 @@ __all__ = [
     "GstRateRow",
     "GstSection",
     "GstSummary",
+    "Gstr1B2cSmallRow",
+    "Gstr1CdnrRow",
+    "Gstr1DocumentSeriesRow",
+    "Gstr1HsnRow",
+    "Gstr1InvoiceRow",
+    "Gstr1Return",
+    "Gstr3b",
+    "Gstr3bAmounts",
+    "Gstr3bSide",
     "InventoryValuationPage",
     "InventoryValuationRow",
     "InventoryValuationSummary",

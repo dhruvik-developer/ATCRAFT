@@ -88,6 +88,7 @@ const SettingsPage = lazy(routeLoaders['/admin/settings'])
 const NotificationsPage = lazy(routeLoaders['/notifications'])
 const PaymentsPage = lazy(routeLoaders['/finance/payments'])
 const AccountsPage = lazy(routeLoaders['/finance/accounts'])
+const TrialBalancePage = lazy(routeLoaders['/finance/trial-balance'])
 const RfqsPage = lazy(routeLoaders['/procurement/rfqs'])
 const RfqDetailPage = lazy(routeLoaders['/procurement/rfqs/:rfqId'])
 const QuotationsPage = lazy(routeLoaders['/procurement/quotations'])
@@ -486,6 +487,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   // about whether the API will accept a change.
   { path: '/finance/payments', element: <PaymentsPage />, permissions: [P.PAYMENT_VIEW] },
   { path: '/finance/accounts', element: <AccountsPage />, permissions: [P.LEDGER_VIEW] },
+  {
+    path: '/finance/trial-balance',
+    element: <TrialBalancePage />,
+    permissions: [P.LEDGER_VIEW],
+  },
 
   { path: '/procurement/rfqs', element: <RfqsPage />, permissions: [P.RFQ_VIEW] },
   { path: '/procurement/rfqs/:rfqId', element: <RfqDetailPage />, permissions: [P.RFQ_VIEW] },

@@ -503,6 +503,72 @@ async def test_gst_output_nets_issued_credit_notes_by_note_date_and_restores_can
     assert after_cancel.output.rows[0].document_count == 1
 
 
+async def test_gstr1_sections_and_sales_register_reconcile_posted_documents(bench):
+    b = bench
+    b.customer.gstin = "27AAAAA0000A1Z5"
+    first_invoice = await issue(b, await make_dispatch(b))
+    credit = await credit_notes.issue_credit_note(
+        b.session,
+        b.tenant,
+        CreditNoteCreate(
+            sales_invoice_id=first_invoice.id,
+            note_date=first_invoice.invoice_date,
+            reason_type=CreditNoteReason.PRICE_ADJUSTMENT,
+            lines=[
+                CreditNoteLineIn(
+                    sales_invoice_line_id=first_invoice.lines[0].id,
+                    taxable_amount=Decimal("100"),
+                )
+            ],
+        ),
+    )
+
+    await inventory.post_movement(
+        b.session,
+        b.tenant,
+        item_id=b.item.id,
+        warehouse_id=b.warehouse.id,
+        quantity=Decimal("300"),
+        transaction_type=TransactionType.PURCHASE_RECEIPT,
+        reference_type="goods_receipt",
+        reference_id=uuid.uuid4(),
+        reference_code="GRN-GSTR1",
+        reason="GSTR-1 fixture replenishment",
+        unit_cost=Decimal("5"),
+    )
+    await sales.allocate_order(b.session, b.tenant, b.order.id, reason="Reserve replenishment")
+    b.customer.gstin = None
+    second_invoice = await issue(b, await make_dispatch(b, "100"))
+
+    period = ReportPeriod(date_from=today(), date_to=today())
+    return_data = await finance.gstr1_return(
+        b.session, b.tenant, date_from=period.date_from, date_to=period.date_to
+    )
+    assert len(return_data.b2b) == 1
+    assert return_data.b2b[0].buyer_gstin == "27AAAAA0000A1Z5"
+    assert len(return_data.b2c_small) == 1
+    assert return_data.b2c_small[0].invoice_count == 1
+    assert len(return_data.cdnr) == 1
+    assert return_data.cdnr[0].note_number == credit.code
+
+    expected_taxable = (
+        first_invoice.lines[0].taxable_amount
+        - credit.taxable_amount
+        + second_invoice.lines[0].taxable_amount
+    )
+    assert len(return_data.hsn) == 1
+    assert return_data.hsn[0].hsn_code == "8302"
+    assert return_data.hsn[0].taxable_amount == expected_taxable
+    assert return_data.documents
+
+    register = await b.session.execute(
+        ReportQueryRepository(b.session, b.tenant).sales_register(period, ReportFilters())
+    )
+    rows = register.mappings().all()
+    assert len(rows) == 1
+    assert rows[0]["taxable_amount"] == expected_taxable
+
+
 async def test_closed_reservation_refused_and_replaced_on_topup(bench):
     b = bench
     rid = b.line.reservation_id

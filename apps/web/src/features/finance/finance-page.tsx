@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overla
 import { useAuth } from '@/features/auth/auth-context'
 import { P } from '@/lib/permissions'
 
+import { GstReturnsPanel } from './gst-returns-panel'
 import { GstSummaryTab } from './gst-summary-tab'
 import { InventoryValuationTab } from './inventory-valuation-tab'
 import { OutstandingTab } from './outstanding-tab'
@@ -148,7 +149,10 @@ export default function FinancePage() {
 
         {canSeeGst && (
           <TabsContent value="gst">
-            <GstSummaryTab period={period} onPeriodChange={selectPeriod} />
+            <div className="space-y-6">
+              <GstSummaryTab period={period} onPeriodChange={selectPeriod} />
+              <GstReturnsPanel period={period} />
+            </div>
           </TabsContent>
         )}
       </Tabs>

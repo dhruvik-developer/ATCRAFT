@@ -2390,6 +2390,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/gstr-1/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export GSTR-1 as a workbook
+         * @description Queue the GSTR-1 workbook for a return period and return 202 with a job id. The workbook carries the B2B, B2C large, B2C small, CDNR, HSN and document summary sections. It is a filing snapshot, so every request produces a fresh artefact rather than reusing an earlier one.
+         */
+        post: operations["gstr1_export_api_v1_finance_gstr_1_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/gstr-3b": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GSTR-3B summary for a return period
+         * @description 3.1 outward supplies are issued invoices less issued credit notes. 4 input tax credit is accepted vendor and job-work invoices less posted debit notes. Both sides are read from posted documents by document date. A debit note stores one tax amount and no CGST/SGST/IGST split, so its tax is reported in `unallocated_tax_amount` rather than apportioned on a guess.
+         */
+        get: operations["gstr3b_api_v1_finance_gstr_3b_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/finance/inventory-valuation": {
         parameters: {
             query?: never;
@@ -2424,6 +2464,26 @@ export interface paths {
          * @description A company-wide valuation is thousands of positions and a spreadsheet nobody waits for. It goes to the reports queue and the workbook appears in the document store when it is ready (sections 22, 35).
          */
         post: operations["export_inventory_valuation_api_v1_finance_inventory_valuation_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/ledger/account/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A general-ledger account statement
+         * @description One account in the chart, posted lines only, in business-date order and page by opaque cursor. The running balance is computed by PostgreSQL across the whole window before the page is cut, so it is the true balance after each posting and not the movement since the page began. Each line carries its cost centre and, where it names one, the customer or vendor.
+         */
+        get: operations["account_statement_api_v1_finance_ledger_account__account_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2693,6 +2753,46 @@ export interface paths {
         put?: never;
         /** Generate a permanent GST sales invoice PDF */
         post: operations["sales_invoice_pdf_api_v1_finance_sales_invoices__invoice_id__pdf_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/trial-balance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trial balance to a reporting date
+         * @description Every account's opening balance, period debit and credit, and closing balance for the financial year containing `as_of`, grouped by account type. The closing debit and credit balances must be equal - `balanced` reports whether they are.
+         */
+        get: operations["trial_balance_api_v1_finance_trial_balance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/trial-balance/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export the trial balance as a workbook
+         * @description Queue the trial balance at `as_of` as an XLSX and return 202 with a job id. A trial balance is a position at a date, so every request produces a fresh artefact rather than reusing an earlier one.
+         */
+        post: operations["trial_balance_export_api_v1_finance_trial_balance_export_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7752,9 +7852,29 @@ export interface paths {
         };
         /**
          * Management dashboard tiles
-         * @description Open sales orders, stock value, pending purchase orders, production in progress, QC pending, consignments in transit and overdue deliveries. Assembled from summary tables in a single statement and cached briefly; the stock figure carries the time its summary was last refreshed.
+         * @description Open sales orders, stock value, pending purchase orders, production in progress, QC pending, consignments in transit and overdue deliveries. Assembled from summary tables in a single statement and cached briefly; the stock figure carries the time its summary was last refreshed. Finance and operations tiles are `null` when the caller lacks the permission that owns them.
          */
         get: operations["dashboard_api_v1_reports_dashboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/dashboard/trends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Thirty-day dashboard trends
+         * @description One daily figure per series for sales invoiced, collections, dispatches and production output, covering today and the twenty-nine days before it. Days with no activity are returned as zero. A series the caller may not read is absent rather than empty.
+         */
+        get: operations["dashboard_trends_api_v1_reports_dashboard_trends_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7794,6 +7914,26 @@ export interface paths {
         get: operations["dispatch_report_api_v1_reports_dispatch_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export any report as XLSX or PDF
+         * @description Queue a catalogue report as a file at any size. The same period and filter parameters as the report's own route are accepted, plus `format`. Export waits for the job: once it completes, `GET /reports/jobs/{id}` carries the download link, and no row ceiling applies.
+         */
+        post: operations["export_report_api_v1_reports_export_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8050,6 +8190,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/purchase-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Purchase register
+         * @description Accepted vendor invoices less posted debit notes, grouped by month, vendor, HSN and rate. Debit notes carry one tax figure and no CGST/SGST/IGST split, so their split columns are null and `tax_split_pending` is true.
+         */
+        get: operations["purchase_register_api_v1_reports_purchase_register_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/qc-rejection": {
         parameters: {
             query?: never;
@@ -8096,6 +8256,26 @@ export interface paths {
         };
         /** Sales order status */
         get: operations["sales_order_status_api_v1_reports_sales_order_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/sales-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sales register
+         * @description Issued invoices less issued credit notes, grouped by month, customer, HSN and rate. Taxable and tax columns are signed: a credit note subtracts from the month it was issued in, not the month of the invoice it corrects.
+         */
+        get: operations["sales_register_api_v1_reports_sales_register_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10421,6 +10601,93 @@ export interface components {
          * @enum {string}
          */
         AccessoryRelation: "OPTIONAL" | "INCLUDED";
+        /**
+         * AccountStatement
+         * @description A general-ledger account statement over a bounded window.
+         *
+         *     ``pagination`` is carried inside the statement rather than beside it: the
+         *     opening and closing figures belong to the page contract, and splitting them
+         *     into two envelopes would let a client render a header without the rows it
+         *     describes.
+         */
+        AccountStatement: {
+            /** Account Code */
+            account_code: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Account Name */
+            account_name: string;
+            account_type: components["schemas"]["LedgerAccountType"];
+            /** Closing Balance */
+            closing_balance: string;
+            /** Date From */
+            date_from: string | null;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Opening Balance */
+            opening_balance: string;
+            pagination?: components["schemas"]["CursorPagination"];
+            /** Rows */
+            rows?: components["schemas"]["AccountStatementRow"][];
+            /** Total Credit */
+            total_credit: string;
+            /** Total Debit */
+            total_debit: string;
+        };
+        /**
+         * AccountStatementRow
+         * @description One account posting, with the balance after it and its dimensions.
+         */
+        AccountStatementRow: {
+            /** Cost Centre Code */
+            cost_centre_code: string | null;
+            /** Cost Centre Id */
+            cost_centre_id: string | null;
+            /** Cost Centre Name */
+            cost_centre_name: string | null;
+            /** Credit Amount */
+            credit_amount: string;
+            /** Debit Amount */
+            debit_amount: string;
+            /**
+             * Entry Date
+             * Format: date
+             */
+            entry_date: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Is Reversal */
+            is_reversal: boolean;
+            /**
+             * Journal Id
+             * Format: uuid
+             */
+            journal_id: string;
+            /** Narration */
+            narration: string | null;
+            /** Party Code */
+            party_code: string | null;
+            /** Party Id */
+            party_id: string | null;
+            /** Party Name */
+            party_name: string | null;
+            party_type: components["schemas"]["PartyType"];
+            /** Reference Code */
+            reference_code: string | null;
+            /** Reference Type */
+            reference_type: string;
+            /** Running Balance */
+            running_balance: string;
+        };
         /** AcknowledgeRequest */
         AcknowledgeRequest: {
             /** Expected Delivery Date */
@@ -10779,6 +11046,21 @@ export interface components {
         /** ApiResponse[AccessTokenResponse] */
         ApiResponse_AccessTokenResponse_: {
             data?: components["schemas"]["AccessTokenResponse"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[AccountStatement] */
+        ApiResponse_AccountStatement_: {
+            data?: components["schemas"]["AccountStatement"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -11331,6 +11613,21 @@ export interface components {
              */
             success: true;
         };
+        /** ApiResponse[DashboardTrendsRead] */
+        ApiResponse_DashboardTrendsRead_: {
+            data?: components["schemas"]["DashboardTrendsRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** ApiResponse[DealerBannerRead] */
         ApiResponse_DealerBannerRead_: {
             data?: components["schemas"]["DealerBannerRead"] | null;
@@ -11724,6 +12021,21 @@ export interface components {
         /** ApiResponse[GstSummary] */
         ApiResponse_GstSummary_: {
             data?: components["schemas"]["GstSummary"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[Gstr3b] */
+        ApiResponse_Gstr3b_: {
+            data?: components["schemas"]["Gstr3b"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -13270,6 +13582,21 @@ export interface components {
         /** ApiResponse[TransporterRead] */
         ApiResponse_TransporterRead_: {
             data?: components["schemas"]["TransporterRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[TrialBalance] */
+        ApiResponse_TrialBalance_: {
+            data?: components["schemas"]["TrialBalance"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -17830,6 +18157,8 @@ export interface components {
          *     to promise stock (section 34).
          */
         DashboardRead: {
+            /** Collections Mtd */
+            collections_mtd?: string | null;
             /** Dispatches In Transit */
             dispatches_in_transit: number;
             /**
@@ -17837,24 +18166,86 @@ export interface components {
              * Format: date-time
              */
             generated_at: string;
+            /** Inbound Purchase Orders Late */
+            inbound_purchase_orders_late?: number | null;
+            /** Invoiced Sales Mtd */
+            invoiced_sales_mtd?: string | null;
+            /** Job Work Overdue */
+            job_work_overdue?: number | null;
+            /** Mrp Shortage Count */
+            mrp_shortage_count?: number | null;
             /** Open Sales Orders */
             open_sales_orders: number;
             /** Overdue Deliveries */
             overdue_deliveries: number;
             /** Overdue Sales Orders */
             overdue_sales_orders: number;
+            /** Payables Due Amount */
+            payables_due_amount?: string | null;
+            /** Payables Overdue Amount */
+            payables_overdue_amount?: string | null;
             /** Pending Purchase Orders */
             pending_purchase_orders: number;
             /** Pending Purchase Value */
             pending_purchase_value: string;
             /** Production In Progress */
             production_in_progress: number;
+            /** Purchase Orders Awaiting Approval */
+            purchase_orders_awaiting_approval?: number | null;
             /** Qc Pending */
             qc_pending: number;
+            /** Receivables Amount */
+            receivables_amount?: string | null;
             /** Stock Refreshed At */
             stock_refreshed_at?: string | null;
             /** Stock Value */
             stock_value: string;
+        };
+        /**
+         * DashboardTrendPoint
+         * @description One day of one series. A day with no activity is reported as zero.
+         */
+        DashboardTrendPoint: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * DashboardTrendSeries
+         * @description One sparkline: a named daily series over the trend window.
+         */
+        DashboardTrendSeries: {
+            /** Points */
+            points?: components["schemas"]["DashboardTrendPoint"][];
+            /** Series */
+            series: string;
+        };
+        /**
+         * DashboardTrendsRead
+         * @description The 30-day trend set behind the dashboard sparklines.
+         */
+        DashboardTrendsRead: {
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Series */
+            series?: components["schemas"]["DashboardTrendSeries"][];
         };
         /** DeadStockRow */
         DeadStockRow: {
@@ -17879,7 +18270,7 @@ export interface components {
             /** On Hand */
             on_hand: string;
             /** Valuation Amount */
-            valuation_amount: string;
+            valuation_amount?: string | null;
             /** Warehouse Code */
             warehouse_code: string;
             /**
@@ -20684,6 +21075,77 @@ export interface components {
             /** Net Sgst */
             net_sgst: string;
             output: components["schemas"]["GstSection"];
+        };
+        /**
+         * Gstr3b
+         * @description The GSTR-3B summary for one return period.
+         *
+         *     3.1 outward supplies are issued invoices less issued credit notes; 4 input
+         *     tax credit is accepted vendor and job-work invoices less posted debit notes.
+         *     Both are read from posted documents by document date, never from drafts.
+         */
+        Gstr3b: {
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            itc: components["schemas"]["Gstr3bSide"];
+            /** Net Cgst */
+            net_cgst: string;
+            /** Net Igst */
+            net_igst: string;
+            /** Net Sgst */
+            net_sgst: string;
+            /** Net Tax Payable */
+            net_tax_payable: string;
+            outward: components["schemas"]["Gstr3bSide"];
+            /**
+             * Unallocated Tax Amount
+             * @default 0
+             */
+            unallocated_tax_amount: string;
+        };
+        /**
+         * Gstr3bAmounts
+         * @description One block of the GSTR-3B, signed in the direction of the return.
+         *
+         *     ``unallocated_tax_amount`` exists because a purchase return stores a single
+         *     ``tax_amount`` and no CGST/SGST/IGST split. That tax is real and is subtracted
+         *     from the net liability, but it cannot be assigned to a head without inventing
+         *     one, so it is carried here and left out of the three head totals. A reader
+         *     reconciling the return sees the heads plus this bucket equal the total.
+         */
+        Gstr3bAmounts: {
+            /** Cgst Amount */
+            cgst_amount: string;
+            /** Igst Amount */
+            igst_amount: string;
+            /** Sgst Amount */
+            sgst_amount: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /**
+             * Unallocated Tax Amount
+             * @default 0
+             */
+            unallocated_tax_amount: string;
+        };
+        /**
+         * Gstr3bSide
+         * @description The documents, the notes that correct them, and the net.
+         */
+        Gstr3bSide: {
+            documents: components["schemas"]["Gstr3bAmounts"];
+            net: components["schemas"]["Gstr3bAmounts"];
+            notes: components["schemas"]["Gstr3bAmounts"];
         };
         /**
          * InTransitRequest
@@ -26538,6 +27000,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[PurchaseRegisterRow] */
+        PaginatedResponse_PurchaseRegisterRow_: {
+            /** Data */
+            data?: components["schemas"]["PurchaseRegisterRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[PurchaseReturnSummary] */
         PaginatedResponse_PurchaseReturnSummary_: {
             /** Data */
@@ -26814,6 +27293,23 @@ export interface components {
         PaginatedResponse_SalesOrderSummary_: {
             /** Data */
             data?: components["schemas"]["SalesOrderSummary"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[SalesRegisterRow] */
+        PaginatedResponse_SalesRegisterRow_: {
+            /** Data */
+            data?: components["schemas"]["SalesRegisterRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -30069,6 +30565,53 @@ export interface components {
             /** Vendor Name */
             vendor_name: string;
         };
+        /**
+         * PurchaseRegisterRow
+         * @description A purchase-register row: vendor invoices less debit notes.
+         */
+        PurchaseRegisterRow: {
+            /** Cgst Amount */
+            cgst_amount: string | null;
+            /** Document Count */
+            document_count: number;
+            /** Hsn Code */
+            hsn_code: string | null;
+            /** Igst Amount */
+            igst_amount: string | null;
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Party Code */
+            party_code: string;
+            /** Party Gstin */
+            party_gstin: string | null;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /** Party Name */
+            party_name: string;
+            /** Party Type */
+            party_type: string;
+            /** Sgst Amount */
+            sgst_amount: string | null;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Tax Rate */
+            tax_rate: string;
+            /**
+             * Tax Split Pending
+             * @default false
+             */
+            tax_split_pending: boolean;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /** Total Amount */
+            total_amount: string;
+        };
         /** PurchaseReturnCreate */
         PurchaseReturnCreate: {
             /** Debit Note Number */
@@ -31557,7 +32100,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "SALES_REGISTER" | "PURCHASE_REGISTER" | "GSTR1" | "TRIAL_BALANCE" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -33977,6 +34520,53 @@ export interface components {
             /** Warehouse Id */
             warehouse_id?: string | null;
         };
+        /**
+         * SalesRegisterRow
+         * @description A sales-register row: invoices less credit notes.
+         */
+        SalesRegisterRow: {
+            /** Cgst Amount */
+            cgst_amount: string | null;
+            /** Document Count */
+            document_count: number;
+            /** Hsn Code */
+            hsn_code: string | null;
+            /** Igst Amount */
+            igst_amount: string | null;
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Party Code */
+            party_code: string;
+            /** Party Gstin */
+            party_gstin: string | null;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /** Party Name */
+            party_name: string;
+            /** Party Type */
+            party_type: string;
+            /** Sgst Amount */
+            sgst_amount: string | null;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Tax Rate */
+            tax_rate: string;
+            /**
+             * Tax Split Pending
+             * @default false
+             */
+            tax_split_pending: boolean;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /** Total Amount */
+            total_amount: string;
+        };
         /** SalesReturnCancel */
         SalesReturnCancel: {
             /** Reason */
@@ -35202,7 +35792,7 @@ export interface components {
             /** Reserved */
             reserved: string;
             /** Valuation Amount */
-            valuation_amount: string;
+            valuation_amount?: string | null;
             /** Warehouse Code */
             warehouse_code: string;
             /**
@@ -36375,6 +36965,89 @@ export interface components {
             transporter_type?: components["schemas"]["TransporterType"] | null;
             /** Website */
             website?: string | null;
+        };
+        /**
+         * TrialBalance
+         * @description A trial balance for the financial year containing ``as_of``.
+         *
+         *     The period is the *whole* financial year to date, not a calendar month: the
+         *     balance sheet only balances when every posting since the year opened is
+         *     included. ``total_debit_balance`` and ``total_credit_balance`` are the sums
+         *     of the closing balances on each side, and ``balanced`` is false only when
+         *     the ledger itself does not balance - which a test asserts against a real
+         *     database.
+         */
+        TrialBalance: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /** Balanced */
+            balanced: boolean;
+            /** Groups */
+            groups?: components["schemas"]["TrialBalanceGroup"][];
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /**
+             * Period Start
+             * Format: date
+             */
+            period_start: string;
+            /** Total Credit Balance */
+            total_credit_balance: string;
+            /** Total Debit Balance */
+            total_debit_balance: string;
+            /** Total Opening Balance */
+            total_opening_balance: string;
+            /** Total Period Credit */
+            total_period_credit: string;
+            /** Total Period Debit */
+            total_period_debit: string;
+        };
+        /**
+         * TrialBalanceGroup
+         * @description Accounts of one type, with the subtotal for that class.
+         */
+        TrialBalanceGroup: {
+            account_type: components["schemas"]["LedgerAccountType"];
+            /** Closing Balance */
+            closing_balance: string;
+            /** Opening Balance */
+            opening_balance: string;
+            /** Period Credit */
+            period_credit: string;
+            /** Period Debit */
+            period_debit: string;
+            /** Rows */
+            rows?: components["schemas"]["TrialBalanceRow"][];
+        };
+        /**
+         * TrialBalanceRow
+         * @description One account in the trial balance, in debit-positive signs.
+         */
+        TrialBalanceRow: {
+            /** Account Code */
+            account_code: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Account Name */
+            account_name: string;
+            account_type: components["schemas"]["LedgerAccountType"];
+            /** Closing Balance */
+            closing_balance: string;
+            /** Opening Balance */
+            opening_balance: string;
+            /** Period Credit */
+            period_credit: string;
+            /** Period Debit */
+            period_debit: string;
         };
         /**
          * UnreadCountRead
@@ -59436,6 +60109,254 @@ export interface operations {
             };
         };
     };
+    gstr1_export_api_v1_finance_gstr_1_export_post: {
+        parameters: {
+            query: {
+                /** @description Return period start, inclusive */
+                date_from: string;
+                /** @description Return period end, inclusive */
+                date_to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    gstr3b_api_v1_finance_gstr_3b_get: {
+        parameters: {
+            query: {
+                /** @description Return period start, inclusive */
+                date_from: string;
+                /** @description Return period end, inclusive */
+                date_to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Gstr3b_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     inventory_valuation_api_v1_finance_inventory_valuation_get: {
         parameters: {
             query?: {
@@ -59584,6 +60505,135 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    account_statement_api_v1_finance_ledger_account__account_id__get: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from the previous page */
+                cursor?: string | null;
+                limit?: number;
+                /** @description Statement period start */
+                date_from?: string | null;
+                /** @description Statement period end */
+                date_to?: string | null;
+            };
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AccountStatement_"];
                 };
             };
             /** @description Malformed request */
@@ -61977,6 +63027,250 @@ export interface operations {
             path: {
                 invoice_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    trial_balance_api_v1_finance_trial_balance_get: {
+        parameters: {
+            query?: {
+                /** @description Reporting date; defaults to today */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_TrialBalance_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    trial_balance_export_api_v1_finance_trial_balance_export_post: {
+        parameters: {
+            query?: {
+                /** @description Reporting date; defaults to today */
+                as_of?: string | null;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -107819,6 +109113,125 @@ export interface operations {
             };
         };
     };
+    dashboard_trends_api_v1_reports_dashboard_trends_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DashboardTrendsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     dead_stock_api_v1_reports_dead_stock_get: {
         parameters: {
             query?: {
@@ -108006,6 +109419,145 @@ export interface operations {
                 };
             };
             /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    export_report_api_v1_reports_export_post: {
+        parameters: {
+            query: {
+                /** @description Which report to export */
+                report_key: components["schemas"]["ReportKey"];
+                /** @description xlsx or pdf */
+                format?: string;
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -110153,6 +111705,156 @@ export interface operations {
             };
         };
     };
+    purchase_register_api_v1_reports_purchase_register_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_PurchaseRegisterRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     qc_rejection_api_v1_reports_qc_rejection_get: {
         parameters: {
             query?: {
@@ -110491,6 +112193,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_SalesOrderStatusRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sales_register_api_v1_reports_sales_register_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_SalesRegisterRow_"];
                 };
             };
             /** @description Too large to return inline. Generated in the background; poll the status URL. */

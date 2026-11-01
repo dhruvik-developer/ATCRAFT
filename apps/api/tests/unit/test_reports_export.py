@@ -22,6 +22,7 @@ has to carry its period, its filters and whether it was truncated.
 from __future__ import annotations
 
 import io
+import re
 import uuid
 import zipfile
 from datetime import UTC, date, datetime
@@ -29,9 +30,10 @@ from decimal import Decimal
 
 from openpyxl import load_workbook
 
+from src.modules.finance.schemas import Gstr1Return
 from src.modules.reports.models import DOCUMENT_ONLY_REPORT_KEYS, ReportKey
 from src.modules.reports.service import REPORT_CATALOGUE, columns_for
-from src.workers.tasks.reports import render_report_xlsx
+from src.workers.tasks.reports import render_gstr1_xlsx, render_report_pdf, render_report_xlsx
 
 COLUMNS = [
     {"name": "code", "label": "Code", "kind": "text"},
@@ -154,6 +156,130 @@ def test_a_title_excel_would_reject_is_sanitised_rather_than_raising() -> None:
     names = _load(payload).sheetnames
     assert all(len(name) <= 31 for name in names)
     assert all(not set(name) & set("[]:*?/\\") for name in names)
+
+
+def test_pdf_exports_are_landscape_and_support_multiple_pages() -> None:
+    rows = [_row(code=f"SO/2026-27/{number:05}") for number in range(100)]
+    payload = render_report_pdf("Sales order status", COLUMNS, rows, META)
+
+    assert payload.startswith(b"%PDF-")
+    page_count = re.search(rb"/Count\s+(\d+)", payload)
+    assert page_count is not None
+    assert int(page_count.group(1)) > 1
+    media_box = re.search(rb"/MediaBox\s+\[\s+0\s+0\s+([\d.]+)\s+([\d.]+)\s+\]", payload)
+    assert media_box is not None
+    assert float(media_box.group(1)) > float(media_box.group(2))
+    assert payload.endswith(b"%%EOF\n")
+
+
+def test_gstr1_workbook_contains_each_return_section_and_period() -> None:
+    report = Gstr1Return.model_validate(
+        {
+            "date_from": "2026-09-01",
+            "date_to": "2026-09-30",
+            "b2b": [
+                {
+                    "invoice_number": "SI/2026-27/00001",
+                    "invoice_date": "2026-09-10",
+                    "buyer_gstin": "27AAAAA0000A1Z5",
+                    "buyer_name": "Registered buyer",
+                    "place_of_supply_state_code": "27",
+                    "invoice_value": "118.00",
+                    "rate": "18.00",
+                    "taxable_amount": "100.00",
+                    "cgst_amount": "9.00",
+                    "sgst_amount": "9.00",
+                    "igst_amount": "0.00",
+                }
+            ],
+            "b2c_large": [
+                {
+                    "invoice_number": "SI/2026-27/00002",
+                    "invoice_date": "2026-09-11",
+                    "buyer_gstin": None,
+                    "buyer_name": "Unregistered buyer",
+                    "place_of_supply_state_code": "29",
+                    "invoice_value": "300000.00",
+                    "rate": "18.00",
+                    "taxable_amount": "254237.29",
+                    "cgst_amount": "0.00",
+                    "sgst_amount": "0.00",
+                    "igst_amount": "45762.71",
+                }
+            ],
+            "b2c_small": [
+                {
+                    "place_of_supply_state_code": "27",
+                    "rate": "18.00",
+                    "taxable_amount": "100.00",
+                    "cgst_amount": "9.00",
+                    "sgst_amount": "9.00",
+                    "igst_amount": "0.00",
+                    "invoice_count": 1,
+                }
+            ],
+            "cdnr": [
+                {
+                    "note_number": "CN/2026-27/00001",
+                    "note_date": "2026-09-12",
+                    "buyer_gstin": "27AAAAA0000A1Z5",
+                    "buyer_name": "Registered buyer",
+                    "place_of_supply_state_code": "27",
+                    "note_value": "11.80",
+                    "rate": "18.00",
+                    "taxable_amount": "10.00",
+                    "cgst_amount": "0.90",
+                    "sgst_amount": "0.90",
+                    "igst_amount": "0.00",
+                }
+            ],
+            "hsn": [
+                {
+                    "hsn_code": "8302",
+                    "uom_code": "PCS",
+                    "rate": "18.00",
+                    "quantity": "1.00",
+                    "taxable_amount": "90.00",
+                    "cgst_amount": "8.10",
+                    "sgst_amount": "8.10",
+                    "igst_amount": "0.00",
+                    "document_count": 2,
+                }
+            ],
+            "documents": [
+                {
+                    "document_type": "INVOICE",
+                    "series": "SI/2026-27",
+                    "from_number": "SI/2026-27/00001",
+                    "to_number": "SI/2026-27/00002",
+                    "total_documents": 2,
+                    "cancelled_documents": 0,
+                }
+            ],
+        }
+    )
+
+    workbook = _load(render_gstr1_xlsx(report))
+
+    assert workbook.sheetnames == [
+        "B2B",
+        "B2C large",
+        "B2C small",
+        "CDNR",
+        "HSN",
+        "Documents",
+        "Summary",
+    ]
+    assert workbook["B2B"]["A2"].value == "SI/2026-27/00001"
+    assert workbook["B2C large"]["F2"].value == Decimal("300000.00")
+    assert workbook["B2C small"]["G2"].value == 1
+    assert workbook["CDNR"]["A2"].value == "CN/2026-27/00001"
+    assert workbook["HSN"]["A2"].value == "8302"
+    assert workbook["Documents"]["A2"].value == "INVOICE"
+    summary = workbook["Summary"]
+    assert summary["B2"].value == "2026-09-01"
+    assert summary["B3"].value == "2026-09-30"
+    assert "two lakh fifty thousand" in summary["B4"].value
 
 
 def test_every_report_can_be_rendered_from_its_own_column_definition() -> None:

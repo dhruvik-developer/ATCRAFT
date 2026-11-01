@@ -33,9 +33,11 @@ from typing import Any
 
 from sqlalchemy import (
     ColumnElement,
+    Date,
     Numeric,
     Row,
     Select,
+    String,
     and_,
     case,
     cast,
@@ -58,7 +60,7 @@ from src.core.deps import TenantContext
 from src.core.ids import new_id
 from src.core.pagination import COUNT_CEILING, PageParams
 from src.core.responses import OffsetPagination
-from src.core.types import ZERO
+from src.core.types import ZERO, Money
 from src.modules.customers.models import Customer
 from src.modules.dispatch.models import (
     DELIVERED_STATUSES,
@@ -71,6 +73,9 @@ from src.modules.dispatch.models import (
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.finance.models import (
     COST_CENTRE_ACCOUNT_TYPES,
+    INPUT_TAX_STATUSES,
+    PAYABLE_INVOICE_STATUSES,
+    POSTED_PAYMENT_STATUSES,
     CreditNote,
     CreditNoteCostAllocation,
     CreditNoteLine,
@@ -78,9 +83,14 @@ from src.modules.finance.models import (
     CreditNoteStatus,
     LedgerAccount,
     LedgerEntry,
+    PartyType,
+    Payment,
+    PaymentType,
     SalesInvoice,
     SalesInvoiceLine,
     SalesInvoiceStatus,
+    VendorInvoice,
+    VendorInvoiceLine,
 )
 from src.modules.inventory.models import (
     InternalIssue,
@@ -117,6 +127,9 @@ from src.modules.procurement.models import (
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseOrderStatus,
+    PurchaseReturn,
+    PurchaseReturnLine,
+    PurchaseReturnStatus,
 )
 from src.modules.production.models import (
     ProductionEntry,
@@ -160,6 +173,17 @@ PENDING_PURCHASE_STATUSES: tuple[PurchaseOrderStatus, ...] = (
     PurchaseOrderStatus.ACKNOWLEDGED,
     PurchaseOrderStatus.PARTIALLY_RECEIVED,
 )
+
+#: Where a purchase order sits while somebody has to decide. ``DRAFT`` is
+#: excluded: nobody has submitted it, so it is not waiting on an approver.
+AWAITING_APPROVAL_PURCHASE_STATUSES: tuple[PurchaseOrderStatus, ...] = (
+    PurchaseOrderStatus.PENDING_APPROVAL,
+)
+
+#: How far ahead the payables tile looks when it says "due". A week is the
+#: horizon a buyer can still act on; anything further out belongs in the ageing
+#: report, not on a headline tile.
+DASHBOARD_PAYABLES_DUE_DAYS = 7
 
 #: Production the shop floor still owes. CLOSED and COMPLETED are finished work;
 #: DRAFT has not been approved and may never run.
@@ -2421,15 +2445,305 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             )
         return stmt
 
+    # --- tax registers ------------------------------------------------------
+
+    def _grouped_tax_register(
+        self,
+        legs: Any,
+        filters: ReportFilters,
+        *,
+        party_column: Any,
+        party_code: Any,
+        party_name: Any,
+    ) -> Select[Any]:
+        """Collapse register legs to month x party x HSN x rate.
+
+        Shared by both registers because they are the same shape read from
+        opposite sides of the trade: one union of positive documents and
+        negative corrections, then one grouped scan. The grouping happens after
+        the union so an invoice and the credit note that reverses part of it
+        land in one row and the net turnover is what the column sums to.
+        """
+        stmt = (
+            select(
+                legs.c.month,
+                legs.c.party_type,
+                legs.c.party_id,
+                legs.c.party_code,
+                legs.c.party_name,
+                legs.c.party_gstin,
+                legs.c.hsn_code,
+                legs.c.tax_rate,
+                func.sum(legs.c.taxable_amount).label("taxable_amount"),
+                func.sum(legs.c.cgst_amount).label("cgst_amount"),
+                func.sum(legs.c.sgst_amount).label("sgst_amount"),
+                func.sum(legs.c.igst_amount).label("igst_amount"),
+                func.sum(legs.c.tax_amount).label("tax_amount"),
+                func.sum(legs.c.total_amount).label("total_amount"),
+                func.count(func.distinct(legs.c.document_id)).label("document_count"),
+                func.bool_or(legs.c.tax_split_pending).label("tax_split_pending"),
+            )
+            .select_from(legs)
+            .group_by(
+                legs.c.month,
+                legs.c.party_type,
+                legs.c.party_id,
+                legs.c.party_code,
+                legs.c.party_name,
+                legs.c.party_gstin,
+                legs.c.hsn_code,
+                legs.c.tax_rate,
+            )
+            .order_by(
+                legs.c.month.asc(),
+                legs.c.party_code.asc(),
+                legs.c.hsn_code.asc().nulls_last(),
+                legs.c.tax_rate.asc(),
+            )
+        )
+        if filters.customer_id:
+            stmt = stmt.where(party_column == filters.customer_id)
+        if filters.vendor_id:
+            stmt = stmt.where(party_column == filters.vendor_id)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    party_code.ilike(pattern),
+                    party_name.ilike(pattern),
+                    legs.c.hsn_code.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def sales_register(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Invoices less issued credit notes, per month, customer, HSN and rate.
+
+        Invoice lines carry the full CGST/SGST/IGST split, and so do credit-note
+        lines, so every tax column here is stated rather than derived. Cancelled
+        invoices and cancelled credit notes are excluded: a cancelled document
+        is not turnover, and a return counts on its own note date, not the date
+        of the invoice it corrects.
+        """
+        month = func.date_trunc("month", SalesInvoice.invoice_date).cast(Date)
+        invoices = (
+            select(
+                month.label("month"),
+                literal(PartyType.CUSTOMER.value).label("party_type"),
+                Customer.id.label("party_id"),
+                Customer.code.label("party_code"),
+                Customer.name.label("party_name"),
+                Customer.gstin.label("party_gstin"),
+                SalesInvoiceLine.hsn_code.label("hsn_code"),
+                SalesInvoiceLine.tax_rate.label("tax_rate"),
+                SalesInvoiceLine.taxable_amount.label("taxable_amount"),
+                SalesInvoiceLine.cgst_amount.label("cgst_amount"),
+                SalesInvoiceLine.sgst_amount.label("sgst_amount"),
+                SalesInvoiceLine.igst_amount.label("igst_amount"),
+                SalesInvoiceLine.tax_amount.label("tax_amount"),
+                SalesInvoiceLine.line_total.label("total_amount"),
+                SalesInvoice.id.label("document_id"),
+                literal(False).label("tax_split_pending"),
+            )
+            .select_from(SalesInvoice)
+            .join(
+                SalesInvoiceLine,
+                and_(
+                    SalesInvoiceLine.sales_invoice_id == SalesInvoice.id,
+                    SalesInvoiceLine.company_id == SalesInvoice.company_id,
+                ),
+            )
+            .join(
+                Customer,
+                and_(
+                    Customer.id == SalesInvoice.customer_id,
+                    Customer.company_id == SalesInvoice.company_id,
+                ),
+            )
+            .where(
+                SalesInvoice.company_id == self._company,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date.between(period.date_from, period.date_to),
+            )
+        )
+        note_month = func.date_trunc("month", CreditNote.note_date).cast(Date)
+        notes = (
+            select(
+                note_month.label("month"),
+                literal(PartyType.CUSTOMER.value).label("party_type"),
+                Customer.id.label("party_id"),
+                Customer.code.label("party_code"),
+                Customer.name.label("party_name"),
+                Customer.gstin.label("party_gstin"),
+                CreditNoteLine.hsn_code.label("hsn_code"),
+                CreditNoteLine.tax_rate.label("tax_rate"),
+                (-CreditNoteLine.taxable_amount).label("taxable_amount"),
+                (-CreditNoteLine.cgst_amount).label("cgst_amount"),
+                (-CreditNoteLine.sgst_amount).label("sgst_amount"),
+                (-CreditNoteLine.igst_amount).label("igst_amount"),
+                (-CreditNoteLine.tax_amount).label("tax_amount"),
+                (-CreditNoteLine.line_total).label("total_amount"),
+                CreditNote.id.label("document_id"),
+                literal(False).label("tax_split_pending"),
+            )
+            .select_from(CreditNote)
+            .join(
+                CreditNoteLine,
+                and_(
+                    CreditNoteLine.credit_note_id == CreditNote.id,
+                    CreditNoteLine.company_id == CreditNote.company_id,
+                ),
+            )
+            .join(
+                Customer,
+                and_(
+                    Customer.id == CreditNote.customer_id,
+                    Customer.company_id == CreditNote.company_id,
+                ),
+            )
+            .where(
+                CreditNote.company_id == self._company,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+                CreditNote.note_date.between(period.date_from, period.date_to),
+            )
+        )
+        legs = union_all(invoices, notes).subquery("sales_register_legs")
+        return self._grouped_tax_register(
+            legs,
+            filters,
+            party_column=legs.c.party_id,
+            party_code=legs.c.party_code,
+            party_name=legs.c.party_name,
+        )
+
+    def purchase_register(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Vendor invoices less posted debit notes, per month, vendor, HSN and rate.
+
+        Input invoices are the same ones the ITC figure is built from: accepted
+        into the books, not draft or cancelled. Debit notes count on their
+        return date and are reported with a NULL CGST/SGST/IGST split, because a
+        purchase return stores one ``tax_amount`` and no split, and inventing
+        one would fabricate a return. ``tax_split_pending`` marks those rows so
+        the reader can see why the split columns do not add up to the tax total.
+        """
+        month = func.date_trunc("month", VendorInvoice.invoice_date).cast(Date)
+        bills = (
+            select(
+                month.label("month"),
+                literal(PartyType.VENDOR.value).label("party_type"),
+                Vendor.id.label("party_id"),
+                Vendor.code.label("party_code"),
+                Vendor.name.label("party_name"),
+                Vendor.gstin.label("party_gstin"),
+                VendorInvoiceLine.hsn_code.label("hsn_code"),
+                VendorInvoiceLine.tax_rate.label("tax_rate"),
+                VendorInvoiceLine.taxable_amount.label("taxable_amount"),
+                VendorInvoiceLine.cgst_amount.label("cgst_amount"),
+                VendorInvoiceLine.sgst_amount.label("sgst_amount"),
+                VendorInvoiceLine.igst_amount.label("igst_amount"),
+                VendorInvoiceLine.tax_amount.label("tax_amount"),
+                VendorInvoiceLine.line_total.label("total_amount"),
+                VendorInvoice.id.label("document_id"),
+                literal(False).label("tax_split_pending"),
+            )
+            .select_from(VendorInvoice)
+            .join(
+                VendorInvoiceLine,
+                and_(
+                    VendorInvoiceLine.vendor_invoice_id == VendorInvoice.id,
+                    VendorInvoiceLine.company_id == VendorInvoice.company_id,
+                ),
+            )
+            .join(
+                Vendor,
+                and_(
+                    Vendor.id == VendorInvoice.vendor_id,
+                    Vendor.company_id == VendorInvoice.company_id,
+                ),
+            )
+            .where(
+                VendorInvoice.company_id == self._company,
+                VendorInvoice.status.in_(INPUT_TAX_STATUSES),
+                VendorInvoice.invoice_date.between(period.date_from, period.date_to),
+            )
+        )
+        note_month = func.date_trunc("month", PurchaseReturn.return_date).cast(Date)
+        returns = (
+            select(
+                note_month.label("month"),
+                literal(PartyType.VENDOR.value).label("party_type"),
+                Vendor.id.label("party_id"),
+                Vendor.code.label("party_code"),
+                Vendor.name.label("party_name"),
+                Vendor.gstin.label("party_gstin"),
+                Item.hsn_code.label("hsn_code"),
+                PurchaseReturnLine.tax_rate.label("tax_rate"),
+                (PurchaseReturnLine.tax_amount - PurchaseReturnLine.line_total).label(
+                    "taxable_amount"
+                ),
+                cast(literal(None), Money).label("cgst_amount"),
+                cast(literal(None), Money).label("sgst_amount"),
+                cast(literal(None), Money).label("igst_amount"),
+                (-PurchaseReturnLine.tax_amount).label("tax_amount"),
+                (-PurchaseReturnLine.line_total).label("total_amount"),
+                PurchaseReturn.id.label("document_id"),
+                literal(True).label("tax_split_pending"),
+            )
+            .select_from(PurchaseReturn)
+            .join(
+                PurchaseReturnLine,
+                and_(
+                    PurchaseReturnLine.purchase_return_id == PurchaseReturn.id,
+                    PurchaseReturnLine.company_id == PurchaseReturn.company_id,
+                ),
+            )
+            .join(
+                Item,
+                and_(
+                    Item.id == PurchaseReturnLine.item_id,
+                    Item.company_id == PurchaseReturnLine.company_id,
+                ),
+            )
+            .join(
+                Vendor,
+                and_(
+                    Vendor.id == PurchaseReturn.vendor_id,
+                    Vendor.company_id == PurchaseReturn.company_id,
+                ),
+            )
+            .where(
+                PurchaseReturn.company_id == self._company,
+                PurchaseReturn.status == PurchaseReturnStatus.POSTED,
+                PurchaseReturn.return_date.between(period.date_from, period.date_to),
+            )
+        )
+        legs = union_all(bills, returns).subquery("purchase_register_legs")
+        return self._grouped_tax_register(
+            legs,
+            filters,
+            party_column=legs.c.party_id,
+            party_code=legs.c.party_code,
+            party_name=legs.c.party_name,
+        )
+
     # --- dashboard ----------------------------------------------------------
 
-    def dashboard(self, *, as_of: date) -> Select[Any]:
+    def dashboard(self, *, as_of: date, month_start: date) -> Select[Any]:
         """Every management tile in one statement.
 
-        Eight scalar subqueries in a single SELECT rather than eight round trips:
-        each is an indexed count or a sum over the summary table, and issuing
-        them together means the dashboard costs one network round trip and one
-        planning pass instead of eight of each (section 30).
+        One scalar subquery per tile in a single SELECT rather than one round
+        trip each: every tile is an indexed count or a sum, and issuing them
+        together means the dashboard costs one network round trip and one
+        planning pass (section 30).
+
+        ``month_start`` is passed in rather than derived from ``as_of`` in SQL
+        so the month boundary is the same one the caller uses everywhere else,
+        including in the trends endpoint.
+
+        The finance tiles count *agreed* payables - approved, partially paid -
+        rather than every open document. A bill nobody has approved is not money
+        the company owes yet, and counting a disputed one as payable would
+        overstate the commitment.
         """
         company = self._company
 
@@ -2476,6 +2790,24 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             )
             .scalar_subquery()
         )
+        awaiting_approval = (
+            select(func.count(PurchaseOrder.id))
+            .where(
+                PurchaseOrder.company_id == company,
+                PurchaseOrder.status.in_(AWAITING_APPROVAL_PURCHASE_STATUSES),
+            )
+            .scalar_subquery()
+        )
+        inbound_late = (
+            select(func.count(PurchaseOrder.id))
+            .where(
+                PurchaseOrder.company_id == company,
+                PurchaseOrder.status.in_(PENDING_PURCHASE_STATUSES),
+                PurchaseOrder.expected_delivery_date.is_not(None),
+                PurchaseOrder.expected_delivery_date < as_of,
+            )
+            .scalar_subquery()
+        )
         production_wip = (
             select(func.count(ProductionOrder.id))
             .where(
@@ -2507,6 +2839,87 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             )
             .scalar_subquery()
         )
+        payables_due = (
+            select(
+                func.coalesce(func.sum(VendorInvoice.total_amount - VendorInvoice.paid_amount), 0)
+            )
+            .where(
+                VendorInvoice.company_id == company,
+                VendorInvoice.status.in_(PAYABLE_INVOICE_STATUSES),
+                VendorInvoice.due_date >= as_of,
+                VendorInvoice.due_date <= as_of + timedelta(days=DASHBOARD_PAYABLES_DUE_DAYS),
+            )
+            .scalar_subquery()
+        )
+        payables_overdue = (
+            select(
+                func.coalesce(func.sum(VendorInvoice.total_amount - VendorInvoice.paid_amount), 0)
+            )
+            .where(
+                VendorInvoice.company_id == company,
+                VendorInvoice.status.in_(PAYABLE_INVOICE_STATUSES),
+                VendorInvoice.due_date < as_of,
+            )
+            .scalar_subquery()
+        )
+        receivables = (
+            select(func.coalesce(func.sum(SalesInvoice.total_amount - SalesInvoice.paid_amount), 0))
+            .where(
+                SalesInvoice.company_id == company,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.total_amount > SalesInvoice.paid_amount,
+            )
+            .scalar_subquery()
+        )
+        invoiced_sales_mtd = (
+            select(func.coalesce(func.sum(SalesInvoice.total_amount), 0))
+            .where(
+                SalesInvoice.company_id == company,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date >= month_start,
+                SalesInvoice.invoice_date <= as_of,
+            )
+            .scalar_subquery()
+        )
+        collections_mtd = (
+            select(func.coalesce(func.sum(Payment.amount), 0))
+            .where(
+                Payment.company_id == company,
+                Payment.payment_type == PaymentType.RECEIPT,
+                Payment.status.in_(POSTED_PAYMENT_STATUSES),
+                Payment.payment_date >= month_start,
+                Payment.payment_date <= as_of,
+            )
+            .scalar_subquery()
+        )
+        latest_mrp_run = (
+            select(MrpRun.id)
+            .where(
+                MrpRun.company_id == company,
+                MrpRun.status == MrpRunStatus.COMPLETED,
+            )
+            .order_by(MrpRun.completed_at.desc().nulls_last(), MrpRun.id.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
+        mrp_shortages = (
+            select(func.count(MrpRequirement.id))
+            .where(
+                MrpRequirement.company_id == company,
+                MrpRequirement.run_id == latest_mrp_run,
+                MrpRequirement.shortage_quantity > 0,
+            )
+            .scalar_subquery()
+        )
+        job_work_overdue = (
+            select(func.count(JobWorkOrder.id))
+            .where(
+                JobWorkOrder.company_id == company,
+                JobWorkOrder.status.in_(PENDING_JOB_WORK_STATUSES),
+                JobWorkOrder.expected_return_date < as_of,
+            )
+            .scalar_subquery()
+        )
 
         return select(
             open_orders.label("open_sales_orders"),
@@ -2519,11 +2932,92 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             in_transit.label("dispatches_in_transit"),
             overdue_deliveries.label("overdue_deliveries"),
             stock_refreshed.label("stock_refreshed_at"),
+            awaiting_approval.label("purchase_orders_awaiting_approval"),
+            inbound_late.label("inbound_purchase_orders_late"),
+            payables_due.label("payables_due_amount"),
+            payables_overdue.label("payables_overdue_amount"),
+            receivables.label("receivables_amount"),
+            invoiced_sales_mtd.label("invoiced_sales_mtd"),
+            collections_mtd.label("collections_mtd"),
+            mrp_shortages.label("mrp_shortage_count"),
+            job_work_overdue.label("job_work_overdue"),
         )
+
+    def dashboard_trends(self, *, date_from: date, date_to: date) -> Select[Any]:
+        """Four daily series in one statement, one aggregate query per series.
+
+        A per-day loop would be thirty round trips per series; a union of four
+        grouped aggregates is four index scans in one trip. Days with no activity
+        are absent from the result - the caller fills them with zero, because a
+        missing point and a zero are the same fact on a sparkline and inventing
+        rows in SQL would cost more than it explains.
+        """
+        company = self._company
+
+        sales = (
+            select(
+                literal("sales_invoiced", String).label("series"),
+                SalesInvoice.invoice_date.label("day"),
+                func.coalesce(func.sum(SalesInvoice.total_amount), 0).label("value"),
+            )
+            .where(
+                SalesInvoice.company_id == company,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(SalesInvoice.invoice_date)
+        )
+        collections = (
+            select(
+                literal("collections", String).label("series"),
+                Payment.payment_date.label("day"),
+                func.coalesce(func.sum(Payment.amount), 0).label("value"),
+            )
+            .where(
+                Payment.company_id == company,
+                Payment.payment_type == PaymentType.RECEIPT,
+                Payment.status.in_(POSTED_PAYMENT_STATUSES),
+                Payment.payment_date >= date_from,
+                Payment.payment_date <= date_to,
+            )
+            .group_by(Payment.payment_date)
+        )
+        dispatches = (
+            select(
+                literal("dispatches", String).label("series"),
+                Dispatch.dispatch_date.label("day"),
+                func.coalesce(func.count(Dispatch.id), 0).label("value"),
+            )
+            .where(
+                Dispatch.company_id == company,
+                Dispatch.dispatch_date >= date_from,
+                Dispatch.dispatch_date <= date_to,
+            )
+            .group_by(Dispatch.dispatch_date)
+        )
+        production = (
+            select(
+                literal("production_output", String).label("series"),
+                ProductionEntry.entry_date.label("day"),
+                func.coalesce(func.sum(ProductionEntry.produced_quantity), 0).label("value"),
+            )
+            .where(
+                ProductionEntry.company_id == company,
+                ProductionEntry.entry_date >= date_from,
+                ProductionEntry.entry_date <= date_to,
+            )
+            .group_by(ProductionEntry.entry_date)
+        )
+
+        merged = union_all(sales, collections, dispatches, production).subquery("dashboard_trends")
+        return select(merged).order_by(merged.c.series.asc(), merged.c.day.asc())
 
 
 __all__ = [
+    "AWAITING_APPROVAL_PURCHASE_STATUSES",
     "CONSUMPTION_TYPES",
+    "DASHBOARD_PAYABLES_DUE_DAYS",
     "IN_PROGRESS_PRODUCTION_STATUSES",
     "NON_REVENUE_SALES_STATUSES",
     "PENDING_JOB_WORK_STATUSES",

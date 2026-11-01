@@ -4058,3 +4058,16 @@ Missing or inconsistent original issue history refuses the receipt atomically;
 it never falls back to today's standard or warehouse cost. Existing ledger rows
 are not rewritten. Correcting a historical misvaluation requires its own
 authorized, audited stock adjustment.
+
+## §E10b-n. GST returns are preparation aids
+
+GSTR-1 and GSTR-3B are calculated from posted documents for the selected
+document-date period. The GSTR-1 workbook is a filing snapshot, not a GSP
+integration: it does not file, validate or reconcile a return with GSTN.
+Exports, SEZ supplies and reverse-charge treatment are out of scope until the
+business specifies their required treatment.
+
+An unregistered inter-state invoice above the named ₹250,000 threshold is
+reported invoice-wise as B2C large; other unregistered supplies are B2C small.
+The threshold is a named implementation constant so it can be revised if the
+applicable filing rule changes.

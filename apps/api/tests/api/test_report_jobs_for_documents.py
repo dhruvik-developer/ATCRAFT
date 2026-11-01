@@ -891,13 +891,26 @@ async def test_valuation_permission_does_not_open_catalogue_jobs_or_other_docume
     from src.core.clock import utcnow
     from src.main import app
 
+    report_reader = replace(principal, permissions=frozenset({str(Permission.REPORT_VIEW)}))
+    stock_availability_fields = reports_service._visible_fields(
+        reports_service.REPORT_CATALOGUE[ReportKey.STOCK_AVAILABILITY],
+        report_reader,
+    )
     ids = []
     async with _factory(engine)() as session, transaction(session):
         repo = ReportSnapshotRepository(session, tenant)
         for key, params in (
             (ReportKey.INVENTORY_VALUATION, {"filters": {}}),  # same key, different origin
             (ReportKey.PACKING_LIST, {"packing_order_id": str(uuid.uuid4())}),
-            (ReportKey.STOCK_AVAILABILITY, {"task": "reports.generate_inventory_valuation"}),
+            (
+                ReportKey.STOCK_AVAILABILITY,
+                {
+                    "task": "reports.generate_inventory_valuation",
+                    reports_service.REPORT_VISIBLE_FIELDS_PARAMETER: sorted(
+                        stock_availability_fields
+                    ),
+                },
+            ),
         ):
             snapshot = reports_service.new_job_snapshot(key, params, now=utcnow())
             repo.add(snapshot)
@@ -916,9 +929,7 @@ async def test_valuation_permission_does_not_open_catalogue_jobs_or_other_docume
 
     # Generic access remains available for non-sensitive catalogue reports,
     # but not for valuation jobs.
-    app.dependency_overrides[get_current_principal] = lambda: replace(
-        principal, permissions=frozenset({str(Permission.REPORT_VIEW)})
-    )
+    app.dependency_overrides[get_current_principal] = lambda: report_reader
     assert (await client.get(reports_service.job_status_url(ids[0]))).status_code == 404
     for job_id in ids[1:]:
         assert (await client.get(reports_service.job_status_url(job_id))).status_code == 200

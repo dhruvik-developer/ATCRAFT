@@ -6095,6 +6095,61 @@
           }
         },
         {
+          "name": "A general-ledger account statement",
+          "request": {
+            "description": "One account in the chart, posted lines only, in business-date order and page by opaque cursor. The running balance is computed by PostgreSQL across the whole window before the page is cut, so it is the true balance after each posting and not the movement since the page began. Each line carries its cost centre and, where it names one, the customer or vendor.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "ledger",
+                "account",
+                ":account_id"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Statement period start",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Statement period end",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/ledger/account/{account_id}?",
+              "variable": [
+                {
+                  "description": "account_id of the record",
+                  "key": "account_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "A vendor's ledger statement",
           "request": {
             "description": "Every posting against the party in date order, each with the balance after it. The running balance is computed by PostgreSQL with a window function over the whole filtered set plus the opening balance carried in, so it is correct on every page - an accumulator in the application would restart at zero on page two. A positive balance always means money owed.",
@@ -6766,6 +6821,104 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Export GSTR-1 as a workbook",
+          "request": {
+            "description": "Queue the GSTR-1 workbook for a return period and return 202 with a job id. The workbook carries the B2B, B2C large, B2C small, CDNR, HSN and document summary sections. It is a filing snapshot, so every request produces a fresh artefact rather than reusing an earlier one.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "gstr-1",
+                "export"
+              ],
+              "query": [
+                {
+                  "description": "Return period start, inclusive",
+                  "disabled": false,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Return period end, inclusive",
+                  "disabled": false,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/gstr-1/export?"
+            }
+          }
+        },
+        {
+          "name": "Export the trial balance as a workbook",
+          "request": {
+            "description": "Queue the trial balance at `as_of` as an XLSX and return 202 with a job id. A trial balance is a position at a date, so every request produces a fresh artefact rather than reusing an earlier one.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "trial-balance",
+                "export"
+              ],
+              "query": [
+                {
+                  "description": "Reporting date; defaults to today",
+                  "disabled": true,
+                  "key": "as_of",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/trial-balance/export?"
+            }
+          }
+        },
+        {
+          "name": "GSTR-3B summary for a return period",
+          "request": {
+            "description": "3.1 outward supplies are issued invoices less issued credit notes. 4 input tax credit is accepted vendor and job-work invoices less posted debit notes. Both sides are read from posted documents by document date. A debit note stores one tax amount and no CGST/SGST/IGST split, so its tax is reported in `unallocated_tax_amount` rather than apportioned on a guess.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "gstr-3b"
+              ],
+              "query": [
+                {
+                  "description": "Return period start, inclusive",
+                  "disabled": false,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Return period end, inclusive",
+                  "disabled": false,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/gstr-3b?"
             }
           }
         },
@@ -8009,6 +8162,34 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Trial balance to a reporting date",
+          "request": {
+            "description": "Every account's opening balance, period debit and credit, and closing balance for the financial year containing `as_of`, grouped by account type. The closing debit and credit balances must be equal - `balanced` reports whether they are.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "trial-balance"
+              ],
+              "query": [
+                {
+                  "description": "Reporting date; defaults to today",
+                  "disabled": true,
+                  "key": "as_of",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/trial-balance?"
             }
           }
         },
@@ -24496,6 +24677,112 @@
           }
         },
         {
+          "name": "Export any report as XLSX or PDF",
+          "request": {
+            "description": "Queue a catalogue report as a file at any size. The same period and filter parameters as the report's own route are accepted, plus `format`. Export waits for the job: once it completes, `GET /reports/jobs/{id}` carries the download link, and no row ceiling applies.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "export"
+              ],
+              "query": [
+                {
+                  "description": "Which report to export",
+                  "disabled": false,
+                  "key": "report_key",
+                  "value": "SALES_ORDER_STATUS"
+                },
+                {
+                  "description": "xlsx or pdf",
+                  "disabled": true,
+                  "key": "format",
+                  "value": "xlsx"
+                },
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/export?"
+            }
+          }
+        },
+        {
           "name": "Fast-moving items",
           "request": {
             "description": "Fast-moving items",
@@ -25178,7 +25465,7 @@
         {
           "name": "Management dashboard tiles",
           "request": {
-            "description": "Open sales orders, stock value, pending purchase orders, production in progress, QC pending, consignments in transit and overdue deliveries. Assembled from summary tables in a single statement and cached briefly; the stock figure carries the time its summary was last refreshed.",
+            "description": "Open sales orders, stock value, pending purchase orders, production in progress, QC pending, consignments in transit and overdue deliveries. Assembled from summary tables in a single statement and cached briefly; the stock figure carries the time its summary was last refreshed. Finance and operations tiles are `null` when the caller lacks the permission that owns them.",
             "header": [],
             "method": "GET",
             "url": {
@@ -25868,6 +26155,118 @@
           }
         },
         {
+          "name": "Purchase register",
+          "request": {
+            "description": "Accepted vendor invoices less posted debit notes, grouped by month, vendor, HSN and rate. Debit notes carry one tax figure and no CGST/SGST/IGST split, so their split columns are null and `tax_split_pending` is true.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "purchase-register"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/purchase-register?"
+            }
+          }
+        },
+        {
           "name": "QC rejection",
           "request": {
             "description": "QC rejection",
@@ -26204,6 +26603,118 @@
           }
         },
         {
+          "name": "Sales register",
+          "request": {
+            "description": "Issued invoices less issued credit notes, grouped by month, customer, HSN and rate. Taxable and tax columns are signed: a credit note subtracts from the month it was issued in, not the month of the invoice it corrects.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "sales-register"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/sales-register?"
+            }
+          }
+        },
+        {
           "name": "Scrap Register",
           "request": {
             "description": "Scrap Register",
@@ -26524,6 +27035,27 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/stock-availability?"
+            }
+          }
+        },
+        {
+          "name": "Thirty-day dashboard trends",
+          "request": {
+            "description": "One daily figure per series for sales invoiced, collections, dispatches and production output, covering today and the twenty-nine days before it. Days with no activity are returned as zero. A series the caller may not read is absent rather than empty.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "dashboard",
+                "trends"
+              ],
+              "raw": "{{base_url}}/api/v1/reports/dashboard/trends"
             }
           }
         },

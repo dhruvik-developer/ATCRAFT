@@ -6,7 +6,8 @@ section 74).
 
 Route ordering note: every literal segment below (``/accounts``, ``/ledger``,
 ``/vendor-invoices``, ``/payments``, ``/customer-adjustments``, ``/outstanding``,
-``/ageing``, ``/inventory-valuation``, ``/gst-summary``) is distinct, and no path parameter
+``/ageing``, ``/inventory-valuation``, ``/gst-summary``, ``/gstr-3b``,
+``/trial-balance``) is distinct, and no path parameter
 sits at the router root - so nothing here can capture a sibling's literal
 segment and reject it as a malformed UUID.
 
@@ -25,6 +26,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from src.core.clock import today
 from src.core.deps import (
     CurrentUser,
     DbSession,
@@ -35,9 +37,11 @@ from src.core.deps import (
 )
 from src.core.messages import success_message
 from src.core.pagination import (
+    DateCursorParams,
     PageParams,
     SortParams,
     bind_query_filters,
+    date_cursor_params,
     page_params,
     sort_params,
 )
@@ -75,11 +79,13 @@ from src.modules.finance.sales_invoice_schemas import (
     SalesInvoiceSummary,
 )
 from src.modules.finance.schemas import (
+    AccountStatement,
     AgeingReport,
     AllocationRequest,
     CustomerAdjustmentCreate,
     CustomerAdjustmentRead,
     DisputeRequest,
+    Gstr3b,
     GstSummary,
     InventoryValuationPage,
     InvoiceApproval,
@@ -99,6 +105,7 @@ from src.modules.finance.schemas import (
     PurchaseReturnDebitAllocationResult,
     ReasonRequest,
     StatementFilters,
+    TrialBalance,
     ValuationFilters,
     VendorInvoiceCreate,
     VendorInvoiceDetail,
@@ -311,6 +318,7 @@ def statement_filters(
 
 
 StatementDep = Annotated[StatementFilters, Depends(statement_filters)]
+StatementCursorDep = Annotated[DateCursorParams, Depends(date_cursor_params)]
 
 _STATEMENT_DESCRIPTION = (
     "Every posting against the party in date order, each with the balance after it. The "
@@ -369,6 +377,81 @@ async def vendor_statement(
         params=params,
     )
     return ApiResponse[LedgerStatement].ok(statement)
+
+
+@router.get(
+    "/ledger/account/{account_id}",
+    response_model=ApiResponse[AccountStatement],
+    summary="A general-ledger account statement",
+    description=(
+        "One account in the chart, posted lines only, in business-date order and page by "
+        "opaque cursor. The running balance is computed by PostgreSQL across the whole "
+        "window before the page is cut, so it is the true balance after each posting and "
+        "not the movement since the page began. Each line carries its cost centre and, "
+        "where it names one, the customer or vendor."
+    ),
+    dependencies=[require_permission(Permission.LEDGER_VIEW)],
+)
+async def account_statement(
+    session: DbSession,
+    tenant: Tenant,
+    account_id: uuid.UUID,
+    params: StatementCursorDep,
+    filters: StatementDep,
+) -> ApiResponse[AccountStatement]:
+    statement = await service.account_statement(
+        session, tenant, account_id=account_id, filters=filters, params=params
+    )
+    return ApiResponse[AccountStatement].ok(statement)
+
+
+@router.get(
+    "/trial-balance",
+    response_model=ApiResponse[TrialBalance],
+    summary="Trial balance to a reporting date",
+    description=(
+        "Every account's opening balance, period debit and credit, and closing balance for "
+        "the financial year containing `as_of`, grouped by account type. The closing debit "
+        "and credit balances must be equal - `balanced` reports whether they are."
+    ),
+    dependencies=[require_permission(Permission.LEDGER_VIEW)],
+)
+async def trial_balance(
+    session: DbSession,
+    tenant: Tenant,
+    as_of: Annotated[date | None, Query(description="Reporting date; defaults to today")] = None,
+) -> ApiResponse[TrialBalance]:
+    return ApiResponse[TrialBalance].ok(
+        await service.trial_balance(session, tenant, as_of=as_of or today())
+    )
+
+
+@router.post(
+    "/trial-balance/export",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AcceptedJobResponse,
+    summary="Export the trial balance as a workbook",
+    description=(
+        "Queue the trial balance at `as_of` as an XLSX and return 202 with a job id. "
+        "A trial balance is a position at a date, so every request produces a fresh "
+        "artefact rather than reusing an earlier one."
+    ),
+    dependencies=[
+        require_permission(Permission.LEDGER_VIEW),
+        require_permission(Permission.REPORT_EXPORT),
+    ],
+)
+async def trial_balance_export(
+    session: DbSession,
+    tenant: Tenant,
+    as_of: Annotated[date | None, Query(description="Reporting date; defaults to today")] = None,
+) -> AcceptedJobResponse:
+    job_id = await service.queue_trial_balance_export(session, tenant, as_of=as_of or today())
+    return AcceptedJobResponse.create(
+        job_id=job_id,
+        status_url=reports_service.job_status_url(job_id),
+        message="The trial balance is being generated",
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -1047,6 +1130,60 @@ async def gst_summary(
 ) -> ApiResponse[GstSummary]:
     summary = await service.gst_summary(session, tenant, date_from=date_from, date_to=date_to)
     return ApiResponse[GstSummary].ok(summary)
+
+
+@router.get(
+    "/gstr-3b",
+    response_model=ApiResponse[Gstr3b],
+    summary="GSTR-3B summary for a return period",
+    description=(
+        "3.1 outward supplies are issued invoices less issued credit notes. 4 input tax "
+        "credit is accepted vendor and job-work invoices less posted debit notes. Both "
+        "sides are read from posted documents by document date. A debit note stores one "
+        "tax amount and no CGST/SGST/IGST split, so its tax is reported in "
+        "`unallocated_tax_amount` rather than apportioned on a guess."
+    ),
+    dependencies=[require_permission(Permission.GST_REPORT_VIEW)],
+)
+async def gstr3b(
+    session: DbSession,
+    tenant: Tenant,
+    date_from: Annotated[date, Query(description="Return period start, inclusive")],
+    date_to: Annotated[date, Query(description="Return period end, inclusive")],
+) -> ApiResponse[Gstr3b]:
+    return ApiResponse[Gstr3b].ok(
+        await service.gstr3b_summary(session, tenant, date_from=date_from, date_to=date_to)
+    )
+
+
+@router.post(
+    "/gstr-1/export",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=AcceptedJobResponse,
+    summary="Export GSTR-1 as a workbook",
+    description=(
+        "Queue the GSTR-1 workbook for a return period and return 202 with a job id. "
+        "The workbook carries the B2B, B2C large, B2C small, CDNR, HSN and document "
+        "summary sections. It is a filing snapshot, so every request produces a fresh "
+        "artefact rather than reusing an earlier one."
+    ),
+    dependencies=[
+        require_permission(Permission.GST_REPORT_VIEW),
+        require_permission(Permission.REPORT_EXPORT),
+    ],
+)
+async def gstr1_export(
+    session: DbSession,
+    tenant: Tenant,
+    date_from: Annotated[date, Query(description="Return period start, inclusive")],
+    date_to: Annotated[date, Query(description="Return period end, inclusive")],
+) -> AcceptedJobResponse:
+    job_id = await service.queue_gstr1_export(session, tenant, date_from=date_from, date_to=date_to)
+    return AcceptedJobResponse.create(
+        job_id=job_id,
+        status_url=reports_service.job_status_url(job_id),
+        message="The GSTR-1 workbook is being generated",
+    )
 
 
 __all__ = ["router"]

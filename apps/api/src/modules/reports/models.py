@@ -97,6 +97,17 @@ class ReportKey(StrEnum):
     SCRAP_REGISTER = "SCRAP_REGISTER"
     #: Posted internal issues per department / cost centre and item over a period.
     CONSUMPTION_BY_DEPARTMENT = "CONSUMPTION_BY_DEPARTMENT"
+    #: Invoices and credit notes per month, customer and HSN - the sales ledger.
+    SALES_REGISTER = "SALES_REGISTER"
+    #: Vendor invoices and debit notes per month, vendor and HSN - the purchase
+    #: ledger.
+    PURCHASE_REGISTER = "PURCHASE_REGISTER"
+    #: A rendered document rather than a tabular report: the GSTR-1 workbook for
+    #: one return period. See :data:`DOCUMENT_ONLY_REPORT_KEYS`.
+    GSTR1 = "GSTR1"
+    #: A rendered workbook of the trial balance at a date. It has a job row so
+    #: the client polls it like any other export, but no catalogue definition.
+    TRIAL_BALANCE = "TRIAL_BALANCE"
     #: A rendered document rather than a tabular report: the packing-list PDF
     #: for one packing order. It has a job row here - ``GET /reports/jobs/{id}``
     #: is what the client polls - but no ``ReportDefinition``, because there are
@@ -138,6 +149,8 @@ DOCUMENT_ONLY_REPORT_KEYS: frozenset[ReportKey] = frozenset(
         ReportKey.PURCHASE_RETURN_DEBIT_NOTE,
         ReportKey.PURCHASE_ORDER,
         ReportKey.JOB_WORK_CHALLAN,
+        ReportKey.GSTR1,
+        ReportKey.TRIAL_BALANCE,
     }
 )
 
