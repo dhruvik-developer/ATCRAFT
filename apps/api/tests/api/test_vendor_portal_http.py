@@ -851,6 +851,7 @@ async def test_the_dashboard_counts_what_the_tabs_list(
         "payment_pending": 1,
         "qc_rejected": 1,
         "qc_lookback_days": 30,
+        "job_work_pending": 0,
     }
     expected_tabs = {
         "to_accept": {to_accept.id},

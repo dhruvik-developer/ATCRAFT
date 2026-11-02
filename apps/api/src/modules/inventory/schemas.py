@@ -38,6 +38,7 @@ from pydantic import (
 from src.common.codes import clean_text
 from src.core.constants import MAX_SERIAL_BULK
 from src.modules.inventory.models import (
+    MAX_SERIALS_PER_BIN_MOVE_LINE,
     AdjustmentReason,
     AdjustmentStatus,
     BatchStatus,
@@ -877,11 +878,18 @@ class BinMoveLineCreate(BaseModel):
     from_location_id: uuid.UUID | None = None
     #: Where it goes. ``None`` takes it back to the unbinned position.
     to_location_id: uuid.UUID | None = None
+    serial_ids: list[uuid.UUID] = Field(
+        default_factory=list, max_length=MAX_SERIALS_PER_BIN_MOVE_LINE
+    )
 
     @model_validator(mode="after")
     def _bins_differ(self) -> BinMoveLineCreate:
         if self.from_location_id == self.to_location_id:
             raise ValueError("The source and destination bins must differ.")
+        if self.serial_ids and Decimal(len(self.serial_ids)) != self.quantity:
+            raise ValueError("A serial-tracked bin move must name exactly one serial per unit.")
+        if len(set(self.serial_ids)) != len(self.serial_ids):
+            raise ValueError("A serial can appear only once on a bin-move line.")
         return self
 
 
@@ -903,6 +911,11 @@ class BinMoveCreate(BaseModel):
             [(line.item_id, line.batch_id, line.from_location_id) for line in self.lines],
             "source bin",
         )
+        serial_ids = [serial_id for line in self.lines for serial_id in line.serial_ids]
+        if len(set(serial_ids)) != len(serial_ids):
+            raise ValueError("A serial can appear only once in a bin-move document.")
+        if len(serial_ids) > MAX_DOCUMENT_LINES:
+            raise ValueError(f"A bin move may not name more than {MAX_DOCUMENT_LINES} serials.")
         return self
 
 
@@ -921,6 +934,8 @@ class BinMoveLineRead(BaseModel):
     to_location_id: uuid.UUID | None
     to_location_code: str | None = None
     quantity: Decimal
+    serial_ids: list[uuid.UUID] = Field(default_factory=list)
+    serial_numbers: list[str] = Field(default_factory=list)
 
 
 class BinMoveLineReadWithCost(BinMoveLineRead):

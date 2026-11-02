@@ -4684,6 +4684,8 @@ class TraceabilityService:
         *,
         status: SerialStatus | None = None,
         batch_id: uuid.UUID | None = None,
+        location_id: uuid.UUID | None = None,
+        unbinned_only: bool = False,
         serial_ids: list[uuid.UUID] | None = None,
         job_work_order_line_id: uuid.UUID | None = None,
         job_work_outstanding_only: bool = False,
@@ -4691,12 +4693,16 @@ class TraceabilityService:
     ) -> tuple[list[StockSerialRead], OffsetPagination]:
         if job_work_outstanding_only and job_work_order_line_id is None:
             raise ValidationError("Select a job-work line to list its outstanding serial units.")
+        if location_id is not None and unbinned_only:
+            raise ValidationError("Choose a bin or unbinned stock, not both.")
         stmt = self.serials.build_list_stmt(
             item_id=item_id,
             warehouse_id=warehouse_id,
             search=search,
             status=status,
             batch_id=batch_id,
+            location_id=location_id,
+            unbinned_only=unbinned_only,
             serial_ids=serial_ids,
             job_work_order_line_id=job_work_order_line_id,
             job_work_outstanding_only=job_work_outstanding_only,
@@ -6970,6 +6976,8 @@ class _LinePosition:
     item_id: uuid.UUID
     batch_id: uuid.UUID | None
     locations: tuple[tuple[uuid.UUID | None, bool], ...]
+    quantity: Decimal | None = None
+    serial_ids: tuple[uuid.UUID, ...] = ()
 
 
 async def _assert_document_lines(
@@ -6978,17 +6986,18 @@ async def _assert_document_lines(
     document: str,
     warehouse: WarehouseFacts,
     positions: Sequence[_LinePosition],
+    allow_serials: bool = False,
 ) -> dict[uuid.UUID, ItemFacts]:
     """Hold a document's lines to the master-data rules, against the line that breaks one.
 
-    Three queries for the whole document - items, batches, bins - never one per
-    line. The engine re-checks all of it under its locks when the document
-    posts; this is the answer an operator gets while still looking at the line:
+    Up to four queries for the whole document - items, batches, bins and named
+    serials - never one per line. The engine re-checks mutable stock under its
+    locks when the document posts; this is the answer an operator gets while
+    still looking at the line:
 
     * the item exists in this tenant;
-    * ASSUMPTION: a serial-tracked item is refused outright, because none of
-      these documents has anywhere to name the units it moves - the same
-      refusal a stock transfer makes (docs/assumptions.md section 25);
+    * a serial-tracked item is refused unless this document names the exact
+      units it moves;
     * a batch-tracked item names its batch, and the batch is this item's - a
       batch-less line would draw on a batch-less position that holds nothing;
     * every bin is a live bin of this tenant, in this warehouse, and a bin
@@ -7006,16 +7015,60 @@ async def _assert_document_lines(
             if location_id is not None
         ]
     )
+    serial_ids = [serial_id for position in positions for serial_id in position.serial_ids]
+    serials = await StockSerialRepository(inventory.session, inventory.tenant).by_ids(serial_ids)
     for position in positions:
         number = position.line_number
         item = items.get(position.item_id)
         if item is None:
             raise NotFoundError("Item", position.item_id)
         if item.is_serial_tracked:
+            if not allow_serials:
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is serial tracked and cannot be moved by "
+                    f"{document}: this path does not accept named units.",
+                    code=ErrorCode.SERIAL_REQUIRED,
+                    details={"line_number": number, "item_code": item.code},
+                )
+            if (
+                position.quantity is None
+                or not position.serial_ids
+                or Decimal(len(position.serial_ids)) != position.quantity
+            ):
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is serial tracked, so the bin move must name "
+                    "exactly one serial per unit.",
+                    code=ErrorCode.SERIAL_REQUIRED,
+                    details={"line_number": number, "item_code": item.code},
+                )
+            source_location = position.locations[0][0]
+            for serial_id in position.serial_ids:
+                serial = serials.get(serial_id)
+                if serial is None:
+                    raise NotFoundError("Stock serial", serial_id)
+                if serial.item_id != position.item_id:
+                    raise BusinessRuleError(
+                        f"Line {number}: serial {serial.serial_number} belongs to another item.",
+                        details={"line_number": number, "serial_number": serial.serial_number},
+                    )
+                if serial.batch_id != position.batch_id:
+                    raise BusinessRuleError(
+                        f"Line {number}: serial {serial.serial_number} is not in the named batch.",
+                        details={"line_number": number, "serial_number": serial.serial_number},
+                    )
+                if (
+                    serial.status is not SerialStatus.IN_STOCK
+                    or serial.warehouse_id != warehouse.id
+                    or serial.location_id != source_location
+                ):
+                    raise BusinessRuleError(
+                        f"Line {number}: serial {serial.serial_number} is not in stock at the "
+                        "named source position.",
+                        details={"line_number": number, "serial_number": serial.serial_number},
+                    )
+        elif position.serial_ids:
             raise BusinessRuleError(
-                f"Line {number}: {item.code} is serial tracked and cannot be moved by {document}: "
-                "there is no contract for naming the units on this path.",
-                code=ErrorCode.SERIAL_REQUIRED,
+                f"Line {number}: {item.code} is not serial tracked; remove the serials.",
                 details={"line_number": number, "item_code": item.code},
             )
         if position.batch_id is None:
@@ -7126,6 +7179,14 @@ class BinMoveService:
             _with_item(BinMoveLineReadWithCost.model_validate(line), items.get(line.item_id))
             for line in move.lines
         ]
+        serial_ids = [serial_id for line in move.lines for serial_id in (line.serial_ids or [])]
+        serials = await StockSerialRepository(self.session, self.tenant).by_ids(serial_ids)
+        missing_serials = [serial_id for serial_id in serial_ids if serial_id not in serials]
+        if missing_serials:
+            raise NotFoundError("Stock serial", missing_serials[0])
+        serial_labels = {serial_id: serial.serial_number for serial_id, serial in serials.items()}
+        for line in read.lines:
+            line.serial_numbers = [serial_labels[serial_id] for serial_id in line.serial_ids]
         await _label_operation_positions(self.inventory, read)
         return read
 
@@ -7146,9 +7207,12 @@ class BinMoveService:
                         item_id=line.item_id,
                         batch_id=line.batch_id,
                         locations=((line.from_location_id, False), (line.to_location_id, True)),
+                        quantity=Decimal(line.quantity),
+                        serial_ids=tuple(line.serial_ids),
                     )
                     for number, line in enumerate(payload.lines, start=1)
                 ],
+                allow_serials=True,
             )
 
             code = await next_document_number(
@@ -7176,6 +7240,7 @@ class BinMoveService:
                         from_location_id=line.from_location_id,
                         to_location_id=line.to_location_id,
                         quantity=to_quantity(line.quantity),
+                        serial_ids=line.serial_ids,
                     )
                 )
                 for number, line in enumerate(payload.lines, start=1)
@@ -7201,41 +7266,55 @@ class BinMoveService:
             # type. docs/assumptions.md §E8-1.
             occurred_at = _business_time(move.move_date)
             movements: list[MovementRequest] = []
-            for line in lines:
+            outbound_indices: list[list[int]] = [[] for _ in lines]
+            for line_index, line in enumerate(lines):
                 common: dict[str, Any] = {
                     "item_id": line.item_id,
                     "warehouse_id": move.warehouse_id,
                     "batch_id": line.batch_id,
-                    "quantity": Decimal(line.quantity),
                     "reference_type": AUDIT_ENTITY_BIN_MOVE,
                     "reference_id": move.id,
                     "reference_code": move.code,
                     "reason": move.reason,
                     "occurred_at": occurred_at,
                 }
-                outbound = len(movements)
-                movements.append(
-                    MovementRequest(
-                        location_id=line.from_location_id,
-                        transaction_type=TransactionType.TRANSFER_OUT,
-                        **common,
+                serial_ids = line.serial_ids or []
+                unit_ids: Sequence[uuid.UUID | None] = serial_ids if serial_ids else (None,)
+                for serial_id in unit_ids:
+                    outbound = len(movements)
+                    outbound_indices[line_index].append(outbound)
+                    quantity = Decimal("1") if serial_id is not None else Decimal(line.quantity)
+                    movements.append(
+                        MovementRequest(
+                            location_id=line.from_location_id,
+                            transaction_type=TransactionType.TRANSFER_OUT,
+                            quantity=quantity,
+                            serial_id=serial_id,
+                            **common,
+                        )
                     )
-                )
-                movements.append(
-                    MovementRequest(
-                        location_id=line.to_location_id,
-                        transaction_type=TransactionType.TRANSFER_IN,
-                        carries_cost_of=outbound,
-                        **common,
+                    movements.append(
+                        MovementRequest(
+                            location_id=line.to_location_id,
+                            transaction_type=TransactionType.TRANSFER_IN,
+                            quantity=quantity,
+                            serial_id=serial_id,
+                            carries_cost_of=outbound,
+                            **common,
+                        )
                     )
-                )
             posted = await self.engine.post(movements)
 
             total_value = Decimal("0")
-            # Every other row is an outbound leg, and it is what the stock cost.
-            for line, outbound_txn in zip(lines, posted[::2], strict=True):
-                line.unit_cost = to_unit_price(outbound_txn.unit_cost)
-                line.total_cost = to_money(abs(Decimal(outbound_txn.total_cost)))
+            for line, indices in zip(lines, outbound_indices, strict=True):
+                line.total_cost = to_money(
+                    sum(abs(Decimal(posted[index].total_cost)) for index in indices)
+                )
+                line.unit_cost = (
+                    to_unit_price(line.total_cost / Decimal(line.quantity))
+                    if line.serial_ids
+                    else to_unit_price(posted[indices[0]].unit_cost)
+                )
                 total_value += line.total_cost
             move.total_value = to_money(total_value)
 

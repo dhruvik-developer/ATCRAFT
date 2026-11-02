@@ -9719,6 +9719,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "location_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "unbinned_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "serial_ids",
                   "value": "['00000000-0000-0000-0000-000000000000']"
                 },
@@ -10250,7 +10262,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"move_date\": \"2026-01-01\",\n  \"notes\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"serial_ids\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"move_date\": \"2026-01-01\",\n  \"notes\": \"\"\n}"
             },
             "description": "Putaway and re-slotting. Posted as soon as it is raised: each line is a TRANSFER_OUT at the source bin and a TRANSFER_IN at the destination bin, the destination re-opening exactly the FIFO cost layers the source gave up.",
             "header": [

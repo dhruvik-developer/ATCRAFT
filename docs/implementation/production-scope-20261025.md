@@ -53,24 +53,26 @@ domain has been supplied, so live-host verification remains separate.
 | Vendor job-work / rejected-stock reissue | Implemented in this delivery: vendor/category-scoped orders and audited progress events, overdue reminders, and source-linked rework from physically returned `RETURN_TO_STOCK` output. The current focused and full-suite verification is recorded by the delivery checks. |
 ## Remaining serial-operation boundaries
 
-[BinMoveLineCreate and InternalIssueLineCreate](../../apps/api/src/modules/inventory/schemas.py)
-have quantity, batch and location fields but no named serial set.
-`_assert_document_lines` in the [inventory service](../../apps/api/src/modules/inventory/service.py)
-explicitly refuses serial-tracked items for bin moves, internal issues and scrap
-disposal. Supporting those flows requires persisted identity selections,
-whole-unit/count checks, tenant/item/position validation, shared inventory
-posting, UI selectors and integration tests. Removing the refusal alone would
-lose unit traceability.
+[BinMoveLineCreate](../../apps/api/src/modules/inventory/schemas.py) now
+persists a bounded set of named serial IDs. Serial lines require exactly one
+unit per quantity; the service checks tenant, item, batch and exact source
+position, then the movement engine locks and revalidates the units while
+posting one paired transfer per unit and carrying its FIFO layers. The
+inventory UI selects only serials at the chosen source bin. Internal issues
+remain quantity-only and refuse serial-tracked stock. Scrap disposal remains
+quantity-only because the serial is retired when stock enters scrap.
 
 Physical-count sheets also remain quantity-based. The
 [PostgreSQL boundary regressions](../../apps/api/tests/integration/test_serial_inventory_operation_boundaries.py)
 now reproduce both missing-unit and extra-unit refusals: an unnamed serial
 variance leaves the count unconfirmed, with ledger, FIFO, balances, identities,
 audit and unrelated tenant/warehouse rows unchanged. A matching serial count
-confirms without a stock movement. Mixed bin-move, internal-issue and scrap
-documents are also refused atomically. All six cases pass. These tests protect
-the current traceability boundary; they do not implement named-unit variance
-reconciliation or the three unsupported operations.
+confirms without a stock movement. Bin moves now have positive coverage for
+named-unit posting, destination location, paired ledger rows and FIFO cost;
+missing, foreign and wrong-position serials refuse atomically. Mixed unnamed
+bin moves, internal issues and scrap disposals also retain their refusal
+regressions. Named-unit variance reconciliation, serial internal issues and
+serial lifecycle changes at scrap disposal remain open.
 
 Label capabilities must be described precisely. The current
 [serial field](../../apps/web/src/features/inventory/serial-numbers-field.tsx)

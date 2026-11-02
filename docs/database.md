@@ -640,11 +640,12 @@ warehouse scope and participate in the report snapshot CHECK vocabulary.
 Incoming QC currently addresses the unbinned warehouse position. A GRN line
 held for inspection therefore refuses a bin; put accepted stock away afterwards
 with a bin move. E8b added unit identity to receipts, production and assembly
-output, transfers and adjustments. Bin moves and internal issues still carry only
-a quantity and a lot, so their movements refuse serial-tracked stock until they
-can name the units. A scrap disposal consumes the scrap pool by quantity; the
-units were already retired on the scrap posting, so disposal does not mint a new
-unit state.
+output, transfers and adjustments. Bin moves also store `serial_ids` on each
+line; every named unit is checked against the exact source position and posted
+as its own paired transfer movements. Internal issues remain quantity-only and
+refuse serial-tracked stock. A scrap disposal consumes the scrap pool by
+quantity; the units were already retired on the scrap posting, so disposal does
+not mint a new unit state.
 
 ### 4.7 Batches, serials and document traceability
 
@@ -694,6 +695,7 @@ These documents keep the identity they captured:
 | `assembly_order_components` | `is_batch_tracked_component`, `issued_batch_id`, `consumed_batch_id` |
 | `stock_transfer_lines` | `batch_id`, `serial_ids`, `dispatch_transaction_ids`; count check against `quantity` |
 | `stock_adjustment_lines` | `batch_id`, `serial_ids`; count check against `abs(quantity)` |
+| `bin_move_lines` | `serial_ids`; count check against `quantity` |
 | `job_work_order_lines` | `is_batch_tracked`, `batch_id`, `is_serial_tracked`, issued `serial_ids` |
 | `job_work_challan_lines` | `batch_id`, issued `serial_ids` |
 | `job_work_receipt_lines` | `batch_id`; input identity arrays `output_serial_ids`, `rejected_serial_ids`, `returned_unprocessed_serial_ids`, `scrapped_serial_ids`; `converted_serial_ids` maps input to output identities when the SKU changes |

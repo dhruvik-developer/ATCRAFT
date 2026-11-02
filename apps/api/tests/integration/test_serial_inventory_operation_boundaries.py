@@ -1,7 +1,7 @@
-"""Current unsupported serial operations fail safely on real PostgreSQL.
+"""Serial inventory operation boundaries against real PostgreSQL.
 
-These are refusal regressions, not acceptance tests for named-unit bin moves,
-internal consumption, scrap disposal or count reconciliation. Mixed documents
+Named-unit bin moves must preserve identity and FIFO cost. Internal consumption,
+scrap disposal and serial-count variances remain refusal cases. Mixed documents
 also contain an otherwise valid plain-stock line, so a failure must preserve
 that stock and its FIFO history rather than leaving a partially posted document.
 """
@@ -16,7 +16,8 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import text
+from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -29,7 +30,7 @@ from sqlalchemy.pool import NullPool
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
-from src.core.errors import BusinessRuleError, ErrorCode
+from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError
 from src.core.models import Base
 from src.core.pagination import PageParams
 from src.modules.audit.models import AuditLog
@@ -96,6 +97,7 @@ class Kit:
     bin_id: uuid.UUID
     department_id: uuid.UUID
     serial_ids: tuple[uuid.UUID, ...]
+    foreign_serial_id: uuid.UUID
 
 
 def _engine(schema: str) -> AsyncEngine:
@@ -104,6 +106,64 @@ def _engine(schema: str) -> AsyncEngine:
         poolclass=NullPool,
         connect_args={"server_settings": {"search_path": f"{schema},public"}},
     )
+
+
+def test_bin_move_schema_bounds_and_uniquely_names_serials() -> None:
+    item_id = uuid.uuid4()
+    serial_id = uuid.uuid4()
+    with pytest.raises(PydanticValidationError):
+        BinMoveLineCreate(item_id=item_id, quantity=Decimal("2"), serial_ids=[serial_id])
+    with pytest.raises(PydanticValidationError):
+        BinMoveLineCreate(
+            item_id=item_id,
+            quantity=Decimal("2"),
+            serial_ids=[serial_id, serial_id],
+        )
+    with pytest.raises(PydanticValidationError):
+        BinMoveLineCreate(
+            item_id=item_id,
+            quantity=Decimal("501"),
+            serial_ids=[uuid.uuid4() for _ in range(501)],
+        )
+    serial_ids = [uuid.uuid4() for _ in range(501)]
+    with pytest.raises(PydanticValidationError):
+        BinMoveCreate(
+            warehouse_id=uuid.uuid4(),
+            reason="Keep the whole document bounded",
+            lines=[
+                BinMoveLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("251"),
+                    to_location_id=uuid.uuid4(),
+                    serial_ids=serial_ids[:251],
+                ),
+                BinMoveLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("250"),
+                    from_location_id=uuid.uuid4(),
+                    serial_ids=serial_ids[251:],
+                ),
+            ],
+        )
+    with pytest.raises(PydanticValidationError):
+        BinMoveCreate(
+            warehouse_id=uuid.uuid4(),
+            reason="Do not identify a unit twice",
+            lines=[
+                BinMoveLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("1"),
+                    to_location_id=uuid.uuid4(),
+                    serial_ids=[serial_id],
+                ),
+                BinMoveLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("1"),
+                    from_location_id=uuid.uuid4(),
+                    serial_ids=[serial_id],
+                ),
+            ],
+        )
 
 
 @pytest.fixture(scope="module")
@@ -292,6 +352,7 @@ async def _seed_kit(session: AsyncSession, scope: Scope) -> Kit:
         bin_id=location.id,
         department_id=department.id,
         serial_ids=tuple(serial.id for serial in serials),
+        foreign_serial_id=foreign_serials[0].id,
     )
 
 
@@ -413,7 +474,146 @@ async def test_serial_document_refusal_preserves_both_tenants_and_every_stock_re
             )
     assert refused.value.code is ErrorCode.SERIAL_REQUIRED
     assert refused.value.details == {"line_number": 2, "item_code": kit.item_code}
-    assert "no contract for naming the units" in refused.value.message
+    expected_message = (
+        "must name exactly one serial per unit"
+        if operation == "bin_move"
+        else "this path does not accept named units"
+    )
+    assert expected_message in refused.value.message
+    assert await _snapshot(kit.session) == before
+
+
+async def test_named_serial_bin_move_posts_both_legs_and_preserves_fifo_cost(kit: Kit) -> None:
+    serial_id = kit.serial_ids[0]
+    moved = await inventory.BinMoveService(kit.session, kit.tenant).create(
+        BinMoveCreate(
+            warehouse_id=kit.warehouse_id,
+            reason="Put the named unit on its assigned rack",
+            lines=[
+                BinMoveLineCreate(
+                    item_id=kit.item_id,
+                    quantity=Decimal("1"),
+                    to_location_id=kit.bin_id,
+                    serial_ids=[serial_id],
+                )
+            ],
+        )
+    )
+
+    line = moved.lines[0]
+    assert line.serial_ids == [serial_id]
+    assert line.serial_numbers == ["BOUNDARY-1"]
+    assert line.total_cost == Decimal("12")
+    assert moved.total_value == Decimal("12")
+
+    ledger_rows = list(
+        (
+            await kit.session.scalars(
+                select(InventoryTransaction)
+                .where(
+                    InventoryTransaction.company_id == kit.tenant.company_id,
+                    InventoryTransaction.reference_id == moved.id,
+                    InventoryTransaction.serial_id == serial_id,
+                )
+                .order_by(InventoryTransaction.created_at, InventoryTransaction.id)
+            )
+        ).all()
+    )
+    assert [row.transaction_type for row in ledger_rows] == [
+        TransactionType.TRANSFER_OUT,
+        TransactionType.TRANSFER_IN,
+    ]
+    assert [row.location_id for row in ledger_rows] == [None, kit.bin_id]
+    assert [row.quantity for row in ledger_rows] == [Decimal("-1"), Decimal("1")]
+
+    serial = await kit.session.get(StockSerial, serial_id)
+    assert serial is not None
+    assert serial.status is SerialStatus.IN_STOCK
+    assert serial.warehouse_id == kit.warehouse_id
+    assert serial.location_id == kit.bin_id
+    source = await kit.session.scalar(
+        select(InventoryBalance).where(
+            InventoryBalance.company_id == kit.tenant.company_id,
+            InventoryBalance.item_id == kit.item_id,
+            InventoryBalance.warehouse_id == kit.warehouse_id,
+            InventoryBalance.location_id.is_(None),
+        )
+    )
+    destination = await kit.session.scalar(
+        select(InventoryBalance).where(
+            InventoryBalance.company_id == kit.tenant.company_id,
+            InventoryBalance.item_id == kit.item_id,
+            InventoryBalance.warehouse_id == kit.warehouse_id,
+            InventoryBalance.location_id == kit.bin_id,
+        )
+    )
+    assert source is not None and source.on_hand_quantity == Decimal("1")
+    assert destination is not None
+    assert destination.on_hand_quantity == Decimal("1")
+    assert destination.stock_value == Decimal("12")
+
+    service = inventory.TraceabilityService(kit.session, kit.tenant)
+    at_destination, _ = await service.list_serials(
+        kit.item_id,
+        kit.warehouse_id,
+        None,
+        PageParams(limit=10),
+        status=SerialStatus.IN_STOCK,
+        location_id=kit.bin_id,
+    )
+    assert [row.id for row in at_destination] == [serial_id]
+    unbinned, _ = await service.list_serials(
+        kit.item_id,
+        kit.warehouse_id,
+        None,
+        PageParams(limit=10),
+        status=SerialStatus.IN_STOCK,
+        unbinned_only=True,
+    )
+    assert {row.id for row in unbinned} == {kit.serial_ids[1]}
+
+
+@pytest.mark.parametrize("foreign", [False, True], ids=["unknown-serial", "other-tenant"])
+async def test_bin_move_rejects_unresolvable_serial_without_mutating_stock(
+    kit: Kit, foreign: bool
+) -> None:
+    serial_id = kit.foreign_serial_id if foreign else uuid.uuid4()
+    before = await _snapshot(kit.session)
+    with pytest.raises(NotFoundError):
+        await inventory.BinMoveService(kit.session, kit.tenant).create(
+            BinMoveCreate(
+                warehouse_id=kit.warehouse_id,
+                reason="The unit must belong to this company",
+                lines=[
+                    BinMoveLineCreate(
+                        item_id=kit.item_id,
+                        quantity=Decimal("1"),
+                        to_location_id=kit.bin_id,
+                        serial_ids=[serial_id],
+                    )
+                ],
+            )
+        )
+    assert await _snapshot(kit.session) == before
+
+
+async def test_bin_move_refuses_serial_outside_the_named_source_bin_atomically(kit: Kit) -> None:
+    before = await _snapshot(kit.session)
+    with pytest.raises(BusinessRuleError, match="named source position"):
+        await inventory.BinMoveService(kit.session, kit.tenant).create(
+            BinMoveCreate(
+                warehouse_id=kit.warehouse_id,
+                reason="Do not move a unit from the wrong rack",
+                lines=[
+                    BinMoveLineCreate(
+                        item_id=kit.item_id,
+                        quantity=Decimal("1"),
+                        from_location_id=kit.bin_id,
+                        serial_ids=[kit.serial_ids[0]],
+                    )
+                ],
+            )
+        )
     assert await _snapshot(kit.session) == before
 
 

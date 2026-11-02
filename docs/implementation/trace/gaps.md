@@ -12,6 +12,14 @@
 > See `docs/implementation/specs/E8b-batch-serial-tracking.md` and
 > `docs/implementation/trace/notes.md`.
 >
+> **Post-audit update - 16 November 2026 (serial bin moves).** Serial-tracked bin moves now
+> name each unit, validate it at the exact source bin (including the unbinned
+> position), and post paired `TRANSFER_OUT` / `TRANSFER_IN` rows under the
+> movement engine's locks while carrying FIFO cost layers. Internal issues,
+> serial-tracked job work and tracked SKU transformations remain deliberately
+> refused; scrap disposal stays quantity-only because the serial is retired
+> when stock enters scrap.
+>
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,
 > nets every item exactly once at its deepest level (free stock, then dated

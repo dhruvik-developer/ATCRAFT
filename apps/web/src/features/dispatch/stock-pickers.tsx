@@ -231,6 +231,7 @@ export function SerialPicker({
   onChange,
   label = 'Serial numbers',
   batchId,
+  locationId,
   status,
   allowedStatuses = ['IN_STOCK'],
   excludedIds = [],
@@ -246,6 +247,7 @@ export function SerialPicker({
   onChange: (serialIds: string[]) => void
   label?: string
   batchId?: string | null
+  locationId?: string | null
   status?: StockSerial['status']
   allowedStatuses?: readonly string[]
   excludedIds?: readonly string[]
@@ -268,6 +270,7 @@ export function SerialPicker({
     itemId,
     warehouseId,
     batchId,
+    locationId,
     status,
     scope?.job_work_order_line_id,
     scope?.qc_inspection_id,
@@ -279,6 +282,11 @@ export function SerialPicker({
     ...(warehouseId ? { warehouse_id: warehouseId } : {}),
     ...(debounced ? { search: debounced } : {}),
     ...(batchId ? { batch_id: batchId } : {}),
+    ...(locationId
+      ? { location_id: locationId }
+      : locationId === null
+        ? { unbinned_only: true }
+        : {}),
     ...(status ? { status } : {}),
     ...scope,
     page,
@@ -302,6 +310,11 @@ export function SerialPicker({
                 ...(warehouseId ? { warehouse_id: warehouseId } : {}),
                 ...(debounced ? { search: debounced } : {}),
                 ...(batchId ? { batch_id: batchId } : {}),
+                ...(locationId
+                  ? { location_id: locationId }
+                  : locationId === null
+                    ? { unbinned_only: true }
+                    : {}),
                 serial_ids: serialIds,
                 page: 1,
                 limit: 100,

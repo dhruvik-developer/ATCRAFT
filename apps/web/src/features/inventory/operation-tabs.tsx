@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/overlays'
 import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { CostCentreName, CostCentreSelect } from '@/features/admin/cost-centre-select'
+import { SerialPicker } from '@/features/dispatch/stock-pickers'
 import { useAuth } from '@/features/auth/auth-context'
 import BatchSelect from './movement-batch-picker'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
@@ -56,6 +57,7 @@ const documentDate = (row: Operation) =>
 function OperationLines({ document }: { document: Operation }) {
   const { can } = useAuth()
   const canSeeCosts = can(P.ITEM_COST_VIEW) || can(P.INVENTORY_VALUATION_VIEW)
+  const showsSerials = 'move_date' in document
   return (
     <div className="space-y-3">
       <p className="text-sm">
@@ -72,6 +74,7 @@ function OperationLines({ document }: { document: Operation }) {
               <th className="p-2">Item</th>
               <th className="p-2">Batch</th>
               <th className="p-2">Bin</th>
+              {showsSerials && <th className="p-2">Serials</th>}
               <th className="p-2 text-right">Quantity</th>
             </tr>
           </thead>
@@ -90,6 +93,13 @@ function OperationLines({ document }: { document: Operation }) {
                     ? `${line.from_location_code ?? (line.from_location_id ? 'Retired bin' : 'Unbinned')} → ${line.to_location_code ?? (line.to_location_id ? 'Retired bin' : 'Unbinned')}`
                     : (line.location_code ?? (line.location_id ? 'Retired bin' : 'Unbinned'))}
                 </td>
+                {showsSerials && (
+                  <td className="p-2">
+                    {'serial_numbers' in line && (line.serial_numbers?.length ?? 0) > 0
+                      ? line.serial_numbers?.join(', ')
+                      : '—'}
+                  </td>
+                )}
                 <td className="p-2 text-right tabular">{formatQuantity(line.quantity)}</td>
               </tr>
             ))}
@@ -115,6 +125,9 @@ interface Line {
   batch_id: string
   location_id: string
   to_location_id: string
+  is_serial_tracked: boolean
+  is_batch_tracked: boolean
+  serial_ids: string[]
 }
 const blankLine = (): Line => ({
   item_id: '',
@@ -122,6 +135,9 @@ const blankLine = (): Line => ({
   batch_id: '',
   location_id: '',
   to_location_id: '',
+  is_serial_tracked: false,
+  is_batch_tracked: false,
+  serial_ids: [],
 })
 const ITEM_FILTERS = { is_serial_tracked: false }
 const TITLES: Record<Kind, string> = {
@@ -168,6 +184,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
             ? {
                 from_location_id: line.location_id || null,
                 to_location_id: line.to_location_id || null,
+                serial_ids: line.serial_ids,
               }
             : { location_id: line.location_id || null }),
         })),
@@ -200,6 +217,18 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
     }
     if (kind === 'bin-moves' && lines.some((line) => line.location_id === line.to_location_id)) {
       setError('Choose different source and destination bins on every line.')
+      return
+    }
+    if (
+      kind === 'bin-moves' &&
+      lines.some(
+        (line) =>
+          line.is_serial_tracked &&
+          (!/^\d+$/.test(line.quantity.trim()) ||
+            !toDecimal(line.quantity).equals(line.serial_ids.length)),
+      )
+    ) {
+      setError('Select exactly one serial number for every unit on each serial-tracked line.')
       return
     }
     if (kind === 'internal-issues' && !department && !centre) {
@@ -327,8 +356,16 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                     id={`operation-item-${index}`}
                     label={`Item, line ${index + 1}`}
                     value={line.item_id || null}
-                    filters={ITEM_FILTERS}
-                    onChange={(value) => patchLine(index, { item_id: value ?? '', batch_id: '' })}
+                    filters={kind === 'bin-moves' ? undefined : ITEM_FILTERS}
+                    onChange={(value, item) =>
+                      patchLine(index, {
+                        item_id: value ?? '',
+                        batch_id: '',
+                        is_serial_tracked: item?.is_serial_tracked ?? false,
+                        is_batch_tracked: item?.is_batch_tracked ?? false,
+                        serial_ids: [],
+                      })
+                    }
                   />
                   <div className="space-y-1.5">
                     <Label htmlFor={`operation-quantity-${index}`}>Quantity</Label>
@@ -356,7 +393,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                       id={`operation-batch-${index}`}
                       itemId={line.item_id}
                       value={line.batch_id}
-                      onChange={(value) => patchLine(index, { batch_id: value })}
+                      onChange={(value) => patchLine(index, { batch_id: value, serial_ids: [] })}
                     />
                   )}
                   <LocationPicker
@@ -365,7 +402,9 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                     itemId={line.item_id}
                     warehouseId={warehouse}
                     value={line.location_id || null}
-                    onChange={(value) => patchLine(index, { location_id: value ?? '' })}
+                    onChange={(value) =>
+                      patchLine(index, { location_id: value ?? '', serial_ids: [] })
+                    }
                   />
                   {kind === 'bin-moves' && (
                     <LocationPicker
@@ -377,6 +416,22 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                     />
                   )}
                 </div>
+                {kind === 'bin-moves' && line.is_serial_tracked && (
+                  <SerialPicker
+                    idPrefix={`operation-serial-${index}`}
+                    itemId={line.item_id}
+                    warehouseId={warehouse}
+                    locationId={line.location_id || null}
+                    batchId={line.batch_id || null}
+                    quantity={line.quantity}
+                    selected={line.serial_ids}
+                    status="IN_STOCK"
+                    excludedIds={lines.flatMap((candidate, at) =>
+                      at === index ? [] : candidate.serial_ids,
+                    )}
+                    onChange={(serial_ids) => patchLine(index, { serial_ids })}
+                  />
+                )}
               </div>
             ))}
             <Button

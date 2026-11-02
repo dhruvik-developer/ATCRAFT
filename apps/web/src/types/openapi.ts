@@ -15760,6 +15760,8 @@ export interface components {
             item_id: string;
             /** Quantity */
             quantity: number | string;
+            /** Serial Ids */
+            serial_ids?: string[];
             /** To Location Id */
             to_location_id?: string | null;
         };
@@ -15791,6 +15793,10 @@ export interface components {
             line_number: number;
             /** Quantity */
             quantity: string;
+            /** Serial Ids */
+            serial_ids?: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
             /** To Location Code */
             to_location_code?: string | null;
             /** To Location Id */
@@ -15824,6 +15830,10 @@ export interface components {
             line_number: number;
             /** Quantity */
             quantity: string;
+            /** Serial Ids */
+            serial_ids?: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
             /** To Location Code */
             to_location_code?: string | null;
             /** To Location Id */
@@ -72704,6 +72714,8 @@ export interface operations {
                 search?: string | null;
                 status?: components["schemas"]["SerialStatus"] | null;
                 batch_id?: string | null;
+                location_id?: string | null;
+                unbinned_only?: boolean;
                 serial_ids?: string[] | null;
                 job_work_order_line_id?: string | null;
                 job_work_outstanding_only?: boolean;

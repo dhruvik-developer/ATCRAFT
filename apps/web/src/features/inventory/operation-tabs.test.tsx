@@ -12,8 +12,16 @@ const ITEM = {
   code: 'BRASS',
   name: 'Brass sheet',
   is_batch_tracked: false,
+  is_serial_tracked: false,
   default_warehouse_id: null,
   default_location_id: null,
+}
+const SERIAL_ITEM = { ...ITEM, is_serial_tracked: true }
+const SERIAL = {
+  id: '019a0000-0000-7000-8000-000000000005',
+  serial_number: 'BRASS-UNIT-1',
+  status: 'IN_STOCK',
+  warehouse_id: WAREHOUSE.id,
 }
 const BIN = {
   id: '019a0000-0000-7000-8000-000000000003',
@@ -237,6 +245,53 @@ describe('inventory operation documents', () => {
           batch_id: null,
           from_location_id: null,
           to_location_id: BIN.id,
+          serial_ids: [],
+        },
+      ],
+    })
+  })
+
+  it('selects and posts the exact serial at the source position', async () => {
+    const { user, fetch } = renderScreen(<OperationTab kind="bin-moves" />, {
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_TRANSFER, P.LOCATION_VIEW, P.ITEM_VIEW],
+      routes: {
+        'GET /inventory/bin-moves': page([]),
+        'GET /warehouses': page([WAREHOUSE]),
+        'GET /products/items': page([SERIAL_ITEM]),
+        [`GET /products/items/${SERIAL_ITEM.id}`]: ok(SERIAL_ITEM),
+        'GET /warehouses/locations': page([BIN]),
+        [`GET /warehouses/locations/${BIN.id}`]: ok(BIN),
+        'GET /inventory/serials': page([SERIAL]),
+        'POST /inventory/bin-moves': ok({ code: 'BM-0002' }),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: /new bin move/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Reason' }),
+      'Put the serialized unit on its rack',
+    )
+    await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
+    await user.click(await screen.findByRole('option', { name: /BRASS/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Quantity' }), '1')
+    await user.click(await within(dialog).findByRole('button', { name: /BRASS-UNIT-1/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: 'To bin' }))
+    await user.click(await screen.findByRole('option', { name: /BIN-B/ }))
+    await user.click(within(dialog).getByRole('button', { name: /post bin move/i }))
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    expect(fetch.requestFor('POST', '/inventory/bin-moves')).toEqual({
+      warehouse_id: WAREHOUSE.id,
+      reason: 'Put the serialized unit on its rack',
+      lines: [
+        {
+          item_id: SERIAL_ITEM.id,
+          quantity: '1',
+          batch_id: null,
+          from_location_id: null,
+          to_location_id: BIN.id,
+          serial_ids: [SERIAL.id],
         },
       ],
     })

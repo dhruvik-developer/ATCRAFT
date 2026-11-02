@@ -10049,6 +10049,15 @@
             ],
             "title": "Quantity"
           },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Ids",
+            "type": "array"
+          },
           "to_location_id": {
             "anyOf": [
               {
@@ -10157,6 +10166,21 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serial Numbers",
+            "type": "array"
           },
           "to_location_code": {
             "anyOf": [
@@ -10282,6 +10306,21 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serial Numbers",
+            "type": "array"
           },
           "to_location_code": {
             "anyOf": [
@@ -125246,6 +125285,33 @@
                 }
               ],
               "title": "Batch Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "location_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Location Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unbinned_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unbinned Only",
+              "type": "boolean"
             }
           },
           {

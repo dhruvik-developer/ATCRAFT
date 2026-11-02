@@ -1636,6 +1636,8 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         search: str | None,
         status: SerialStatus | None = None,
         batch_id: uuid.UUID | None = None,
+        location_id: uuid.UUID | None = None,
+        unbinned_only: bool = False,
         serial_ids: Sequence[uuid.UUID] | None = None,
         job_work_order_line_id: uuid.UUID | None = None,
         job_work_outstanding_only: bool = False,
@@ -1693,6 +1695,10 @@ class StockSerialRepository(BaseRepository[StockSerial]):
             stmt = stmt.where(StockSerial.status == status)
         if batch_id is not None:
             stmt = stmt.where(StockSerial.batch_id == batch_id)
+        if location_id is not None:
+            stmt = stmt.where(StockSerial.location_id == location_id)
+        elif unbinned_only:
+            stmt = stmt.where(StockSerial.location_id.is_(None))
         if warehouse_id is not None:
             # ASSUMPTION: "the units at this warehouse" means the ones that are
             # still there. ``warehouse_id`` on a serial records the last position

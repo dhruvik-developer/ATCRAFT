@@ -1807,8 +1807,10 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 **Assumed.** Saving a bin move posts paired TRANSFER_OUT and TRANSFER_IN
 movements, carrying the exact FIFO layers in one transaction. It creates no
 in-transit stock. NULL means unbinned stock, and source and destination must
-differ. A posted move is corrected by another move. Warehouse transfers retain
-their existing lifecycle.
+differ. A serial-tracked line names one serial per unit; each unit is validated
+at the exact source position and posted on its own paired ledger rows. A posted
+move is corrected by another move. Warehouse transfers retain their existing
+lifecycle.
 
 **Why.** The engine already accepts a same-warehouse relocation as a transfer
 pair without a transit pool, so a new BIN_MOVE type would duplicate that path.
@@ -1882,8 +1884,9 @@ inspection and vendor losses. An existing scrap position can still be disposed
 of after the capability is disabled. Damaged stock is the QC alternative when
 material cannot be scrapped. SCRAP_DISPOSAL leaves the scrap pool; it does not
 transfer scrap back into useful stock. Scrap disposal stays quantity-only because
-the units were already retired on the scrap posting; bin moves and internal issues
-are also quantity-only and refuse serial-tracked stock until they can name units.
+the units were already retired on the scrap posting. Internal issues remain
+quantity-only and refuse serial-tracked stock until they can name units; bin
+moves name each unit and preserve its position.
 
 **Why.** Turning the capability off must stop new scrap. It must not trap stock
 that is already scrap, because nothing else can address that pool.

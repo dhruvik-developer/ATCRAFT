@@ -214,6 +214,7 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     assert base_table_names(dsn) == set()
 
     alembic("upgrade", "head")
+    alembic("check")
 
     assert query(dsn, "SELECT version_num FROM alembic_version")[0][0] == HEAD_REVISION
     assert {
@@ -380,6 +381,18 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
         assert column_names(dsn, model.__tablename__) == {
             column.name for column in model.__table__.columns
         }
+    bin_move_checks = table_constraints(dsn, "bin_move_lines", "c")
+    assert {
+        "ck_bin_move_lines_serial_count_bounded",
+        "ck_bin_move_lines_serial_count_matches_quantity",
+    } <= set(bin_move_checks)
+    assert all(
+        bin_move_checks[name][1]
+        for name in (
+            "ck_bin_move_lines_serial_count_bounded",
+            "ck_bin_move_lines_serial_count_matches_quantity",
+        )
+    )
     inventory_checks = table_constraints(dsn, "inventory_cost_layers", "c")
     pool_definition, pool_valid = inventory_checks["ck_inventory_cost_layers_pool_known"]
     assert "ON_HAND" in pool_definition and "SCRAP" in pool_definition
