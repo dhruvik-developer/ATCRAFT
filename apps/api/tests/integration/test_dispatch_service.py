@@ -50,6 +50,9 @@ from src.core.pagination import CursorParams, PageParams, SortParams
 from src.modules.allocation import service as allocation
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
 from src.modules.audit.models import AuditLog
+from src.modules.courier_tracking import service as courier_service
+from src.modules.courier_tracking.models import CourierProvider, CourierTrackingEvent
+from src.modules.courier_tracking.schemas import CourierAccountCreate
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.dispatch import service
 from src.modules.dispatch.models import (
@@ -58,6 +61,7 @@ from src.modules.dispatch.models import (
     DispatchStatus,
     DispatchTrackingEvent,
     DispatchType,
+    TrackingEventSource,
 )
 from src.modules.dispatch.repository import CartonLookupRepository
 from src.modules.dispatch.schemas import (
@@ -1178,6 +1182,20 @@ async def test_every_status_change_is_audited(ctx: Ctx) -> None:
 # -----------------------------------------------------------------------------
 
 
+async def courier_account(ctx: Ctx, *, auto_confirm_delivery: bool):
+    created = await courier_service.create_account(
+        ctx.session,
+        ctx.tenant,
+        CourierAccountCreate(
+            code=f"TEST-{uuid.uuid4().hex[:8]}",
+            provider=CourierProvider.GENERIC_WEBHOOK,
+            display_name="Test courier",
+            auto_confirm_delivery=auto_confirm_delivery,
+        ),
+    )
+    return await courier_service.get_account(ctx.session, ctx.tenant, created.id)
+
+
 async def test_confirming_delivery_records_the_date_and_a_tracking_event(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
     result = await send(ctx, bench, "10")
@@ -1201,6 +1219,68 @@ async def test_confirming_delivery_records_the_date_and_a_tracking_event(ctx: Ct
     )
     assert next(event.event_status for event in events) is DispatchStatus.DELIVERED
     assert any(event.event_status is DispatchStatus.DISPATCHED for event in events)
+
+
+@pytest.mark.parametrize(
+    ("auto_confirm_delivery", "expected_status"),
+    [
+        (True, DispatchStatus.DELIVERED),
+        (False, DispatchStatus.DISPATCHED),
+    ],
+)
+async def test_courier_delivery_respects_auto_confirmation(
+    ctx: Ctx,
+    auto_confirm_delivery: bool,
+    expected_status: DispatchStatus,
+) -> None:
+    bench = await seed_bench(ctx)
+    result = await send(ctx, bench, "10")
+    account = await courier_account(ctx, auto_confirm_delivery=auto_confirm_delivery)
+    event_time = utcnow()
+
+    recorded = await courier_service.ingest_events(
+        ctx.session,
+        ctx.tenant,
+        account,
+        [
+            {
+                "tracking_number": "LR-001",
+                "raw_status": "Delivered",
+                "event_time": event_time,
+                "provider_event_id": f"delivery-{uuid.uuid4()}",
+                "raw_payload": {"status": "Delivered"},
+            }
+        ],
+    )
+
+    detail = await service.get_dispatch_detail(ctx.session, ctx.tenant, result.dispatch.id)
+    assert recorded == 1
+    assert detail.status is expected_status
+    if auto_confirm_delivery:
+        assert detail.actual_delivery_date == max(event_time.date(), detail.dispatch_date)
+    else:
+        assert detail.actual_delivery_date is None
+
+    dispatch_event = (
+        await ctx.session.execute(
+            select(DispatchTrackingEvent).where(
+                DispatchTrackingEvent.company_id == ctx.company_id,
+                DispatchTrackingEvent.dispatch_id == result.dispatch.id,
+                DispatchTrackingEvent.source == TrackingEventSource.COURIER_API,
+            )
+        )
+    ).scalar_one()
+    assert DispatchStatus(dispatch_event.event_status) is expected_status
+    assert dispatch_event.event_time == event_time
+    courier_event = (
+        await ctx.session.execute(
+            select(CourierTrackingEvent).where(
+                CourierTrackingEvent.company_id == ctx.company_id,
+                CourierTrackingEvent.dispatch_id == result.dispatch.id,
+            )
+        )
+    ).scalar_one()
+    assert courier_event.normalized_status == "DELIVERED"
 
 
 async def test_a_late_arrival_must_be_explained(ctx: Ctx) -> None:

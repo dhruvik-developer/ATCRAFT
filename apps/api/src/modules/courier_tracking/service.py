@@ -506,7 +506,15 @@ async def ingest_events(
         existing_provider_ids = {
             row.provider_event_id for row in existing if row.provider_event_id is not None
         }
-        recorded = 0
+        pending_effects: list[
+            tuple[
+                dict[str, Any],
+                CourierTrackingEvent,
+                Dispatch | None,
+                PurchaseOrderShipment | None,
+                uuid.UUID | None,
+            ]
+        ] = []
         for event in normalized:
             provider_id = event.get("provider_event_id")
             natural_key = (
@@ -550,9 +558,19 @@ async def ingest_events(
                 shipment_id=matched_shipment.id if matched_shipment is not None else None,
             )
             session.add(row)
-            await session.flush()
-            recorded += 1
+            pending_effects.append(
+                (event, row, matched_dispatch, matched_shipment, shipment_order_id)
+            )
 
+            existing_natural.add(natural_key)
+            if provider_id is not None:
+                existing_provider_ids.add(provider_id)
+
+        if not pending_effects:
+            return 0
+
+        await session.flush()
+        for event, _, matched_dispatch, matched_shipment, shipment_order_id in pending_effects:
             if matched_dispatch is not None:
                 await _apply_dispatch_event(session, tenant, locked, matched_dispatch, event)
             if (
@@ -566,11 +584,7 @@ async def ingest_events(
                 )
             if event["normalized_status"] in {CourierStatus.RETURNED, CourierStatus.EXCEPTION}:
                 await _notify_anomaly(session, tenant, locked, event, matched_dispatch)
-
-            existing_natural.add(natural_key)
-            if provider_id is not None:
-                existing_provider_ids.add(provider_id)
-    return recorded
+    return len(pending_effects)
 
 
 async def _apply_dispatch_event(

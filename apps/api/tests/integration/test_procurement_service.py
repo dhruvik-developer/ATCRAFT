@@ -23,7 +23,7 @@ import asyncio
 import dataclasses
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -47,6 +47,9 @@ from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.courier_tracking import service as courier_service
+from src.modules.courier_tracking.models import CourierProvider
+from src.modules.courier_tracking.schemas import CourierAccountCreate
 from src.modules.finance.models import LedgerAccount, LedgerEntry, PartyType, SystemAccount
 from src.modules.inventory.models import (
     InventoryBalance,
@@ -57,10 +60,13 @@ from src.modules.inventory.models import (
 )
 from src.modules.organization.models import Company
 from src.modules.procurement import (
+    inbound_service,
     purchase_return_debit_note_pdf_repository,
     purchase_return_debit_note_pdf_service,
     service,
 )
+from src.modules.procurement.inbound_models import PurchaseOrderShipment
+from src.modules.procurement.inbound_schemas import InboundShipmentCreate
 from src.modules.procurement.models import (
     GoodsReceiptLine,
     PurchaseOrder,
@@ -1589,6 +1595,70 @@ async def test_the_tracking_view_reports_delay_qc_and_what_is_still_due(db, tena
     assert tracking.qc_pending is True
     assert tracking.qc_pending_line_count == 1
     assert len(tracking.receipts) == 1
+
+
+async def test_courier_delivery_marks_the_inbound_shipment_delivered(db, tenant, buyer, masters):
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await send_order(db, tenant, buyer, order)
+    await service.transition_purchase_order(
+        db,
+        tenant,
+        buyer,
+        order.id,
+        PurchaseOrderStatus.ACKNOWLEDGED,
+        reason="Vendor accepted",
+    )
+    tracking_reference = f"COURIER-{uuid.uuid4().hex[:12]}"
+    shipped_at = utcnow() - timedelta(minutes=1)
+    shipment = await inbound_service.record_inbound_shipment(
+        db,
+        tenant,
+        order.id,
+        InboundShipmentCreate(
+            courier_name="Test courier",
+            tracking_reference=tracking_reference,
+            shipped_at=shipped_at,
+        ),
+    )
+    account_read = await courier_service.create_account(
+        db,
+        tenant,
+        CourierAccountCreate(
+            code=f"TEST-{uuid.uuid4().hex[:8]}",
+            provider=CourierProvider.GENERIC_WEBHOOK,
+            display_name="Test courier",
+        ),
+    )
+    account = await courier_service.get_account(db, tenant, account_read.id)
+    delivered_at = utcnow()
+
+    recorded = await courier_service.ingest_events(
+        db,
+        tenant,
+        account,
+        [
+            {
+                "tracking_number": tracking_reference,
+                "raw_status": "Delivered",
+                "event_time": delivered_at,
+                "provider_event_id": f"delivery-{uuid.uuid4()}",
+                "raw_payload": {"status": "Delivered"},
+            }
+        ],
+    )
+
+    saved_shipment = (
+        await db.execute(
+            select(PurchaseOrderShipment)
+            .where(
+                PurchaseOrderShipment.company_id == tenant.company_id,
+                PurchaseOrderShipment.id == shipment.id,
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert recorded == 1
+    assert saved_shipment.delivered_at == delivered_at.astimezone(UTC)
 
 
 async def test_a_completed_order_is_not_reported_as_delayed(db, tenant, buyer, masters):
