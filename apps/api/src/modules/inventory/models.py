@@ -120,6 +120,7 @@ class TransactionType(StrEnum):
     CUSTOMER_RETURN = "CUSTOMER_RETURN"
     TRANSFER_IN = "TRANSFER_IN"
     ADJUSTMENT_INCREASE = "ADJUSTMENT_INCREASE"
+    COUNT_VARIANCE_INCREASE = "COUNT_VARIANCE_INCREASE"
     OPENING_BALANCE = "OPENING_BALANCE"
     QC_RELEASE = "QC_RELEASE"
 
@@ -131,6 +132,7 @@ class TransactionType(StrEnum):
     ASSEMBLY_CONSUME = "ASSEMBLY_CONSUME"
     TRANSFER_OUT = "TRANSFER_OUT"
     ADJUSTMENT_DECREASE = "ADJUSTMENT_DECREASE"
+    COUNT_VARIANCE_DECREASE = "COUNT_VARIANCE_DECREASE"
     SCRAP = "SCRAP"
     QC_HOLD = "QC_HOLD"
     #: Stock leaving the company out of the SCRAP pool - sold, recycled or
@@ -157,6 +159,7 @@ TRANSACTION_SIGNS: dict[TransactionType, int] = {
     TransactionType.CUSTOMER_RETURN: 1,
     TransactionType.TRANSFER_IN: 1,
     TransactionType.ADJUSTMENT_INCREASE: 1,
+    TransactionType.COUNT_VARIANCE_INCREASE: 1,
     TransactionType.OPENING_BALANCE: 1,
     TransactionType.QC_RELEASE: 1,
     TransactionType.MATERIAL_ISSUE: -1,
@@ -166,6 +169,7 @@ TRANSACTION_SIGNS: dict[TransactionType, int] = {
     TransactionType.ASSEMBLY_CONSUME: -1,
     TransactionType.TRANSFER_OUT: -1,
     TransactionType.ADJUSTMENT_DECREASE: -1,
+    TransactionType.COUNT_VARIANCE_DECREASE: -1,
     TransactionType.SCRAP: -1,
     TransactionType.QC_HOLD: -1,
     TransactionType.SCRAP_DISPOSAL: -1,
@@ -273,6 +277,7 @@ class SerialStatus(StrEnum):
     DISPATCHED = "DISPATCHED"
     RETURNED = "RETURNED"
     SCRAPPED = "SCRAPPED"
+    MISSING = "MISSING"
 
 
 #: Serial statuses that mean "this unit is physically in one of our warehouses".
@@ -367,6 +372,9 @@ class BinMoveStatus(StrEnum):
 
 MAX_SERIALS_PER_BIN_MOVE_LINE = 500
 MAX_SERIALS_PER_INTERNAL_ISSUE_LINE = 500
+MAX_SERIALS_PER_PHYSICAL_COUNT_LINE = 500
+MAX_SERIALS_PER_PHYSICAL_COUNT = 5_000
+MAX_SERIALS_PER_COUNT_REQUEST = 500
 
 
 class ScrapDisposalStatus(StrEnum):
@@ -1624,6 +1632,7 @@ class PhysicalCountLine(TenantEntity):
     system_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     #: NULL until somebody actually counts this position.
     counted_quantity: Mapped[Decimal | None] = mapped_column(Quantity, nullable=True)
+    counted_serial_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
     variance_quantity: Mapped[Decimal | None] = mapped_column(Quantity, nullable=True)
     unit_cost: Mapped[Decimal] = mapped_column(
         UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
@@ -1666,6 +1675,17 @@ class PhysicalCountLine(TenantEntity):
             "(counted_quantity IS NOT NULL AND "
             " variance_quantity = counted_quantity - system_quantity)",
             name="variance_matches_count",
+        ),
+        CheckConstraint(
+            "counted_serial_ids IS NULL OR "
+            f"cardinality(counted_serial_ids) <= {MAX_SERIALS_PER_PHYSICAL_COUNT_LINE}",
+            name="counted_serials_bounded",
+        ),
+        CheckConstraint(
+            "counted_serial_ids IS NULL OR "
+            "(counted_quantity IS NOT NULL AND "
+            "cardinality(counted_serial_ids) = counted_quantity)",
+            name="counted_serials_match_quantity",
         ),
     )
 
@@ -2079,7 +2099,10 @@ __all__ = [
     "GRAIN_NULL_SENTINEL",
     "INCREASE_TYPES",
     "MAX_SERIALS_PER_BIN_MOVE_LINE",
+    "MAX_SERIALS_PER_COUNT_REQUEST",
     "MAX_SERIALS_PER_INTERNAL_ISSUE_LINE",
+    "MAX_SERIALS_PER_PHYSICAL_COUNT",
+    "MAX_SERIALS_PER_PHYSICAL_COUNT_LINE",
     "ON_HAND_NEUTRAL_TYPES",
     "ON_HAND_STATES",
     "SERIAL_IN_WAREHOUSE_STATUSES",

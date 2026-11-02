@@ -67,6 +67,7 @@ const SERIAL_STATUSES: SerialStatus[] = [
   'DISPATCHED',
   'RETURNED',
   'SCRAPPED',
+  'MISSING',
 ]
 
 function expiryHint(expiresOn: string | null): { label: string; tone: string } {

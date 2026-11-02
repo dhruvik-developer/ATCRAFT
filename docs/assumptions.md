@@ -2054,6 +2054,38 @@ make a recall answer incomplete. The fallback is the recorded in-transit
 
 ---
 
+## §E8b-4. Serial count variances are reversible and preserve the stock pool
+
+**Assumed.** A serial-tracked physical-count line names every unit found, and
+the number of labels must equal the counted quantity. The service resolves
+labels against the tenant's serial register and refuses unknown labels or a
+unit registered at a different position. A missing unit receives a
+`COUNT_VARIANCE_DECREASE` movement from the pool named by its latest ledger
+movement and becomes `MISSING`, not `SCRAPPED`. If a later count finds that same
+registered unit, `COUNT_VARIANCE_INCREASE` restores it to the pool recorded by
+the shortage movement. Unreceived registrations at the counted position may
+be added as found units; an unknown label must first be registered. Recount
+clears quantities and serial identities together.
+
+The current registered serial roster must agree with the locked on-hand
+quantity before a count is confirmed. A mismatch refuses the entire
+confirmation rather than allowing quantity and unit identity to drift further.
+
+**Why.** A count shortage is evidence that a known unit was not found on that
+date, not proof it was destroyed. Marking it scrapped would falsify traceability
+if it later turned up; removing every missing unit from `AVAILABLE` would also
+strand stock that was already on QC hold or damaged.
+
+**Where.** `src/modules/inventory/service.py` - `PhysicalCountService.enter_counts`,
+`confirm` and `recount`; `src/modules/inventory/models.py` -
+`SerialStatus.MISSING` and the count-specific transaction types.
+
+**Impact if wrong.** If missing units should be treated as permanent write-offs,
+use a separately authorised scrap or adjustment document after the count; do
+not make the count itself erase the possibility of recovery.
+
+---
+
 ## §E4-1. Stranded QC owners are repaired by a sweep, not by a migration
 
 **Assumed.** Purchase orders, receipt lines, assembly orders and job-work lots

@@ -950,9 +950,9 @@ class LedgerRepository(BaseRepository[InventoryTransaction]):
         - and neither can its recorded position, because a registration may
         state where the unit is expected to land.
 
-        A "stock receipt" is any movement type the serial lifecycle maps onto
-        ``IN_STOCK``: exactly the movements that book a unit onto a shelf. One
-        query for the whole batch, on ``ix_inventory_transactions_serial``, and
+        A stock arrival is any movement type the serial lifecycle maps onto an
+        in-warehouse status, including a customer return. One query for the
+        whole batch, on ``ix_inventory_transactions_serial``, and
         ``DISTINCT`` so a unit with a long history costs one row rather than
         one per movement.
         """
@@ -966,7 +966,7 @@ class LedgerRepository(BaseRepository[InventoryTransaction]):
         receipt_types = [
             str(transaction_type)
             for transaction_type, target in SERIAL_MOVEMENT_TARGETS.items()
-            if target is SerialStatus.IN_STOCK
+            if target in SERIAL_IN_WAREHOUSE_STATUSES
         ]
         stmt = (
             select(InventoryTransaction.serial_id)
@@ -978,6 +978,48 @@ class LedgerRepository(BaseRepository[InventoryTransaction]):
             .distinct()
         )
         return {row[0] for row in (await self.session.execute(stmt)).all()}
+
+    async def latest_serial_movements(
+        self, serial_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, InventoryTransaction]:
+        """Return the latest ledger row for each named unit.
+
+        ``created_at`` ties within one transaction; the UUIDv7 id restores the
+        insertion order, matching the ledger and audit ordering contract.
+        """
+        wanted = list(dict.fromkeys(serial_ids))
+        if not wanted:
+            return {}
+        ranked = (
+            select(
+                InventoryTransaction.id.label("id"),
+                func.row_number()
+                .over(
+                    partition_by=InventoryTransaction.serial_id,
+                    order_by=(
+                        InventoryTransaction.created_at.desc(),
+                        InventoryTransaction.id.desc(),
+                    ),
+                )
+                .label("position"),
+            )
+            .where(
+                InventoryTransaction.company_id == self.tenant.company_id,
+                InventoryTransaction.serial_id.in_(wanted),
+            )
+            .subquery()
+        )
+        stmt = (
+            select(InventoryTransaction)
+            .join(ranked, ranked.c.id == InventoryTransaction.id)
+            .where(ranked.c.position == 1)
+            .order_by(InventoryTransaction.serial_id)
+        )
+        return {
+            row.serial_id: row
+            for row in (await self.session.execute(stmt)).scalars().all()
+            if row.serial_id is not None
+        }
 
     async def posted_quantity(
         self,
@@ -1608,6 +1650,54 @@ class StockSerialRepository(BaseRepository[StockSerial]):
             for row in (await self.session.execute(stmt)).scalars().all()
         }
 
+    async def at_positions(
+        self, grains: Sequence[BalanceGrain]
+    ) -> dict[BalanceGrain, list[StockSerial]]:
+        """Find the registered units presently assigned to these count grains.
+
+        The caller holds each balance row first, which serialises all movements
+        that can change a unit's position. Registrations without a receipt are
+        included here; the ledger's receipt lookup distinguishes those expected
+        labels from units that currently contribute to on-hand.
+        """
+        wanted = list(dict.fromkeys(grains))
+        if not wanted:
+            return {}
+        nil = uuid.UUID(int=0)
+        position = tuple_(
+            StockSerial.item_id,
+            StockSerial.warehouse_id,
+            func.coalesce(StockSerial.location_id, nil),
+            func.coalesce(StockSerial.batch_id, nil),
+        )
+        keys = [
+            (
+                grain.item_id,
+                grain.warehouse_id,
+                grain.location_id or nil,
+                grain.batch_id or nil,
+            )
+            for grain in wanted
+        ]
+        statuses = sorted(str(status) for status in SERIAL_IN_WAREHOUSE_STATUSES)
+        stmt = (
+            self._scoped()
+            .where(position.in_(keys), StockSerial.status.in_(statuses))
+            .order_by(StockSerial.id)
+        )
+        result: dict[BalanceGrain, list[StockSerial]] = {grain: [] for grain in wanted}
+        for row in (await self.session.execute(stmt)).scalars().all():
+            if row.warehouse_id is None:
+                continue
+            grain = BalanceGrain(
+                item_id=row.item_id,
+                warehouse_id=row.warehouse_id,
+                location_id=row.location_id,
+                batch_id=row.batch_id,
+            )
+            result[grain].append(row)
+        return result
+
     async def in_stock_for_batch(self, batch_id: uuid.UUID) -> list[StockSerial]:
         """Every in-stock unit of one lot, in one query, ordered for grouping.
 
@@ -1773,6 +1863,19 @@ class PhysicalCountLineRepository(BaseRepository[PhysicalCountLine]):
                 PhysicalCountLine.counted_quantity.is_(None),
             )
         )
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def counted_serial_count(
+        self, count_id: uuid.UUID, *, exclude_line_ids: Sequence[uuid.UUID] = ()
+    ) -> int:
+        stmt = select(
+            func.coalesce(func.sum(func.cardinality(PhysicalCountLine.counted_serial_ids)), 0)
+        ).where(
+            PhysicalCountLine.company_id == self.tenant.company_id,
+            PhysicalCountLine.count_id == count_id,
+        )
+        if exclude_line_ids:
+            stmt = stmt.where(PhysicalCountLine.id.not_in(list(exclude_line_ids)))
         return int((await self.session.execute(stmt)).scalar_one())
 
 

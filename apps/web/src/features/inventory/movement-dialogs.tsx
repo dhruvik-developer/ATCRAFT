@@ -1272,9 +1272,12 @@ const MAX_ENTRIES_PER_SAVE = 500
 interface CountEntryState {
   /** Figures keyed so far, by line id. */
   drafts: Record<string, string>
+  /** Scanned serial labels keyed so far, by line id. */
+  serialDrafts: Record<string, string>
   /** A 422 the server addressed to a line, by line id. */
   errorsByLine: Record<string, string>
   setDraft: (lineId: string, value: string) => void
+  setSerialDraft: (lineId: string, value: string) => void
 }
 
 /**
@@ -1306,6 +1309,38 @@ function CountedQuantityCell({ line }: { line: PhysicalCountLineRow }) {
         onChange={(event) => entry.setDraft(line.id, event.target.value)}
         className="h-8 w-28 text-right tabular"
       />
+      <FieldError message={message} />
+    </div>
+  )
+}
+
+function parseCountedSerialNumbers(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((serial) => serial.trim())
+    .filter(Boolean)
+}
+
+function CountedSerialsCell({ line }: { line: PhysicalCountLineRow }) {
+  const entry = useContext(CountEntryContext)
+  if (!entry) return null
+  const value = entry.serialDrafts[line.id] ?? (line.counted_serial_numbers ?? []).join('\n')
+  const message = entry.errorsByLine[line.id]
+  return (
+    <div className="min-w-52 space-y-1">
+      <Textarea
+        rows={2}
+        autoComplete="off"
+        aria-label={'Serial numbers found for ' + (line.item_code ?? line.item_id)}
+        aria-invalid={Boolean(message)}
+        placeholder="Scan or enter one serial per line"
+        value={value}
+        onChange={(event) => entry.setSerialDraft(line.id, event.target.value)}
+        className="min-h-14 text-xs"
+      />
+      <p className="text-right text-xs text-muted-foreground">
+        {formatNumber(parseCountedSerialNumbers(value).length)} unit(s)
+      </p>
       <FieldError message={message} />
     </div>
   )
@@ -1349,7 +1384,12 @@ const COUNT_ENTRY_COLUMNS: ColumnDef<PhysicalCountLineRow, unknown>[] = [
     enableSorting: false,
     enableHiding: false,
     meta: { align: 'right' },
-    cell: ({ row }) => <CountedQuantityCell line={row.original} />,
+    cell: ({ row }) =>
+      row.original.is_serial_tracked ? (
+        <CountedSerialsCell line={row.original} />
+      ) : (
+        <CountedQuantityCell line={row.original} />
+      ),
   },
   {
     id: 'variance_quantity',
@@ -1407,6 +1447,8 @@ export function EnterCountsDialog({
   const [limit, setLimit] = useState<number>(DEFAULT_PAGE_SIZE)
   /** Figures keyed so far, by line id. Only a typed value is ever sent. */
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  /** Serial labels keyed so far. A present empty string records a zero count. */
+  const [serialDrafts, setSerialDrafts] = useState<Record<string, string>>({})
 
   const params = { page, limit, with_total: true }
   const lines = useQuery({
@@ -1421,7 +1463,13 @@ export function EnterCountsDialog({
   })
 
   const save = useMutation({
-    mutationFn: (entries: { line_id: string; counted_quantity: string }[]) =>
+    mutationFn: (
+      entries: {
+        line_id: string
+        counted_quantity: string
+        serial_numbers?: string[]
+      }[],
+    ) =>
       api.post<PhysicalCountRow>('/inventory/physical-counts/' + count.id + '/entries', {
         entries,
       }),
@@ -1437,18 +1485,39 @@ export function EnterCountsDialog({
       )
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       setDrafts({})
+      setSerialDrafts({})
       // Nothing is left to key once the sheet is COUNTED; otherwise it stays
       // open for the next aisle.
       if (result.status === 'COUNTED') onClose()
     },
   })
 
-  const pending = useMemo(
-    () => Object.entries(drafts).filter(([, value]) => value.trim() !== ''),
-    [drafts],
+  const pending = useMemo<
+    { line_id: string; counted_quantity: string; serial_numbers?: string[] }[]
+  >(
+    () => [
+      ...Object.entries(drafts)
+        .filter(([, value]) => value.trim() !== '')
+        .map(([line_id, value]) => ({ line_id, counted_quantity: value.trim() })),
+      ...Object.entries(serialDrafts).map(([line_id, value]) => {
+        const serial_numbers = parseCountedSerialNumbers(value)
+        return {
+          line_id,
+          counted_quantity: String(serial_numbers.length),
+          serial_numbers,
+        }
+      }),
+    ],
+    [drafts, serialDrafts],
   )
-  const malformed = pending.filter(([, value]) => !COUNTED_QUANTITY_PATTERN.test(value.trim()))
-  const overCap = pending.length > MAX_ENTRIES_PER_SAVE
+  const malformed = pending.filter(
+    (entry) => !COUNTED_QUANTITY_PATTERN.test(entry.counted_quantity),
+  )
+  const serialCount = pending.reduce(
+    (total, entry) => total + (entry.serial_numbers?.length ?? 0),
+    0,
+  )
+  const overCap = pending.length > MAX_ENTRIES_PER_SAVE || serialCount > MAX_ENTRIES_PER_SAVE
 
   /**
    * A 422 addresses an entry by its position in the request
@@ -1480,10 +1549,23 @@ export function EnterCountsDialog({
     },
     [hasServerError, resetSave],
   )
+  const setSerialDraft = useCallback(
+    (lineId: string, value: string) => {
+      setSerialDrafts((current) => ({ ...current, [lineId]: value }))
+      if (hasServerError) resetSave()
+    },
+    [hasServerError, resetSave],
+  )
 
   const entryState = useMemo<CountEntryState>(
-    () => ({ drafts, errorsByLine: serverErrors.byLine, setDraft }),
-    [drafts, serverErrors, setDraft],
+    () => ({
+      drafts,
+      serialDrafts,
+      errorsByLine: serverErrors.byLine,
+      setDraft,
+      setSerialDraft,
+    }),
+    [drafts, serialDrafts, serverErrors, setDraft, setSerialDraft],
   )
 
   return (
@@ -1531,9 +1613,9 @@ export function EnterCountsDialog({
               message={
                 'Save in batches: at most ' +
                 formatNumber(MAX_ENTRIES_PER_SAVE) +
-                ' lines can be recorded at once, and ' +
-                formatNumber(pending.length) +
-                ' are keyed.'
+                ' lines and ' +
+                formatNumber(MAX_ENTRIES_PER_SAVE) +
+                ' serials can be recorded at once.'
               }
             />
           )}
@@ -1550,11 +1632,7 @@ export function EnterCountsDialog({
             Close
           </Button>
           <Button
-            onClick={() =>
-              save.mutate(
-                pending.map(([line_id, value]) => ({ line_id, counted_quantity: value.trim() })),
-              )
-            }
+            onClick={() => save.mutate(pending)}
             loading={save.isPending}
             disabled={pending.length === 0 || malformed.length > 0 || overCap}
           >

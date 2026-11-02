@@ -39,7 +39,9 @@ from src.common.codes import clean_text
 from src.core.constants import MAX_SERIAL_BULK
 from src.modules.inventory.models import (
     MAX_SERIALS_PER_BIN_MOVE_LINE,
+    MAX_SERIALS_PER_COUNT_REQUEST,
     MAX_SERIALS_PER_INTERNAL_ISSUE_LINE,
+    MAX_SERIALS_PER_PHYSICAL_COUNT_LINE,
     AdjustmentReason,
     AdjustmentStatus,
     BatchStatus,
@@ -775,6 +777,15 @@ class PhysicalCountCreate(BaseModel):
 class PhysicalCountEntry(BaseModel):
     line_id: uuid.UUID
     counted_quantity: NonNegativeQuantity
+    serial_numbers: list[str] | None = Field(
+        default=None, max_length=MAX_SERIALS_PER_PHYSICAL_COUNT_LINE
+    )
+
+    @field_validator("serial_numbers")
+    @classmethod
+    def _serial_labels(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else _normalise_serial_labels(value)
+
     notes: str | None = None
 
 
@@ -787,6 +798,12 @@ class PhysicalCountEntryRequest(BaseModel):
             raise ValueError("The same line was submitted twice in one request.")
         if len(self.entries) > MAX_DOCUMENT_LINES:
             raise ValueError(f"At most {MAX_DOCUMENT_LINES} lines may be entered per request.")
+        if sum(len(entry.serial_numbers or ()) for entry in self.entries) > (
+            MAX_SERIALS_PER_COUNT_REQUEST
+        ):
+            raise ValueError(
+                f"At most {MAX_SERIALS_PER_COUNT_REQUEST} serials may be entered per request."
+            )
         return self
 
 
@@ -798,6 +815,7 @@ class PhysicalCountLineRead(BaseModel):
     item_id: uuid.UUID
     item_code: str | None = None
     item_name: str | None = None
+    is_serial_tracked: bool = False
     location_id: uuid.UUID | None
     batch_id: uuid.UUID | None
     system_quantity: Decimal
@@ -807,6 +825,7 @@ class PhysicalCountLineRead(BaseModel):
     variance_value: Decimal | None
     counted_at: datetime | None
     counted_by_id: uuid.UUID | None
+    counted_serial_numbers: list[str] = Field(default_factory=list)
     notes: str | None
 
 

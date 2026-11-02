@@ -76,6 +76,14 @@ PostgreSQL probes and the actual GitHub Actions results.
 > [the E8b specification](specs/E8b-batch-serial-tracking.md) and
 > [assumptions](../assumptions.md) sections E8b-1 to E8b-3.
 
+> **E8c delivered - 2 November 2026 (serial warehouse operations and count
+> reconciliation).** Serial-tracked units can now be moved by bin move and
+> internal issue, and physical counts capture each unit found. A count shortage
+> records the unit as `MISSING`, removes it from its actual on-hand pool, and
+> permits a later count to restore that same unit to that pool; recount clears
+> both the quantity and the saved labels. Live UAT remains outstanding. See
+> [assumption E8b-4](../assumptions.md) for the reconciliation policy.
+
 ## Release gates at the reviewed revision
 
 The [CI run for the reviewed application commit](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/38987034788)

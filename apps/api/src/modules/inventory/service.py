@@ -121,6 +121,7 @@ from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import (
     LAYER_ORIGIN_RECONCILIATION,
+    MAX_SERIALS_PER_PHYSICAL_COUNT,
     ON_HAND_STATES,
     SERIAL_IN_WAREHOUSE_STATUSES,
     STATE_BUCKETS,
@@ -439,6 +440,7 @@ _DEFAULT_TRANSITION: dict[TransactionType, _Transition] = {
     TransactionType.CUSTOMER_RETURN: _Transition(None, StockState.AVAILABLE, "target"),
     TransactionType.OPENING_BALANCE: _Transition(None, StockState.AVAILABLE, "target"),
     TransactionType.ADJUSTMENT_INCREASE: _Transition(None, StockState.AVAILABLE, "target"),
+    TransactionType.COUNT_VARIANCE_INCREASE: _Transition(None, StockState.AVAILABLE, "target"),
     TransactionType.TRANSFER_IN: _Transition(None, StockState.AVAILABLE, "target"),
     # A job-work receipt is usually a *different* item coming back (castings go
     # out, machined parts come in), so it defaults to a plain increase. Returning
@@ -455,6 +457,7 @@ _DEFAULT_TRANSITION: dict[TransactionType, _Transition] = {
     TransactionType.DISPATCH: _Transition(StockState.AVAILABLE, None, "source"),
     TransactionType.PURCHASE_RETURN: _Transition(StockState.AVAILABLE, None, "source"),
     TransactionType.ADJUSTMENT_DECREASE: _Transition(StockState.AVAILABLE, None, "source"),
+    TransactionType.COUNT_VARIANCE_DECREASE: _Transition(StockState.AVAILABLE, None, "source"),
     TransactionType.TRANSFER_OUT: _Transition(StockState.AVAILABLE, None, "source"),
     # Stock that leaves on-hand but stays company property.
     TransactionType.JOB_WORK_ISSUE: _Transition(
@@ -1934,6 +1937,21 @@ SERIAL_FLOW: StateMachine[SerialStatus] = StateMachine(
             label="Scrap",
             is_irreversible=True,
         ),
+        Transition(
+            SerialStatus.IN_STOCK,
+            SerialStatus.MISSING,
+            label="Counted missing",
+        ),
+        Transition(
+            SerialStatus.RETURNED,
+            SerialStatus.MISSING,
+            label="Counted missing",
+        ),
+        Transition(
+            SerialStatus.MISSING,
+            SerialStatus.IN_STOCK,
+            label="Found at count",
+        ),
         # The outbound leg keeps ownership but takes the unit off the shelf; it
         # is neither issueable at the source nor receivable at the destination
         # until the inbound leg completes.
@@ -2046,6 +2064,7 @@ SERIAL_MOVEMENT_TARGETS: dict[TransactionType, SerialStatus | None] = {
     TransactionType.MATERIAL_RETURN: SerialStatus.IN_STOCK,
     TransactionType.OPENING_BALANCE: SerialStatus.IN_STOCK,
     TransactionType.ADJUSTMENT_INCREASE: SerialStatus.IN_STOCK,
+    TransactionType.COUNT_VARIANCE_INCREASE: SerialStatus.IN_STOCK,
     TransactionType.CUSTOMER_RETURN: SerialStatus.RETURNED,
     # --- out of our stock ---------------------------------------------------
     TransactionType.MATERIAL_ISSUE: SerialStatus.ISSUED,
@@ -2055,6 +2074,7 @@ SERIAL_MOVEMENT_TARGETS: dict[TransactionType, SerialStatus | None] = {
     TransactionType.PURCHASE_RETURN: SerialStatus.DISPATCHED,
     TransactionType.SCRAP: SerialStatus.SCRAPPED,
     TransactionType.ADJUSTMENT_DECREASE: SerialStatus.SCRAPPED,
+    TransactionType.COUNT_VARIANCE_DECREASE: SerialStatus.MISSING,
     # --- the unit stays ours, and its status follows the move ----------------
     TransactionType.TRANSFER_OUT: SerialStatus.IN_TRANSIT,
     TransactionType.TRANSFER_IN: SerialStatus.IN_STOCK,
@@ -6483,12 +6503,23 @@ class PhysicalCountService:
         stmt = self.line_repo.build_list_stmt(count_id)
         rows, pagination = await paginate(self.session, stmt, params)
         items = await self.inventory.item_facts([row.item_id for row in rows])
+        serial_ids = [serial_id for row in rows for serial_id in (row.counted_serial_ids or ())]
+        serials = await StockSerialRepository(self.session, self.tenant).by_ids(serial_ids)
         results: list[PhysicalCountLineRead] = []
         for row in rows:
             read = PhysicalCountLineRead.model_validate(row)
             item = items.get(row.item_id)
-            read.item_code = item.code if item else None
-            read.item_name = item.name if item else None
+            if item is None:
+                raise NotFoundError("Item", row.item_id)
+            read.item_code = item.code
+            read.item_name = item.name
+            read.is_serial_tracked = item.is_serial_tracked
+            read.counted_serial_numbers = []
+            for serial_id in row.counted_serial_ids or ():
+                serial = serials.get(serial_id)
+                if serial is None:
+                    raise NotFoundError("Stock serial", serial_id)
+                read.counted_serial_numbers.append(serial.serial_number)
             results.append(read)
         return results, pagination
 
@@ -6653,6 +6684,120 @@ class PhysicalCountService:
                 for line in entered
             ]
             items = await self.inventory.item_facts([line.item_id for line in entered])
+            serial_pairs = [
+                (line.item_id, number)
+                for entry, line in zip(payload.entries, entered, strict=True)
+                for number in entry.serial_numbers or ()
+            ]
+            if len(set(serial_pairs)) != len(serial_pairs):
+                raise BusinessRuleError("The same serial cannot be counted on more than one line.")
+            serial_repo = StockSerialRepository(self.session, self.tenant)
+            serials_by_pair = await serial_repo.by_number_pairs(serial_pairs)
+            current_by_grain = await serial_repo.at_positions(grains)
+            current_ids = [serial.id for rows in current_by_grain.values() for serial in rows]
+            received_ids = await LedgerRepository(self.session, self.tenant).received_serial_ids(
+                current_ids + [serial.id for serial in serials_by_pair.values()]
+            )
+            current_serial_ids = {
+                grain: {serial.id for serial in rows if serial.id in received_ids}
+                for grain, rows in current_by_grain.items()
+            }
+            resolved_by_line: dict[uuid.UUID, list[uuid.UUID]] = {}
+            all_resolved_ids: list[uuid.UUID] = []
+            for entry, line in zip(payload.entries, entered, strict=True):
+                item = items.get(line.item_id)
+                if item is None:
+                    raise NotFoundError("Item", line.item_id)
+                if not item.is_serial_tracked:
+                    if entry.serial_numbers is not None:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: {item.code} is not serial tracked; "
+                            "remove the serial numbers."
+                        )
+                    continue
+                if entry.serial_numbers is None:
+                    raise BusinessRuleError(
+                        f"Line {line.line_number}: {item.code} is serial tracked, so the "
+                        "physical count must name every unit found."
+                    )
+                if Decimal(len(entry.serial_numbers)) != Decimal(entry.counted_quantity):
+                    raise BusinessRuleError(
+                        f"Line {line.line_number}: the counted quantity must equal the number "
+                        "of serial numbers entered.",
+                        details={
+                            "line_number": line.line_number,
+                            "counted_quantity": str(entry.counted_quantity),
+                            "serial_count": len(entry.serial_numbers),
+                        },
+                    )
+                resolved: list[uuid.UUID] = []
+                for serial_number in entry.serial_numbers:
+                    serial = serials_by_pair.get((line.item_id, serial_number))
+                    if serial is None:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: serial {serial_number} is not registered "
+                            f"for {item.code}. Register the unit before counting it.",
+                            details={
+                                "line_number": line.line_number,
+                                "serial_number": serial_number,
+                                "item_code": item.code,
+                            },
+                        )
+                    if serial.batch_id != line.batch_id:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: serial {serial_number} is not in the "
+                            "counted batch.",
+                            details={
+                                "line_number": line.line_number,
+                                "serial_number": serial_number,
+                            },
+                        )
+                    registered_unreceived = (
+                        serial.status is SerialStatus.IN_STOCK and serial.id not in received_ids
+                    )
+                    at_counted_position = (
+                        serial.warehouse_id == count.warehouse_id
+                        and serial.location_id == line.location_id
+                    )
+                    unpositioned_registration = (
+                        registered_unreceived
+                        and serial.warehouse_id is None
+                        and serial.location_id is None
+                    )
+                    if not (at_counted_position or unpositioned_registration):
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: serial {serial_number} is not registered "
+                            "at the counted position.",
+                            details={
+                                "line_number": line.line_number,
+                                "serial_number": serial_number,
+                            },
+                        )
+                    if serial.status not in {*SERIAL_IN_WAREHOUSE_STATUSES, SerialStatus.MISSING}:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: serial {serial_number} is {serial.status} "
+                            "and cannot be counted at this position.",
+                            details={
+                                "line_number": line.line_number,
+                                "serial_number": serial_number,
+                                "status": str(serial.status),
+                            },
+                        )
+                    resolved.append(serial.id)
+                resolved_by_line[line.id] = resolved
+                all_resolved_ids.extend(resolved)
+
+            if len(set(all_resolved_ids)) != len(all_resolved_ids):
+                raise BusinessRuleError("The same serial cannot be counted on more than one line.")
+            existing_serial_count = await self.line_repo.counted_serial_count(
+                count.id, exclude_line_ids=[line.id for line in entered]
+            )
+            if existing_serial_count + len(all_resolved_ids) > MAX_SERIALS_PER_PHYSICAL_COUNT:
+                raise BusinessRuleError(
+                    f"A physical count may not name more than "
+                    f"{MAX_SERIALS_PER_PHYSICAL_COUNT} serials."
+                )
+
             preview = await FifoCostPreview.load(self.inventory, self.layers, grains)
 
             now = utcnow()
@@ -6660,20 +6805,48 @@ class PhysicalCountService:
                 counted = to_quantity(entry.counted_quantity)
                 variance = to_quantity(counted - Decimal(line.system_quantity))
                 line.counted_quantity = counted
+                line.counted_serial_ids = resolved_by_line.get(line.id)
                 line.variance_quantity = variance
-                line.variance_value = self._variance_value(
-                    variance,
-                    preview.line_cost(
-                        grain,
-                        variance,
-                        supplied=Decimal(line.unit_cost),
-                        fallback_cost=(
-                            items[line.item_id].standard_cost
-                            if line.item_id in items
-                            else Decimal("0")
-                        ),
-                    ).total_cost,
+                supplied = Decimal(line.unit_cost)
+                fallback_cost = (
+                    items[line.item_id].standard_cost if line.item_id in items else Decimal("0")
                 )
+                if line.id in resolved_by_line:
+                    counted_ids = set(resolved_by_line[line.id])
+                    position_ids = current_serial_ids.get(grain, set())
+                    missing_count = len(position_ids - counted_ids)
+                    found_count = len(counted_ids - position_ids)
+                    missing_cost = (
+                        preview.line_cost(
+                            grain,
+                            -Decimal(missing_count),
+                            supplied=supplied,
+                            fallback_cost=fallback_cost,
+                        ).total_cost
+                        if missing_count
+                        else Decimal("0")
+                    )
+                    found_cost = (
+                        preview.line_cost(
+                            grain,
+                            Decimal(found_count),
+                            supplied=supplied,
+                            fallback_cost=fallback_cost,
+                        ).total_cost
+                        if found_count
+                        else Decimal("0")
+                    )
+                    line.variance_value = to_money(found_cost - missing_cost)
+                else:
+                    line.variance_value = self._variance_value(
+                        variance,
+                        preview.line_cost(
+                            grain,
+                            variance,
+                            supplied=supplied,
+                            fallback_cost=fallback_cost,
+                        ).total_cost,
+                    )
                 line.counted_at = now
                 line.counted_by_id = self.tenant.user_id
                 if entry.notes is not None:
@@ -6766,10 +6939,29 @@ class PhysicalCountService:
                 for line in counted_lines
             ]
             locked = await self.engine.lock(grains)
+            items = await self.inventory.item_facts([line.item_id for line in counted_lines])
+            serial_repo = StockSerialRepository(self.session, self.tenant)
+            serials_at_positions = await serial_repo.at_positions(grains)
+            candidate_serial_ids = [
+                serial.id for rows in serials_at_positions.values() for serial in rows
+            ]
+            counted_serial_ids = [
+                serial_id for line in counted_lines for serial_id in (line.counted_serial_ids or ())
+            ]
+            received_serial_ids = await LedgerRepository(
+                self.session, self.tenant
+            ).received_serial_ids(candidate_serial_ids + counted_serial_ids)
+            current_serial_ids = {
+                grain: {serial.id for serial in rows if serial.id in received_serial_ids}
+                for grain, rows in serials_at_positions.items()
+            }
+            serial_ids = list(dict.fromkeys(candidate_serial_ids + counted_serial_ids))
+            serials_by_id = await serial_repo.by_ids(serial_ids)
+            latest_movements = await LedgerRepository(
+                self.session, self.tenant
+            ).latest_serial_movements(serial_ids)
 
             movements: list[MovementRequest] = []
-            # Parallel to ``movements``: the line each one came from, so the
-            # ledger rows can be paired back to the lines that produced them.
             moved_lines: list[PhysicalCountLine] = []
             drifted: list[dict[str, Any]] = []
             variance_lines = 0
@@ -6778,8 +6970,175 @@ class PhysicalCountService:
                 current = Decimal(locked[grain].on_hand_quantity)
                 counted = Decimal(line.counted_quantity or 0)
                 delta = to_quantity(counted - current)
+                item = items.get(line.item_id)
+                if item is None:
+                    raise NotFoundError("Item", line.item_id)
+                line_movements: list[MovementRequest] = []
+                serials_missing: set[uuid.UUID] = set()
+                serials_found: set[uuid.UUID] = set()
+                missing_movements: list[MovementRequest] = []
+                found_movements: list[MovementRequest] = []
+                if item.is_serial_tracked:
+                    if line.counted_serial_ids is None:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: {item.code} is serial tracked, so the "
+                            "physical count must name every unit found."
+                        )
+                    present = current_serial_ids.get(grain, set())
+                    if Decimal(len(present)) != current:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: the current balance for {item.code} "
+                            f"({current}) does not match its registered serial count "
+                            f"({len(present)}). Reconcile the serial register before confirming.",
+                            details={
+                                "line_number": line.line_number,
+                                "on_hand_quantity": str(current),
+                                "serial_count": len(present),
+                            },
+                        )
+                    counted_units = set(line.counted_serial_ids)
+                    serials_missing = present - counted_units
+                    serials_found = counted_units - present
+                    if Decimal(len(counted_units)) != counted:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: the saved serial count for {item.code} "
+                            "no longer matches its counted quantity."
+                        )
+                    for serial_id in serials_found:
+                        serial = serials_by_id.get(serial_id)
+                        if serial is None:
+                            raise NotFoundError("Stock serial", serial_id)
+                        registered_unreceived = (
+                            serial.status is SerialStatus.IN_STOCK
+                            and serial_id not in received_serial_ids
+                        )
+                        at_counted_position = (
+                            serial.warehouse_id == count.warehouse_id
+                            and serial.location_id == line.location_id
+                        )
+                        unpositioned_registration = (
+                            registered_unreceived
+                            and serial.warehouse_id is None
+                            and serial.location_id is None
+                        )
+                        if (
+                            serial.item_id != line.item_id
+                            or serial.batch_id != line.batch_id
+                            or not (at_counted_position or unpositioned_registration)
+                        ):
+                            raise BusinessRuleError(
+                                f"Line {line.line_number}: serial {serial.serial_number} is no "
+                                "longer registered at the counted position."
+                            )
+                        if serial.status is SerialStatus.MISSING:
+                            prior_movement = latest_movements.get(serial_id)
+                            if prior_movement is None:
+                                raise BusinessRuleError(
+                                    f"Line {line.line_number}: serial {serial.serial_number} "
+                                    "has no movement history for a missing-unit recovery."
+                                )
+                            source, _ = resolve_pools(
+                                prior_movement.transaction_type,
+                                prior_movement.stock_state,
+                                prior_movement.source_state,
+                            )
+                            if source not in ON_HAND_STATES:
+                                raise BusinessRuleError(
+                                    f"Line {line.line_number}: serial {serial.serial_number} "
+                                    "has no recoverable on-hand pool."
+                                )
+                            landing_state = source
+                        elif (
+                            serial.status is SerialStatus.IN_STOCK
+                            and serial_id not in received_serial_ids
+                        ):
+                            landing_state = StockState.AVAILABLE
+                        else:
+                            raise BusinessRuleError(
+                                f"Line {line.line_number}: serial {serial.serial_number} is "
+                                "not available to add at the counted position."
+                            )
+                        found_movements.append(
+                            MovementRequest(
+                                item_id=line.item_id,
+                                warehouse_id=count.warehouse_id,
+                                location_id=line.location_id,
+                                batch_id=line.batch_id,
+                                serial_id=serial_id,
+                                quantity=Decimal("1"),
+                                transaction_type=TransactionType.COUNT_VARIANCE_INCREASE,
+                                stock_state=landing_state,
+                                reference_type=AUDIT_ENTITY_COUNT,
+                                reference_id=count.id,
+                                reference_code=count.code,
+                                reason=f"{AdjustmentReason.COUNT_VARIANCE}: {count.reason}"[:255],
+                                unit_cost=Decimal(line.unit_cost),
+                            )
+                        )
+                    for serial_id in sorted(serials_missing, key=str):
+                        prior_movement = latest_movements.get(serial_id)
+                        if prior_movement is None:
+                            raise BusinessRuleError(
+                                f"Line {line.line_number}: a serial missing from the count has "
+                                "no movement history."
+                            )
+                        _, target = resolve_pools(
+                            prior_movement.transaction_type,
+                            prior_movement.stock_state,
+                            prior_movement.source_state,
+                        )
+                        if target not in ON_HAND_STATES:
+                            raise BusinessRuleError(
+                                f"Line {line.line_number}: a missing serial has no removable "
+                                "on-hand pool."
+                            )
+                        missing_movements.append(
+                            MovementRequest(
+                                item_id=line.item_id,
+                                warehouse_id=count.warehouse_id,
+                                location_id=line.location_id,
+                                batch_id=line.batch_id,
+                                serial_id=serial_id,
+                                quantity=Decimal("1"),
+                                transaction_type=TransactionType.COUNT_VARIANCE_DECREASE,
+                                stock_state=target,
+                                reference_type=AUDIT_ENTITY_COUNT,
+                                reference_id=count.id,
+                                reference_code=count.code,
+                                reason=f"{AdjustmentReason.COUNT_VARIANCE}: {count.reason}"[:255],
+                                unit_cost=Decimal(line.unit_cost),
+                            )
+                        )
+                    line_movements.extend(missing_movements)
+                    line_movements.extend(found_movements)
+                else:
+                    if line.counted_serial_ids is not None:
+                        raise BusinessRuleError(
+                            f"Line {line.line_number}: {item.code} is no longer serial tracked. "
+                            "Reopen the count and enter it again."
+                        )
+                if not item.is_serial_tracked and delta != 0:
+                    line_movements.append(
+                        MovementRequest(
+                            item_id=line.item_id,
+                            warehouse_id=count.warehouse_id,
+                            location_id=line.location_id,
+                            batch_id=line.batch_id,
+                            quantity=abs(delta),
+                            transaction_type=(
+                                TransactionType.ADJUSTMENT_INCREASE
+                                if delta > 0
+                                else TransactionType.ADJUSTMENT_DECREASE
+                            ),
+                            reference_type=AUDIT_ENTITY_COUNT,
+                            reference_id=count.id,
+                            reference_code=count.code,
+                            reason=f"{AdjustmentReason.COUNT_VARIANCE}: {count.reason}"[:255],
+                            unit_cost=Decimal(line.unit_cost),
+                        )
+                    )
 
-                if current != Decimal(line.system_quantity):
+                if current != Decimal(line.system_quantity) or serials_missing or serials_found:
                     drifted.append(
                         {
                             "line_number": line.line_number,
@@ -6787,10 +7146,11 @@ class PhysicalCountService:
                             "snapshot_quantity": Decimal(line.system_quantity),
                             "current_quantity": current,
                             "counted_quantity": counted,
+                            "serial_identities_changed": bool(serials_missing or serials_found),
                         }
                     )
 
-                if delta == 0:
+                if not line_movements:
                     # Nothing to post, so nothing was written off. Whatever the
                     # sheet estimated against the snapshot, the ledger booked
                     # zero and the line says zero.
@@ -6798,26 +7158,8 @@ class PhysicalCountService:
                     continue
 
                 variance_lines += 1
-                moved_lines.append(line)
-                movements.append(
-                    MovementRequest(
-                        item_id=line.item_id,
-                        warehouse_id=count.warehouse_id,
-                        location_id=line.location_id,
-                        batch_id=line.batch_id,
-                        quantity=abs(delta),
-                        transaction_type=(
-                            TransactionType.ADJUSTMENT_INCREASE
-                            if delta > 0
-                            else TransactionType.ADJUSTMENT_DECREASE
-                        ),
-                        reference_type=AUDIT_ENTITY_COUNT,
-                        reference_id=count.id,
-                        reference_code=count.code,
-                        reason=f"{AdjustmentReason.COUNT_VARIANCE}: {count.reason}"[:255],
-                        unit_cost=Decimal(line.unit_cost),
-                    )
-                )
+                movements.extend(line_movements)
+                moved_lines.extend([line] * len(line_movements))
 
             variance_value = Decimal("0")
             if movements:
@@ -6865,6 +7207,13 @@ class PhysicalCountService:
             count = await self._locked(count_id)
             COUNT_FLOW.assert_transition(count.status, PhysicalCountStatus.IN_PROGRESS)
             previous = count.status
+            for line in await self.line_repo.all_for_count(count_id):
+                line.counted_quantity = None
+                line.counted_serial_ids = None
+                line.variance_quantity = None
+                line.variance_value = None
+                line.counted_at = None
+                line.counted_by_id = None
             count.status = PhysicalCountStatus.IN_PROGRESS
             count.counted_at = None
             self.repo.touch(count)
@@ -6910,12 +7259,18 @@ class PhysicalCountService:
         from the movement rather than from the money, and the sheet's total is a
         signed net exactly as it was before.
         """
-        total = Decimal("0")
+        by_line: dict[uuid.UUID, Decimal] = {}
+        line_by_id: dict[uuid.UUID, PhysicalCountLine] = {}
         for line, txn in zip(lines, transactions, strict=True):
             value = self._variance_value(Decimal(txn.quantity), abs(Decimal(txn.total_cost)))
-            line.variance_value = value
-            total += value
-        return total
+            by_line[line.id] = by_line.get(line.id, Decimal("0")) + value
+            line_by_id[line.id] = line
+        total = Decimal("0")
+        for line_id, line in line_by_id.items():
+            line_value = to_money(by_line[line_id])
+            line.variance_value = line_value
+            total += line_value
+        return to_money(total)
 
     async def _locked(self, count_id: uuid.UUID) -> PhysicalCount:
         """Serialisation point for every state change on this sheet.

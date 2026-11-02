@@ -421,16 +421,24 @@ Transaction-type vocabulary (§83), each with a fixed sign:
 ```
 + PURCHASE_RECEIPT  PRODUCTION_RECEIPT  JOB_WORK_RECEIPT  MATERIAL_RETURN
   ASSEMBLY_RECEIPT  CUSTOMER_RETURN     TRANSFER_IN       ADJUSTMENT_INCREASE
-  OPENING_BALANCE   QC_RELEASE
+  COUNT_VARIANCE_INCREASE  OPENING_BALANCE  QC_RELEASE
 
 - MATERIAL_ISSUE    JOB_WORK_ISSUE      DISPATCH          PURCHASE_RETURN
   ASSEMBLY_CONSUME  TRANSFER_OUT        ADJUSTMENT_DECREASE
+  COUNT_VARIANCE_DECREASE
   SCRAP             QC_HOLD            SCRAP_DISPOSAL
 ```
 
 Reservation and allocation changes do **not** move on-hand quantity; they change
 `reserved_quantity` on the balance and are recorded in `stock_reservations` plus
 the audit log.
+
+Physical-count lines retain `counted_serial_ids` when an item is serial-tracked;
+the array is bounded and its cardinality must equal `counted_quantity`. A
+count-specific variance decrease marks a missing unit `MISSING`, rather than
+scrapped, and a later count can restore that registered unit to the same
+on-hand pool from which it was removed. Recount clears both the quantity and
+the stored serial identities.
 
 Callers pass a positive magnitude; the movement type supplies its sign. An
 already negative issue is accepted, but a negative receipt is rejected.
@@ -679,7 +687,10 @@ record the unit's lot and last position. The position columns are nullable until
 a registered label is given a position, and are not cleared on issue, dispatch or
 scrap: the last known location is part of the trace, and `status` says whether the
 unit is still there. Status is
-`IN_STOCK | IN_TRANSIT | ISSUED | DISPATCHED | RETURNED | SCRAPPED`.
+`IN_STOCK | IN_TRANSIT | ISSUED | DISPATCHED | RETURNED | SCRAPPED | MISSING`.
+`MISSING` means a physical count could not find a unit that was present in the
+ledger; it is reversible when a later count finds that same registered unit
+and is distinct from an irreversible scrap posting.
 `SERIAL_MOVEMENT_TARGETS` in the inventory service is the single mapping from a
 transaction type to the status it leaves the unit in, and the same mapping decides
 which movements must name a unit. One movement carries at most one unit, so a

@@ -29540,6 +29540,8 @@ export interface components {
             line_id: string;
             /** Notes */
             notes?: string | null;
+            /** Serial Numbers */
+            serial_numbers?: string[] | null;
         };
         /** PhysicalCountEntryRequest */
         PhysicalCountEntryRequest: {
@@ -29556,11 +29558,18 @@ export interface components {
             counted_by_id: string | null;
             /** Counted Quantity */
             counted_quantity: string | null;
+            /** Counted Serial Numbers */
+            counted_serial_numbers?: string[];
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Is Serial Tracked
+             * @default false
+             */
+            is_serial_tracked: boolean;
             /** Item Code */
             item_code?: string | null;
             /**
@@ -36085,7 +36094,7 @@ export interface components {
          * SerialStatus
          * @enum {string}
          */
-        SerialStatus: "IN_STOCK" | "IN_TRANSIT" | "ISSUED" | "DISPATCHED" | "RETURNED" | "SCRAPPED";
+        SerialStatus: "IN_STOCK" | "IN_TRANSIT" | "ISSUED" | "DISPATCHED" | "RETURNED" | "SCRAPPED" | "MISSING";
         /** SessionRead */
         SessionRead: {
             /**
@@ -37780,7 +37789,7 @@ export interface components {
          *     to express an issue.
          * @enum {string}
          */
-        TransactionType: "PURCHASE_RECEIPT" | "PRODUCTION_RECEIPT" | "JOB_WORK_RECEIPT" | "MATERIAL_RETURN" | "ASSEMBLY_RECEIPT" | "CUSTOMER_RETURN" | "TRANSFER_IN" | "ADJUSTMENT_INCREASE" | "OPENING_BALANCE" | "QC_RELEASE" | "MATERIAL_ISSUE" | "JOB_WORK_ISSUE" | "DISPATCH" | "PURCHASE_RETURN" | "ASSEMBLY_CONSUME" | "TRANSFER_OUT" | "ADJUSTMENT_DECREASE" | "SCRAP" | "QC_HOLD" | "SCRAP_DISPOSAL";
+        TransactionType: "PURCHASE_RECEIPT" | "PRODUCTION_RECEIPT" | "JOB_WORK_RECEIPT" | "MATERIAL_RETURN" | "ASSEMBLY_RECEIPT" | "CUSTOMER_RETURN" | "TRANSFER_IN" | "ADJUSTMENT_INCREASE" | "COUNT_VARIANCE_INCREASE" | "OPENING_BALANCE" | "QC_RELEASE" | "MATERIAL_ISSUE" | "JOB_WORK_ISSUE" | "DISPATCH" | "PURCHASE_RETURN" | "ASSEMBLY_CONSUME" | "TRANSFER_OUT" | "ADJUSTMENT_DECREASE" | "COUNT_VARIANCE_DECREASE" | "SCRAP" | "QC_HOLD" | "SCRAP_DISPOSAL";
         /**
          * TransferSourceType
          * @description Why a transfer was raised (WP E1b section 4, E2 section 8).

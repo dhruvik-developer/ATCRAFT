@@ -45903,6 +45903,21 @@
               }
             ],
             "title": "Notes"
+          },
+          "serial_numbers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Numbers"
           }
         },
         "required": [
@@ -45979,10 +45994,22 @@
             ],
             "title": "Counted Quantity"
           },
+          "counted_serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Counted Serial Numbers",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_serial_tracked": {
+            "default": false,
+            "title": "Is Serial Tracked",
+            "type": "boolean"
           },
           "item_code": {
             "anyOf": [
@@ -65160,7 +65187,8 @@
           "ISSUED",
           "DISPATCHED",
           "RETURNED",
-          "SCRAPPED"
+          "SCRAPPED",
+          "MISSING"
         ],
         "title": "SerialStatus",
         "type": "string"
@@ -70114,6 +70142,7 @@
           "CUSTOMER_RETURN",
           "TRANSFER_IN",
           "ADJUSTMENT_INCREASE",
+          "COUNT_VARIANCE_INCREASE",
           "OPENING_BALANCE",
           "QC_RELEASE",
           "MATERIAL_ISSUE",
@@ -70123,6 +70152,7 @@
           "ASSEMBLY_CONSUME",
           "TRANSFER_OUT",
           "ADJUSTMENT_DECREASE",
+          "COUNT_VARIANCE_DECREASE",
           "SCRAP",
           "QC_HOLD",
           "SCRAP_DISPOSAL"

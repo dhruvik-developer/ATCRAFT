@@ -30,6 +30,7 @@ from src.modules.inventory.models import (
     BinMoveLine,
     InternalIssue,
     InternalIssueLine,
+    PhysicalCountLine,
     ScrapDisposal,
     ScrapDisposalLine,
     StockTransfer,
@@ -377,6 +378,7 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
         ScrapDisposalLine,
         InternalIssue,
         InternalIssueLine,
+        PhysicalCountLine,
     ):
         assert column_names(dsn, model.__tablename__) == {
             column.name for column in model.__table__.columns
@@ -403,6 +405,18 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
         for name in (
             "ck_internal_issue_lines_serial_count_bounded",
             "ck_internal_issue_lines_serial_count_matches_quantity",
+        )
+    )
+    count_serial_checks = table_constraints(dsn, "physical_count_lines", "c")
+    assert {
+        "ck_physical_count_lines_counted_serials_bounded",
+        "ck_physical_count_lines_counted_serials_match_quantity",
+    } <= set(count_serial_checks)
+    assert all(
+        count_serial_checks[name][1]
+        for name in (
+            "ck_physical_count_lines_counted_serials_bounded",
+            "ck_physical_count_lines_counted_serials_match_quantity",
         )
     )
     inventory_checks = table_constraints(dsn, "inventory_cost_layers", "c")

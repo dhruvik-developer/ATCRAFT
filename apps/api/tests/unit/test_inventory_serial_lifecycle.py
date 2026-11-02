@@ -151,6 +151,17 @@ class TestTheHappyPath:
     def test_a_unit_can_be_scrapped_from_stock(self) -> None:
         assert _transition(SerialStatus.IN_STOCK, TransactionType.SCRAP) is SerialStatus.SCRAPPED
 
+    def test_a_count_shortage_is_missing_not_scrapped_and_can_be_found_again(self) -> None:
+        assert (
+            _transition(SerialStatus.IN_STOCK, TransactionType.COUNT_VARIANCE_DECREASE)
+            is SerialStatus.MISSING
+        )
+        assert (
+            _transition(SerialStatus.MISSING, TransactionType.COUNT_VARIANCE_INCREASE)
+            is SerialStatus.IN_STOCK
+        )
+        assert SerialStatus.MISSING not in SERIAL_IN_WAREHOUSE_STATUSES
+
     @pytest.mark.parametrize(
         ("status", "transaction_type", "expected"),
         sorted(
@@ -336,6 +347,7 @@ class TestWhichMovementsMoveTheUnit:
             TransactionType.CUSTOMER_RETURN,
             TransactionType.OPENING_BALANCE,
             TransactionType.ADJUSTMENT_INCREASE,
+            TransactionType.COUNT_VARIANCE_INCREASE,
             TransactionType.TRANSFER_IN,
         }
         assert set(SERIAL_RELOCATING_TYPES) == expected

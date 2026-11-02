@@ -10618,7 +10618,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"entries\": [\n    {\n      \"counted_quantity\": {},\n      \"line_id\": {},\n      \"notes\": {}\n    }\n  ]\n}"
+              "raw": "{\n  \"entries\": [\n    {\n      \"counted_quantity\": {},\n      \"line_id\": {},\n      \"notes\": {},\n      \"serial_numbers\": {}\n    }\n  ]\n}"
             },
             "description": "Record counted quantities",
             "header": [

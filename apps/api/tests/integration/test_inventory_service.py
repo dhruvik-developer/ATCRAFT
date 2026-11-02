@@ -45,7 +45,9 @@ from src.modules.inventory.models import (
     InventoryCostLayerConsumption,
     InventoryTransaction,
     PhysicalCountStatus,
+    SerialStatus,
     StockBatch,
+    StockSerial,
     StockState,
     TransactionType,
     TransferStatus,
@@ -65,6 +67,7 @@ from src.modules.inventory.schemas import (
     StockAdjustmentCreate,
     StockAdjustmentLineCreate,
     StockBatchCreate,
+    StockSerialCreate,
     StockTransferCreate,
     StockTransferLineCreate,
 )
@@ -1280,6 +1283,290 @@ class TestPhysicalCount:
             )
         ).scalar_one()
         assert movements == 1
+
+    async def test_serial_count_marks_missing_units_and_restores_units_found_later(
+        self, ctx
+    ) -> None:
+        session, tenant, _ = ctx
+        item_id = await seed_item(
+            session, tenant.company_id, code=_code("SER"), serial_tracked=True
+        )
+        warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
+        serial_service = inv.TraceabilityService(session, tenant)
+        serials = []
+        for label in ("SERIAL-A", "SERIAL-B"):
+            serial = await serial_service.create_serial(
+                StockSerialCreate(
+                    item_id=item_id,
+                    serial_number=label,
+                    warehouse_id=warehouse_id,
+                    unit_cost=Decimal("10"),
+                )
+            )
+            serials.append(serial.id)
+            await receive(
+                session,
+                tenant,
+                item_id,
+                warehouse_id,
+                "1",
+                "10",
+                serial_id=serial.id,
+            )
+
+        service = inv.PhysicalCountService(session, tenant)
+        count = await service.create(
+            PhysicalCountCreate(warehouse_id=warehouse_id, reason="serial cycle count")
+        )
+        await service.start(count.id)
+        lines, _ = await service.list_lines(count.id, PageParams(page=1, limit=50))
+        assert lines[0].is_serial_tracked
+        await service.enter_counts(
+            count.id,
+            PhysicalCountEntryRequest(
+                entries=[
+                    PhysicalCountEntry(
+                        line_id=lines[0].id,
+                        counted_quantity=Decimal("1"),
+                        serial_numbers=["SERIAL-A"],
+                    )
+                ]
+            ),
+        )
+        await service.recount(count.id, "repeat serial count")
+        recounted_lines, _ = await service.list_lines(count.id, PageParams(page=1, limit=50))
+        assert recounted_lines[0].counted_quantity is None
+        assert recounted_lines[0].counted_serial_numbers == []
+        await service.enter_counts(
+            count.id,
+            PhysicalCountEntryRequest(
+                entries=[
+                    PhysicalCountEntry(
+                        line_id=recounted_lines[0].id,
+                        counted_quantity=Decimal("1"),
+                        serial_numbers=["SERIAL-A"],
+                    )
+                ]
+            ),
+        )
+
+        confirmed = await service.confirm(count.id)
+        assert confirmed.variance_line_count == 1
+        missing = (
+            await session.execute(select(StockSerial).where(StockSerial.id == serials[1]))
+        ).scalar_one()
+        assert missing.status is SerialStatus.MISSING
+        balance = await inv.get_balance(session, tenant, item_id, warehouse_id)
+        assert balance is not None and balance.on_hand_quantity == Decimal("1.0000")
+        decrease = (
+            await session.execute(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.serial_id == serials[1],
+                    InventoryTransaction.reference_type == "physical_count",
+                    InventoryTransaction.transaction_type
+                    == TransactionType.COUNT_VARIANCE_DECREASE,
+                )
+            )
+        ).scalar_one()
+        assert decrease.quantity == Decimal("-1.0000")
+
+        recovery = await service.create(
+            PhysicalCountCreate(warehouse_id=warehouse_id, reason="found missing unit")
+        )
+        await service.start(recovery.id)
+        recovery_lines, _ = await service.list_lines(recovery.id, PageParams(page=1, limit=50))
+        await service.enter_counts(
+            recovery.id,
+            PhysicalCountEntryRequest(
+                entries=[
+                    PhysicalCountEntry(
+                        line_id=recovery_lines[0].id,
+                        counted_quantity=Decimal("2"),
+                        serial_numbers=["SERIAL-A", "SERIAL-B"],
+                    )
+                ]
+            ),
+        )
+        await service.confirm(recovery.id)
+        restored = (
+            await session.execute(select(StockSerial).where(StockSerial.id == serials[1]))
+        ).scalar_one()
+        assert restored.status is SerialStatus.IN_STOCK
+        balance = await inv.get_balance(session, tenant, item_id, warehouse_id)
+        assert balance is not None and balance.on_hand_quantity == Decimal("2.0000")
+
+    @pytest.mark.parametrize("held_state", [StockState.QC_HOLD, StockState.DAMAGED])
+    async def test_serial_count_removes_and_restores_a_unit_in_its_current_pool(
+        self, ctx, held_state
+    ) -> None:
+        session, tenant, _ = ctx
+        item_id = await seed_item(
+            session, tenant.company_id, code=_code("SER"), serial_tracked=True
+        )
+        warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
+        serial = await inv.TraceabilityService(session, tenant).create_serial(
+            StockSerialCreate(
+                item_id=item_id,
+                serial_number="HELD-SERIAL",
+                warehouse_id=warehouse_id,
+                unit_cost=Decimal("10"),
+            )
+        )
+        await receive(session, tenant, item_id, warehouse_id, "1", "10", serial_id=serial.id)
+        await inv.change_stock_state(
+            session,
+            tenant,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            quantity=Decimal("1"),
+            from_state=StockState.AVAILABLE,
+            to_state=held_state,
+            serial_id=serial.id,
+            reason="count pool regression",
+        )
+
+        service = inv.PhysicalCountService(session, tenant)
+        count = await service.create(
+            PhysicalCountCreate(warehouse_id=warehouse_id, reason="unit not found")
+        )
+        await service.start(count.id)
+        lines, _ = await service.list_lines(count.id, PageParams(page=1, limit=50))
+        await service.enter_counts(
+            count.id,
+            PhysicalCountEntryRequest(
+                entries=[
+                    PhysicalCountEntry(
+                        line_id=lines[0].id,
+                        counted_quantity=Decimal("0"),
+                        serial_numbers=[],
+                    )
+                ]
+            ),
+        )
+        latest = await inv.LedgerRepository(session, tenant).latest_serial_movements([serial.id])
+        assert latest[serial.id].transaction_type is TransactionType.QC_HOLD
+        assert inv.resolve_pools(
+            latest[serial.id].transaction_type,
+            latest[serial.id].stock_state,
+            latest[serial.id].source_state,
+        ) == (StockState.AVAILABLE, held_state)
+        assert inv.resolve_pools(TransactionType.COUNT_VARIANCE_DECREASE, held_state) == (
+            held_state,
+            None,
+        )
+        await service.confirm(count.id)
+
+        decrease = (
+            await session.execute(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.serial_id == serial.id,
+                    InventoryTransaction.transaction_type
+                    == TransactionType.COUNT_VARIANCE_DECREASE,
+                )
+            )
+        ).scalar_one()
+        assert decrease.stock_state is held_state
+        missing = (
+            await session.execute(select(StockSerial).where(StockSerial.id == serial.id))
+        ).scalar_one()
+        assert missing.status is SerialStatus.MISSING
+        balance = await inv.get_balance(session, tenant, item_id, warehouse_id)
+        assert balance is not None
+        assert balance.on_hand_quantity == Decimal("0.0000")
+        if held_state is StockState.QC_HOLD:
+            assert balance.qc_hold_quantity == Decimal("0.0000")
+        else:
+            assert balance.damaged_quantity == Decimal("0.0000")
+
+        recovery = await service.create(
+            PhysicalCountCreate(
+                warehouse_id=warehouse_id,
+                reason="held unit found",
+                include_zero_positions=True,
+            )
+        )
+        await service.start(recovery.id)
+        recovery_lines, _ = await service.list_lines(recovery.id, PageParams(page=1, limit=50))
+        await service.enter_counts(
+            recovery.id,
+            PhysicalCountEntryRequest(
+                entries=[
+                    PhysicalCountEntry(
+                        line_id=recovery_lines[0].id,
+                        counted_quantity=Decimal("1"),
+                        serial_numbers=["HELD-SERIAL"],
+                    )
+                ]
+            ),
+        )
+        await service.confirm(recovery.id)
+        restored = (
+            await session.execute(select(StockSerial).where(StockSerial.id == serial.id))
+        ).scalar_one()
+        assert restored.status is SerialStatus.IN_STOCK
+        balance = await inv.get_balance(session, tenant, item_id, warehouse_id)
+        assert balance is not None
+        assert balance.on_hand_quantity == Decimal("1.0000")
+        if held_state is StockState.QC_HOLD:
+            assert balance.qc_hold_quantity == Decimal("1.0000")
+        else:
+            assert balance.damaged_quantity == Decimal("1.0000")
+
+    async def test_serial_count_refuses_unknown_or_mismatched_labels(self, ctx) -> None:
+        session, tenant, _ = ctx
+        item_id = await seed_item(
+            session, tenant.company_id, code=_code("SER"), serial_tracked=True
+        )
+        warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
+        serial = await inv.TraceabilityService(session, tenant).create_serial(
+            StockSerialCreate(
+                item_id=item_id,
+                serial_number="REGISTERED",
+                warehouse_id=warehouse_id,
+            )
+        )
+        await receive(
+            session,
+            tenant,
+            item_id,
+            warehouse_id,
+            "1",
+            "10",
+            serial_id=serial.id,
+        )
+        service = inv.PhysicalCountService(session, tenant)
+        count = await service.create(
+            PhysicalCountCreate(warehouse_id=warehouse_id, reason="serial count")
+        )
+        await service.start(count.id)
+        lines, _ = await service.list_lines(count.id, PageParams(page=1, limit=50))
+
+        with pytest.raises(BusinessRuleError, match="quantity must equal"):
+            await service.enter_counts(
+                count.id,
+                PhysicalCountEntryRequest(
+                    entries=[
+                        PhysicalCountEntry(
+                            line_id=lines[0].id,
+                            counted_quantity=Decimal("0"),
+                            serial_numbers=["REGISTERED"],
+                        )
+                    ]
+                ),
+            )
+        with pytest.raises(BusinessRuleError, match="not registered"):
+            await service.enter_counts(
+                count.id,
+                PhysicalCountEntryRequest(
+                    entries=[
+                        PhysicalCountEntry(
+                            line_id=lines[0].id,
+                            counted_quantity=Decimal("1"),
+                            serial_numbers=["UNKNOWN"],
+                        )
+                    ]
+                ),
+            )
 
     async def test_two_open_counts_for_one_warehouse_are_refused(self, ctx) -> None:
         session, tenant, _ = ctx

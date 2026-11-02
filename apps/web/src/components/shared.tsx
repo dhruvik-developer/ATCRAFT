@@ -233,6 +233,7 @@ const STATUS_VARIANTS: Record<
   FAILED_DELIVERY: 'destructive',
   SCRAP: 'destructive',
   SCRAPPED: 'destructive',
+  MISSING: 'destructive',
   DAMAGED: 'destructive',
   BREAKDOWN: 'destructive',
   REVOKED: 'destructive',
