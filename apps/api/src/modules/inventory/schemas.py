@@ -39,6 +39,7 @@ from src.common.codes import clean_text
 from src.core.constants import MAX_SERIAL_BULK
 from src.modules.inventory.models import (
     MAX_SERIALS_PER_BIN_MOVE_LINE,
+    MAX_SERIALS_PER_INTERNAL_ISSUE_LINE,
     AdjustmentReason,
     AdjustmentStatus,
     BatchStatus,
@@ -1081,7 +1082,18 @@ class InternalIssueLineCreate(BaseModel):
     quantity: PositiveQuantity
     batch_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
+    serial_ids: list[uuid.UUID] = Field(
+        default_factory=list, max_length=MAX_SERIALS_PER_INTERNAL_ISSUE_LINE
+    )
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _serials_are_whole_units(self) -> InternalIssueLineCreate:
+        if self.serial_ids and Decimal(len(self.serial_ids)) != self.quantity:
+            raise ValueError("A serial-tracked internal issue must name one unit per unit issued.")
+        if len(set(self.serial_ids)) != len(self.serial_ids):
+            raise ValueError("A serial can appear only once on an internal-issue line.")
+        return self
 
 
 class InternalIssueCreate(BaseModel):
@@ -1105,6 +1117,13 @@ class InternalIssueCreate(BaseModel):
         _one_line_per_position(
             [(line.item_id, line.batch_id, line.location_id) for line in self.lines], "bin"
         )
+        serial_ids = [serial_id for line in self.lines for serial_id in line.serial_ids]
+        if len(set(serial_ids)) != len(serial_ids):
+            raise ValueError("A unit may only be issued once on an internal-issue document.")
+        if len(serial_ids) > MAX_DOCUMENT_LINES:
+            raise ValueError(
+                f"An internal issue may not name more than {MAX_DOCUMENT_LINES} serials."
+            )
         return self
 
 
@@ -1121,6 +1140,8 @@ class InternalIssueLineRead(BaseModel):
     location_id: uuid.UUID | None
     location_code: str | None = None
     quantity: Decimal
+    serial_ids: list[uuid.UUID] = Field(default_factory=list)
+    serial_numbers: list[str] = Field(default_factory=list)
     notes: str | None
 
 

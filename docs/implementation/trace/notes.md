@@ -18,6 +18,13 @@
 > structure and no purchase order, not because the application lacks a serial
 > inbound path. See `docs/implementation/specs/E8b-batch-serial-tracking.md`.
 >
+> **Implementation update - 17 November 2026 (serial internal issues).**
+> Internal issues now persist named serial IDs, display labels and post one
+> `MATERIAL_ISSUE` per unit through the locked movement engine. Posting still
+> revalidates the source position and preserves FIFO repricing and the existing
+> approval control. Physical-count serial variance reconciliation, serial
+> job-work and tracked SKU transformations remain open.
+>
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,
 > nets every item exactly once at its deepest level (free stock, then dated

@@ -642,10 +642,12 @@ held for inspection therefore refuses a bin; put accepted stock away afterwards
 with a bin move. E8b added unit identity to receipts, production and assembly
 output, transfers and adjustments. Bin moves also store `serial_ids` on each
 line; every named unit is checked against the exact source position and posted
-as its own paired transfer movements. Internal issues remain quantity-only and
-refuse serial-tracked stock. A scrap disposal consumes the scrap pool by
-quantity; the units were already retired on the scrap posting, so disposal does
-not mint a new unit state.
+as its own paired transfer movements. Internal-issue lines persist `serial_ids`;
+each serial-tracked unit is validated against the exact source position and
+posted as its own `MATERIAL_ISSUE` movement, preserving the existing FIFO and
+approval controls. A scrap disposal consumes the scrap pool by quantity; the
+units were already retired on the scrap posting, so disposal does not mint a
+new unit state.
 
 ### 4.7 Batches, serials and document traceability
 

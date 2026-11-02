@@ -7036,7 +7036,7 @@ async def _assert_document_lines(
                 or Decimal(len(position.serial_ids)) != position.quantity
             ):
                 raise BusinessRuleError(
-                    f"Line {number}: {item.code} is serial tracked, so the bin move must name "
+                    f"Line {number}: {item.code} is serial tracked, so {document} must name "
                     "exactly one serial per unit.",
                     code=ErrorCode.SERIAL_REQUIRED,
                     details={"line_number": number, "item_code": item.code},
@@ -7179,14 +7179,6 @@ class BinMoveService:
             _with_item(BinMoveLineReadWithCost.model_validate(line), items.get(line.item_id))
             for line in move.lines
         ]
-        serial_ids = [serial_id for line in move.lines for serial_id in (line.serial_ids or [])]
-        serials = await StockSerialRepository(self.session, self.tenant).by_ids(serial_ids)
-        missing_serials = [serial_id for serial_id in serial_ids if serial_id not in serials]
-        if missing_serials:
-            raise NotFoundError("Stock serial", missing_serials[0])
-        serial_labels = {serial_id: serial.serial_number for serial_id, serial in serials.items()}
-        for line in read.lines:
-            line.serial_numbers = [serial_labels[serial_id] for serial_id in line.serial_ids]
         await _label_operation_positions(self.inventory, read)
         return read
 
@@ -7592,9 +7584,12 @@ class InternalIssueService:
                         item_id=line.item_id,
                         batch_id=line.batch_id,
                         locations=((line.location_id, False),),
+                        quantity=Decimal(line.quantity),
+                        serial_ids=tuple(line.serial_ids),
                     )
                     for number, line in enumerate(payload.lines, start=1)
                 ],
+                allow_serials=True,
             )
             if payload.department_id is not None:
                 await require_department(self.session, self.tenant, payload.department_id)
@@ -7649,6 +7644,7 @@ class InternalIssueService:
                         batch_id=line.batch_id,
                         location_id=line.location_id,
                         quantity=to_quantity(line.quantity),
+                        serial_ids=line.serial_ids,
                         unit_cost=cost.unit_cost,
                         total_cost=cost.total_cost,
                         notes=line.notes,
@@ -7891,30 +7887,46 @@ class InternalIssueService:
         self.repo.touch(issue)
 
     async def _post_lines(self, issue: InternalIssue) -> None:
-        """Post one MATERIAL_ISSUE per line and restate the document from the ledger."""
+        """Post each named serial as its own issue and restate FIFO value from the ledger."""
         occurred_at = _business_time(issue.issue_date)
+        movements_by_line: list[list[MovementRequest]] = []
+        for line in issue.lines:
+            serial_ids = line.serial_ids or []
+            unit_ids: Sequence[uuid.UUID | None] = serial_ids if serial_ids else (None,)
+            movements_by_line.append(
+                [
+                    MovementRequest(
+                        item_id=line.item_id,
+                        warehouse_id=issue.warehouse_id,
+                        location_id=line.location_id,
+                        batch_id=line.batch_id,
+                        serial_id=serial_id,
+                        quantity=Decimal("1") if serial_id is not None else Decimal(line.quantity),
+                        transaction_type=TransactionType.MATERIAL_ISSUE,
+                        reference_type=AUDIT_ENTITY_INTERNAL_ISSUE,
+                        reference_id=issue.id,
+                        reference_code=issue.code,
+                        reason=f"Internal issue: {issue.reason}"[:255],
+                        occurred_at=occurred_at,
+                    )
+                    for serial_id in unit_ids
+                ]
+            )
         posted = await self.engine.post(
-            [
-                MovementRequest(
-                    item_id=line.item_id,
-                    warehouse_id=issue.warehouse_id,
-                    location_id=line.location_id,
-                    batch_id=line.batch_id,
-                    quantity=Decimal(line.quantity),
-                    transaction_type=TransactionType.MATERIAL_ISSUE,
-                    reference_type=AUDIT_ENTITY_INTERNAL_ISSUE,
-                    reference_id=issue.id,
-                    reference_code=issue.code,
-                    reason=f"Internal issue: {issue.reason}"[:255],
-                    occurred_at=occurred_at,
-                )
-                for line in issue.lines
-            ]
+            [movement for movements in movements_by_line for movement in movements]
         )
         total = Decimal("0")
-        for line, txn in zip(issue.lines, posted, strict=True):
-            line.unit_cost = to_unit_price(txn.unit_cost)
-            line.total_cost = to_money(abs(Decimal(txn.total_cost)))
+        offset = 0
+        for line, movements in zip(issue.lines, movements_by_line, strict=True):
+            line_posted = posted[offset : offset + len(movements)]
+            offset += len(movements)
+            line_total = sum((abs(Decimal(txn.total_cost)) for txn in line_posted), Decimal("0"))
+            line.total_cost = to_money(line_total)
+            line.unit_cost = (
+                to_unit_price(line_posted[0].unit_cost)
+                if len(line_posted) == 1
+                else to_unit_price(line_total / Decimal(line.quantity))
+            )
             self.line_repo.touch(line)
             total += line.total_cost
         self._set_value(issue, total)
@@ -7996,6 +8008,17 @@ async def _label_operation_positions(
             )
         else:
             line.location_code = locations.get(line.location_id) if line.location_id else None
+    if isinstance(read, (BinMoveReadWithCost, InternalIssueReadWithCost)):
+        serial_ids = [serial_id for line in read.lines for serial_id in line.serial_ids]
+        serials = await StockSerialRepository(inventory.session, inventory.tenant).by_ids(
+            serial_ids
+        )
+        missing_serials = [serial_id for serial_id in serial_ids if serial_id not in serials]
+        if missing_serials:
+            raise NotFoundError("Stock serial", missing_serials[0])
+        serial_labels = {serial_id: serial.serial_number for serial_id, serial in serials.items()}
+        for line in read.lines:
+            line.serial_numbers = [serial_labels[serial_id] for serial_id in line.serial_ids]
 
 
 def _with_item(read: _LineReadT, item: ItemFacts | None) -> _LineReadT:

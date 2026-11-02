@@ -393,6 +393,18 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
             "ck_bin_move_lines_serial_count_matches_quantity",
         )
     )
+    internal_issue_checks = table_constraints(dsn, "internal_issue_lines", "c")
+    assert {
+        "ck_internal_issue_lines_serial_count_bounded",
+        "ck_internal_issue_lines_serial_count_matches_quantity",
+    } <= set(internal_issue_checks)
+    assert all(
+        internal_issue_checks[name][1]
+        for name in (
+            "ck_internal_issue_lines_serial_count_bounded",
+            "ck_internal_issue_lines_serial_count_matches_quantity",
+        )
+    )
     inventory_checks = table_constraints(dsn, "inventory_cost_layers", "c")
     pool_definition, pool_valid = inventory_checks["ck_inventory_cost_layers_pool_known"]
     assert "ON_HAND" in pool_definition and "SCRAP" in pool_definition

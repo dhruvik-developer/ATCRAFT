@@ -9129,7 +9129,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"issue_date\": \"2026-01-01\",\n  \"notes\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"issue_date\": \"2026-01-01\",\n  \"notes\": \"\"\n}"
             },
             "description": "Nothing moves until the draft is posted. Lines are valued at what the FIFO cost layers say the stock cost; above INTERNAL_ISSUE_APPROVAL_VALUE in the inventory service the issue must be submitted and approved by a second person, and approving it posts it.",
             "header": [

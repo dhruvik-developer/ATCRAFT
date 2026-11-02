@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any
 
@@ -166,6 +166,66 @@ def test_bin_move_schema_bounds_and_uniquely_names_serials() -> None:
         )
 
 
+def test_internal_issue_schema_bounds_and_uniquely_names_serials() -> None:
+    item_id = uuid.uuid4()
+    serial_id = uuid.uuid4()
+    with pytest.raises(PydanticValidationError):
+        InternalIssueLineCreate(item_id=item_id, quantity=Decimal("2"), serial_ids=[serial_id])
+    with pytest.raises(PydanticValidationError):
+        InternalIssueLineCreate(
+            item_id=item_id,
+            quantity=Decimal("2"),
+            serial_ids=[serial_id, serial_id],
+        )
+    with pytest.raises(PydanticValidationError):
+        InternalIssueLineCreate(
+            item_id=item_id,
+            quantity=Decimal("501"),
+            serial_ids=[uuid.uuid4() for _ in range(501)],
+        )
+    with pytest.raises(PydanticValidationError):
+        InternalIssueCreate(
+            warehouse_id=uuid.uuid4(),
+            department_id=uuid.uuid4(),
+            reason="Name every unit only once",
+            lines=[
+                InternalIssueLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("1"),
+                    location_id=uuid.uuid4(),
+                    serial_ids=[serial_id],
+                ),
+                InternalIssueLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("1"),
+                    location_id=uuid.uuid4(),
+                    serial_ids=[serial_id],
+                ),
+            ],
+        )
+    serial_ids = [uuid.uuid4() for _ in range(501)]
+    with pytest.raises(PydanticValidationError):
+        InternalIssueCreate(
+            warehouse_id=uuid.uuid4(),
+            department_id=uuid.uuid4(),
+            reason="Keep the whole document bounded",
+            lines=[
+                InternalIssueLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("251"),
+                    location_id=uuid.uuid4(),
+                    serial_ids=serial_ids[:251],
+                ),
+                InternalIssueLineCreate(
+                    item_id=item_id,
+                    quantity=Decimal("250"),
+                    location_id=uuid.uuid4(),
+                    serial_ids=serial_ids[251:],
+                ),
+            ],
+        )
+
+
 @pytest.fixture(scope="module")
 def _scope() -> Iterator[Scope]:
     # Use the protected local/CI settings resolved by conftest, never an
@@ -307,7 +367,7 @@ async def _seed_kit(session: AsyncSession, scope: Scope) -> Kit:
                 transaction_type=TransactionType.OPENING_BALANCE,
                 reference_type="serial_boundary_fixture",
                 reason="Opening named stock for operation boundary checks",
-                unit_cost=Decimal("12"),
+                unit_cost=Decimal("12") + Decimal(index),
             )
             for index, serial in enumerate(serials)
         ]
@@ -409,7 +469,7 @@ async def _count(kit: Kit, *, include_plain: bool) -> tuple[uuid.UUID, dict[uuid
     return count.id, by_item
 
 
-@pytest.mark.parametrize("operation", ["bin_move", "internal_issue", "scrap_disposal"])
+@pytest.mark.parametrize("operation", ["bin_move", "scrap_disposal"])
 async def test_serial_document_refusal_preserves_both_tenants_and_every_stock_record(
     kit: Kit, operation: str
 ) -> None:
@@ -448,18 +508,6 @@ async def test_serial_document_refusal_preserves_both_tenants_and_every_stock_re
                     ],
                 )
             )
-        elif operation == "internal_issue":
-            await inventory.InternalIssueService(kit.session, kit.tenant).create(
-                InternalIssueCreate(
-                    warehouse_id=kit.warehouse_id,
-                    department_id=kit.department_id,
-                    reason="Issue ordinary stock followed by a named unit to maintenance",
-                    lines=[
-                        InternalIssueLineCreate(item_id=item_id, quantity=Decimal("1"))
-                        for item_id in [kit.plain_item_id, kit.item_id]
-                    ],
-                )
-            )
         else:
             await inventory.ScrapDisposalService(kit.session, kit.tenant).create(
                 ScrapDisposalCreate(
@@ -481,6 +529,227 @@ async def test_serial_document_refusal_preserves_both_tenants_and_every_stock_re
     )
     assert expected_message in refused.value.message
     assert await _snapshot(kit.session) == before
+
+
+async def test_named_serial_internal_issue_posts_one_material_issue_per_unit(kit: Kit) -> None:
+    serial_ids = list(kit.serial_ids[:2])
+    service = inventory.InternalIssueService(kit.session, kit.tenant)
+    draft = await service.create(
+        InternalIssueCreate(
+            warehouse_id=kit.warehouse_id,
+            department_id=kit.department_id,
+            reason="Issue the named units to maintenance",
+            lines=[
+                InternalIssueLineCreate(
+                    item_id=kit.item_id,
+                    quantity=Decimal("2"),
+                    serial_ids=serial_ids,
+                )
+            ],
+        )
+    )
+
+    assert draft.status == "DRAFT"
+    assert draft.lines[0].serial_ids == serial_ids
+    assert draft.lines[0].serial_numbers == ["BOUNDARY-1", "BOUNDARY-2"]
+
+    posted = await service.post(draft.id)
+    assert posted.status == "POSTED"
+    assert posted.total_value == Decimal("25")
+    assert posted.lines[0].unit_cost == Decimal("12.5")
+    assert posted.lines[0].total_cost == Decimal("25")
+    assert posted.lines[0].serial_ids == serial_ids
+    assert posted.lines[0].serial_numbers == ["BOUNDARY-1", "BOUNDARY-2"]
+
+    ledger = list(
+        (
+            await kit.session.scalars(
+                select(InventoryTransaction)
+                .where(InventoryTransaction.reference_id == draft.id)
+                .order_by(InventoryTransaction.created_at, InventoryTransaction.id)
+            )
+        ).all()
+    )
+    assert len(ledger) == 2
+    assert {row.serial_id for row in ledger} == set(serial_ids)
+    assert all(row.transaction_type is TransactionType.MATERIAL_ISSUE for row in ledger)
+    assert all(row.quantity == Decimal("-1") for row in ledger)
+    assert sum(abs(Decimal(row.total_cost)) for row in ledger) == Decimal("25")
+
+    balance = await kit.session.scalar(
+        select(InventoryBalance).where(
+            InventoryBalance.item_id == kit.item_id,
+            InventoryBalance.warehouse_id == kit.warehouse_id,
+        )
+    )
+    assert balance is not None and balance.on_hand_quantity == Decimal("0")
+    serials = list(
+        (await kit.session.scalars(select(StockSerial).where(StockSerial.id.in_(serial_ids)))).all()
+    )
+    assert {serial.id for serial in serials} == set(serial_ids)
+    assert all(serial.status is SerialStatus.ISSUED for serial in serials)
+
+
+@pytest.mark.parametrize(
+    ("serial_index", "use_wrong_bin", "expected_message"),
+    [
+        (None, False, "must name exactly one serial per unit"),
+        (2, False, "not in stock at the named source position"),
+        (0, True, "not in stock at the named source position"),
+    ],
+)
+async def test_internal_issue_refuses_missing_or_wrong_position_serials_atomically(
+    kit: Kit, serial_index: int | None, use_wrong_bin: bool, expected_message: str
+) -> None:
+    before = await _snapshot(kit.session)
+    with pytest.raises(BusinessRuleError) as refused:
+        await inventory.InternalIssueService(kit.session, kit.tenant).create(
+            InternalIssueCreate(
+                warehouse_id=kit.warehouse_id,
+                department_id=kit.department_id,
+                reason="Do not issue an unnamed or misplaced serial",
+                lines=[
+                    InternalIssueLineCreate(
+                        item_id=kit.item_id,
+                        quantity=Decimal("1"),
+                        location_id=kit.bin_id if use_wrong_bin else None,
+                        serial_ids=[] if serial_index is None else [kit.serial_ids[serial_index]],
+                    )
+                ],
+            )
+        )
+
+    assert expected_message in refused.value.message
+    if serial_index is None:
+        assert refused.value.code is ErrorCode.SERIAL_REQUIRED
+    assert await _snapshot(kit.session) == before
+
+
+async def test_internal_issue_cannot_name_another_tenants_serial(kit: Kit) -> None:
+    before = await _snapshot(kit.session)
+    with pytest.raises(NotFoundError, match="Stock serial"):
+        await inventory.InternalIssueService(kit.session, kit.tenant).create(
+            InternalIssueCreate(
+                warehouse_id=kit.warehouse_id,
+                department_id=kit.department_id,
+                reason="Do not issue a serial owned by another tenant",
+                lines=[
+                    InternalIssueLineCreate(
+                        item_id=kit.item_id,
+                        quantity=Decimal("1"),
+                        serial_ids=[kit.foreign_serial_id],
+                    )
+                ],
+            )
+        )
+    assert await _snapshot(kit.session) == before
+
+
+async def test_serial_internal_issue_keeps_the_two_person_approval_control(kit: Kit) -> None:
+    item = await seed_support.seed_item(
+        kit.session,
+        company_id=kit.tenant.company_id,
+        code="SERIAL-APPROVAL-BOUNDARY",
+        is_serial_tracked=True,
+        standard_cost=Decimal("2000"),
+    )
+    serials = await inventory.TraceabilityService(kit.session, kit.tenant).bulk_create_serials(
+        StockSerialBulkCreate(
+            item_id=item.id,
+            serial_numbers=[f"APPROVAL-{number}" for number in range(1, 14)],
+        )
+    )
+    serial_ids = [serial.id for serial in serials]
+    await inventory.post_movements(
+        kit.session,
+        kit.tenant,
+        [
+            inventory.MovementRequest(
+                item_id=item.id,
+                warehouse_id=kit.warehouse_id,
+                serial_id=serial.id,
+                quantity=Decimal("1"),
+                transaction_type=TransactionType.OPENING_BALANCE,
+                reference_type="serial_issue_approval_fixture",
+                reason="Open expensive units for the approval control regression",
+                unit_cost=Decimal("2000"),
+            )
+            for serial in serials
+        ],
+    )
+
+    issuer = inventory.InternalIssueService(kit.session, kit.tenant)
+    draft = await issuer.create(
+        InternalIssueCreate(
+            warehouse_id=kit.warehouse_id,
+            department_id=kit.department_id,
+            reason="Issue the high-value serialized set to maintenance",
+            lines=[
+                InternalIssueLineCreate(
+                    item_id=item.id,
+                    quantity=Decimal("13"),
+                    serial_ids=serial_ids,
+                )
+            ],
+        )
+    )
+    assert draft.requires_approval
+    assert draft.total_value == Decimal("26000")
+    pending = await issuer.submit(draft.id)
+    assert pending.status == "PENDING_APPROVAL"
+
+    with pytest.raises(BusinessRuleError, match="someone other than"):
+        await issuer.approve(draft.id)
+
+    approver = await seed_support.seed_user(session=kit.session, company_id=kit.tenant.company_id)
+    approval_tenant = replace(kit.tenant, user_id=approver.id)
+    approved = await inventory.InternalIssueService(kit.session, approval_tenant).approve(draft.id)
+    assert approved.status == "POSTED"
+    assert approved.approved_by_id == approver.id
+    assert approved.total_value == Decimal("26000")
+    assert approved.lines[0].serial_ids == serial_ids
+    persisted_serials = list(
+        (
+            await kit.session.scalars(
+                select(StockSerial)
+                .where(StockSerial.id.in_(serial_ids))
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+    assert all(serial.status is SerialStatus.ISSUED for serial in persisted_serials)
+
+
+async def test_internal_issue_revalidates_serials_after_another_draft_posts(kit: Kit) -> None:
+    service = inventory.InternalIssueService(kit.session, kit.tenant)
+
+    async def draft_issue() -> Any:
+        return await service.create(
+            InternalIssueCreate(
+                warehouse_id=kit.warehouse_id,
+                department_id=kit.department_id,
+                reason="Issue the same named unit from competing drafts",
+                lines=[
+                    InternalIssueLineCreate(
+                        item_id=kit.item_id,
+                        quantity=Decimal("1"),
+                        serial_ids=[kit.serial_ids[0]],
+                    )
+                ],
+            )
+        )
+
+    earlier = await draft_issue()
+    later = await draft_issue()
+    await service.post(later.id)
+    before = await _snapshot(kit.session)
+
+    with pytest.raises(BusinessRuleError):
+        await service.post(earlier.id)
+
+    assert await _snapshot(kit.session) == before
+    still_draft = await service.get_issue(earlier.id)
+    assert still_draft.status == "DRAFT"
 
 
 async def test_named_serial_bin_move_posts_both_legs_and_preserves_fifo_cost(kit: Kit) -> None:

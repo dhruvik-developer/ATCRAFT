@@ -29343,6 +29343,15 @@
               }
             ],
             "title": "Quantity"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Ids",
+            "type": "array"
           }
         },
         "required": [
@@ -29451,6 +29460,21 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serial Numbers",
+            "type": "array"
           }
         },
         "required": [
@@ -29564,6 +29588,21 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serial Numbers",
+            "type": "array"
           },
           "total_cost": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",

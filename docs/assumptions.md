@@ -1884,9 +1884,8 @@ inspection and vendor losses. An existing scrap position can still be disposed
 of after the capability is disabled. Damaged stock is the QC alternative when
 material cannot be scrapped. SCRAP_DISPOSAL leaves the scrap pool; it does not
 transfer scrap back into useful stock. Scrap disposal stays quantity-only because
-the units were already retired on the scrap posting. Internal issues remain
-quantity-only and refuse serial-tracked stock until they can name units; bin
-moves name each unit and preserve its position.
+the units were already retired on the scrap posting; bin moves name each unit
+and preserve its position.
 
 **Why.** Turning the capability off must stop new scrap. It must not trap stock
 that is already scrap, because nothing else can address that pool.
@@ -1934,6 +1933,28 @@ receipt posting when `requires_qc` is set.
 
 **Impact if wrong.** If inspection records gain locations later, the receipt and
 the decision must carry the same position together.
+
+## §E8-8. Internal issues identify serial units
+
+**Assumed.** An internal-issue line for a serial-tracked item names exactly one
+registered serial per unit. The IDs remain on the issue line, and posting writes
+one `MATERIAL_ISSUE` movement per unit through the locked movement engine. Draft
+and approval do not reserve or move stock; posting revalidates each unit at its
+warehouse, bin and batch. FIFO value and the approval threshold are still
+restated from the movements actually posted.
+
+**Why.** An unnamed issue would reduce a position while leaving every serial
+marked `IN_STOCK`, so the same physical unit could be issued again without an
+identity trail. Naming the units retains traceability without weakening the
+existing approval control.
+
+**Where.** `src/modules/inventory/schemas.py`,
+`src/modules/inventory/service.py` and
+`apps/web/src/features/inventory/operation-tabs.tsx`.
+
+**Impact if wrong.** If an internal issue must be quantity-only, it cannot
+guarantee serial identity; that must be reconsidered as a lifecycle policy
+rather than allowing an anonymous `MATERIAL_ISSUE`.
 
 ---
 

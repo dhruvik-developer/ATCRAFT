@@ -59,8 +59,11 @@ unit per quantity; the service checks tenant, item, batch and exact source
 position, then the movement engine locks and revalidates the units while
 posting one paired transfer per unit and carrying its FIFO layers. The
 inventory UI selects only serials at the chosen source bin. Internal issues
-remain quantity-only and refuse serial-tracked stock. Scrap disposal remains
-quantity-only because the serial is retired when stock enters scrap.
+persist named serial IDs and post one `MATERIAL_ISSUE` per unit through the
+locked movement engine; the existing FIFO valuation and approval threshold
+remain in force. The issue UI selects only serials at the chosen source
+position. Scrap disposal remains quantity-only because the serial is retired
+when stock enters scrap.
 
 Physical-count sheets also remain quantity-based. The
 [PostgreSQL boundary regressions](../../apps/api/tests/integration/test_serial_inventory_operation_boundaries.py)
@@ -69,10 +72,12 @@ variance leaves the count unconfirmed, with ledger, FIFO, balances, identities,
 audit and unrelated tenant/warehouse rows unchanged. A matching serial count
 confirms without a stock movement. Bin moves now have positive coverage for
 named-unit posting, destination location, paired ledger rows and FIFO cost;
-missing, foreign and wrong-position serials refuse atomically. Mixed unnamed
-bin moves, internal issues and scrap disposals also retain their refusal
-regressions. Named-unit variance reconciliation, serial internal issues and
-serial lifecycle changes at scrap disposal remain open.
+missing, foreign and wrong-position serials refuse atomically. Serial internal
+issues have positive coverage for per-unit ledger rows, FIFO value, labels and
+status changes; missing, foreign, wrong-position and stale-draft units refuse
+atomically. Unnamed bin moves and scrap disposals retain their refusal
+regressions. Named-unit variance reconciliation and serial lifecycle changes
+at scrap disposal remain open.
 
 Label capabilities must be described precisely. The current
 [serial field](../../apps/web/src/features/inventory/serial-numbers-field.tsx)

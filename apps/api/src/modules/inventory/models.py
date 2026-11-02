@@ -366,6 +366,7 @@ class BinMoveStatus(StrEnum):
 
 
 MAX_SERIALS_PER_BIN_MOVE_LINE = 500
+MAX_SERIALS_PER_INTERNAL_ISSUE_LINE = 500
 
 
 class ScrapDisposalStatus(StrEnum):
@@ -2037,6 +2038,9 @@ class InternalIssueLine(TenantEntity):
         GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True
     )
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, server_default=text("'{}'::uuid[]"), default=list
+    )
     unit_cost: Mapped[Decimal] = mapped_column(
         UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -2056,6 +2060,14 @@ class InternalIssueLine(TenantEntity):
         Index("ix_internal_issue_lines_internal_issue", "internal_issue_id"),
         Index("ix_internal_issue_lines_item", "company_id", "item_id"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint(
+            f"cardinality(serial_ids) <= {MAX_SERIALS_PER_INTERNAL_ISSUE_LINE}",
+            name="serial_count_bounded",
+        ),
+        CheckConstraint(
+            "cardinality(serial_ids) = 0 OR cardinality(serial_ids) = quantity",
+            name="serial_count_matches_quantity",
+        ),
         CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
         CheckConstraint("total_cost >= 0", name="total_cost_non_negative"),
     )
@@ -2067,6 +2079,7 @@ __all__ = [
     "GRAIN_NULL_SENTINEL",
     "INCREASE_TYPES",
     "MAX_SERIALS_PER_BIN_MOVE_LINE",
+    "MAX_SERIALS_PER_INTERNAL_ISSUE_LINE",
     "ON_HAND_NEUTRAL_TYPES",
     "ON_HAND_STATES",
     "SERIAL_IN_WAREHOUSE_STATUSES",

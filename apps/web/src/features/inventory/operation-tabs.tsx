@@ -57,7 +57,7 @@ const documentDate = (row: Operation) =>
 function OperationLines({ document }: { document: Operation }) {
   const { can } = useAuth()
   const canSeeCosts = can(P.ITEM_COST_VIEW) || can(P.INVENTORY_VALUATION_VIEW)
-  const showsSerials = 'move_date' in document
+  const showsSerials = 'move_date' in document || 'issue_date' in document
   return (
     <div className="space-y-3">
       <p className="text-sm">
@@ -186,7 +186,10 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                 to_location_id: line.to_location_id || null,
                 serial_ids: line.serial_ids,
               }
-            : { location_id: line.location_id || null }),
+            : {
+                location_id: line.location_id || null,
+                ...(kind === 'internal-issues' ? { serial_ids: line.serial_ids } : {}),
+              }),
         })),
       }),
     onSuccess: (row) => {
@@ -220,7 +223,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
       return
     }
     if (
-      kind === 'bin-moves' &&
+      (kind === 'bin-moves' || kind === 'internal-issues') &&
       lines.some(
         (line) =>
           line.is_serial_tracked &&
@@ -228,7 +231,11 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
             !toDecimal(line.quantity).equals(line.serial_ids.length)),
       )
     ) {
-      setError('Select exactly one serial number for every unit on each serial-tracked line.')
+      setError(
+        kind === 'bin-moves'
+          ? 'Select exactly one serial number for every unit on each serial-tracked line.'
+          : 'Select exactly one serial number for every unit on each serial-tracked issue line.',
+      )
       return
     }
     if (kind === 'internal-issues' && !department && !centre) {
@@ -269,6 +276,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                   ...line,
                   location_id: '',
                   to_location_id: '',
+                  serial_ids: [],
                 })),
               )
             }}
@@ -356,7 +364,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                     id={`operation-item-${index}`}
                     label={`Item, line ${index + 1}`}
                     value={line.item_id || null}
-                    filters={kind === 'bin-moves' ? undefined : ITEM_FILTERS}
+                    filters={kind === 'scrap-disposals' ? ITEM_FILTERS : undefined}
                     onChange={(value, item) =>
                       patchLine(index, {
                         item_id: value ?? '',
@@ -416,7 +424,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
                     />
                   )}
                 </div>
-                {kind === 'bin-moves' && line.is_serial_tracked && (
+                {kind !== 'scrap-disposals' && line.is_serial_tracked && (
                   <SerialPicker
                     idPrefix={`operation-serial-${index}`}
                     itemId={line.item_id}

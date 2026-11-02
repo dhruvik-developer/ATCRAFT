@@ -22446,6 +22446,8 @@ export interface components {
             notes?: string | null;
             /** Quantity */
             quantity: number | string;
+            /** Serial Ids */
+            serial_ids?: string[];
         };
         /** InternalIssueLineRead */
         InternalIssueLineRead: {
@@ -22477,6 +22479,10 @@ export interface components {
             notes: string | null;
             /** Quantity */
             quantity: string;
+            /** Serial Ids */
+            serial_ids?: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
         };
         /** InternalIssueLineReadWithCost */
         InternalIssueLineReadWithCost: {
@@ -22508,6 +22514,10 @@ export interface components {
             notes: string | null;
             /** Quantity */
             quantity: string;
+            /** Serial Ids */
+            serial_ids?: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
             /** Total Cost */
             total_cost: string;
             /** Unit Cost */

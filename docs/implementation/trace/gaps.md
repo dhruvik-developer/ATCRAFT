@@ -20,6 +20,14 @@
 > refused; scrap disposal stays quantity-only because the serial is retired
 > when stock enters scrap.
 >
+> **Post-audit update - 17 November 2026 (serial internal issues).** Internal
+> issues now persist named serial IDs, display their labels and post one
+> `MATERIAL_ISSUE` per unit through the movement engine, which revalidates
+> warehouse, bin, batch and serial state under lock. FIFO repricing, the
+> approval threshold and separate-approver rule are unchanged. Named-unit
+> physical-count reconciliation and serial lifecycle handling at scrap disposal
+> remain open.
+>
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,
 > nets every item exactly once at its deepest level (free stock, then dated

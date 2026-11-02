@@ -29,6 +29,11 @@ const BIN = {
   name: 'Receiving rack',
   warehouse_id: WAREHOUSE.id,
 }
+const DEPARTMENT = {
+  id: '019a0000-0000-7000-8000-000000000006',
+  code: 'MNT',
+  name: 'Maintenance',
+}
 const issue = (overrides = {}) => ({
   id: '019a0000-0000-7000-8000-000000000004',
   code: 'II-0001',
@@ -123,6 +128,16 @@ describe('inventory operation documents', () => {
           location_id: BIN.id,
           location_code: 'BIN-B',
         },
+        {
+          id: 'line-2',
+          item_code: 'SERIAL-BRASS',
+          item_name: 'Serialized brass unit',
+          quantity: '1',
+          batch_id: null,
+          location_id: null,
+          serial_ids: [SERIAL.id],
+          serial_numbers: [SERIAL.serial_number],
+        },
       ],
     })
     const { user } = renderScreen(<OperationTab kind="internal-issues" />, {
@@ -137,6 +152,7 @@ describe('inventory operation documents', () => {
     expect(await within(dialog).findByText('BRASS')).toBeVisible()
     expect(within(dialog).getByText('BIN-B')).toBeVisible()
     expect(within(dialog).getByText('2.5')).toBeVisible()
+    expect(within(dialog).getByText(SERIAL.serial_number)).toBeVisible()
     expect(within(dialog).queryByText(/FIFO value/)).not.toBeInTheDocument()
   })
 
@@ -202,6 +218,59 @@ describe('inventory operation documents', () => {
           quantity: '1.0000',
           batch_id: null,
           location_id: null,
+        },
+      ],
+    })
+  })
+
+  it('creates an internal issue with the selected serial unit', async () => {
+    const { user, fetch } = renderScreen(<OperationTab kind="internal-issues" />, {
+      permissions: [
+        P.INVENTORY_VIEW,
+        P.INTERNAL_ISSUE_CREATE,
+        P.DEPARTMENT_VIEW,
+        P.LOCATION_VIEW,
+        P.ITEM_VIEW,
+      ],
+      routes: {
+        'GET /inventory/internal-issues': page([]),
+        'GET /organization/departments': page([DEPARTMENT]),
+        'GET /warehouses': page([WAREHOUSE]),
+        'GET /products/items': page([SERIAL_ITEM]),
+        [`GET /products/items/${SERIAL_ITEM.id}`]: ok(SERIAL_ITEM),
+        'GET /warehouses/locations': page([BIN]),
+        'GET /inventory/serials': page([SERIAL]),
+        'POST /inventory/internal-issues': ok({ code: 'II-0002' }),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: /new internal issue/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: 'Department' }))
+    await user.click(await screen.findByRole('option', { name: /MNT/ }))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Reason' }),
+      'Issue the serialized unit to maintenance',
+    )
+    await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
+    await user.click(await screen.findByRole('option', { name: /BRASS/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Quantity' }), '1')
+    await user.click(await within(dialog).findByRole('button', { name: /BRASS-UNIT-1/ }))
+    await user.click(within(dialog).getByRole('button', { name: /create draft issue/i }))
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    expect(fetch.requestFor('POST', '/inventory/internal-issues')).toEqual({
+      warehouse_id: WAREHOUSE.id,
+      reason: 'Issue the serialized unit to maintenance',
+      department_id: DEPARTMENT.id,
+      cost_centre_id: null,
+      lines: [
+        {
+          item_id: SERIAL_ITEM.id,
+          quantity: '1',
+          batch_id: null,
+          location_id: null,
+          serial_ids: [SERIAL.id],
         },
       ],
     })
