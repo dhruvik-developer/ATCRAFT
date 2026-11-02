@@ -178,6 +178,7 @@ class Permission(StrEnum):
     # --- vendor portal ------------------------------------------------------
     VENDOR_PORTAL_ACCESS = "vendor_portal.access"
     VENDOR_PORTAL_RESPOND = "vendor_portal.respond"
+    VENDOR_PORTAL_JOB_WORK = "vendor_portal.job_work"
     VENDOR_PORTAL_SHIP = "vendor_portal.ship"
     VENDOR_PORTAL_INVOICE = "vendor_portal.invoice"
     VENDOR_PORTAL_QUALITY = "vendor_portal.quality"
@@ -790,6 +791,7 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
         "permissions": _VENDOR_BASE
         | {
             Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_JOB_WORK,
             Permission.VENDOR_PORTAL_SHIP,
             Permission.VENDOR_PORTAL_INVOICE,
             Permission.VENDOR_PORTAL_QUALITY,
@@ -801,7 +803,11 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
         "is_system": True,
         "is_vendor_role": True,
         "permissions": _VENDOR_BASE
-        | {Permission.VENDOR_PORTAL_RESPOND, Permission.VENDOR_PORTAL_SHIP},
+        | {
+            Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_JOB_WORK,
+            Permission.VENDOR_PORTAL_SHIP,
+        },
     },
     "VENDOR_DISPATCH_MANAGER": {
         "name": "Vendor Dispatch Manager",

@@ -10009,6 +10009,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vendor-portal/job-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in vendor's job-work orders */
+        get: operations["list_job_work_api_v1_vendor_portal_job_work_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-portal/job-work/{order_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of the signed-in vendor's job-work orders */
+        get: operations["get_job_work_api_v1_vendor_portal_job_work__order_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-portal/job-work/{order_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report progress without changing stock or receipt status */
+        post: operations["report_job_work_status_api_v1_vendor_portal_job_work__order_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/vendor-portal/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -14228,6 +14279,36 @@ export interface components {
         /** ApiResponse[VendorInvoiceDetail] */
         ApiResponse_VendorInvoiceDetail_: {
             data?: components["schemas"]["VendorInvoiceDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[VendorJobWorkOrderDetail] */
+        ApiResponse_VendorJobWorkOrderDetail_: {
+            data?: components["schemas"]["VendorJobWorkOrderDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[VendorJobWorkUpdateRead] */
+        ApiResponse_VendorJobWorkUpdateRead_: {
+            data?: components["schemas"]["VendorJobWorkUpdateRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -23815,6 +23896,8 @@ export interface components {
             notes?: string | null;
             /** Quantity To Issue */
             quantity_to_issue: number | string;
+            /** Source Receipt Line Id */
+            source_receipt_line_id?: string | null;
         };
         /** JobWorkOrderLineRead */
         JobWorkOrderLineRead: {
@@ -23868,6 +23951,10 @@ export interface components {
             scrap_quantity: string;
             /** Serial Ids */
             serial_ids: string[];
+            /** Source Receipt Line Id */
+            source_receipt_line_id?: string | null;
+            /** Source Rejected Serial Ids */
+            source_rejected_serial_ids?: string[];
             /**
              * Uom Id
              * Format: uuid
@@ -25922,7 +26009,7 @@ export interface components {
          *     inherits the defaults in :mod:`src.modules.notifications.service`.
          * @enum {string}
          */
-        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "STOCK_EXPIRY" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "DEALER_ORDER_REQUEST_RECEIVED" | "DEALER_ORDER_CONFIRMED" | "DEALER_ORDER_DISPATCHED" | "DEALER_ORDER_DELIVERED" | "DEALER_INVOICE_ISSUED" | "DEALER_PAYMENT_REMINDER" | "DEALER_RETURN_RECEIVED" | "DEALER_RETURN_REQUEST_RECEIVED" | "DEALER_CREDIT_NOTE_ISSUED" | "COURIER_TRACKING_UPDATED" | "SYSTEM_ANNOUNCEMENT";
+        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "STOCK_EXPIRY" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "JOB_WORK_CHALLAN_ISSUED" | "JOB_WORK_VENDOR_UPDATE" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "DEALER_ORDER_REQUEST_RECEIVED" | "DEALER_ORDER_CONFIRMED" | "DEALER_ORDER_DISPATCHED" | "DEALER_ORDER_DELIVERED" | "DEALER_INVOICE_ISSUED" | "DEALER_PAYMENT_REMINDER" | "DEALER_RETURN_RECEIVED" | "DEALER_RETURN_REQUEST_RECEIVED" | "DEALER_CREDIT_NOTE_ISSUED" | "COURIER_TRACKING_UPDATED" | "SYSTEM_ANNOUNCEMENT";
         /**
          * OfferScopeKind
          * @description What an offer applies to. The matching id column is required; the others are null.
@@ -28713,6 +28800,23 @@ export interface components {
         PaginatedResponse_VendorInvoiceSummary_: {
             /** Data */
             data?: components["schemas"]["VendorInvoiceSummary"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[VendorJobWorkOrderRow] */
+        PaginatedResponse_VendorJobWorkOrderRow_: {
+            /** Data */
+            data?: components["schemas"]["VendorJobWorkOrderRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -39050,6 +39154,181 @@ export interface components {
             /** Vendor Invoice Number */
             vendor_invoice_number?: string | null;
         };
+        /** VendorJobWorkChallan */
+        VendorJobWorkChallan: {
+            /**
+             * Challan Date
+             * Format: date
+             */
+            challan_date: string;
+            /** Code */
+            code: string;
+            /**
+             * Expected Return Date
+             * Format: date
+             */
+            expected_return_date: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Quantity */
+            quantity: string;
+            /** Vehicle Number */
+            vehicle_number: string | null;
+        };
+        /** VendorJobWorkLine */
+        VendorJobWorkLine: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Issued Quantity */
+            issued_quantity: string;
+            /** Item Code */
+            item_code: string;
+            /** Item Name */
+            item_name: string;
+            /** Line Number */
+            line_number: number;
+            /** Pending Quantity */
+            pending_quantity: string;
+            /** Received Output Quantity */
+            received_output_quantity: string;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Uom Code */
+            uom_code: string;
+        };
+        /** VendorJobWorkOrderDetail */
+        VendorJobWorkOrderDetail: {
+            /** Challans */
+            challans: components["schemas"]["VendorJobWorkChallan"][];
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expected Return Date
+             * Format: date
+             */
+            expected_return_date: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Issued Quantity */
+            issued_quantity: string;
+            /** Lines */
+            lines: components["schemas"]["VendorJobWorkLine"][];
+            /** Pending Quantity */
+            pending_quantity: string;
+            /** Process Description */
+            process_description: string | null;
+            process_type: components["schemas"]["JobWorkProcess"];
+            /** Receipts */
+            receipts: components["schemas"]["VendorJobWorkReceipt"][];
+            /** Received Quantity */
+            received_quantity: string;
+            status: components["schemas"]["JobWorkOrderStatus"];
+            /** Updates */
+            updates: components["schemas"]["VendorJobWorkUpdateRead"][];
+        };
+        /** VendorJobWorkOrderRow */
+        VendorJobWorkOrderRow: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expected Return Date
+             * Format: date
+             */
+            expected_return_date: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Issued Quantity */
+            issued_quantity: string;
+            /** Pending Quantity */
+            pending_quantity: string;
+            /** Process Description */
+            process_description: string | null;
+            process_type: components["schemas"]["JobWorkProcess"];
+            /** Received Quantity */
+            received_quantity: string;
+            status: components["schemas"]["JobWorkOrderStatus"];
+        };
+        /** VendorJobWorkReceipt */
+        VendorJobWorkReceipt: {
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Output Quantity */
+            output_quantity: string;
+            /**
+             * Receipt Date
+             * Format: date
+             */
+            receipt_date: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+            /** Returned Unprocessed Quantity */
+            returned_unprocessed_quantity: string;
+            /** Vendor Challan Number */
+            vendor_challan_number: string | null;
+        };
+        /** VendorJobWorkUpdateCreate */
+        VendorJobWorkUpdateCreate: {
+            /**
+             * Event Time
+             * Format: date-time
+             */
+            event_time: string;
+            /** Expected Date */
+            expected_date?: string | null;
+            /** Note */
+            note?: string | null;
+            update_type: components["schemas"]["VendorJobWorkUpdateType"];
+        };
+        /** VendorJobWorkUpdateRead */
+        VendorJobWorkUpdateRead: {
+            /**
+             * Event Time
+             * Format: date-time
+             */
+            event_time: string;
+            /** Expected Date */
+            expected_date: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note: string | null;
+            update_type: components["schemas"]["VendorJobWorkUpdateType"];
+        };
+        /**
+         * VendorJobWorkUpdateType
+         * @enum {string}
+         */
+        VendorJobWorkUpdateType: "IN_PROCESS" | "READY_TO_RETURN" | "DISPATCHED_BACK";
         /**
          * VendorLedgerItemRow
          * @description One input item on a job-work vendor's material account.
@@ -39336,6 +39615,11 @@ export interface components {
              * @default 0
              */
             in_transit: number;
+            /**
+             * Job Work Pending
+             * @default 0
+             */
+            job_work_pending: number;
             /**
              * Payment Pending
              * @default 0
@@ -128467,6 +128751,379 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_VendorPortalInvoiceDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_job_work_api_v1_vendor_portal_job_work_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_VendorJobWorkOrderRow_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_job_work_api_v1_vendor_portal_job_work__order_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_VendorJobWorkOrderDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    report_job_work_status_api_v1_vendor_portal_job_work__order_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VendorJobWorkUpdateCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_VendorJobWorkUpdateRead_"];
                 };
             };
             /** @description Malformed request */

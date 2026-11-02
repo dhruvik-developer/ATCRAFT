@@ -18,11 +18,11 @@
  * 3. **`lines` replaces the whole set.** A partial send deletes the lines it
  *    left out, so an amendment always posts every line.
  *
- * Item choice is narrowed server-side rather than validated after the fact: the
- * API refuses an inactive item, one not flagged `can_job_work`, and serial-
- * tracked items, because this module has no contract for naming each unit's
- * disposition. Batch-tracked items select their lot before approval so the
- * reservation is held against the same stock grain the issue will consume.
+ * Item choice is narrowed server-side rather than validated after the fact.
+ * Ordinary orders exclude serial-tracked items; a rework order is the narrow
+ * exception because it is linked to the exact returned rejects and issues only
+ * those identities. Batch-tracked items select their lot before approval so
+ * the reservation is held against the same stock grain the issue will consume.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -138,7 +138,10 @@ const lineSchema = z
   .object({
     item_id: z.string().min(1, validation.choose('the material going out')),
     is_batch_tracked: z.boolean(),
+    is_serial_tracked: z.boolean(),
     batch_id: z.string(),
+    source_receipt_line_id: z.string(),
+    source_rejected_serial_ids: z.array(z.string()),
     quantity_to_issue: z
       .string()
       .trim()
@@ -166,6 +169,20 @@ const lineSchema = z
     path: ['batch_id'],
     message: 'Choose a batch for batch-tracked material',
   })
+  .refine((line) => !line.is_serial_tracked || toDecimal(line.quantity_to_issue).isInteger(), {
+    path: ['quantity_to_issue'],
+    message: 'Serial rework requires whole units',
+  })
+  .refine(
+    (line) =>
+      !line.is_serial_tracked ||
+      line.expected_output_quantity === '' ||
+      toDecimal(line.expected_output_quantity).equals(toDecimal(line.quantity_to_issue)),
+    {
+      path: ['expected_output_quantity'],
+      message: 'Serial rework must return one unit for each unit sent out',
+    },
+  )
 
 const schema = z.object({
   vendor_id: z.string().min(1, validation.choose('the vendor who will do the work')),
@@ -201,7 +218,10 @@ function emptyLine(): JobWorkFormValues['lines'][number] {
   return {
     item_id: '',
     is_batch_tracked: false,
+    is_serial_tracked: false,
     batch_id: '',
+    source_receipt_line_id: '',
+    source_rejected_serial_ids: [],
     quantity_to_issue: '',
     expected_output_item_id: '',
     expected_output_quantity: '',
@@ -263,7 +283,10 @@ function valuesFrom(detail: JobWorkOrderDetail): JobWorkFormValues {
     lines: linesOf(detail).map((line) => ({
       item_id: line.item_id,
       is_batch_tracked: line.is_batch_tracked,
+      is_serial_tracked: line.is_serial_tracked,
       batch_id: line.batch_id ?? '',
+      source_receipt_line_id: line.source_receipt_line_id ?? '',
+      source_rejected_serial_ids: line.source_rejected_serial_ids ?? [],
       quantity_to_issue: line.quantity_to_issue,
       expected_output_item_id:
         line.expected_output_item_id === line.item_id ? '' : line.expected_output_item_id,
@@ -294,6 +317,7 @@ function buildLines(values: JobWorkFormValues): JobWorkOrderLineCreate[] {
     expected_output_item_id: line.expected_output_item_id || null,
     expected_output_quantity: line.expected_output_quantity.trim() || null,
     expected_loss_percentage: line.expected_loss_percentage.trim(),
+    source_receipt_line_id: line.source_receipt_line_id || null,
     notes: orNull(line.notes),
   }))
 }
@@ -406,7 +430,15 @@ export interface ReworkPrefill {
   /** The receipt whose rejected output is being reprocessed. */
   sourceId: string
   vendorId: string
-  lines: { item_id: string; quantity_to_issue: string }[]
+  lines: {
+    item_id: string
+    quantity_to_issue: string
+    batch_id: string | null
+    source_receipt_line_id: string
+    is_batch_tracked: boolean
+    is_serial_tracked: boolean
+    rejected_serial_ids: string[]
+  }[]
 }
 
 function reworkValues(rework: ReworkPrefill): JobWorkFormValues {
@@ -417,7 +449,12 @@ function reworkValues(rework: ReworkPrefill): JobWorkFormValues {
     lines: rework.lines.map((line) => ({
       ...emptyLine(),
       item_id: line.item_id,
+      is_batch_tracked: line.is_batch_tracked,
+      is_serial_tracked: line.is_serial_tracked,
+      batch_id: line.batch_id ?? '',
       quantity_to_issue: line.quantity_to_issue,
+      source_receipt_line_id: line.source_receipt_line_id,
+      source_rejected_serial_ids: line.rejected_serial_ids,
     })),
   }
 }
@@ -442,6 +479,7 @@ export function JobWorkOrderFormDialog({
   // The list row carries no lines, so an amendment starts by fetching them.
   const detailQuery = useJobWorkOrder(order?.id ?? '', open && amending)
   const detail = detailQuery.data
+  const isRework = Boolean(rework || detail?.source_type === 'REWORK')
 
   const {
     register,
@@ -558,8 +596,9 @@ export function JobWorkOrderFormDialog({
             {(rework || detail?.source_type === 'REWORK') && (
               <Alert variant="warning">
                 <AlertDescription>
-                  Creating a draft does not move rejected stock. This order can issue available
-                  stock only.
+                  Drafting and approval do not move rejected stock. On issue, only the remaining
+                  quantity from this exact returned receipt line can move from damaged stock;
+                  serial-tracked rework is limited to the rejected serials on that source.
                 </AlertDescription>
               </Alert>
             )}
@@ -817,7 +856,7 @@ export function JobWorkOrderFormDialog({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={fields.length >= MAX_LINES_PER_ORDER}
+                      disabled={isRework || fields.length >= MAX_LINES_PER_ORDER}
                       onClick={() => append(emptyLine())}
                     >
                       <Plus />
@@ -846,10 +885,25 @@ export function JobWorkOrderFormDialog({
                                       `lines.${index}.is_batch_tracked`,
                                       item?.is_batch_tracked ?? false,
                                     )
+                                    setValue(
+                                      `lines.${index}.is_serial_tracked`,
+                                      item?.is_serial_tracked ?? false,
+                                    )
                                   }}
-                                  placeholder="Search items flagged for job work"
-                                  filters={JOB_WORK_INPUT_FILTERS}
-                                  emptyMessage="No item matches. Only active items flagged for job work and not serial tracked can be sent out."
+                                  placeholder={
+                                    isRework
+                                      ? 'Source item is fixed'
+                                      : 'Search items flagged for job work'
+                                  }
+                                  filters={
+                                    isRework ? { can_job_work: true } : JOB_WORK_INPUT_FILTERS
+                                  }
+                                  disabled={isRework}
+                                  emptyMessage={
+                                    isRework
+                                      ? 'The rework item must remain the item rejected on the source receipt.'
+                                      : 'No item matches. Only active items flagged for job work and not serial tracked can be sent out.'
+                                  }
                                   invalid={Boolean(errors.lines?.[index]?.item_id)}
                                 />
                               )}
@@ -873,6 +927,7 @@ export function JobWorkOrderFormDialog({
                                       onValueChange={(value) =>
                                         batchField.onChange(value === SELECT_NONE ? '' : value)
                                       }
+                                      disabled={isRework}
                                     >
                                       <SelectTrigger
                                         id={`job-work-line-batch-${index}`}
@@ -937,7 +992,7 @@ export function JobWorkOrderFormDialog({
                               variant="ghost"
                               size="icon-sm"
                               aria-label={`Remove line ${index + 1}`}
-                              disabled={fields.length === 1}
+                              disabled={fields.length === 1 || isRework}
                               onClick={() => remove(index)}
                             >
                               <Trash2 className="text-destructive" />
@@ -946,27 +1001,33 @@ export function JobWorkOrderFormDialog({
                         </div>
 
                         <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-                          <div>
-                            <Controller
-                              control={control}
-                              name={`lines.${index}.expected_output_item_id`}
-                              render={({ field: outputField }) => (
-                                <ItemPicker
-                                  id={`job-work-line-output-${index}`}
-                                  label={`Line ${index + 1} comes back as`}
-                                  value={outputField.value || null}
-                                  onChange={(itemId) => outputField.onChange(itemId ?? '')}
-                                  placeholder="The same item"
-                                  filters={JOB_WORK_OUTPUT_FILTERS}
-                                  emptyMessage="No item matches. A processed item need not be flagged for job work, but it cannot be batch or serial tracked."
-                                />
-                              )}
-                            />
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Leave it empty when polishing a handle returns a handle. PVD, coating
-                              and machining usually return a different code.
+                          {!isRework || !lines[index]?.is_serial_tracked ? (
+                            <div>
+                              <Controller
+                                control={control}
+                                name={`lines.${index}.expected_output_item_id`}
+                                render={({ field: outputField }) => (
+                                  <ItemPicker
+                                    id={`job-work-line-output-${index}`}
+                                    label={`Line ${index + 1} comes back as`}
+                                    value={outputField.value || null}
+                                    onChange={(itemId) => outputField.onChange(itemId ?? '')}
+                                    placeholder="The same item"
+                                    filters={JOB_WORK_OUTPUT_FILTERS}
+                                    emptyMessage="No item matches. A processed item need not be flagged for job work, but it cannot be batch or serial tracked."
+                                  />
+                                )}
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Leave it empty when polishing a handle returns a handle. PVD,
+                                coating and machining usually return a different code.
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              Serial rework returns as the same rejected item.
                             </p>
-                          </div>
+                          )}
 
                           <div>
                             <Label htmlFor={`job-work-line-output-qty-${index}`}>
@@ -977,6 +1038,7 @@ export function JobWorkOrderFormDialog({
                               {...register(`lines.${index}.expected_output_quantity`)}
                               inputMode="decimal"
                               placeholder="Same as out"
+                              disabled={isRework && lines[index]?.is_serial_tracked}
                               className="mt-1.5 text-right tabular"
                               aria-invalid={Boolean(
                                 errors.lines?.[index]?.expected_output_quantity,

@@ -68,6 +68,12 @@ export default function PortalLayout() {
           permission: P.VENDOR_PORTAL_ACCESS,
         },
         {
+          to: `${root}/job-work`,
+          label: 'Job work',
+          icon: Package,
+          permission: P.VENDOR_PORTAL_JOB_WORK,
+        },
+        {
           to: `${root}/invoices`,
           label: 'Invoices',
           icon: Wallet,
@@ -99,6 +105,11 @@ export default function PortalLayout() {
       ]
   const more: (PortalLink & { permission: PermissionKey })[] = isVendorUser
     ? [
+        {
+          to: `${root}/job-work`,
+          label: 'Job work',
+          permission: P.VENDOR_PORTAL_JOB_WORK,
+        },
         { to: `${root}/receipts`, label: 'Receipts and QC', permission: P.VENDOR_PORTAL_ACCESS },
         { to: `${root}/payments`, label: 'Payments', permission: P.VENDOR_PORTAL_INVOICE },
       ]

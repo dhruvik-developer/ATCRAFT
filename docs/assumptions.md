@@ -3715,31 +3715,49 @@ order; the ledger states it per vendor and period.
 billed-of-period-lines, invoice approvals must stamp a period on the
 `invoiced_amount` movement - the line only carries the cumulative figure.
 
-## §E7b-4. No vendor-portal job work and no automatic rejected-output debit
+## §E7b-4. Vendor job-work events and returned-reject reissue
 
-**Assumed.** Vendor-portal and vendor-app job work (spec section 6, A01.M8)
-is not built here: it is C2 territory with its own scope and security
-model, and this package closes the staff-side completion flow only. Likewise
-there is no automatic vendor debit for rejected output and no setting for
-one: the only debit posted is the excess-loss value beyond the agreed
-allowance, through the receipt path that already carries approvals.
+**Assumed.** A vendor sees only its own issued job-work orders, additionally
+restricted by its assigned item categories. Vendor progress events are claims
+for tracking only: they never change the job-work state, receipt quantities or
+inventory. Receipts and QC decisions remain staff-side. The vendor's expected
+date is an event snapshot and does not silently amend the challan or order due
+date.
 
-**Why.** A half-scoped portal (endpoints without the vendor-scope review C1a
-requires) would be a security hole dressed as a feature, and an automatic
-charge-back for rejected output invents a commercial policy the contract does
-not state.
+A physically returned rejection (`RETURN_TO_STOCK`) may seed a rework draft.
+Each rework line names the exact source receipt line and uses the warehouse,
+item and batch recorded there. Drafts and approvals do not reserve damaged
+stock; at issue, the service locks the source receipt line, caps cumulative
+issued quantity at that line's rejected quantity and posts through inventory
+from `DAMAGED` into `JOB_WORK`, where the company-owned stock remains traceable
+to the new order. The inventory movement locks the balance row, so concurrent
+issues cannot consume the same damaged quantity. If the stock has since moved
+or been consumed, issue fails atomically. Scrapped and vendor-held rejections
+cannot seed this path. A serial-tracked rework line is limited to the rejected
+serial IDs on its source receipt line; the issue picker resolves those IDs in
+bounded groups and permits only units still in the damaged state.
 
-**Where.** Nowhere - deliberately. `JobWorkSourceType.REWORK` with
-`source_id` = the receipt is the traceability link. "Create rework draft"
-prefills a draft only for physically returned rejects. Creating the draft moves
-no stock, and the form states that ordinary approval/issuing uses AVAILABLE
-stock. Issuing DAMAGED stock for a new rework order needs a separate reservation
-policy and is not implemented by this action. Scrapped and vendor-held rejects
-cannot seed this draft action.
+There is no automatic vendor debit for rejected output. The only debit remains
+the approved excess-loss value beyond the agreed allowance, through the receipt
+path and B3a recovery mechanism.
 
-**Impact if wrong.** If the client wants rejected-output charge-backs, add a
-vendor debit through B3a's recovery mechanism behind a setting that defaults
-to off, as the spec anticipates.
+**Why.** A vendor-facing order is structurally scoped to the verified vendor
+identity, not merely gated by a permission string. Vendor-reported progress is
+not evidence that goods moved. Damaged output must not become generally
+available or be falsely represented as reserved; source-line locking and the
+inventory service provide a conservative, auditable reissue policy. Automatic
+charge-back would invent a commercial rule the contract does not state.
+
+**Where.** `vendor_portal.repository` and `vendor_portal.service` scope orders
+and append the progress events; `job_work.service._validate_rework_sources`,
+`_lock_rework_sources_for_issue`, and `issue_order` validate and post rework;
+`JobWorkOrder.vendor_overdue_notified_at` and the scheduled maintenance worker
+send one overdue reminder per order. Migration `20261115_0100`.
+
+**Impact if wrong.** An unissued rework draft does not protect its source
+quantity; the first approved issue wins under the source-row lock and later
+issues are refused. If the client wants rejected-output charge-backs, add a
+vendor debit through B3a behind an explicitly approved setting.
 
 ## §E7b-5. Job-work identity follows the physical lot or unit
 

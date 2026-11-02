@@ -132,6 +132,11 @@ celery_app.conf.update(
             "schedule": 3600.0,
             "options": {"queue": "notifications", "expires": 1800},
         },
+        "job-work-overdue-reminders": {
+            "task": "maintenance.scan_job_work_overdue",
+            "schedule": 86400.0,
+            "options": {"queue": "default", "expires": 3600},
+        },
         "poll-courier-tracking": {
             "task": "maintenance.poll_courier_tracking",
             "schedule": float(settings.courier_poll_interval_seconds),

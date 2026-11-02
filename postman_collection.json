@@ -11809,7 +11809,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity_to_issue\": {},\n      \"batch_id\": {},\n      \"expected_loss_percentage\": {},\n      \"expected_output_item_id\": {},\n      \"expected_output_quantity\": {},\n      \"notes\": {}\n    }\n  ],\n  \"process_type\": \"POLISHING\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sac_code\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"tax_rate\": 0\n}"
+              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity_to_issue\": {},\n      \"batch_id\": {},\n      \"expected_loss_percentage\": {},\n      \"expected_output_item_id\": {},\n      \"expected_output_quantity\": {},\n      \"notes\": {},\n      \"source_receipt_line_id\": {}\n    }\n  ],\n  \"process_type\": \"POLISHING\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sac_code\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"tax_rate\": 0\n}"
             },
             "description": "Validates the vendor, the warehouses and every line against the item master, and freezes the yield ratio and the estimated charge onto the order. No stock is reserved and none moves: a draft is a plan.",
             "header": [
@@ -32197,6 +32197,34 @@
           }
         },
         {
+          "name": "One of the signed-in vendor's job-work orders",
+          "request": {
+            "description": "One of the signed-in vendor's job-work orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "job-work",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/job-work/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "One of the vendor's bills, with its lines",
           "request": {
             "description": "One of the vendor's bills, with its lines",
@@ -32453,6 +32481,49 @@
           }
         },
         {
+          "name": "Report progress without changing stock or receipt status",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"event_time\": \"2026-01-01T00:00:00Z\",\n  \"update_type\": \"IN_PROCESS\",\n  \"expected_date\": \"2026-01-01\",\n  \"note\": \"\"\n}"
+            },
+            "description": "Report progress without changing stock or receipt status",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "job-work",
+                ":order_id",
+                "status"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/job-work/{order_id}/status",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Status of one of the vendor's own PO PDF jobs",
           "request": {
             "description": "Status of one of the vendor's own PO PDF jobs",
@@ -32629,6 +32700,52 @@
                 "me"
               ],
               "raw": "{{base_url}}/api/v1/vendor-portal/me"
+            }
+          }
+        },
+        {
+          "name": "The signed-in vendor's job-work orders",
+          "request": {
+            "description": "The signed-in vendor's job-work orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "job-work"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/job-work?"
             }
           }
         },

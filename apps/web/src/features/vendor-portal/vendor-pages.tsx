@@ -219,6 +219,9 @@ export function VendorHomePage() {
       can(P.VENDOR_PORTAL_INVOICE) ? '/vendor/invoices?unpaid_only=1' : null,
     ],
     ['QC rejected', dashboard.data?.qc_rejected, '/vendor/receipts?rejected_only=1'],
+    ...(can(P.VENDOR_PORTAL_JOB_WORK)
+      ? [['Job work pending', dashboard.data?.job_work_pending, '/vendor/job-work'] as const]
+      : []),
   ] as const
   return (
     <div className="space-y-5">

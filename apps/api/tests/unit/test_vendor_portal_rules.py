@@ -29,6 +29,7 @@ from src.modules.procurement.inbound_schemas import InboundShipmentCreate, Inbou
 from src.modules.procurement.inbound_service import shipment_message
 from src.modules.procurement.models import PurchaseOrderStatus
 from src.modules.procurement.service_rules import PURCHASE_ORDER_LIFECYCLE
+from src.modules.vendor_portal.schemas import VendorJobWorkUpdateCreate
 from src.workers.tasks.reports import indian_money, plain_quantity, render_purchase_order_pdf
 
 pytestmark = pytest.mark.unit
@@ -100,6 +101,22 @@ def test_everything_else_is_refused(path: str) -> None:
     assert not vendor_route_allowed(path)
 
 
+def test_vendor_job_work_progress_requires_timezone_and_normalizes_note() -> None:
+    with pytest.raises(ValueError, match="timezone offset"):
+        VendorJobWorkUpdateCreate(
+            update_type="IN_PROCESS",
+            event_time=datetime.fromisoformat("2026-11-02T09:00:00"),
+        )
+
+    update = VendorJobWorkUpdateCreate(
+        update_type="READY_TO_RETURN",
+        event_time=datetime(2026, 11, 2, 9, 0, tzinfo=UTC),
+        note="  Batch packed  ",
+    )
+    assert update.event_time.tzinfo is UTC
+    assert update.note == "Batch packed"
+
+
 # -----------------------------------------------------------------------------
 # Vendor roles hold portal rights only
 # -----------------------------------------------------------------------------
@@ -120,7 +137,7 @@ def test_vendor_roles_only_hold_portal_and_notification_rights() -> None:
 def test_no_portal_right_is_a_view_right() -> None:
     """A ``.view`` name would fold the rights into AUDITOR's VIEW_ONLY bundle."""
     portal = {p for p in Permission if str(p).startswith("vendor_portal.")}
-    assert len(portal) == 5
+    assert len(portal) == 6
     assert not portal & VIEW_ONLY
     assert not portal & ROLE_PRESETS["AUDITOR"]["permissions"]  # type: ignore[operator]
 

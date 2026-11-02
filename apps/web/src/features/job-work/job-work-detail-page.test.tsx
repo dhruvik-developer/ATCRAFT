@@ -226,11 +226,11 @@ describe('the job-work order detail page', () => {
     await screen.findByRole('heading', { name: 'JW-0001' })
     await user.click(screen.getByRole('button', { name: 'Create rework draft' }))
 
-    // This seeds a linked draft; issuing damaged stock is not supported.
+    // The draft stays linked to the exact returned rejects; stock moves only on issue.
     expect(await screen.findByRole('heading', { name: 'New rework order' })).toBeVisible()
     expect(
       screen.getByText(
-        'Creating a draft does not move rejected stock. This order can issue available stock only.',
+        'Drafting and approval do not move rejected stock. On issue, only the remaining quantity from this exact returned receipt line can move from damaged stock; serial-tracked rework is limited to the rejected serials on that source.',
       ),
     ).toBeVisible()
   })

@@ -253,6 +253,7 @@ export function SerialPicker({
     job_work_order_line_id?: string
     qc_inspection_id?: string
     job_work_outstanding_only?: boolean
+    serial_ids?: string[]
   }
   requireWarehouse?: boolean
 }) {
@@ -287,7 +288,34 @@ export function SerialPicker({
 
   const serials = useQuery({
     queryKey: queryKeys.inventory.serials(params),
-    queryFn: ({ signal }) => api.getPage<StockSerial>('/inventory/serials', { params, signal }),
+    queryFn: async ({ signal }) => {
+      if (scope?.serial_ids) {
+        const idGroups: string[][] = []
+        for (let index = 0; index < scope.serial_ids.length; index += 100) {
+          idGroups.push(scope.serial_ids.slice(index, index + 100))
+        }
+        const pages = await Promise.all(
+          idGroups.map((serialIds) =>
+            api.getPage<StockSerial>('/inventory/serials', {
+              params: {
+                item_id: itemId,
+                ...(warehouseId ? { warehouse_id: warehouseId } : {}),
+                ...(debounced ? { search: debounced } : {}),
+                ...(batchId ? { batch_id: batchId } : {}),
+                serial_ids: serialIds,
+                page: 1,
+                limit: 100,
+                with_total: false,
+              },
+              signal,
+            }),
+          ),
+        )
+        return { data: pages.flatMap((page) => page.data), hasNext: false }
+      }
+      const page = await api.getPage<StockSerial>('/inventory/serials', { params, signal })
+      return { data: page.data, hasNext: page.pagination.has_next }
+    },
     enabled: Boolean(itemId) && (Boolean(warehouseId) || !requireWarehouse),
     // Whose hands hold a unit changes all day; a stale register would offer a
     // serial that left this morning.
@@ -358,7 +386,7 @@ export function SerialPicker({
                 <button
                   key={serial.id}
                   type="button"
-                  disabled={!inStock}
+                  disabled={!inStock && !isChosen}
                   aria-pressed={isChosen}
                   onClick={() => toggle(serial.id)}
                   className={cn(
@@ -386,27 +414,29 @@ export function SerialPicker({
               {describeError(serials.error)}
             </p>
           )}
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={page <= 1}
-              onClick={() => setPage(page - 1)}
-            >
-              Previous units
-            </Button>
-            <span className="text-xs text-muted-foreground">Page {page}</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!serials.data?.pagination.has_next}
-              onClick={() => setPage(page + 1)}
-            >
-              Next units
-            </Button>
-          </div>
+          {!scope?.serial_ids && (
+            <div className="flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+              >
+                Previous units
+              </Button>
+              <span className="text-xs text-muted-foreground">Page {page}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!serials.data?.hasNext}
+                onClick={() => setPage(page + 1)}
+              >
+                Next units
+              </Button>
+            </div>
+          )}
 
           <p className="text-xs text-muted-foreground">
             One serial per unit - the API refuses a serialised line that does not name exactly as

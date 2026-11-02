@@ -157,6 +157,7 @@ async def test_a_vendor_token_is_refused_even_when_a_role_grants_staff_rights(
         "/vendor-portal/me",
         "/vendor-portal/dashboard",
         "/vendor-portal/purchase-orders",
+        "/vendor-portal/job-work",
         "/vendor-portal/receipts",
         "/vendor-portal/invoices",
         "/vendor-portal/payments",
@@ -185,6 +186,9 @@ async def test_a_vendor_token_reaches_the_portal(
     [
         ("VENDOR_QC_CONTACT", "/vendor-portal/invoices", False),
         ("VENDOR_QC_CONTACT", "/vendor-portal/receipts", True),
+        ("VENDOR_QC_CONTACT", "/vendor-portal/job-work", False),
+        ("VENDOR_MANAGER", "/vendor-portal/job-work", True),
+        ("VENDOR_OWNER", "/vendor-portal/job-work", True),
         ("VENDOR_DISPATCH_MANAGER", "/vendor-portal/transporters/options", True),
         ("VENDOR_DISPATCH_MANAGER", "/vendor-portal/payments", False),
         ("VENDOR_ACCOUNT_MANAGER", "/vendor-portal/payments", True),

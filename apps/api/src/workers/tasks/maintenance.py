@@ -73,6 +73,7 @@ from src.core.database import affected_rows, session_scope, transaction
 from src.core.deps import TenantContext, system_tenant
 from src.core.errors import BusinessRuleError
 from src.core.logging import get_logger
+from src.core.permissions import Permission
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import (
     OPEN_RESERVATION_STATUSES,
@@ -83,12 +84,18 @@ from src.modules.courier_tracking import service as courier_tracking_service
 from src.modules.courier_tracking.models import CourierAccount, CourierProvider
 from src.modules.inventory.models import BatchStatus, StockBatch
 from src.modules.inventory.service import BATCH_EXPIRY_WARN_DAYS, TraceabilityService
+from src.modules.job_work.models import (
+    MATERIAL_AT_VENDOR_STATUSES,
+    JobWorkOrder,
+)
+from src.modules.notifications.models import NotificationType
+from src.modules.notifications.service import notify_vendor
 from src.modules.quality import service as quality_service
 from src.modules.reports import service as reports_service
 from src.modules.sales import service as sales_service
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderLineStatus
 from src.modules.users.models import UserSession
-from src.workers.celery_app import async_task
+from src.workers.celery_app import async_task, celery_app
 
 log = get_logger("worker.maintenance")
 
@@ -123,6 +130,7 @@ TEMP_SUBDIRECTORY = "temp"
 #: hour; the most urgent orders are taken first, so a backlog delays the least
 #: urgent ones rather than random ones (docs/assumptions.md section E1-2).
 MAX_TOPUP_ORDERS = 200
+MAX_OVERDUE_JOB_WORK_ORDERS = 500
 
 
 def _system_tenant(company_id: uuid.UUID) -> TenantContext:
@@ -738,7 +746,86 @@ async def expire_batches(request_id: str | None = None, **_: Any) -> dict[str, A
     }
 
 
+async def _overdue_job_work_order_ids(session: AsyncSession) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    stmt = (
+        select(JobWorkOrder.company_id, JobWorkOrder.id)
+        .where(
+            JobWorkOrder.status.in_(MATERIAL_AT_VENDOR_STATUSES),
+            JobWorkOrder.expected_return_date < today(),
+            JobWorkOrder.vendor_overdue_notified_at.is_(None),
+        )
+        .order_by(JobWorkOrder.expected_return_date, JobWorkOrder.id)
+        .limit(MAX_OVERDUE_JOB_WORK_ORDERS)
+    )
+    return [(row.company_id, row.id) for row in (await session.execute(stmt)).all()]
+
+
+@async_task(name="maintenance.scan_job_work_overdue", queue="default")
+async def scan_job_work_overdue(request_id: str | None = None, **_: Any) -> dict[str, int]:
+    """Queue one tenant-safe reminder task per overdue order, bounded per tick."""
+    async with session_scope() as session:
+        orders = await _overdue_job_work_order_ids(session)
+
+    for company_id, order_id in orders:
+        celery_app.send_task(
+            "maintenance.notify_job_work_overdue",
+            args=[str(company_id), str(order_id)],
+            queue="default",
+            expires=3500,
+        )
+    log.info("maintenance.job_work_overdue_queued", orders=len(orders))
+    return {"queued": len(orders)}
+
+
+@async_task(name="maintenance.notify_job_work_overdue", queue="default")
+async def notify_job_work_overdue(
+    company_id: str, order_id: str, request_id: str | None = None, **_: Any
+) -> dict[str, bool]:
+    """Notify the vendor once, rechecking and marking under the order lock."""
+    tenant_id = uuid.UUID(company_id)
+    document_id = uuid.UUID(order_id)
+    async with session_scope() as session, transaction(session):
+        stmt = (
+            select(JobWorkOrder)
+            .where(
+                JobWorkOrder.company_id == tenant_id,
+                JobWorkOrder.id == document_id,
+            )
+            .with_for_update()
+        )
+        order = await session.scalar(stmt)
+        if (
+            order is None
+            or order.status not in MATERIAL_AT_VENDOR_STATUSES
+            or order.expected_return_date >= today()
+            or order.vendor_overdue_notified_at is not None
+        ):
+            return {"sent": False}
+
+        overdue_days = (today() - order.expected_return_date).days
+        await notify_vendor(
+            session,
+            order.vendor_id,
+            company_id=tenant_id,
+            notification_type=NotificationType.JOB_WORK_OVERDUE,
+            title=f"Job work overdue: {order.code}",
+            body=(
+                f"{order.code} is {overdue_days} day(s) past its expected return date. "
+                "Please review the outstanding job-work consignment."
+            ),
+            permission=Permission.VENDOR_PORTAL_JOB_WORK.value,
+            action_url=f"/vendor/job-work/{order.id}",
+            entity_type="job_work_order",
+            entity_id=order.id,
+            group_key=f"job-work-overdue:{order.id}",
+        )
+        order.vendor_overdue_notified_at = utcnow()
+        await session.flush()
+    return {"sent": True}
+
+
 __all__ = [
+    "MAX_OVERDUE_JOB_WORK_ORDERS",
     "MAX_PURGE_BATCHES",
     "MAX_TOPUP_ORDERS",
     "PURGE_BATCH",
@@ -746,11 +833,13 @@ __all__ = [
     "TEMP_FILE_MAX_AGE_HOURS",
     "allocate_short_orders",
     "expire_batches",
+    "notify_job_work_overdue",
     "poll_courier_tracking",
     "purge_expired_sessions",
     "purge_temp_files",
     "reconcile_quality_owners",
     "refresh_summary_views",
     "release_stale_reservations",
+    "scan_job_work_overdue",
     "top_up_short_orders",
 ]

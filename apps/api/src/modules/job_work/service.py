@@ -142,7 +142,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -239,6 +239,8 @@ from src.modules.job_work.serial_tracking import (
     receipt_movements,
     validate_receipt_units,
 )
+from src.modules.notifications.models import NotificationType
+from src.modules.notifications.service import notify_vendor
 from src.modules.organization.models import Company
 from src.modules.organization.service import require_cost_centre
 from src.modules.products.models import Item, UnitOfMeasure
@@ -1173,11 +1175,144 @@ def _persist_lines(
                     else line.quantity_to_issue
                 ),
                 expected_loss_percentage=Decimal(line.expected_loss_percentage),
+                source_receipt_line_id=line.source_receipt_line_id,
                 notes=line.notes,
             )
         )
         for line, source, output in resolved
     ]
+
+
+async def _validate_rework_sources(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    source_type: JobWorkSourceType,
+    source_id: uuid.UUID | None,
+    warehouse_id: uuid.UUID,
+    lines: Sequence[JobWorkOrderLineCreate],
+) -> None:
+    """Tie every rework draft line to the exact returned reject it will consume."""
+    linked_ids = [line.source_receipt_line_id for line in lines]
+    if source_type is not JobWorkSourceType.REWORK:
+        if any(line_id is not None for line_id in linked_ids):
+            raise ValidationError("Only rework orders may name a rejected receipt line.")
+        return
+    if source_id is None or any(line_id is None for line_id in linked_ids):
+        raise ValidationError("Every rework line must name its returned-reject receipt line.")
+    if len(set(linked_ids)) != len(linked_ids):
+        raise ValidationError("A returned-reject receipt line may be reworked only once per order.")
+
+    stmt = (
+        select(
+            JobWorkReceiptLine,
+            JobWorkReceipt.id.label("receipt_id"),
+            JobWorkOrder.return_warehouse_id.label("source_warehouse_id"),
+        )
+        .join(JobWorkReceipt, JobWorkReceipt.id == JobWorkReceiptLine.receipt_id)
+        .join(JobWorkOrder, JobWorkOrder.id == JobWorkReceipt.job_work_order_id)
+        .where(
+            JobWorkReceiptLine.company_id == tenant.company_id,
+            JobWorkReceipt.id == source_id,
+            JobWorkReceiptLine.id.in_(linked_ids),
+        )
+    )
+    rows = (await session.execute(stmt)).all()
+    sources = {row[0].id: row for row in rows}
+    missing_ids = [line_id for line_id in linked_ids if line_id not in sources]
+    if missing_ids:
+        raise NotFoundError("Rejected receipt line", missing_ids[0])
+
+    for line in lines:
+        source_line_id = line.source_receipt_line_id
+        assert source_line_id is not None
+        source = sources[source_line_id]
+        rejected = source[0]
+        if RejectionAction(rejected.rejection_action) is not RejectionAction.RETURN_TO_STOCK:
+            raise BusinessRuleError(
+                "Only physically returned rejected output can be sent for rework."
+            )
+        if rejected.rejected_quantity <= ZERO:
+            raise BusinessRuleError("The source receipt line has no rejected quantity to rework.")
+        if rejected.output_item_id != line.item_id:
+            raise BusinessRuleError("A rework line must use the exact item returned as rejected.")
+        if rejected.batch_id != line.batch_id:
+            raise BusinessRuleError("A rework line must use the rejected receipt line's batch.")
+        if source.source_warehouse_id != warehouse_id:
+            raise BusinessRuleError(
+                "A rework order must issue from the warehouse where the rejected output returned."
+            )
+        if to_quantity(Decimal(line.quantity_to_issue)) > to_quantity(
+            Decimal(rejected.rejected_quantity)
+        ):
+            raise BusinessRuleError("A rework line cannot exceed its returned rejected quantity.")
+
+
+async def _lock_rework_sources_for_issue(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: JobWorkOrder,
+    lines: Sequence[JobWorkOrderLine],
+) -> tuple[dict[uuid.UUID, JobWorkReceiptLine], dict[uuid.UUID, Decimal]]:
+    """Lock each reject source and return its still-unissued quantity ceiling."""
+    if JobWorkSourceType(order.source_type) is not JobWorkSourceType.REWORK:
+        return {}, {}
+    source_ids = [line.source_receipt_line_id for line in lines]
+    if order.source_id is None or any(source_id is None for source_id in source_ids):
+        raise BusinessRuleError("The rework order is missing its rejected receipt source.")
+    ids = [source_id for source_id in source_ids if source_id is not None]
+    if len(set(ids)) != len(ids):
+        raise BusinessRuleError("A rejected receipt line appears more than once in this rework.")
+    stmt = (
+        select(JobWorkReceiptLine)
+        .where(
+            JobWorkReceiptLine.company_id == tenant.company_id,
+            JobWorkReceiptLine.receipt_id == order.source_id,
+            JobWorkReceiptLine.id.in_(ids),
+            JobWorkReceiptLine.rejection_action == RejectionAction.RETURN_TO_STOCK,
+            JobWorkReceiptLine.rejected_quantity > ZERO,
+        )
+        .order_by(JobWorkReceiptLine.id)
+        .with_for_update()
+    )
+    source_rows = list((await session.execute(stmt)).scalars().all())
+    sources = {row.id: row for row in source_rows}
+    if len(sources) != len(ids):
+        raise BusinessRuleError("A rework source is not a returned rejected receipt line.")
+
+    issued_stmt = (
+        select(
+            JobWorkOrderLine.source_receipt_line_id,
+            func.coalesce(func.sum(JobWorkOrderLine.issued_quantity), 0).label("issued"),
+        )
+        .join(JobWorkOrder, JobWorkOrder.id == JobWorkOrderLine.job_work_order_id)
+        .where(
+            JobWorkOrder.company_id == tenant.company_id,
+            JobWorkOrder.source_type == JobWorkSourceType.REWORK,
+            JobWorkOrderLine.source_receipt_line_id.in_(ids),
+            JobWorkOrderLine.issued_quantity > ZERO,
+        )
+        .group_by(JobWorkOrderLine.source_receipt_line_id)
+    )
+    already_issued = {
+        row.source_receipt_line_id: Decimal(str(row.issued))
+        for row in (await session.execute(issued_stmt)).all()
+    }
+
+    for line in lines:
+        source_id = line.source_receipt_line_id
+        assert source_id is not None
+        source = sources[source_id]
+        if source.output_item_id != line.item_id or source.batch_id != line.batch_id:
+            raise BusinessRuleError("A rework line no longer matches its rejected receipt source.")
+        outstanding = to_quantity(
+            Decimal(source.rejected_quantity) - already_issued.get(source_id, ZERO)
+        )
+        if outstanding <= ZERO:
+            raise BusinessRuleError(
+                "This rejected receipt line has already been issued for rework."
+            )
+    return sources, already_issued
 
 
 def _expected_output_total(
@@ -1218,7 +1353,22 @@ async def get_order_detail(
 ) -> JobWorkOrderDetail:
     order = await JobWorkOrderRepository(session, tenant).get_or_404(order_id)
     lines = await JobWorkOrderLineRepository(session, tenant).list_for_order(order.id)
-    return order_detail(order, lines)
+    detail = order_detail(order, lines)
+    source_ids = [
+        line.source_receipt_line_id for line in lines if line.source_receipt_line_id is not None
+    ]
+    if source_ids:
+        stmt = select(JobWorkReceiptLine).where(
+            JobWorkReceiptLine.company_id == tenant.company_id,
+            JobWorkReceiptLine.id.in_(source_ids),
+        )
+        source_lines = {row.id: row for row in (await session.execute(stmt)).scalars().all()}
+        for line in detail.lines:
+            if line.source_receipt_line_id is not None:
+                source = source_lines.get(line.source_receipt_line_id)
+                if source is not None:
+                    line.source_rejected_serial_ids = list(source.rejected_serial_ids)
+    return detail
 
 
 async def list_challans(
@@ -1621,6 +1771,14 @@ async def create_order(
         return_warehouse_id = payload.return_warehouse_id or payload.warehouse_id
         await _assert_warehouses(session, tenant, payload.warehouse_id, return_warehouse_id)
         resolved = await _resolve_lines(session, tenant, payload.lines)
+        await _validate_rework_sources(
+            session,
+            tenant,
+            source_type=payload.source_type,
+            source_id=payload.source_id,
+            warehouse_id=payload.warehouse_id,
+            lines=payload.lines,
+        )
 
         if payload.expected_return_date < today():
             raise ValidationError(
@@ -1746,6 +1904,14 @@ async def update_order(
         lines: list[JobWorkOrderLine]
         if payload.lines is not None:
             resolved = await _resolve_lines(session, tenant, payload.lines)
+            await _validate_rework_sources(
+                session,
+                tenant,
+                source_type=JobWorkSourceType(order.source_type),
+                source_id=order.source_id,
+                warehouse_id=warehouse_id,
+                lines=payload.lines,
+            )
             await line_repo.delete_for_order(order.id)
             lines = _persist_lines(line_repo, order, resolved)
             expected_output = _expected_output_total(resolved)
@@ -1923,6 +2089,12 @@ async def approve_order(
         for line in sorted(lines, key=lambda row: (row.item_id, row.line_number)):
             if line.reservation_id is not None:
                 continue
+            if JobWorkSourceType(order.source_type) is JobWorkSourceType.REWORK:
+                # ASSUMPTION: physically returned rejects are not available
+                # inventory and must not enter the ordinary reservation pool.
+                # The issue path locks the receipt line and verifies both its
+                # remaining reject quantity and the DAMAGED balance atomically.
+                continue
             reservation = await port.reserve(
                 session,
                 tenant,
@@ -2071,6 +2243,9 @@ async def issue_order(
                 )
 
         lines = await line_repo.list_for_order(order.id)
+        rework_sources, rework_issued = await _lock_rework_sources_for_issue(
+            session, tenant, order, lines
+        )
         by_number = {line.line_number: line for line in lines}
         serials_by_number = {entry.line_number: entry.serial_ids for entry in payload.lines}
         selected_serials = [serial for serials in serials_by_number.values() for serial in serials]
@@ -2116,6 +2291,41 @@ async def issue_order(
                     details={"line_number": entry.line_number},
                 )
             overrides[entry.line_number] = (quantity, batch_id)
+
+        if rework_sources:
+            for line in lines:
+                source_id = line.source_receipt_line_id
+                assert source_id is not None
+                source = rework_sources[source_id]
+                quantity, batch_id = overrides.get(
+                    line.line_number,
+                    (to_quantity(Decimal(line.quantity_to_issue)), line.batch_id),
+                )
+                remaining = to_quantity(
+                    Decimal(source.rejected_quantity) - rework_issued.get(source_id, ZERO)
+                )
+                if quantity > remaining:
+                    raise BusinessRuleError(
+                        "The requested rework issue exceeds the rejected quantity still available "
+                        f"from receipt line {source.id}.",
+                        details={
+                            "source_receipt_line_id": str(source.id),
+                            "remaining_quantity": str(remaining),
+                            "requested_quantity": str(quantity),
+                        },
+                    )
+                serial_ids = serials_by_number.get(line.line_number, [])
+                if line.is_serial_tracked and not set(serial_ids).issubset(
+                    set(source.rejected_serial_ids)
+                ):
+                    raise BusinessRuleError(
+                        "A serial rework line may name only the units rejected on its source "
+                        "receipt."
+                    )
+                if batch_id != source.batch_id:
+                    raise BusinessRuleError(
+                        "A batch rework line must issue the batch recorded on its source receipt."
+                    )
 
         challan_date = payload.challan_date or today()
         expected_return = payload.expected_return_date or order.expected_return_date
@@ -2182,6 +2392,11 @@ async def issue_order(
                         reference_code=order.code,
                         reason=movement_reason,
                         stock_state=StockState.JOB_WORK,
+                        from_state=(
+                            StockState.DAMAGED
+                            if JobWorkSourceType(order.source_type) is JobWorkSourceType.REWORK
+                            else None
+                        ),
                         occurred_at=payload.occurred_at,
                     )
                 )
@@ -2282,6 +2497,24 @@ async def issue_order(
 
         await _transition(
             session, tenant, order, JobWorkOrderStatus.ISSUED, reason=payload.reason, repo=repo
+        )
+        await notify_vendor(
+            session,
+            order.vendor_id,
+            company_id=tenant.company_id,
+            notification_type=NotificationType.JOB_WORK_CHALLAN_ISSUED,
+            title=f"Job work pending: {order.code}",
+            body=(
+                f"{challan.code} was issued on {challan.challan_date.isoformat()} with "
+                f"{challan.total_quantity} unit(s) due back by "
+                f"{challan.expected_return_date.isoformat()}."
+            ),
+            permission=Permission.VENDOR_PORTAL_JOB_WORK.value,
+            action_url=f"/vendor/job-work/{order.id}",
+            entity_type=AUDIT_JOB_WORK_CHALLAN,
+            entity_id=challan.id,
+            actor_id=tenant.user_id,
+            group_key=f"job-work-challan:{challan.id}",
         )
 
         await record_audit(

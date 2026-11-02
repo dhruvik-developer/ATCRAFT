@@ -45,6 +45,7 @@ from src.core.errors import (
     BusinessRuleError,
     InsufficientStockError,
     InvalidStateTransitionError,
+    NotFoundError,
     PermissionDeniedError,
 )
 from src.core.models import Base
@@ -71,8 +72,10 @@ from src.modules.job_work.models import (
     JobWorkProcess,
     JobWorkReceipt,
     JobWorkSourceType,
+    JobWorkVendorUpdate,
     RateBasis,
     RejectionAction,
+    VendorJobWorkUpdateType,
 )
 from src.modules.job_work.schemas import (
     IssueLineIn,
@@ -87,6 +90,8 @@ from src.modules.job_work.schemas import (
 )
 from src.modules.mrp.schemas import ConversionRequest, ConversionTarget
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure, UomCategory
+from src.modules.vendor_portal.schemas import VendorJobWorkUpdateCreate
+from src.modules.vendor_portal.service import VendorPortalService
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
 from tests.schema_support import prepare_metadata, report_database_setup_failure
@@ -1269,6 +1274,89 @@ async def test_rejected_output_is_received_into_the_damaged_pool(ctx, job: PvdJo
     assert Decimal(coated.available_quantity) == Decimal("90.0000")
 
 
+async def test_rework_issues_only_the_exact_returned_reject_and_does_not_reserve_it(
+    ctx, job: PvdJob
+) -> None:
+    session, tenant = ctx
+    original, _ = await issued_order(ctx, job)
+    receipt_result = await service.receive(
+        session,
+        tenant,
+        principal_for(tenant),
+        original.id,
+        ReceiveRequest(
+            reason="Ten rejected pieces returned for rework",
+            lines=[
+                ReceiptLineIn(
+                    line_number=1,
+                    output_quantity=Decimal("90"),
+                    rejected_quantity=Decimal("10"),
+                    rejection_action=RejectionAction.RETURN_TO_STOCK,
+                    is_final=True,
+                )
+            ],
+        ),
+    )
+    source_line = receipt_result.receipt.lines[0]
+
+    def rework_payload() -> JobWorkOrderCreate:
+        return JobWorkOrderCreate(
+            vendor_id=job.vendor_id,
+            process_type=JobWorkProcess.PVD,
+            process_description="Reprocess returned PVD output",
+            expected_return_date=today() + timedelta(days=7),
+            warehouse_id=job.warehouse_id,
+            source_type=JobWorkSourceType.REWORK,
+            source_id=receipt_result.receipt.id,
+            lines=[
+                JobWorkOrderLineCreate(
+                    line_number=1,
+                    item_id=job.coated_item_id,
+                    quantity_to_issue=Decimal("10"),
+                    expected_output_item_id=job.coated_item_id,
+                    source_receipt_line_id=source_line.id,
+                )
+            ],
+        )
+
+    first, first_lines = await service.create_order(session, tenant, rework_payload())
+    second, second_lines = await service.create_order(session, tenant, rework_payload())
+    assert first_lines[0].reservation_id is None
+    assert second_lines[0].reservation_id is None
+    await service.approve_order(session, tenant, first.id, reason="Rework returned rejects")
+    await service.approve_order(session, tenant, second.id, reason="Separate rework draft")
+
+    await service.issue_order(
+        session,
+        tenant,
+        first.id,
+        IssueRequest(
+            reason="Reissue physically returned rejects",
+            lines=[IssueLineIn(line_number=1, issued_quantity=Decimal("10"))],
+        ),
+    )
+    damaged = await balance(session, tenant, job.coated_item_id, job.warehouse_id)
+    assert damaged is not None
+    assert Decimal(damaged.damaged_quantity) == Decimal("0.0000")
+    assert Decimal(damaged.job_work_quantity) == Decimal("10.0000")
+
+    with pytest.raises(BusinessRuleError, match="already been issued for rework"):
+        await service.issue_order(
+            session,
+            tenant,
+            second.id,
+            IssueRequest(
+                reason="Attempt to issue the same rejected units twice",
+                lines=[IssueLineIn(line_number=1, issued_quantity=Decimal("10"))],
+            ),
+        )
+
+    unchanged = await balance(session, tenant, job.coated_item_id, job.warehouse_id)
+    assert unchanged is not None
+    assert Decimal(unchanged.damaged_quantity) == Decimal("0.0000")
+    assert Decimal(unchanged.job_work_quantity) == Decimal("10.0000")
+
+
 async def test_rework_leaves_the_material_at_the_vendor_and_the_order_open(
     ctx, job: PvdJob
 ) -> None:
@@ -1303,6 +1391,78 @@ async def test_rework_leaves_the_material_at_the_vendor_and_the_order_open(
     assert refreshed.status is JobWorkOrderStatus.PARTIALLY_RECEIVED
     pending = await service.pending_at_vendor(session, tenant)
     assert pending[0].outstanding_quantity == Decimal("10.0000")
+
+
+async def test_vendor_job_work_progress_is_scoped_audited_and_does_not_move_stock(
+    ctx, job: PvdJob
+) -> None:
+    session, tenant = ctx
+    order, _ = await issued_order(ctx, job)
+    vendor_tenant = TenantContext(
+        company_id=tenant.company_id,
+        user_id=tenant.user_id,
+        vendor_id=job.vendor_id,
+    )
+    portal = VendorPortalService(session, vendor_tenant)
+    before_balance = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert before_balance is not None
+    before_quantities = (
+        Decimal(before_balance.on_hand_quantity),
+        Decimal(before_balance.job_work_quantity),
+        Decimal(before_balance.damaged_quantity),
+    )
+    movement_count = await session.scalar(
+        select(func.count())
+        .select_from(InventoryTransaction)
+        .where(InventoryTransaction.reference_id == order.id)
+    )
+
+    update = await portal.report_job_work_update(
+        order.id,
+        VendorJobWorkUpdateCreate(
+            update_type=VendorJobWorkUpdateType.IN_PROCESS,
+            event_time=utcnow(),
+            expected_date=today() + timedelta(days=4),
+            note="Surface preparation is underway",
+        ),
+    )
+
+    refreshed = await portal.job_work_order(order.id)
+    assert [event.id for event in refreshed.updates] == [update.id]
+    assert refreshed.status is JobWorkOrderStatus.ISSUED
+    assert refreshed.pending_quantity == Decimal("100.0000")
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(JobWorkVendorUpdate)
+            .where(JobWorkVendorUpdate.id == update.id)
+        )
+    ) == 1
+    after_balance = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert after_balance is not None
+    assert (
+        Decimal(after_balance.on_hand_quantity),
+        Decimal(after_balance.job_work_quantity),
+        Decimal(after_balance.damaged_quantity),
+    ) == before_quantities
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(InventoryTransaction)
+            .where(InventoryTransaction.reference_id == order.id)
+        )
+    ) == movement_count
+
+    stranger = VendorPortalService(
+        session,
+        TenantContext(
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            vendor_id=uuid.uuid4(),
+        ),
+    )
+    with pytest.raises(NotFoundError):
+        await stranger.job_work_order(order.id)
 
 
 async def test_unprocessed_material_handed_back_returns_to_availability(ctx, job: PvdJob) -> None:

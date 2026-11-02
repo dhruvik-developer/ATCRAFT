@@ -5285,7 +5285,7 @@
     },
     {
       "groupTitle": "Vendor app",
-      "groupIntro": "Suppliers use a separate workspace for the orders the buyer has shared with their vendor account. The phone navigation provides Home, Orders, Shipments, Invoices and More. More leads to receipts and quality, payments, notifications, profile and sign out. Roles decide which actions appear; a vendor cannot enter the staff workspace or choose a different vendor identity.",
+      "groupIntro": "Suppliers use a separate workspace for the orders the buyer has shared with their vendor account. The phone navigation provides Home, Orders, Shipments, Invoices and More. More leads to receipts and quality, job work for vendor owners and managers, payments, notifications, profile and sign out. Roles decide which actions appear; a vendor cannot enter the staff workspace or choose a different vendor identity.",
       "screens": [
         {
           "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
@@ -5293,7 +5293,7 @@
           "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
           "route": "/vendor",
           "title": "Vendor home",
-          "purpose": "Start with the counts of orders to accept, accepted orders, goods ready to dispatch, consignments in transit, delivered orders, bills awaiting payment and recent QC rejections. Your own vendor rating shows the receipt sample and period behind its score.",
+          "purpose": "Start with the counts of orders to accept, accepted orders, goods ready to dispatch, consignments in transit, delivered orders, bills awaiting payment, recent QC rejections and job-work consignments still at your shop when your role has access. Your own vendor rating shows the receipt sample and period behind its score.",
           "keyActions": [
             {
               "action": "Open a queue",
@@ -5385,6 +5385,34 @@
             "The invoice right permits invoice uploads; other attachment kinds require the shipping right.",
             "All downloads are authenticated. Older shipments, documents and receipts remain available through their page controls.",
             "A pending revision shows only its code, status, revision and notice. Revised lines, prices, terms, files, invoice forms and actions remain private until resend."
+          ]
+        },
+        {
+          "whoUses": "Vendor owners and managers. The service restricts every order to the signed-in vendor and its assigned item categories.",
+          "permission": "The vendor portal job-work right is granted to vendor owners and managers.",
+          "notes": "The list is server-paginated. Opening an order shows material, challans, receipts, quality outcome and vendor progress history.",
+          "route": "/vendor/job-work",
+          "title": "Vendor job work",
+          "purpose": "Follow company-owned material sent to your shop for processing, including what was issued, what has been accounted for, what remains outstanding and when it is due back.",
+          "keyActions": [
+            {
+              "action": "Open a job-work order",
+              "how": "Choose an order in the list to inspect its lines, challans, receipts and updates."
+            },
+            {
+              "action": "Report progress",
+              "how": "On an issued order, report In process, Ready to return or Dispatched back. Add an expected date or note when useful."
+            }
+          ],
+          "flow": [
+            "Open the Job work tile or More → Job work.",
+            "Read the outstanding quantities and due date.",
+            "Report progress as the work advances; the buyer's storekeeper records the actual receipt."
+          ],
+          "rules": [
+            "A progress report is a tracking event only. It does not receive material, change the order status or move stock.",
+            "You are notified when a challan is issued to your vendor account and when an order becomes overdue.",
+            "Orders belonging to another vendor, draft orders and cancelled orders are not visible."
           ]
         },
         {

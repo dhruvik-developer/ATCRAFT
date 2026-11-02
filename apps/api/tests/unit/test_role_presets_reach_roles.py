@@ -92,11 +92,17 @@ def test_vendor_system_presets_have_only_their_portal_rights() -> None:
         "VENDOR_OWNER": base
         | {
             Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_JOB_WORK,
             Permission.VENDOR_PORTAL_SHIP,
             Permission.VENDOR_PORTAL_INVOICE,
             Permission.VENDOR_PORTAL_QUALITY,
         },
-        "VENDOR_MANAGER": base | {Permission.VENDOR_PORTAL_RESPOND, Permission.VENDOR_PORTAL_SHIP},
+        "VENDOR_MANAGER": base
+        | {
+            Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_JOB_WORK,
+            Permission.VENDOR_PORTAL_SHIP,
+        },
         "VENDOR_DISPATCH_MANAGER": base | {Permission.VENDOR_PORTAL_SHIP},
         "VENDOR_QC_CONTACT": base | {Permission.VENDOR_PORTAL_QUALITY},
         "VENDOR_ACCOUNT_MANAGER": base | {Permission.VENDOR_PORTAL_INVOICE},

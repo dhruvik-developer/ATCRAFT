@@ -6439,6 +6439,60 @@
         "title": "ApiResponse[VendorInvoiceDetail]",
         "type": "object"
       },
+      "ApiResponse_VendorJobWorkOrderDetail_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorJobWorkOrderDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[VendorJobWorkOrderDetail]",
+        "type": "object"
+      },
+      "ApiResponse_VendorJobWorkUpdateRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorJobWorkUpdateRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[VendorJobWorkUpdateRead]",
+        "type": "object"
+      },
       "ApiResponse_VendorLedgerReport_": {
         "properties": {
           "data": {
@@ -33734,6 +33788,18 @@
               }
             ],
             "title": "Quantity To Issue"
+          },
+          "source_receipt_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Receipt Line Id"
           }
         },
         "required": [
@@ -33859,6 +33925,26 @@
               "type": "string"
             },
             "title": "Serial Ids",
+            "type": "array"
+          },
+          "source_receipt_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Receipt Line Id"
+          },
+          "source_rejected_serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Rejected Serial Ids",
             "type": "array"
           },
           "uom_id": {
@@ -39244,6 +39330,8 @@
           "PURCHASE_ORDER_DATE_CHANGED",
           "PURCHASE_ORDER_READY",
           "PURCHASE_ORDER_SHIPPED",
+          "JOB_WORK_CHALLAN_ISSUED",
+          "JOB_WORK_VENDOR_UPDATE",
           "VENDOR_INVOICE_STATUS",
           "VENDOR_PAYMENT_RECORDED",
           "DEALER_ORDER_REQUEST_RECEIVED",
@@ -44130,6 +44218,33 @@
         "title": "PaginatedResponse[VendorInvoiceSummary]",
         "type": "object"
       },
+      "PaginatedResponse_VendorJobWorkOrderRow_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/VendorJobWorkOrderRow"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[VendorJobWorkOrderRow]",
+        "type": "object"
+      },
       "PaginatedResponse_VendorLinkOut_": {
         "properties": {
           "data": {
@@ -46381,7 +46496,7 @@
             "items": {
               "$ref": "#/components/schemas/NotificationPreferenceUpdate"
             },
-            "maxItems": 39,
+            "maxItems": 41,
             "minItems": 1,
             "title": "Preferences",
             "type": "array"
@@ -59735,7 +59850,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 184,
+            "maxItems": 185,
             "title": "Permissions",
             "type": "array"
           }
@@ -59947,7 +60062,7 @@
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 184,
+                "maxItems": 185,
                 "type": "array"
               },
               {
@@ -74253,6 +74368,440 @@
         "title": "VendorInvoiceUpdate",
         "type": "object"
       },
+      "VendorJobWorkChallan": {
+        "properties": {
+          "challan_date": {
+            "format": "date",
+            "title": "Challan Date",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expected_return_date": {
+            "format": "date",
+            "title": "Expected Return Date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "vehicle_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vehicle Number"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "challan_date",
+          "expected_return_date",
+          "vehicle_number",
+          "quantity"
+        ],
+        "title": "VendorJobWorkChallan",
+        "type": "object"
+      },
+      "VendorJobWorkLine": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Issued Quantity",
+            "type": "string"
+          },
+          "item_code": {
+            "title": "Item Code",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "pending_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Pending Quantity",
+            "type": "string"
+          },
+          "received_output_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Output Quantity",
+            "type": "string"
+          },
+          "received_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Quantity",
+            "type": "string"
+          },
+          "uom_code": {
+            "title": "Uom Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "line_number",
+          "item_code",
+          "item_name",
+          "uom_code",
+          "issued_quantity",
+          "received_quantity",
+          "received_output_quantity",
+          "pending_quantity"
+        ],
+        "title": "VendorJobWorkLine",
+        "type": "object"
+      },
+      "VendorJobWorkOrderDetail": {
+        "properties": {
+          "challans": {
+            "items": {
+              "$ref": "#/components/schemas/VendorJobWorkChallan"
+            },
+            "title": "Challans",
+            "type": "array"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expected_return_date": {
+            "format": "date",
+            "title": "Expected Return Date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Issued Quantity",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/VendorJobWorkLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "pending_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Pending Quantity",
+            "type": "string"
+          },
+          "process_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Description"
+          },
+          "process_type": {
+            "$ref": "#/components/schemas/JobWorkProcess"
+          },
+          "receipts": {
+            "items": {
+              "$ref": "#/components/schemas/VendorJobWorkReceipt"
+            },
+            "title": "Receipts",
+            "type": "array"
+          },
+          "received_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Quantity",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobWorkOrderStatus"
+          },
+          "updates": {
+            "items": {
+              "$ref": "#/components/schemas/VendorJobWorkUpdateRead"
+            },
+            "title": "Updates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "process_type",
+          "process_description",
+          "expected_return_date",
+          "status",
+          "issued_quantity",
+          "received_quantity",
+          "pending_quantity",
+          "created_at",
+          "lines",
+          "challans",
+          "receipts",
+          "updates"
+        ],
+        "title": "VendorJobWorkOrderDetail",
+        "type": "object"
+      },
+      "VendorJobWorkOrderRow": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expected_return_date": {
+            "format": "date",
+            "title": "Expected Return Date",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Issued Quantity",
+            "type": "string"
+          },
+          "pending_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Pending Quantity",
+            "type": "string"
+          },
+          "process_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Description"
+          },
+          "process_type": {
+            "$ref": "#/components/schemas/JobWorkProcess"
+          },
+          "received_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Quantity",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobWorkOrderStatus"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "process_type",
+          "process_description",
+          "expected_return_date",
+          "status",
+          "issued_quantity",
+          "received_quantity",
+          "pending_quantity",
+          "created_at"
+        ],
+        "title": "VendorJobWorkOrderRow",
+        "type": "object"
+      },
+      "VendorJobWorkReceipt": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "output_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Output Quantity",
+            "type": "string"
+          },
+          "receipt_date": {
+            "format": "date",
+            "title": "Receipt Date",
+            "type": "string"
+          },
+          "rejected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rejected Quantity",
+            "type": "string"
+          },
+          "returned_unprocessed_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Returned Unprocessed Quantity",
+            "type": "string"
+          },
+          "vendor_challan_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Challan Number"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "receipt_date",
+          "vendor_challan_number",
+          "output_quantity",
+          "rejected_quantity",
+          "returned_unprocessed_quantity"
+        ],
+        "title": "VendorJobWorkReceipt",
+        "type": "object"
+      },
+      "VendorJobWorkUpdateCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "event_time": {
+            "format": "date-time",
+            "title": "Event Time",
+            "type": "string"
+          },
+          "expected_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Date"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "update_type": {
+            "$ref": "#/components/schemas/VendorJobWorkUpdateType"
+          }
+        },
+        "required": [
+          "update_type",
+          "event_time"
+        ],
+        "title": "VendorJobWorkUpdateCreate",
+        "type": "object"
+      },
+      "VendorJobWorkUpdateRead": {
+        "properties": {
+          "event_time": {
+            "format": "date-time",
+            "title": "Event Time",
+            "type": "string"
+          },
+          "expected_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Date"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "update_type": {
+            "$ref": "#/components/schemas/VendorJobWorkUpdateType"
+          }
+        },
+        "required": [
+          "id",
+          "update_type",
+          "event_time",
+          "expected_date",
+          "note"
+        ],
+        "title": "VendorJobWorkUpdateRead",
+        "type": "object"
+      },
+      "VendorJobWorkUpdateType": {
+        "enum": [
+          "IN_PROCESS",
+          "READY_TO_RETURN",
+          "DISPATCHED_BACK"
+        ],
+        "title": "VendorJobWorkUpdateType",
+        "type": "string"
+      },
       "VendorLedgerItemRow": {
         "description": "One input item on a job-work vendor's material account.\n\nAll quantities are in the input item's own unit. ``received_output_quantity``\nis the good processed output the line's material turned into, in the\n*output* item's unit - the two agree only for a 1:1 yield in the same UoM,\nso the reconcilable identity on this row is\n``closing = opening + issued - input_consumed``, with\n``input_consumed = received_output_as_input + returned + scrap`` held on\nthe receipt lines underneath.",
         "properties": {
@@ -74968,6 +75517,11 @@
           "in_transit": {
             "default": 0,
             "title": "In Transit",
+            "type": "integer"
+          },
+          "job_work_pending": {
+            "default": 0,
+            "title": "Job Work Pending",
             "type": "integer"
           },
           "payment_pending": {
@@ -209109,6 +209663,507 @@
           }
         ],
         "summary": "One of the vendor's bills, with its lines",
+        "tags": [
+          "Vendor Portal"
+        ]
+      }
+    },
+    "/api/v1/vendor-portal/job-work": {
+      "get": {
+        "operationId": "list_job_work_api_v1_vendor_portal_job_work_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_VendorJobWorkOrderRow_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The signed-in vendor's job-work orders",
+        "tags": [
+          "Vendor Portal"
+        ]
+      }
+    },
+    "/api/v1/vendor-portal/job-work/{order_id}": {
+      "get": {
+        "operationId": "get_job_work_api_v1_vendor_portal_job_work__order_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_VendorJobWorkOrderDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "One of the signed-in vendor's job-work orders",
+        "tags": [
+          "Vendor Portal"
+        ]
+      }
+    },
+    "/api/v1/vendor-portal/job-work/{order_id}/status": {
+      "post": {
+        "operationId": "report_job_work_status_api_v1_vendor_portal_job_work__order_id__status_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VendorJobWorkUpdateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_VendorJobWorkUpdateRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Report progress without changing stock or receipt status",
         "tags": [
           "Vendor Portal"
         ]

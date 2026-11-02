@@ -78,7 +78,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
+from src.core.models import ImmutableLedgerEntity, OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
 #: An order with more lines than this is a bulk import, not a consignment a
@@ -194,6 +194,12 @@ class RejectionAction(StrEnum):
     RETURN_TO_STOCK = "RETURN_TO_STOCK"
     REWORK_AT_VENDOR = "REWORK_AT_VENDOR"
     SCRAP_AT_VENDOR = "SCRAP_AT_VENDOR"
+
+
+class VendorJobWorkUpdateType(StrEnum):
+    IN_PROCESS = "IN_PROCESS"
+    READY_TO_RETURN = "READY_TO_RETURN"
+    DISPATCHED_BACK = "DISPATCHED_BACK"
 
 
 #: Statuses in which company-owned material is physically at the vendor. The
@@ -328,6 +334,9 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
     #: the vendor runs from here, not from the order date.
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    vendor_overdue_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     #: Sequence counter for this order's receipts, claimed under the header row
     #: lock. A child number taken from ``MAX(n) + 1`` races; a counter on a row
@@ -381,6 +390,15 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
             "vendor_id",
             "expected_return_date",
             postgresql_where=text(f"status IN ({sql_in_list(MATERIAL_AT_VENDOR_STATUSES)})"),
+        ),
+        Index(
+            "ix_job_work_orders_overdue_notice",
+            "expected_return_date",
+            "id",
+            postgresql_where=text(
+                "vendor_overdue_notified_at IS NULL "
+                f"AND status IN ({sql_in_list(MATERIAL_AT_VENDOR_STATUSES)})"
+            ),
         ),
         CheckConstraint(f"status IN ({sql_in_list(JobWorkOrderStatus)})", name="status_known"),
         CheckConstraint(
@@ -507,6 +525,10 @@ class JobWorkOrderLine(TenantEntity):
     reservation_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The physically returned reject this rework line is allowed to issue.
+    #: Drafts are not reservations; the issue path locks this source and checks
+    #: the remaining rejected quantity before moving DAMAGED stock.
+    source_receipt_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     __table_args__ = (
         UniqueConstraint(
@@ -519,6 +541,12 @@ class JobWorkOrderLine(TenantEntity):
         # The other direction: "what is due back as this finished code?" - MRP's
         # supply netting reads the output item, not the input.
         Index("ix_job_work_order_lines_output_item", "company_id", "expected_output_item_id"),
+        Index(
+            "ix_job_work_order_lines_rework_source",
+            "company_id",
+            "source_receipt_line_id",
+            postgresql_where=text("source_receipt_line_id IS NOT NULL"),
+        ),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity_to_issue > 0", name="quantity_to_issue_positive"),
         CheckConstraint("expected_output_quantity > 0", name="expected_output_positive"),
@@ -978,6 +1006,44 @@ class JobWorkReceiptLine(TenantEntity):
     )
 
 
+class JobWorkVendorUpdate(ImmutableLedgerEntity):
+    """Append-only progress reported by a vendor against its job-work order."""
+
+    __tablename__ = "job_work_vendor_updates"
+
+    job_work_order_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("job_work_orders.id", ondelete="RESTRICT"), nullable=False
+    )
+    vendor_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False
+    )
+    update_type: Mapped[VendorJobWorkUpdateType] = mapped_column(String(24), nullable=False)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expected_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(500))
+
+    __table_args__ = (
+        Index(
+            "ix_job_work_vendor_updates_order",
+            "company_id",
+            "job_work_order_id",
+            "event_time",
+            "id",
+        ),
+        Index(
+            "ix_job_work_vendor_updates_vendor",
+            "company_id",
+            "vendor_id",
+            "event_time",
+        ),
+        CheckConstraint(
+            f"update_type IN ({sql_in_list(VendorJobWorkUpdateType)})",
+            name="update_type_is_known",
+        ),
+        CheckConstraint("length(btrim(note)) > 0 OR note IS NULL", name="note_not_blank"),
+    )
+
+
 __all__ = [
     "CANCELLABLE_STATUSES",
     "ISSUED_OR_LATER_STATUSES",
@@ -996,6 +1062,8 @@ __all__ = [
     "JobWorkReceipt",
     "JobWorkReceiptLine",
     "JobWorkSourceType",
+    "JobWorkVendorUpdate",
     "RateBasis",
     "RejectionAction",
+    "VendorJobWorkUpdateType",
 ]

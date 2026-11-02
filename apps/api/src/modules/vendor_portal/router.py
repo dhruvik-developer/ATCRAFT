@@ -40,6 +40,10 @@ from src.modules.procurement.inbound_schemas import (
 from src.modules.procurement.purchase_order_pdf import queue_purchase_order_pdf
 from src.modules.reports.schemas import ReportJobRead
 from src.modules.vendor_portal.schemas import (
+    VendorJobWorkOrderDetail,
+    VendorJobWorkOrderRow,
+    VendorJobWorkUpdateCreate,
+    VendorJobWorkUpdateRead,
     VendorPortalAccept,
     VendorPortalDashboard,
     VendorPortalDateChange,
@@ -91,9 +95,59 @@ async def me(
     summary="Tile counts: orders by tab, bills awaiting payment, recent QC rejections",
     dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
 )
-async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[VendorPortalDashboard]:
+async def dashboard(
+    session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[VendorPortalDashboard]:
     return ApiResponse[VendorPortalDashboard].ok(
-        await VendorPortalService(session, tenant).dashboard()
+        await VendorPortalService(session, tenant).dashboard(principal)
+    )
+
+
+@router.get(
+    "/job-work",
+    response_model=PaginatedResponse[VendorJobWorkOrderRow],
+    summary="The signed-in vendor's job-work orders",
+    dependencies=[require_permission(Permission.VENDOR_PORTAL_JOB_WORK)],
+)
+async def list_job_work(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    search: Annotated[str | None, Query(max_length=120)] = None,
+) -> PaginatedResponse[VendorJobWorkOrderRow]:
+    rows, page = await VendorPortalService(session, tenant).job_work_orders(params, search=search)
+    return PaginatedResponse(data=rows, pagination=page)
+
+
+@router.get(
+    "/job-work/{order_id}",
+    response_model=ApiResponse[VendorJobWorkOrderDetail],
+    summary="One of the signed-in vendor's job-work orders",
+    dependencies=[require_permission(Permission.VENDOR_PORTAL_JOB_WORK)],
+)
+async def get_job_work(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[VendorJobWorkOrderDetail]:
+    return ApiResponse[VendorJobWorkOrderDetail].ok(
+        await VendorPortalService(session, tenant).job_work_order(order_id)
+    )
+
+
+@router.post(
+    "/job-work/{order_id}/status",
+    response_model=ApiResponse[VendorJobWorkUpdateRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Report progress without changing stock or receipt status",
+    dependencies=[require_permission(Permission.VENDOR_PORTAL_JOB_WORK)],
+)
+async def report_job_work_status(
+    order_id: uuid.UUID,
+    payload: VendorJobWorkUpdateCreate,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[VendorJobWorkUpdateRead]:
+    return ApiResponse[VendorJobWorkUpdateRead].ok(
+        await VendorPortalService(session, tenant).report_job_work_update(order_id, payload)
     )
 
 

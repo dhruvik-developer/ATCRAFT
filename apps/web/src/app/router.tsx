@@ -25,6 +25,8 @@ const PortalLayout = lazy(() => import('@/features/portals/portal-layout'))
 const VendorHomePage = lazy(routeLoaders['/vendor'])
 const VendorOrdersPage = lazy(routeLoaders['/vendor/orders'])
 const VendorOrderPage = lazy(routeLoaders['/vendor/orders/:orderId'])
+const VendorJobWorkPage = lazy(routeLoaders['/vendor/job-work'])
+const VendorJobWorkDetailPage = lazy(routeLoaders['/vendor/job-work/:orderId'])
 const VendorShipmentsPage = lazy(routeLoaders['/vendor/shipments'])
 const VendorReceiptsPage = lazy(routeLoaders['/vendor/receipts'])
 const VendorPortalInvoicesPage = lazy(routeLoaders['/vendor/invoices'])
@@ -310,6 +312,16 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     path: '/vendor/orders/:orderId',
     element: <VendorOrderPage />,
     permissions: [P.VENDOR_PORTAL_ACCESS],
+  },
+  {
+    path: '/vendor/job-work',
+    element: <VendorJobWorkPage />,
+    permissions: [P.VENDOR_PORTAL_JOB_WORK],
+  },
+  {
+    path: '/vendor/job-work/:orderId',
+    element: <VendorJobWorkDetailPage />,
+    permissions: [P.VENDOR_PORTAL_JOB_WORK],
   },
   {
     path: '/vendor/shipments',

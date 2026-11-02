@@ -59,6 +59,52 @@ describe('server-paged serial selection', () => {
   })
 })
 
+function ScopedReworkSerials() {
+  const sourceIds = Array.from({ length: 101 }, (_, index) => `rejected-${index + 1}`)
+  const [selected, setSelected] = useState(sourceIds)
+  return (
+    <SerialPicker
+      idPrefix="rework-units"
+      itemId="item"
+      warehouseId="wh"
+      quantity="101"
+      selected={selected}
+      onChange={setSelected}
+      allowedStatuses={['DAMAGED']}
+      scope={{ serial_ids: sourceIds }}
+    />
+  )
+}
+
+describe('source-scoped rework serial selection', () => {
+  it('loads exact rejected serials in API-sized chunks', async () => {
+    const groups: string[][] = []
+    renderScreen(<ScopedReworkSerials />, {
+      permissions: [P.INVENTORY_VIEW],
+      routes: {
+        'GET /inventory/serials': ({ url }) => {
+          const ids = url.searchParams.getAll('serial_ids')
+          groups.push(ids)
+          return page(
+            ids.map((id) => ({
+              id,
+              serial_number: `SERIAL-${id.replace('rejected-', '')}`,
+              status: 'DAMAGED',
+            })),
+            { has_next: false },
+          )
+        },
+      },
+    })
+
+    expect(await screen.findByRole('button', { name: /^SERIAL-1 Chosen$/ })).toBeVisible()
+    expect(await screen.findByRole('button', { name: /^SERIAL-101 Chosen$/ })).toBeVisible()
+    expect(screen.getByText('101 of 101 identified')).toBeVisible()
+    expect(groups.map((ids) => ids.length)).toEqual([100, 1])
+    expect(groups.flat()).toHaveLength(101)
+  })
+})
+
 function batch(number: number, itemId = 'item') {
   return {
     id: `batch-${number}`,

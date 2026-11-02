@@ -84,6 +84,7 @@ class JobWorkOrderLineCreate(BaseModel):
     #: yield that is not 1:1; the ratio is frozen on the order when it is raised.
     expected_output_quantity: PositiveQuantity | None = None
     expected_loss_percentage: LossPercentage = Decimal("0")
+    source_receipt_line_id: uuid.UUID | None = None
     notes: Notes | None = None
 
 
@@ -136,6 +137,12 @@ class JobWorkOrderCreate(BaseModel):
             raise ValueError(
                 "Name the source document this order covers, or leave the source type MANUAL."
             )
+        rework_links = [line.source_receipt_line_id for line in self.lines]
+        if self.source_type is JobWorkSourceType.REWORK:
+            if any(line_id is None for line_id in rework_links):
+                raise ValueError("Every rework line must name its returned-reject receipt line.")
+        elif any(line_id is not None for line_id in rework_links):
+            raise ValueError("Only rework orders may name a rejected receipt line.")
         return self
 
 
@@ -188,6 +195,8 @@ class JobWorkOrderLineRead(BaseModel):
     is_batch_tracked: bool
     is_serial_tracked: bool
     serial_ids: list[uuid.UUID]
+    source_receipt_line_id: uuid.UUID | None = None
+    source_rejected_serial_ids: list[uuid.UUID] = Field(default_factory=list)
     batch_id: uuid.UUID | None
     uom_id: uuid.UUID
     quantity_to_issue: Decimal

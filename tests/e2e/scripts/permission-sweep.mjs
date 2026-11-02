@@ -52,6 +52,7 @@ const GRANTED = new Set([
 const ROUTES = [
   ['/vendor', 'vendor_portal.access'],
   ['/vendor/orders', 'vendor_portal.access'],
+  ['/vendor/job-work', 'vendor_portal.job_work'],
   ['/vendor/shipments', 'vendor_portal.access'],
   ['/vendor/receipts', 'vendor_portal.access'],
   ['/vendor/invoices', 'vendor_portal.invoice'],

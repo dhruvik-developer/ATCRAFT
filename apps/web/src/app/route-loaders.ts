@@ -28,6 +28,14 @@ export const routeLoaders = {
     import('@/features/vendor-portal/vendor-pages').then((m) => ({ default: m.VendorOrdersPage })),
   '/vendor/orders/:orderId': () =>
     import('@/features/vendor-portal/vendor-pages').then((m) => ({ default: m.VendorOrderPage })),
+  '/vendor/job-work': () =>
+    import('@/features/vendor-portal/vendor-job-work').then((m) => ({
+      default: m.VendorJobWorkPage,
+    })),
+  '/vendor/job-work/:orderId': () =>
+    import('@/features/vendor-portal/vendor-job-work').then((m) => ({
+      default: m.VendorJobWorkDetailPage,
+    })),
   '/vendor/shipments': () =>
     import('@/features/vendor-portal/vendor-pages').then((m) => ({
       default: m.VendorShipmentsPage,

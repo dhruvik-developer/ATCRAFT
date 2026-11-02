@@ -145,6 +145,7 @@ export const P = {
   PURCHASE_ORDER_SEND: 'purchase_order.send',
   VENDOR_PORTAL_ACCESS: 'vendor_portal.access',
   VENDOR_PORTAL_RESPOND: 'vendor_portal.respond',
+  VENDOR_PORTAL_JOB_WORK: 'vendor_portal.job_work',
   VENDOR_PORTAL_SHIP: 'vendor_portal.ship',
   VENDOR_PORTAL_INVOICE: 'vendor_portal.invoice',
   VENDOR_PORTAL_QUALITY: 'vendor_portal.quality',

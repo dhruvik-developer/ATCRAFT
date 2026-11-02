@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any, Literal
 
 from sqlalchemy import Select, and_, case, func, or_, select, true
@@ -30,6 +31,14 @@ from src.modules.finance.models import (
     PaymentType,
     VendorInvoice,
     VendorInvoiceStatus,
+)
+from src.modules.job_work.models import (
+    JobWorkChallan,
+    JobWorkOrder,
+    JobWorkOrderLine,
+    JobWorkOrderStatus,
+    JobWorkReceipt,
+    JobWorkVendorUpdate,
 )
 from src.modules.procurement.inbound_models import PurchaseOrderShipment
 from src.modules.procurement.inbound_repository import RECEIPT_REFERENCE, InboundRepository
@@ -73,6 +82,152 @@ class VendorPortalRepository:
     def __init__(self, session: Any, tenant: TenantContext) -> None:
         self.session, self.tenant = session, tenant
         self.orders = InboundRepository(session, tenant)
+
+    def _job_work_orders(self) -> Select[Any]:
+        stmt = select(JobWorkOrder).where(
+            JobWorkOrder.company_id == self.tenant.company_id,
+            JobWorkOrder.vendor_id == self.tenant.vendor_id,
+            JobWorkOrder.status.not_in((JobWorkOrderStatus.DRAFT, JobWorkOrderStatus.CANCELLED)),
+        )
+        if self.tenant.allowed_category_ids:
+            category_order = (
+                select(JobWorkOrderLine.id)
+                .join(Item, Item.id == JobWorkOrderLine.item_id)
+                .where(
+                    JobWorkOrderLine.company_id == self.tenant.company_id,
+                    JobWorkOrderLine.job_work_order_id == JobWorkOrder.id,
+                    category_within(
+                        self.tenant.company_id,
+                        Item.category_id,
+                        self.tenant.allowed_category_ids,
+                    ),
+                )
+                .exists()
+            )
+            stmt = stmt.where(category_order)
+        return stmt
+
+    async def job_work_orders(
+        self, params: PageParams, *, search: str | None = None
+    ) -> tuple[list[JobWorkOrder], OffsetPagination]:
+        stmt = self._job_work_orders()
+        if search:
+            pattern = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    JobWorkOrder.code.ilike(pattern),
+                    JobWorkOrder.process_description.ilike(pattern),
+                )
+            )
+        stmt = stmt.order_by(JobWorkOrder.created_at.desc(), JobWorkOrder.id.desc())
+        return await paginate(self.session, stmt, params)
+
+    async def job_work_pending_count(self) -> int:
+        stmt = select(func.count()).select_from(
+            self._job_work_orders()
+            .where(
+                JobWorkOrder.status.in_(
+                    (JobWorkOrderStatus.ISSUED, JobWorkOrderStatus.PARTIALLY_RECEIVED)
+                )
+            )
+            .subquery()
+        )
+        return int(await self.session.scalar(stmt) or 0)
+
+    async def job_work_order(self, order_id: uuid.UUID) -> JobWorkOrder | None:
+        return await self.session.scalar(self._job_work_orders().where(JobWorkOrder.id == order_id))
+
+    async def lock_job_work_order(self, order_id: uuid.UUID) -> JobWorkOrder | None:
+        stmt = self._job_work_orders().where(JobWorkOrder.id == order_id).with_for_update()
+        return await self.session.scalar(stmt)
+
+    async def job_work_quantities(
+        self, order_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[Decimal, Decimal]]:
+        if not order_ids:
+            return {}
+        stmt = (
+            select(
+                JobWorkOrderLine.job_work_order_id,
+                func.coalesce(func.sum(JobWorkOrderLine.issued_quantity), 0).label("issued"),
+                func.coalesce(func.sum(JobWorkOrderLine.received_quantity), 0).label("received"),
+            )
+            .where(
+                JobWorkOrderLine.company_id == self.tenant.company_id,
+                JobWorkOrderLine.job_work_order_id.in_(list(dict.fromkeys(order_ids))),
+            )
+            .group_by(JobWorkOrderLine.job_work_order_id)
+        )
+        return {
+            row.job_work_order_id: (Decimal(str(row.issued)), Decimal(str(row.received)))
+            for row in (await self.session.execute(stmt)).all()
+        }
+
+    async def job_work_lines(self, order_id: uuid.UUID) -> list[Any]:
+        stmt = (
+            select(
+                JobWorkOrderLine,
+                Item.code.label("item_code"),
+                Item.name.label("item_name"),
+                UnitOfMeasure.code.label("uom_code"),
+            )
+            .join(
+                Item,
+                and_(
+                    Item.id == JobWorkOrderLine.expected_output_item_id,
+                    Item.company_id == self.tenant.company_id,
+                ),
+            )
+            .join(
+                UnitOfMeasure,
+                and_(
+                    UnitOfMeasure.id == JobWorkOrderLine.uom_id,
+                    UnitOfMeasure.company_id == self.tenant.company_id,
+                ),
+            )
+            .where(
+                JobWorkOrderLine.company_id == self.tenant.company_id,
+                JobWorkOrderLine.job_work_order_id == order_id,
+            )
+            .order_by(JobWorkOrderLine.line_number)
+        )
+        return list((await self.session.execute(stmt)).all())
+
+    async def job_work_challans(self, order_id: uuid.UUID) -> list[JobWorkChallan]:
+        stmt = (
+            select(JobWorkChallan)
+            .where(
+                JobWorkChallan.company_id == self.tenant.company_id,
+                JobWorkChallan.vendor_id == self.tenant.vendor_id,
+                JobWorkChallan.job_work_order_id == order_id,
+            )
+            .order_by(JobWorkChallan.challan_date, JobWorkChallan.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def job_work_receipts(self, order_id: uuid.UUID) -> list[JobWorkReceipt]:
+        stmt = (
+            select(JobWorkReceipt)
+            .where(
+                JobWorkReceipt.company_id == self.tenant.company_id,
+                JobWorkReceipt.vendor_id == self.tenant.vendor_id,
+                JobWorkReceipt.job_work_order_id == order_id,
+            )
+            .order_by(JobWorkReceipt.receipt_date, JobWorkReceipt.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def job_work_updates(self, order_id: uuid.UUID) -> list[JobWorkVendorUpdate]:
+        stmt = (
+            select(JobWorkVendorUpdate)
+            .where(
+                JobWorkVendorUpdate.company_id == self.tenant.company_id,
+                JobWorkVendorUpdate.vendor_id == self.tenant.vendor_id,
+                JobWorkVendorUpdate.job_work_order_id == order_id,
+            )
+            .order_by(JobWorkVendorUpdate.event_time, JobWorkVendorUpdate.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
     def _pending_amendments(self) -> Select[Any]:
         stmt = (

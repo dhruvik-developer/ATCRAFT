@@ -425,6 +425,11 @@ function ReceiptsCard({
                     {
                       item_id: worst.output_item_id,
                       quantity_to_issue: String(worst.rejected_quantity),
+                      batch_id: worst.batch_id,
+                      source_receipt_line_id: worst.id,
+                      is_batch_tracked: worst.batch_id !== null,
+                      is_serial_tracked: worst.rejected_serial_ids.length > 0,
+                      rejected_serial_ids: worst.rejected_serial_ids,
                     },
                   ],
                 })

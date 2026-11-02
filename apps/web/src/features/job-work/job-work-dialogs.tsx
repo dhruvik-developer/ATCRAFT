@@ -141,7 +141,15 @@ function issueDefaults(order: JobWorkOrderDetail | undefined): IssueFormValues {
       line_number: line.line_number,
       label: `Line ${line.line_number} - ${line.item_id.slice(0, 8)}`,
       batch_id: line.batch_id ?? '',
-      serial_ids: [],
+      serial_ids: line.is_serial_tracked
+        ? (line.source_rejected_serial_ids ?? []).slice(
+            0,
+            Math.min(
+              line.source_rejected_serial_ids?.length ?? 0,
+              Math.trunc(toDecimal(stillToIssue(line)).toNumber()),
+            ),
+          )
+        : [],
       quantity: stillToIssue(line),
     })),
   }
@@ -475,6 +483,15 @@ export function JobWorkIssueDialog({
                                   quantity={watchedIssueLines[index]?.quantity || '0'}
                                   selected={serials.value}
                                   onChange={serials.onChange}
+                                  {...(order.source_type === 'REWORK'
+                                    ? {
+                                        status: 'DAMAGED' as const,
+                                        allowedStatuses: ['DAMAGED'],
+                                        scope: {
+                                          serial_ids: line.source_rejected_serial_ids ?? [],
+                                        },
+                                      }
+                                    : {})}
                                 />
                               )}
                             />

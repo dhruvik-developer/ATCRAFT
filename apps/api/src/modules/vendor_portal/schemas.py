@@ -15,16 +15,21 @@ Two rules shape every class here:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.responses import OffsetPagination
 from src.modules.finance.models import MatchStatus, PaymentMethod, PaymentStatus
 from src.modules.finance.models import VendorInvoiceStatus as InvoiceStatus
 from src.modules.finance.schemas import VendorInvoiceCreate, VendorInvoiceLineIn
+from src.modules.job_work.models import (
+    JobWorkOrderStatus,
+    JobWorkProcess,
+    VendorJobWorkUpdateType,
+)
 from src.modules.procurement.inbound_schemas import (
     InboundDocumentRead,
     InboundShipmentRead,
@@ -66,6 +71,32 @@ class VendorPortalReady(BaseModel):
     ready_on: datetime | None = None
     packages: int | None = Field(default=None, ge=1)
     note: str | None = Field(default=None, max_length=2000)
+
+
+class VendorJobWorkUpdateCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    update_type: VendorJobWorkUpdateType
+    event_time: datetime
+    expected_date: date | None = None
+    note: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @field_validator("event_time")
+    @classmethod
+    def validate_event_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("event_time must include a timezone offset.")
+        return value.astimezone(UTC)
+
+    @field_validator("note")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("note must not be blank.")
+        return normalized
 
 
 class VendorPortalInvoiceLineIn(BaseModel):
@@ -148,10 +179,72 @@ class VendorPortalDashboard(BaseModel):
     delivered: int = 0
     #: Own bills in an open status with money still owed.
     payment_pending: int = 0
+    job_work_pending: int = 0
     #: Own posted receipt lines with a rejected quantity, in the last
     #: ``VENDOR_QC_LOOKBACK_DAYS`` days.
     qc_rejected: int = 0
     qc_lookback_days: int
+
+
+class VendorJobWorkOrderRow(BaseModel):
+    id: uuid.UUID
+    code: str
+    process_type: JobWorkProcess
+    process_description: str | None
+    expected_return_date: date
+    status: JobWorkOrderStatus
+    issued_quantity: Decimal
+    received_quantity: Decimal
+    pending_quantity: Decimal
+    created_at: datetime
+
+
+class VendorJobWorkLine(BaseModel):
+    id: uuid.UUID
+    line_number: int
+    item_code: str
+    item_name: str
+    uom_code: str
+    issued_quantity: Decimal
+    received_quantity: Decimal
+    received_output_quantity: Decimal
+    pending_quantity: Decimal
+
+
+class VendorJobWorkChallan(BaseModel):
+    id: uuid.UUID
+    code: str
+    challan_date: date
+    expected_return_date: date
+    vehicle_number: str | None
+    quantity: Decimal
+
+
+class VendorJobWorkReceipt(BaseModel):
+    id: uuid.UUID
+    code: str
+    receipt_date: date
+    vendor_challan_number: str | None
+    output_quantity: Decimal
+    rejected_quantity: Decimal
+    returned_unprocessed_quantity: Decimal
+
+
+class VendorJobWorkUpdateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    update_type: VendorJobWorkUpdateType
+    event_time: datetime
+    expected_date: date | None
+    note: str | None
+
+
+class VendorJobWorkOrderDetail(VendorJobWorkOrderRow):
+    lines: list[VendorJobWorkLine]
+    challans: list[VendorJobWorkChallan]
+    receipts: list[VendorJobWorkReceipt]
+    updates: list[VendorJobWorkUpdateRead]
 
 
 class VendorPortalPaymentSummary(BaseModel):

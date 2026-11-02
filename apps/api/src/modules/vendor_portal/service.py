@@ -11,6 +11,7 @@ and which of their fields (the allow-list read models in ``schemas``).
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,10 @@ from src.modules.audit.service import record_audit
 from src.modules.documents.service import DocumentDownload, DocumentService
 from src.modules.finance import service as finance
 from src.modules.finance.schemas import VendorInvoiceFilters
+from src.modules.job_work.models import (
+    JobWorkOrderStatus,
+    JobWorkVendorUpdate,
+)
 from src.modules.notifications.models import NotificationType
 from src.modules.notifications.repository import NotificationRepository
 from src.modules.procurement import inbound_service
@@ -53,6 +58,13 @@ from src.modules.reports.repository import ReportSnapshotRepository
 from src.modules.reports.schemas import ReportJobRead
 from src.modules.vendor_portal.repository import VENDOR_QC_LOOKBACK_DAYS, VendorPortalRepository
 from src.modules.vendor_portal.schemas import (
+    VendorJobWorkChallan,
+    VendorJobWorkLine,
+    VendorJobWorkOrderDetail,
+    VendorJobWorkOrderRow,
+    VendorJobWorkReceipt,
+    VendorJobWorkUpdateCreate,
+    VendorJobWorkUpdateRead,
     VendorPortalAccept,
     VendorPortalCategory,
     VendorPortalDashboard,
@@ -134,9 +146,162 @@ class VendorPortalService:
             unread_count=unread,
         )
 
-    async def dashboard(self) -> VendorPortalDashboard:
+    async def dashboard(self, principal: Principal) -> VendorPortalDashboard:
         row = await self.repo.dashboard(today())
-        return VendorPortalDashboard(**row._mapping, qc_lookback_days=VENDOR_QC_LOOKBACK_DAYS)
+        job_work_pending = (
+            await self.repo.job_work_pending_count()
+            if principal.has(Permission.VENDOR_PORTAL_JOB_WORK)
+            else 0
+        )
+        return VendorPortalDashboard(
+            **row._mapping,
+            qc_lookback_days=VENDOR_QC_LOOKBACK_DAYS,
+            job_work_pending=job_work_pending,
+        )
+
+    async def job_work_orders(
+        self, params: PageParams, *, search: str | None = None
+    ) -> tuple[list[VendorJobWorkOrderRow], OffsetPagination]:
+        rows, page = await self.repo.job_work_orders(params, search=search)
+        quantities = await self.repo.job_work_quantities([row.id for row in rows])
+        result: list[VendorJobWorkOrderRow] = []
+        for row in rows:
+            issued, received = quantities.get(row.id, (Decimal("0"), Decimal("0")))
+            result.append(
+                VendorJobWorkOrderRow(
+                    id=row.id,
+                    code=row.code,
+                    process_type=row.process_type,
+                    process_description=row.process_description,
+                    expected_return_date=row.expected_return_date,
+                    status=row.status,
+                    issued_quantity=issued,
+                    received_quantity=received,
+                    pending_quantity=max(issued - received, Decimal("0")),
+                    created_at=row.created_at,
+                )
+            )
+        return result, page
+
+    async def job_work_order(self, order_id: uuid.UUID) -> VendorJobWorkOrderDetail:
+        order = await self.repo.job_work_order(order_id)
+        if order is None:
+            raise NotFoundError("Job work order", order_id)
+
+        quantities = await self.repo.job_work_quantities([order.id])
+        issued, received = quantities.get(order.id, (Decimal("0"), Decimal("0")))
+        lines: list[VendorJobWorkLine] = []
+        for row in await self.repo.job_work_lines(order.id):
+            line = row[0]
+            lines.append(
+                VendorJobWorkLine(
+                    id=line.id,
+                    line_number=line.line_number,
+                    item_code=row.item_code,
+                    item_name=row.item_name,
+                    uom_code=row.uom_code,
+                    issued_quantity=line.issued_quantity,
+                    received_quantity=line.received_quantity,
+                    received_output_quantity=line.received_output_quantity,
+                    pending_quantity=max(
+                        line.issued_quantity - line.received_quantity, Decimal("0")
+                    ),
+                )
+            )
+        challans = [
+            VendorJobWorkChallan(
+                id=row.id,
+                code=row.code,
+                challan_date=row.challan_date,
+                expected_return_date=row.expected_return_date,
+                vehicle_number=row.vehicle_number,
+                quantity=row.total_quantity,
+            )
+            for row in await self.repo.job_work_challans(order.id)
+        ]
+        receipts = [
+            VendorJobWorkReceipt(
+                id=row.id,
+                code=row.code,
+                receipt_date=row.receipt_date,
+                vendor_challan_number=row.vendor_challan_number,
+                output_quantity=row.total_output_quantity,
+                rejected_quantity=row.total_rejected_quantity,
+                returned_unprocessed_quantity=row.total_returned_unprocessed,
+            )
+            for row in await self.repo.job_work_receipts(order.id)
+        ]
+        updates = [
+            VendorJobWorkUpdateRead.model_validate(row)
+            for row in await self.repo.job_work_updates(order.id)
+        ]
+        return VendorJobWorkOrderDetail(
+            id=order.id,
+            code=order.code,
+            process_type=order.process_type,
+            process_description=order.process_description,
+            expected_return_date=order.expected_return_date,
+            status=order.status,
+            issued_quantity=issued,
+            received_quantity=received,
+            pending_quantity=max(issued - received, Decimal("0")),
+            created_at=order.created_at,
+            lines=lines,
+            challans=challans,
+            receipts=receipts,
+            updates=updates,
+        )
+
+    async def report_job_work_update(
+        self, order_id: uuid.UUID, payload: VendorJobWorkUpdateCreate
+    ) -> VendorJobWorkUpdateRead:
+        if payload.event_time > utcnow():
+            raise ValidationError("A vendor progress update cannot be dated in the future.")
+        if payload.expected_date is not None and payload.expected_date < today():
+            raise ValidationError("The expected return date cannot be in the past.")
+
+        async with transaction(self.session):
+            order = await self.repo.lock_job_work_order(order_id)
+            if order is None:
+                raise NotFoundError("Job work order", order_id)
+            if JobWorkOrderStatus(order.status) not in (
+                JobWorkOrderStatus.ISSUED,
+                JobWorkOrderStatus.PARTIALLY_RECEIVED,
+            ):
+                raise BusinessRuleError(
+                    f"{order.code} is no longer awaiting work at the vendor.",
+                    details={"status": str(order.status)},
+                )
+            event = JobWorkVendorUpdate(
+                company_id=self.tenant.company_id,
+                created_by_id=self.tenant.user_id,
+                job_work_order_id=order.id,
+                vendor_id=self.vendor_id,
+                update_type=payload.update_type,
+                event_time=payload.event_time,
+                expected_date=payload.expected_date,
+                note=payload.note,
+            )
+            self.session.add(event)
+            await self.session.flush()
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type="job_work_vendor_update",
+                entity_id=event.id,
+                entity_code=order.code,
+                summary=f"Vendor reported {payload.update_type} for {order.code}",
+                user_id=self.tenant.user_id,
+                new_values={
+                    "job_work_order_id": order.id,
+                    "update_type": payload.update_type,
+                    "event_time": payload.event_time,
+                    "expected_date": payload.expected_date,
+                    "note": payload.note,
+                },
+            )
+            return VendorJobWorkUpdateRead.model_validate(event)
 
     # --- one order ------------------------------------------------------------
 
