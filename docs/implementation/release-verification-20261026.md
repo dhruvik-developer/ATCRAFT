@@ -233,6 +233,21 @@ results; the `a3a6673` results above describe the completed D1 checkpoint.
 Actual product profitability remains open: correcting return source values
 does not replace the existing sales-order/standard-cost report calculation.
 
+### Product profitability follow-up - 3 November 2026
+
+The report now follows the E10b actual basis: invoice and issued-credit
+document dates for revenue, dispatch-line FIFO values matched to invoiced
+quantities, allocated return FIFO reversals, and clearly flagged estimates for
+uninvoiced dispatches. Missing price or FIFO evidence remains unavailable rather
+than being replaced by standard cost or zero. The focused PostgreSQL
+sales-invoice integration module passed (34 tests) and includes assertions for
+invoice revenue, credit revenue, return cost, FIFO dispatch cost, and
+provisional uninvoiced revenue. Both focused frontend report suites passed
+(16 tests); they check provisional/incomplete warnings and preserve known zero
+values. Ruff passed for the report query and its integration suite.
+This supersedes the older "actual product profitability remains open" note
+above; it does not change the historical result of the October checkpoint.
+
 ## Previously verified application behavior
 
 | Check | Result |
