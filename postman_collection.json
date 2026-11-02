@@ -9086,6 +9086,41 @@
           }
         },
         {
+          "name": "Download printable labels for registered serial numbers",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"serial_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
+            },
+            "description": "Download printable labels for registered serial numbers",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "serials",
+                "labels"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/serials/labels"
+            }
+          }
+        },
+        {
           "name": "Draft a stock adjustment",
           "request": {
             "body": {

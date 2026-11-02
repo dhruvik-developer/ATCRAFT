@@ -423,6 +423,21 @@ class StockSerialBulkCreate(BaseModel):
         return _normalise_serial_labels(values)
 
 
+class StockSerialLabelRequest(BaseModel):
+    """Names the registered units to include on one printable label sheet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    serial_ids: Annotated[list[uuid.UUID], Field(min_length=1, max_length=MAX_SERIAL_BULK)]
+
+    @field_validator("serial_ids")
+    @classmethod
+    def _unique_serial_ids(cls, values: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(set(values)) != len(values):
+            raise ValueError("A label sheet cannot include the same serial more than once.")
+        return values
+
+
 class StockSerialConversionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -558,11 +558,12 @@ export const api = {
    * Authenticated file download.
    *
    * The API never exposes filesystem paths (master rules 43), so a download is a
-   * normal authenticated request whose body is turned into a temporary object
-   * URL rather than an <a href> the browser fetches without a bearer token.
+   * authenticated request whose body is turned into a temporary object URL
+   * rather than an <a href> the browser fetches without a bearer token.
+   * Downloads default to GET; a bounded generated file may use a POST body.
    */
   async download(path: string, filename?: string, options?: RequestOptions): Promise<void> {
-    const response = await request('GET', path, options)
+    const response = await request(options?.method ?? 'GET', path, options)
     const blob = await response.blob()
     assertResponseGeneration(response)
 

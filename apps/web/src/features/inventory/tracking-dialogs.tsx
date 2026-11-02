@@ -371,9 +371,20 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
         unit_cost: '0',
         notes: notes.trim() || null,
       }),
-    onSuccess: (created) => {
+    onSuccess: async (created) => {
       toast.success(success.created('Serials'), `${created.length} unit(s)`)
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      try {
+        await api.download('/inventory/serials/labels', 'serial-labels.pdf', {
+          method: 'POST',
+          body: { serial_ids: created.map((serial) => serial.id) },
+        })
+      } catch (error) {
+        toast.error(
+          'Serials were registered, but labels could not be downloaded.',
+          describeError(error),
+        )
+      }
       onClose()
     },
   })

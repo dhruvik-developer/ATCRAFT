@@ -4215,3 +4215,22 @@ statuses and timestamps; `service.py` applies dispatch and inbound effects;
 delivery, turn `auto_confirm_delivery` off on the account. If a carrier's
 timestamps or status vocabulary differ, add an explicit provider mapping rather
 than treating an unknown value as delivered.
+
+## §E8b-5. Unit labels use an A4 3-by-8 sheet
+
+**Assumed.** A printable unit-label sheet uses standard A4 paper with 24 labels
+per page in three columns and eight rows. Each label carries a QR encoding the
+registered serial number and readable item, serial and lot text. One request is
+limited to 500 already-registered tenant serials and cannot include a serial
+more than once.
+
+**Why.** No printer stock or template was specified. A familiar A4 grid is
+usable without a vendor-specific label dependency, and limiting generation
+keeps the synchronous PDF response bounded.
+
+**Where.** `src/modules/inventory/serial_labels_pdf.py` and
+`src/modules/inventory/schemas.py` - `StockSerialLabelRequest`.
+
+**Impact if wrong.** If the warehouse uses another stock size or grid, change
+the renderer's page geometry and update this assumption; do not alter the
+serial identity or tenant checks.

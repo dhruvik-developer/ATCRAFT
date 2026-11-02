@@ -313,6 +313,37 @@ describe('response contract validation', () => {
     expect(createObjectURL).toHaveBeenCalledWith(blob)
     expect(json).not.toHaveBeenCalled()
   })
+
+  it('downloads authenticated binary POST responses without parsing JSON', async () => {
+    const blob = new Blob(['%PDF-1.7'], { type: 'application/pdf' })
+    const createObjectURL = vi.fn(() => 'blob:labels')
+    const revokeObjectURL = vi.fn()
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const URLWithBlob = class extends URL {}
+    Object.defineProperties(URLWithBlob, {
+      createObjectURL: { value: createObjectURL },
+      revokeObjectURL: { value: revokeObjectURL },
+    })
+    vi.stubGlobal('URL', URLWithBlob)
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Disposition': 'attachment; filename="labels.pdf"' }),
+      blob: async () => blob,
+    })
+
+    await api.download('/inventory/serials/labels', 'labels.pdf', {
+      method: 'POST',
+      body: { serial_ids: ['serial-1'] },
+    })
+
+    const [, init] = callAt(0)
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe('{"serial_ids":["serial-1"]}')
+    expect(createObjectURL).toHaveBeenCalledWith(blob)
+    expect(click).toHaveBeenCalledOnce()
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:labels')
+  })
 })
 
 describe('request construction', () => {

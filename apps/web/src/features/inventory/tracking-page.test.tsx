@@ -11,7 +11,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import TrackingPage from './tracking-page'
 import type { StockBatchRow, StockSerialRow } from './types'
@@ -245,5 +245,41 @@ describe('serial tracking', () => {
     await screen.findByText('SN-0001')
     expect(screen.getByText('Unit cost')).toBeInTheDocument()
     expect(screen.getByText(/42\.50/)).toBeInTheDocument()
+  })
+
+  it('downloads registered labels and reports a label failure without undoing registration', async () => {
+    const registered = serial({ id: 'se000000-0000-7000-8000-000000000099' })
+    const item = { ...ITEM, is_batch_tracked: false, is_serial_tracked: true }
+    const { user, fetch } = renderScreen(<TrackingPage />, {
+      route: '/inventory/tracking?tab=serials',
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_BATCH_MANAGE],
+      routes: {
+        [SERIALS]: page([]),
+        'GET /warehouses': page([]),
+        'GET /products/items': page([item]),
+        [`GET /products/items/${ITEM.id}`]: ok(item),
+        'POST /inventory/serials/bulk': ok([registered]),
+        'POST /inventory/serials/labels': fail(503, 'SERVICE_UNAVAILABLE', 'Unavailable'),
+      },
+    })
+
+    await screen.findByText('No serials yet')
+    await user.click(screen.getAllByRole('button', { name: /register serials/i })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Item' }))
+    await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Serial numbers' }), 'SN-NEW-1')
+    await user.click(within(dialog).getByRole('button', { name: 'Register 1 serial(s)' }))
+
+    await waitFor(() => {
+      expect(fetch.requestFor('POST', '/inventory/serials/labels')).toEqual({
+        serial_ids: [registered.id],
+      })
+    })
+    expect(fetch.requestFor('POST', '/inventory/serials/bulk')).toMatchObject({
+      serial_numbers: ['SN-NEW-1'],
+      item_id: ITEM.id,
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })

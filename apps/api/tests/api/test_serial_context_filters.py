@@ -70,8 +70,26 @@ async def test_serial_context_filters_keep_history_separate_from_vendor_outstand
     for key in ("qc_inspection_id", "job_work_order_line_id"):
         unknown = await api_client.get("/inventory/serials", params={key: str(uuid.uuid4())})
         assert unknown.status_code == 200 and unknown.json()["data"] == []
+    labels = await api_client.post(
+        "/inventory/serials/labels",
+        json={"serial_ids": [str(serial_id) for serial_id in k.ids[:2]]},
+    )
+    assert labels.status_code == 200
+    assert labels.headers["content-type"] == "application/pdf"
+    assert labels.headers["cache-control"] == "no-store"
+    assert labels.content.startswith(b"%PDF-")
+    duplicate_labels = await api_client.post(
+        "/inventory/serials/labels",
+        json={"serial_ids": [str(k.ids[0]), str(k.ids[0])]},
+    )
+    assert duplicate_labels.status_code == 422
     app.dependency_overrides[get_current_principal] = lambda: replace(
         principal, company_id=other_company.id
     )
     foreign = await api_client.get("/inventory/serials", params={"job_work_order_line_id": line_id})
     assert foreign.status_code == 200 and foreign.json()["data"] == []
+    foreign_labels = await api_client.post(
+        "/inventory/serials/labels",
+        json={"serial_ids": [str(k.ids[0])]},
+    )
+    assert foreign_labels.status_code == 404

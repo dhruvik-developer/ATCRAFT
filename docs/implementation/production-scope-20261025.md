@@ -65,28 +65,29 @@ remain in force. The issue UI selects only serials at the chosen source
 position. Scrap disposal remains quantity-only because the serial is retired
 when stock enters scrap.
 
-Physical-count sheets also remain quantity-based. The
+Serial physical-count lines now persist every unit found and reconcile named
+shortages and recoveries through reversible count movements while preserving
+each unit's stock pool. Unknown, foreign, wrong-position and inconsistent
+roster entries refuse atomically; recount clears quantities and identities
+together. The
 [PostgreSQL boundary regressions](../../apps/api/tests/integration/test_serial_inventory_operation_boundaries.py)
-now reproduce both missing-unit and extra-unit refusals: an unnamed serial
-variance leaves the count unconfirmed, with ledger, FIFO, balances, identities,
-audit and unrelated tenant/warehouse rows unchanged. A matching serial count
-confirms without a stock movement. Bin moves now have positive coverage for
-named-unit posting, destination location, paired ledger rows and FIFO cost;
-missing, foreign and wrong-position serials refuse atomically. Serial internal
-issues have positive coverage for per-unit ledger rows, FIFO value, labels and
-status changes; missing, foreign, wrong-position and stale-draft units refuse
-atomically. Unnamed bin moves and scrap disposals retain their refusal
-regressions. Named-unit variance reconciliation and serial lifecycle changes
-at scrap disposal remain open.
+retain coverage for refusal atomicity and ordinary quantity-only behavior.
+Bin moves have positive coverage for named-unit posting, destination location,
+paired ledger rows and FIFO cost; serial internal issues post per-unit ledger
+rows and preserve FIFO value. Unnamed bin moves and scrap disposals retain their
+refusal regressions.
 
 Label capabilities must be described precisely. The current
 [serial field](../../apps/web/src/features/inventory/serial-numbers-field.tsx)
 and register support bounded pattern/range generation as well as scanning or
 pasting. The [packing screen](../../apps/web/src/features/packing/packing-order-dialog.tsx)
 already prints carton barcode labels. The proposal's P12.M3 carton-label claim
-must not be marked missing. A separate unit-label PDF/print service is absent;
-it is an additional boundary to scope explicitly, not evidence that carton
-label printing is absent.
+must not be marked missing. Bulk serial registration now offers a tenant-scoped
+PDF download of the registered labels: 24 QR labels per A4 page (3 columns by
+8 rows), with readable item, serial and lot text, and a 500-unit request cap.
+The endpoint requires the serial-management permission, refuses duplicate or
+foreign serial IDs, and marks the response `no-store`; generating labels does
+not move stock.
 
 The next packages must close these software gaps while retaining the corrected
 stock, accounting, security and audit invariants. Passing the current release

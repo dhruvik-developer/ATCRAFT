@@ -25,7 +25,7 @@ import uuid
 from datetime import date, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from src.core.deps import CurrentUser, DbSession, Principal, Tenant, require_permission
 from src.core.messages import success_message
@@ -98,6 +98,7 @@ from src.modules.inventory.schemas import (
     StockSerialBulkCreate,
     StockSerialCreate,
     StockSerialDetail,
+    StockSerialLabelRequest,
     StockSerialRead,
     StockTransferCreate,
     StockTransferRead,
@@ -595,6 +596,32 @@ async def bulk_create_serials(
     created = await TraceabilityService(session, tenant).bulk_create_serials(payload)
     return ApiResponse[list[StockSerialRead]].ok(
         created, success_message("Serial numbers", "recorded")
+    )
+
+
+@router.post(
+    "/serials/labels",
+    response_class=Response,
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
+    responses={
+        200: {
+            "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}},
+            "description": "Printable labels for the requested registered serials",
+        }
+    },
+    summary="Download printable labels for registered serial numbers",
+)
+async def download_serial_labels(
+    payload: StockSerialLabelRequest, session: DbSession, tenant: Tenant
+) -> Response:
+    pdf = await TraceabilityService(session, tenant).serial_labels_pdf(payload.serial_ids)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": 'attachment; filename="serial-labels.pdf"',
+        },
     )
 
 

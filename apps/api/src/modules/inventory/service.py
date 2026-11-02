@@ -231,6 +231,7 @@ from src.modules.inventory.schemas import (
     TransferFilters,
     WarehouseStockRowWithCost,
 )
+from src.modules.inventory.serial_labels_pdf import render_serial_labels_pdf
 from src.modules.organization.service import require_cost_centre, require_department
 
 log = get_logger(__name__)
@@ -4580,6 +4581,15 @@ class TraceabilityService:
                 )
             await self.session.flush()
             return await self._serial_reads(serials)
+
+    async def serial_labels_pdf(self, serial_ids: Sequence[uuid.UUID]) -> bytes:
+        """Render registered, tenant-scoped serials in the caller's requested order."""
+        serials_by_id = await self.serials.by_ids(serial_ids)
+        missing = [serial_id for serial_id in serial_ids if serial_id not in serials_by_id]
+        if missing:
+            raise NotFoundError("Stock serial", missing[0])
+        serials = [serials_by_id[serial_id] for serial_id in serial_ids]
+        return render_serial_labels_pdf(await self._serial_reads(serials))
 
     async def resolve_serial_ids(
         self,
