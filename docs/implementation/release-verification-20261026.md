@@ -201,9 +201,13 @@ recognizes 403 non-session API writes and blocks them before dispatch.
 
 The mandatory hooks and the workflow of the pushed D1 commit are the whole-tree
 gates for this follow-up. The earlier `f779a2e` CI result above remains evidence
-for that earlier checkpoint. D2 messaging, D3 courier automation, the remaining
-planning/profitability/serial packages, the deferred D4 signer setup and the real
-deployment gate remain open in the current scope document.
+for that earlier checkpoint. The package status in this October checkpoint was
+superseded by the later delivery records: D2, D3, E3b, E10b and the serial
+follow-ups are implemented. The current commissioning gates are recorded in the
+[reconciled production scope](production-scope-20261025.md): D4 legal/certificate
+prerequisites, live D2/D3 provider accounts, and real deployment/off-box recovery
+evidence. The profitability note below is also superseded by its 3 November
+completion record.
 
 ## Customer-return FIFO costing follow-up
 

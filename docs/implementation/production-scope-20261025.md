@@ -2,17 +2,18 @@
 
 This is a source review of the current working tree, including the changes now
 being verified. It is not a deployment approval or a claim that the authorized
-full proposal is complete. The user confirmed the full scope; unfinished
-packages below remain work to implement. Earlier audits retain their original
-meaning and dates. Their findings must be checked against the current code.
+full proposal is complete. The user confirmed the full scope. Package status
+below was reconciled on 3 November 2026; earlier audits retain their original
+meaning and dates, and their findings must be checked against current code.
 
 On 26 October the user kept the DSC/PAdES signing setup decision pending and
-asked that other work continue. D4 remains deferred until the signer integration
-is selected; the other software packages below remain authorized work.
+asked that other work continue. The subsequent package work is reflected below:
+D2, D3, E3b and E10b are implemented. D4 remains gated by its legal/signing
+model and certificate procurement requirements.
 
 On 30 October the E3b transfer, reallocation and assembly conversions, then the
-nightly scheduled run, were merged. The E3b row below now records only the
-reorder and packing-material work that remains.
+nightly scheduled run, were merged. Reorder and packing-material demand were
+also completed; the E3b row below records the full delivered scope.
 
 ## Changes in the current delivery
 
@@ -90,6 +91,19 @@ foreign serial IDs, and marks the response `no-store`; generating labels does
 not move stock. A manager can also re-download a single unit's label from its
 serial trace, without registering the unit again.
 
-The next packages must close these software gaps while retaining the corrected
-stock, accounting, security and audit invariants. Passing the current release
-checks alone cannot close the remaining full-scope requirements.
+## Remaining production gates
+
+The scoped software packages D2, D3, E3b and E10b are implemented as recorded
+above. D4 is not implemented: it remains gated on the signing authority and
+retention model receiving legal/compliance confirmation and on procuring the
+certificate, timestamp and token services described in the
+[D4 decision memo](d4-dsc-pades-compliance-20261019.md). D2 and D3 have passed
+fake-provider verification, but live activation and end-to-end testing require
+the customer's Meta/DLT and courier accounts.
+
+Production sign-off also requires a supplied production host/domain and
+environment, plus an off-box recovery drill. No production server or domain has
+been supplied, and the isolated restore drill is not evidence of off-box
+recovery. The batch SKU-conversion boundary remains intentionally unsupported
+until an explicit batch-lineage policy is defined. Passing local release checks
+does not close these external, operational or policy gates.
