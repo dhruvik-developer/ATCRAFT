@@ -2847,6 +2847,307 @@
     {
       "item": [
         {
+          "name": "Courier Webhook",
+          "request": {
+            "description": "Courier Webhook",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "webhook",
+                ":token"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/webhook/{token}",
+              "variable": [
+                {
+                  "description": "token of the record",
+                  "key": "token",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Account",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"display_name\": \"\",\n  \"provider\": \"SHIPROCKET\",\n  \"auto_confirm_delivery\": true,\n  \"credentials\": {\n    \"email\": {},\n    \"password\": {}\n  },\n  \"is_active\": true,\n  \"transporter_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
+            },
+            "description": "Create Account",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "accounts"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/accounts"
+            }
+          }
+        },
+        {
+          "name": "List Accounts",
+          "request": {
+            "description": "List Accounts",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/accounts?"
+            }
+          }
+        },
+        {
+          "name": "List Events",
+          "request": {
+            "description": "List Events",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "events"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "tracking_number",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "dispatch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shipment_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/events?"
+            }
+          }
+        },
+        {
+          "name": "Refresh Tracking",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shipment_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Refresh Tracking",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "refresh"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/refresh"
+            }
+          }
+        },
+        {
+          "name": "Rotate Webhook",
+          "request": {
+            "description": "Rotate Webhook",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "accounts",
+                ":account_id",
+                "rotate-webhook"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/accounts/{account_id}/rotate-webhook",
+              "variable": [
+                {
+                  "description": "account_id of the record",
+                  "key": "account_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Test Connection",
+          "request": {
+            "description": "Test Connection",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "accounts",
+                ":account_id",
+                "test"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/accounts/{account_id}/test",
+              "variable": [
+                {
+                  "description": "account_id of the record",
+                  "key": "account_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Account",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"auto_confirm_delivery\": false,\n  \"credentials\": {\n    \"email\": {},\n    \"password\": {}\n  },\n  \"display_name\": \"\",\n  \"is_active\": false,\n  \"transporter_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
+            },
+            "description": "Update Account",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "accounts",
+                ":account_id"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/accounts/{account_id}",
+              "variable": [
+                {
+                  "description": "account_id of the record",
+                  "key": "account_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Courier Integration"
+    },
+    {
+      "item": [
+        {
           "name": "Activate a customer",
           "request": {
             "body": {

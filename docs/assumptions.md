@@ -4112,3 +4112,32 @@ An unregistered inter-state invoice above the named ₹250,000 threshold is
 reported invoice-wise as B2C large; other unregistered supplies are B2C small.
 The threshold is a named implementation constant so it can be revised if the
 applicable filing rule changes.
+
+## §D3-n. Courier scans may confirm delivery, using bounded polling
+
+**Assumed.** A verified courier `DELIVERED` event confirms an outbound dispatch
+automatically when that courier account's `auto_confirm_delivery` switch is on
+(the default). It uses the event time, never an arrival date before dispatch,
+and records the system actor and reason `Delivered per <courier> API`. With the
+switch off, the event is recorded but the dispatch remains for staff
+confirmation. `PICKED_UP` and `IN_TRANSIT` move an eligible dispatch to
+`IN_TRANSIT`; unknown labels normalize to `EXCEPTION` and never imply delivery.
+`RETURNED` and `EXCEPTION` raise a warning for dispatch staff. When Shiprocket
+omits an event time, the observation time is used; a malformed supplied time is
+rejected. Polling defaults to every 1,800 seconds and processes at most the 100
+oldest in-flight consignments per active account per pass.
+
+**Why.** The proposal asks for automatic tracking and names automatic delivery
+confirmation as a possible behavior but does not define the evidence threshold,
+timestamp fallback or polling budget. The per-account switch makes the
+consequential status change reversible by configuration; conservative mapping
+prevents an unfamiliar provider label from closing a dispatch.
+
+**Where.** `src/modules/courier_tracking/provider.py` normalizes provider
+statuses and timestamps; `service.py` applies dispatch and inbound effects;
+`MAX_POLL_PER_ACCOUNT` and `COURIER_POLL_INTERVAL_SECONDS` bound the worker.
+
+**Impact if wrong.** If Atcraft requires a staff member to confirm every
+delivery, turn `auto_confirm_delivery` off on the account. If a carrier's
+timestamps or status vocabulary differ, add an explicit provider mapping rather
+than treating an unknown value as delivered.

@@ -5239,6 +5239,47 @@
             "A reader with settings.view can inspect templates and delivery attempts. Changes and test sends require settings.manage and are disabled in the read-only UI."
           ],
           "permission": "Opening the page and reading delivery history needs settings.view. Editing templates and sending a test need settings.manage."
+        },
+        {
+          "route": "/admin/courier-integration",
+          "title": "Courier integration",
+          "purpose": "Configure a tenant's Shiprocket connection or generic signed webhook, control whether verified delivery scans confirm outbound consignments automatically, rotate webhook credentials and review the last polling result.",
+          "whoUses": "Administrators configuring a courier provider. A settings reader can inspect account status but cannot change or test accounts.",
+          "keyActions": [
+            {
+              "action": "Add a provider account",
+              "how": "Enter a unique account code and display name. Choose Shiprocket and enter its API email and password, or choose Generic webhook for a push-only provider.",
+              "note": "Shiprocket credentials are write-only. They are encrypted by the API and never returned to the browser."
+            },
+            {
+              "action": "Test a Shiprocket connection",
+              "how": "Press Test connection on the account.",
+              "note": "The API checks provider login without exposing the returned access token."
+            },
+            {
+              "action": "Configure a webhook",
+              "how": "Press Rotate webhook, then copy the URL and one-time secret into the provider configuration.",
+              "note": "Rotation invalidates the previous credentials. Store the secret securely before dismissing it; the page cannot show it again."
+            },
+            {
+              "action": "Control delivery confirmation",
+              "how": "Edit the account and set Automatically confirm outbound delivery.",
+              "note": "When enabled, an authenticated DELIVERED scan confirms the dispatch. Turn it off when staff must confirm arrival manually."
+            }
+          ],
+          "flow": [
+            "Ask the deployment operator to enable courier tracking and run the database migration.",
+            "Create the Shiprocket account and use Test connection to verify its credentials.",
+            "Rotate the webhook credentials and configure the provider's callback URL and required header.",
+            "Use Refresh tracking on an outbound or inbound consignment to test one record; scheduled polling handles the oldest eligible Shiprocket consignments afterward."
+          ],
+          "rules": [
+            "Provider credentials are encrypted and never returned by the account API. Do not copy them into notes, URLs or support logs.",
+            "Webhook requests are size-limited, rate-limited and authenticated. Generic providers sign the timestamp and exact body with HMAC-SHA256.",
+            "Unrecognized courier statuses become an exception and do not confirm delivery.",
+            "A reader with settings.view can inspect accounts. Creating, editing, testing and rotating credentials require settings.manage."
+          ],
+          "permission": "Opening the page needs settings.view. Creating, editing, testing and rotating courier accounts need settings.manage."
         }
       ]
     },

@@ -117,6 +117,7 @@ const ROUTES = [
   ['/admin/organisation', 'company.view'],
   ['/admin/settings', 'settings.view'],
   ['/admin/messaging', 'settings.view'],
+  ['/admin/courier-integration', 'settings.view'],
   ['/notifications', 'notification.view'],
 ]
 

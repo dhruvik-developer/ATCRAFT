@@ -79,6 +79,8 @@ from src.modules.allocation.models import (
     DemandType,
     StockReservation,
 )
+from src.modules.courier_tracking import service as courier_tracking_service
+from src.modules.courier_tracking.models import CourierAccount, CourierProvider
 from src.modules.inventory.models import BatchStatus, StockBatch
 from src.modules.inventory.service import BATCH_EXPIRY_WARN_DAYS, TraceabilityService
 from src.modules.quality import service as quality_service
@@ -606,6 +608,72 @@ async def reconcile_quality_owners(request_id: str | None = None, **_: Any) -> d
 
 
 # -----------------------------------------------------------------------------
+# Courier tracking
+# -----------------------------------------------------------------------------
+
+
+@async_task(name="maintenance.poll_courier_tracking", queue="default")
+async def poll_courier_tracking(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Poll active Shiprocket accounts, isolating every account in its own session."""
+    if not settings.courier_tracking_enabled:
+        return {"accounts": 0, "events": 0, "failed": 0}
+
+    async with session_scope() as session:
+        targets = list(
+            (
+                await session.execute(
+                    select(CourierAccount.company_id, CourierAccount.id).where(
+                        CourierAccount.is_active.is_(True),
+                        CourierAccount.provider == CourierProvider.SHIPROCKET,
+                        CourierAccount.deleted_at.is_(None),
+                    )
+                )
+            ).all()
+        )
+
+    result = {"accounts": 0, "events": 0, "failed": 0}
+    for company_id, account_id in targets:
+        tenant = _system_tenant(company_id)
+        try:
+            async with session_scope() as session:
+                account = await courier_tracking_service.get_account(session, tenant, account_id)
+                count, error = await courier_tracking_service.poll_account(session, tenant, account)
+        except Exception as exc:
+            result["failed"] += 1
+            log.error(
+                "maintenance.courier_tracking_poll_failed",
+                company_id=str(company_id),
+                account_id=str(account_id),
+                error=str(exc),
+                exc_info=exc,
+            )
+            try:
+                async with session_scope() as session:
+                    await courier_tracking_service.record_poll_failure(session, tenant, account_id)
+            except Exception as record_exc:
+                log.error(
+                    "maintenance.courier_tracking_poll_error_not_recorded",
+                    company_id=str(company_id),
+                    account_id=str(account_id),
+                    error=str(record_exc),
+                    exc_info=record_exc,
+                )
+            result["accounts"] += 1
+            continue
+        result["accounts"] += 1
+        result["events"] += count
+        result["failed"] += int(error is not None)
+
+    log.info(
+        "maintenance.courier_tracking_polled",
+        accounts=result["accounts"],
+        events=result["events"],
+        failed=result["failed"],
+    )
+    return result
+
+
+# -----------------------------------------------------------------------------
 # Batch expiry
 # -----------------------------------------------------------------------------
 
@@ -678,6 +746,7 @@ __all__ = [
     "TEMP_FILE_MAX_AGE_HOURS",
     "allocate_short_orders",
     "expire_batches",
+    "poll_courier_tracking",
     "purge_expired_sessions",
     "purge_temp_files",
     "reconcile_quality_owners",

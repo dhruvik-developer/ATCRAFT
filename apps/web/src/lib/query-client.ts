@@ -268,6 +268,11 @@ export const queryKeys = {
     list: (params: unknown) => ['dispatch', 'list', params] as const,
     tracking: (params: unknown) => ['dispatch', 'tracking', params] as const,
   },
+  courierTracking: {
+    all: ['courier-tracking'] as const,
+    accounts: (params: unknown) => ['courier-tracking', 'accounts', params] as const,
+    events: (params: unknown) => ['courier-tracking', 'events', params] as const,
+  },
   vendors: {
     all: ['vendors'] as const,
     list: (params: unknown) => ['vendors', 'list', params] as const,

@@ -126,6 +126,9 @@ x-api-env: &api-env
   SMTP_USERNAME: ${SMTP_USERNAME:-}
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   SMTP_TIMEOUT_SECONDS: ${SMTP_TIMEOUT_SECONDS:-15}
+  COURIER_TRACKING_ENABLED: ${COURIER_TRACKING_ENABLED:-false}
+  COURIER_POLL_INTERVAL_SECONDS: ${COURIER_POLL_INTERVAL_SECONDS:-1800}
+  COURIER_ALLOWED_HOSTS: ${COURIER_ALLOWED_HOSTS:-apiv2.shiprocket.in}
   # Optional server-side exception reporting. The runtime image contains the
   # SDK; an empty DSN keeps it completely disabled.
   SENTRY_DSN: ${SENTRY_DSN:-}

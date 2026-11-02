@@ -378,6 +378,12 @@ export const navigation: NavSection[] = [
         icon: MessageSquareText,
         permissions: [P.SETTINGS_VIEW],
       },
+      {
+        label: 'Courier integration',
+        to: '/admin/courier-integration',
+        icon: Truck,
+        permissions: [P.SETTINGS_VIEW],
+      },
     ],
   },
 ]

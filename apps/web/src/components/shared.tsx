@@ -130,6 +130,7 @@ const STATUS_VARIANTS: Record<
   PENDING: 'warning',
   PENDING_APPROVAL: 'warning',
   QUEUED: 'secondary',
+  BOOKED: 'secondary',
   NOT_DISPATCHED: 'muted',
   // A deactivated master, a retired machine and a deleted file are settled
   // facts, not drafts. Left unmapped they wore the same grey as DRAFT.
@@ -150,6 +151,8 @@ const STATUS_VARIANTS: Record<
   SENT: 'default',
   ACKNOWLEDGED: 'default',
   IN_TRANSIT: 'default',
+  PICKED_UP: 'default',
+  OUT_FOR_DELIVERY: 'default',
   MATERIAL_ISSUED: 'default',
   COMPONENTS_ISSUED: 'default',
   ISSUED: 'default',
@@ -177,6 +180,7 @@ const STATUS_VARIANTS: Record<
   VARIANCE: 'warning',
   OVERRIDDEN: 'warning',
   LATE: 'destructive',
+  EXCEPTION: 'warning',
 
   // settled, good
   APPROVED: 'success',
@@ -226,6 +230,7 @@ const STATUS_VARIANTS: Record<
   // Not terminal - the buyer cancels or re-sends - but it is a refusal to act on.
   VENDOR_DECLINED: 'destructive',
   FAILED: 'destructive',
+  FAILED_DELIVERY: 'destructive',
   SCRAP: 'destructive',
   SCRAPPED: 'destructive',
   DAMAGED: 'destructive',

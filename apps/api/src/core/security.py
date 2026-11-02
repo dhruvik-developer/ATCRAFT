@@ -509,3 +509,23 @@ def encrypt_push_subscription(endpoint: str) -> str:
 
 def decrypt_push_subscription(ciphertext: str) -> str:
     return _decrypt_credential(ciphertext, purpose="push-subscription")
+
+
+def encrypt_courier_credential(value: str) -> str:
+    """Encrypt a courier credential with a key isolated from other purposes."""
+    return _encrypt_credential(value, purpose="courier-credentials")
+
+
+def decrypt_courier_credential(ciphertext: str) -> str:
+    """Decrypt a courier credential stored by the tracking integration."""
+    return _decrypt_credential(ciphertext, purpose="courier-credentials")
+
+
+def encrypt_courier_webhook_secret(value: str) -> str:
+    """Encrypt a courier webhook secret with its own purpose-derived key."""
+    return _encrypt_credential(value, purpose="courier-webhook")
+
+
+def decrypt_courier_webhook_secret(ciphertext: str) -> str:
+    """Decrypt a courier webhook secret stored by the tracking integration."""
+    return _decrypt_credential(ciphertext, purpose="courier-webhook")

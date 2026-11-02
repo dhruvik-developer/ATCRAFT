@@ -402,6 +402,9 @@ class Transporter(TenantMasterEntity):
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     transporter_type: Mapped[TransporterType] = mapped_column(String(16), nullable=False)
+    courier_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("courier_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
     pan: Mapped[str | None] = mapped_column(String(10), nullable=True)

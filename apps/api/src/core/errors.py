@@ -213,6 +213,12 @@ class RateLimitedError(AppError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class PayloadTooLargeError(AppError):
+    status_code = 413
+    code = ErrorCode.PAYLOAD_TOO_LARGE
+    message = "The request payload is too large."
+
+
 # --- business ----------------------------------------------------------------
 
 

@@ -132,6 +132,14 @@ celery_app.conf.update(
             "schedule": 3600.0,
             "options": {"queue": "notifications", "expires": 1800},
         },
+        "poll-courier-tracking": {
+            "task": "maintenance.poll_courier_tracking",
+            "schedule": float(settings.courier_poll_interval_seconds),
+            "options": {
+                "queue": "default",
+                "expires": max(settings.courier_poll_interval_seconds - 60, 30),
+            },
+        },
         "purge-expired-sessions": {
             "task": "maintenance.purge_expired_sessions",
             "schedule": 86400.0,

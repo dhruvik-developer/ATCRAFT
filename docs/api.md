@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 746 requests in 31
+Import `postman_collection.json` (Postman v2.1 format, 754 requests in 32
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -587,6 +587,33 @@ provider template. `CRITICAL` notifications remain in-app only.
 Phone verification uses SMS OTP even when only WhatsApp notifications are
 enabled. Provider credentials remain in deployment environment settings and are
 never stored in the database.
+
+## Courier integration
+
+Courier integrations are disabled until `COURIER_TRACKING_ENABLED=true` is set
+for the deployment. Account configuration uses `settings.view` /
+`settings.manage`; consignment refresh and event history use
+`dispatch.update` / `dispatch.view`. Account and event resources remain scoped
+to the company resolved from the signed-in principal.
+
+| Route | Operation | Permission |
+|---|---|---|
+| `GET /integrations/courier/accounts` | List this company's provider accounts | `settings.view` |
+| `POST /integrations/courier/accounts` | Create an account with encrypted Shiprocket credentials | `settings.manage` |
+| `PATCH /integrations/courier/accounts/{id}` | Edit or deactivate an account; credentials are write-only | `settings.manage` |
+| `POST /integrations/courier/accounts/{id}/rotate-webhook` | Rotate webhook token and secret; returns them once | `settings.manage` |
+| `POST /integrations/courier/accounts/{id}/test` | Test provider connectivity | `settings.manage` |
+| `POST /integrations/courier/refresh` | Refresh one outbound dispatch or inbound shipment | `dispatch.update` |
+| `GET /integrations/courier/events` | Cursor-paginated normalized event history | `dispatch.view` |
+| `POST /integrations/courier/webhook/{token}` | Accept a bounded provider event payload | Public, authenticated by capability token and provider signature/key |
+
+Generic webhook signatures are HMAC-SHA256 over `<unix-timestamp>.<exact-body>`
+in `X-Courier-Signature`, with the timestamp in `X-Courier-Timestamp`.
+Shiprocket uses `X-Api-Key`. Webhook bodies are limited to 64 KiB, generic
+timestamps have a five-minute acceptance window, and duplicate provider events
+are ignored. The scheduled Shiprocket poll runs every
+`COURIER_POLL_INTERVAL_SECONDS` (1,800 by default), processes at most 100 oldest
+eligible consignments per account, and isolates failures by account.
 
 ## Product specifications and accessories
 

@@ -644,6 +644,26 @@ credentials are redacted from application logs. Delivery history stores the
 channel, provider message identifier, outcome and a stable error code; it does
 not store the phone number or request body.
 
+## Courier webhooks and provider credentials (D3)
+
+Courier integrations are disabled by default. Shiprocket API credentials are
+encrypted with the dedicated `courier-credentials` purpose; webhook secrets use
+the separate `courier-webhook` purpose. The webhook URL contains a random
+capability token whose SHA-256 hash alone is stored. Generic webhook requests
+must carry a fresh timestamp and an HMAC-SHA256 signature over the timestamp
+and exact request body; comparison is constant-time. Shiprocket uses its
+configured webhook key header. Unknown tokens are not disclosed as account
+lookups.
+
+The public endpoint applies an IP flood guard, streams at most 64 KiB, and
+rejects stale generic signatures and duplicate provider events. Provider
+requests use HTTPS, a fixed host allow-list, bounded response size and timeout,
+and do not follow redirects. Credentials, bearer tokens, webhook secrets and
+request/response bodies must never be logged. Normalized event rows are
+tenant-scoped and immutable; raw provider payloads are not included in API
+responses or ordinary logs and must be treated as confidential operational
+data.
+
 ## Warehouse assignments on stock documents and movements (A02/A03)
 
 Warehouse assignments use the shared policy in `src/common/warehouse_scope.py`.

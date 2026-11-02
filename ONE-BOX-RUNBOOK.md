@@ -596,6 +596,9 @@ two deployments.
 | `WEB_PUSH_TTL_SECONDS`                          | `86400`                             | Provider retention, 0..2419200 seconds.                                                                                                                          |
 | `WEB_PUSH_TIMEOUT_SECONDS`                      | `10`                                | HTTPS transport timeout, 1..60 seconds.                                                                                                                          |
 | `WEB_PUSH_ALLOWED_HOSTS`                        | Google FCM, Mozilla, Windows, Apple | Dot-boundary suffixes: fcm.googleapis.com, updates.push.services.mozilla.com, push.services.mozilla.com, notify.windows.com, web.push.apple.com, push.apple.com. |
+| `COURIER_TRACKING_ENABLED`                      | `false`                             | Enable only after migration and provider setup; the API/webhook/polling remain disabled otherwise.                                                                  |
+| `COURIER_POLL_INTERVAL_SECONDS`                 | `1800`                              | Shiprocket polling cadence; minimum 60 seconds.                                                                                                                   |
+| `COURIER_ALLOWED_HOSTS`                         | `apiv2.shiprocket.in`               | HTTPS hostname allow-list for the Shiprocket client; retain only provider hosts the deployment uses.                                                              |
 | `POSTGRES_DB`                                   | `atcraft_erp`                       | May match the other deployment.                                                                                                                                  |
 | `POSTGRES_USER`                                 | `atcraft`                           | May match.                                                                                                                                                       |
 | `POSTGRES_PASSWORD`                             | —                                   | **(UNIQUE)** Required, no default.                                                                                                                               |
@@ -709,6 +712,31 @@ ships. The gate runs inside the frontend image build, so it applies to both
 deployments.
 
 ---
+
+### Connect a courier (D3)
+
+Courier tracking is disabled by default. Before enabling it, apply the courier
+tracking Alembic migration and confirm `CREDENTIAL_ENCRYPTION_KEY` is backed up
+with the database; it encrypts both provider credentials and webhook secrets.
+Set `COURIER_TRACKING_ENABLED=true`, keep
+`COURIER_ALLOWED_HOSTS=apiv2.shiprocket.in` unless the approved provider
+requires another explicit host, and deploy the API and worker together.
+
+In the staff UI, open **Administration → Courier integration**, create a
+Shiprocket account and use **Test connection**. Use **Rotate webhook** to issue
+the callback URL and one-time secret, then configure the provider's callback
+header before dismissing the secret. Rotation invalidates the previous token
+and secret. Generic providers use the same callback URL and sign the exact
+request body and timestamp using the displayed HMAC secret.
+
+Use the refresh action on a tracked dispatch or inbound shipment to verify one
+consignment. The worker polls every `COURIER_POLL_INTERVAL_SECONDS` seconds
+(1,800 by default), at most 100 oldest eligible consignments per account. Check
+the account's **Last poll** and **Last poll failed** fields after deployment.
+Automatic outbound delivery confirmation defaults on per account; disable it
+when the business requires a staff member to confirm courier delivery scans.
+Never put credentials or webhook secrets into a URL, source file or incident
+log.
 
 ## Everyday operations
 

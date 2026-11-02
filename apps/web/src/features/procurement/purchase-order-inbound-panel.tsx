@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 
 import { ConfirmDialog, DescriptionList } from '@/components/shared'
@@ -81,6 +82,21 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
       await refresh()
       toast.success('Shipment marked delivered')
       setDelivering(null)
+    },
+  })
+  const refreshCourier = useMutation({
+    mutationFn: (shipmentId: string) =>
+      api.post<{ events_recorded: number }>('/integrations/courier/refresh', {
+        shipment_id: shipmentId,
+      }),
+    onError: errorToast,
+    onSuccess: async (result) => {
+      await refresh()
+      toast.success(
+        result.events_recorded > 0
+          ? 'Courier tracking refreshed'
+          : 'No new courier events were available',
+      )
     },
   })
   const download = useMutation({
@@ -205,6 +221,21 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
                         Edit shipment {row.original.shipment_number}
                       </Button>
                     )}
+                    {can(P.DISPATCH_UPDATE) &&
+                      !row.original.delivered_at &&
+                      row.original.tracking_reference && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={refreshCourier.isPending}
+                          onClick={() => refreshCourier.mutate(row.original.id)}
+                        >
+                          <RefreshCw
+                            className={refreshCourier.isPending ? 'animate-spin' : undefined}
+                          />
+                          Refresh tracking
+                        </Button>
+                      )}
                     {can(P.GRN_CREATE) && !row.original.delivered_at && (
                       <Button
                         size="sm"

@@ -169,6 +169,9 @@ class NotificationType(StrEnum):
     DEALER_RETURN_REQUEST_RECEIVED = "DEALER_RETURN_REQUEST_RECEIVED"
     DEALER_CREDIT_NOTE_ISSUED = "DEALER_CREDIT_NOTE_ISSUED"
 
+    # --- courier tracking ---------------------------------------------------
+    COURIER_TRACKING_UPDATED = "COURIER_TRACKING_UPDATED"
+
     # --- platform -----------------------------------------------------------
     SYSTEM_ANNOUNCEMENT = "SYSTEM_ANNOUNCEMENT"
 

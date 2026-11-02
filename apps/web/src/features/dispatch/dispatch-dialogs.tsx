@@ -25,7 +25,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Boxes, MapPin, Plus, ScanBarcode, Trash2, Truck } from 'lucide-react'
+import { Boxes, MapPin, Plus, RefreshCw, ScanBarcode, Trash2, Truck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -93,6 +93,7 @@ import {
   RAISED_DISPATCH_TYPE,
   WEIGHT_INPUT,
   dispatchKeys,
+  isDeliverable,
   itemFactsQuery,
   useItemFacts,
   type DispatchDetail,
@@ -1763,6 +1764,7 @@ export function DispatchTimelineDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { can } = useAuth()
+  const queryClient = useQueryClient()
   const canUpdate = can(P.DISPATCH_UPDATE)
 
   const dispatchId = dispatch?.id ?? ''
@@ -1789,6 +1791,25 @@ export function DispatchTimelineDialog({
   const timeline = events.data ?? []
   const consignment = detail.data
   const serialised = (consignment?.lines ?? []).filter((line) => line.serial_ids.length > 0)
+  const refreshTracking = useMutation({
+    mutationFn: () =>
+      api.post<{ events_recorded: number }>('/integrations/courier/refresh', {
+        dispatch_id: dispatchId,
+      }),
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: dispatchKeys.events(dispatchId) }),
+        queryClient.invalidateQueries({ queryKey: dispatchKeys.detail(dispatchId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all }),
+      ])
+      toast.success(
+        result.events_recorded > 0
+          ? 'Courier tracking refreshed'
+          : 'No new courier events were available',
+      )
+    },
+    onError: (error) => toast.error('Courier refresh failed', describeError(error)),
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1845,6 +1866,18 @@ export function DispatchTimelineDialog({
                 <p className="mt-3 border-t pt-3 text-sm text-destructive">
                   Delay: {consignment.delay_reason}
                 </p>
+              )}
+              {canUpdate && dispatch.tracking_id && isDeliverable(dispatch.status) && (
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="outline"
+                  disabled={refreshTracking.isPending}
+                  onClick={() => refreshTracking.mutate()}
+                >
+                  <RefreshCw className={refreshTracking.isPending ? 'animate-spin' : undefined} />
+                  Refresh tracking
+                </Button>
               )}
             </div>
           )}

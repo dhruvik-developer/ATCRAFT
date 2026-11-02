@@ -413,6 +413,9 @@ class Settings(BaseSettings):
     sms_verification_template_id: str = ""
     messaging_allowed_hosts: str = "graph.facebook.com,control.msg91.com"
     messaging_timeout_seconds: Annotated[int, Field(ge=1, le=60)] = 10
+    courier_tracking_enabled: bool = False
+    courier_poll_interval_seconds: Annotated[int, Field(ge=60)] = 1800
+    courier_allowed_hosts: str = "apiv2.shiprocket.in"
 
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> Settings:
