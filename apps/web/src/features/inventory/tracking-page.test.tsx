@@ -233,6 +233,7 @@ describe('serial tracking', () => {
     expect(await within(dialog).findByText('GRN/2026-27/00009')).toBeInTheDocument()
     expect(within(dialog).getByText('Purchase Receipt')).toBeInTheDocument()
     expect(within(dialog).queryByText(/unit cost/i)).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Download label' })).not.toBeInTheDocument()
   })
 
   it('shows unit cost only to a valuation reader', async () => {
@@ -281,5 +282,33 @@ describe('serial tracking', () => {
       item_id: ITEM.id,
     })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('lets serial managers re-download a label from the serial trace', async () => {
+    const unit = serial()
+    const { user, fetch } = renderScreen(<TrackingPage />, {
+      route: '/inventory/tracking?tab=serials',
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_BATCH_MANAGE],
+      routes: {
+        [SERIALS]: page([unit]),
+        [`GET /inventory/serials/${unit.id}`]: ok({
+          serial: unit,
+          movements: [],
+          conversions: [],
+        }),
+        'POST /inventory/serials/labels': fail(503, 'SERVICE_UNAVAILABLE', 'Unavailable'),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /trace serial SN-0001/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(await within(dialog).findByRole('button', { name: 'Download label' }))
+
+    await waitFor(() => {
+      expect(fetch.requestFor('POST', '/inventory/serials/labels')).toEqual({
+        serial_ids: [unit.id],
+      })
+    })
+    expect(within(dialog).getByRole('button', { name: 'Download label' })).toBeEnabled()
   })
 })

@@ -87,7 +87,8 @@ PDF download of the registered labels: 24 QR labels per A4 page (3 columns by
 8 rows), with readable item, serial and lot text, and a 500-unit request cap.
 The endpoint requires the serial-management permission, refuses duplicate or
 foreign serial IDs, and marks the response `no-store`; generating labels does
-not move stock.
+not move stock. A manager can also re-download a single unit's label from its
+serial trace, without registering the unit again.
 
 The next packages must close these software gaps while retaining the corrected
 stock, accounting, security and audit invariants. Passing the current release

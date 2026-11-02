@@ -569,12 +569,21 @@ export function SerialDetailDialog({
 }) {
   const { can } = useAuth()
   const [activeId, setActiveId] = useState(serialId)
+  const canManage = can(P.INVENTORY_BATCH_MANAGE)
   const canSeeValue = can(P.INVENTORY_VALUATION_VIEW)
   const detail = useQuery({
     queryKey: queryKeys.inventory.serial(activeId),
     queryFn: ({ signal }) =>
       api.get<StockSerialDetail>('/inventory/serials/' + activeId, { signal }),
     staleTime: staleTimes.live,
+  })
+  const downloadLabel = useMutation({
+    mutationFn: () =>
+      api.download('/inventory/serials/labels', 'serial-label.pdf', {
+        method: 'POST',
+        body: { serial_ids: [activeId] },
+      }),
+    onError: (error) => toast.error('Serial label could not be downloaded.', describeError(error)),
   })
 
   const serial = detail.data?.serial
@@ -730,6 +739,16 @@ export function SerialDetailDialog({
           )}
         </DialogBody>
         <DialogFooter>
+          {canManage && (
+            <Button
+              variant="outline"
+              loading={downloadLabel.isPending}
+              disabled={!serial}
+              onClick={() => downloadLabel.mutate()}
+            >
+              Download label
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
