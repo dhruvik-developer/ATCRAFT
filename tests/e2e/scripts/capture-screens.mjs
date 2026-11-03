@@ -55,6 +55,7 @@ const DETAIL_LISTS = {
   '/production/:id': ['/production', '/production/'],
   '/job-work/:id': ['/job-work', '/job-work/'],
   '/vendor/orders/:id': ['/vendor/orders', '/vendor/orders/'],
+  '/vendor/job-work/:id': ['/vendor/job-work', '/vendor/job-work/'],
   '/vendor/invoices/:id': ['/vendor/invoices', '/vendor/invoices/'],
   '/dealer/catalog/:id': ['/dealer/catalog', '/dealer/catalog/'],
   '/dealer/orders/:id': ['/dealer/orders', '/dealer/orders/'],

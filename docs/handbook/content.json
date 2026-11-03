@@ -5416,6 +5416,29 @@
           ]
         },
         {
+          "whoUses": "Vendor owners and managers with access to the order through their vendor account.",
+          "permission": "The vendor portal job-work right is granted to vendor owners and managers.",
+          "notes": "The detail shows issued material, challans, receipts, quality outcome and the vendor's progress history.",
+          "route": "/vendor/job-work/:orderId",
+          "title": "Vendor job-work order",
+          "purpose": "Review what your shop received for processing, what has been accounted for, what remains outstanding and when it is due back.",
+          "keyActions": [
+            {
+              "action": "Report progress",
+              "how": "While the order is issued or partially received, report In process, Ready to return or Dispatched back. Add an expected date or note when useful."
+            }
+          ],
+          "flow": [
+            "Open an order from Vendor job work.",
+            "Compare issued, received and outstanding quantities against its challans and receipts.",
+            "Report progress as the work advances; the buyer's storekeeper records the actual receipt."
+          ],
+          "rules": [
+            "A progress report is a tracking event only. It does not receive material, change the order status or move stock.",
+            "The order and its history are restricted to the signed-in vendor."
+          ]
+        },
+        {
           "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
           "permission": "Vendor portal access is required; staff accounts cannot enter the vendor app.",
           "notes": "Phone screens use the bottom navigation and cards; tablet and desktop screens use the compact portal navigation. Lists are paginated on the server.",
