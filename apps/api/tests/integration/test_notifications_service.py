@@ -20,13 +20,17 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.actors import SYSTEM_ACTOR_ID
 from src.core.clock import utcnow
 from src.core.deps import TenantContext
 from src.core.errors import NotFoundError, ValidationError
 from src.core.pagination import CursorParams
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.notifications.alert_service import NotificationAlertService, reconcile_alert
+from src.modules.notifications.alerts import ALERT_RULES, AlertCandidate, AlertRuleKey
 from src.modules.notifications.models import (
     Notification,
+    NotificationAlertState,
     NotificationChannel,
     NotificationPreference,
     NotificationSeverity,
@@ -34,13 +38,16 @@ from src.modules.notifications.models import (
 )
 from src.modules.notifications.repository import NotificationRepository
 from src.modules.notifications.schemas import (
+    NotificationAlertRulesUpdate,
     NotificationFilters,
     NotificationPreferenceUpdate,
     PreferencesUpdateRequest,
 )
 from src.modules.notifications.service import (
+    NotificationDraft,
     NotificationService,
     notify,
+    notify_many,
     notify_role,
 )
 
@@ -165,6 +172,36 @@ class TestNotify:
         assert entries[0].action == AuditAction.CREATE
         assert entries[0].new_values["recipient_count"] == 1
 
+    async def test_system_actor_is_not_written_to_notification_actor_columns(
+        self, session: AsyncSession, company, user
+    ) -> None:
+        await _raise(session, company.id, [user.id], actor_id=SYSTEM_ACTOR_ID)
+        await notify_many(
+            session,
+            company_id=company.id,
+            notification_type=NotificationType.APPROVAL_GRANTED,
+            drafts=[
+                NotificationDraft(
+                    user_ids=[user.id],
+                    title="Approval granted",
+                    body="The system closed the approval.",
+                )
+            ],
+            actor_id=SYSTEM_ACTOR_ID,
+        )
+
+        rows = list(
+            (
+                await session.execute(
+                    select(Notification).where(Notification.company_id == company.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 2
+        assert all(row.created_by_id is None and row.updated_by_id is None for row in rows)
+
     async def test_empty_recipient_list_is_a_no_op(self, session: AsyncSession, company) -> None:
         assert await _raise(session, company.id, []) == []
         assert await _count_notifications(session, company.id) == 0
@@ -231,6 +268,103 @@ class TestGrouping:
         second = await _make_user(session, company.id)
         written = await _raise(session, company.id, [user.id, second.id], group_key="po-delay:11")
         assert len({n.id for n in written}) == 2
+
+
+class TestSmartAlertReconciliation:
+    async def test_persists_reminders_resolution_reopen_and_quiet_ticks(
+        self, session: AsyncSession, company
+    ) -> None:
+        from src.core.permissions import Permission
+
+        role = await _make_role(session, company.id, "INVENTORY_ALERT_READER")
+        role.permissions = [str(Permission.INVENTORY_VIEW)]
+        recipient = await _make_user(session, company.id, roles=(role,))
+        tenant = TenantContext(company_id=company.id, user_id=recipient.id)
+        rule = ALERT_RULES[AlertRuleKey.STOCK_BELOW_REORDER]
+        configured = await NotificationAlertService(session, tenant).update_rules(
+            NotificationAlertRulesUpdate(
+                rules=[
+                    {
+                        "key": AlertRuleKey.STOCK_BELOW_REORDER,
+                        "is_enabled": True,
+                        "threshold_minutes": 0,
+                        "remind_every_minutes": 60,
+                    }
+                ]
+            )
+        )
+        effective = next(
+            item for item in configured if item.key is AlertRuleKey.STOCK_BELOW_REORDER
+        )
+        assert effective.is_customized
+        assert effective.remind_every_minutes == 60
+
+        entity_id = uuid.uuid4()
+        candidate = AlertCandidate(
+            entity_type="inventory_balance",
+            entity_id=entity_id,
+            title="Stock below reorder level",
+            body="Available stock is at its reorder level.",
+            action_url="/inventory/balances",
+        )
+        moment = utcnow()
+
+        first = await reconcile_alert(session, tenant, rule, [candidate], as_of=moment)
+        quiet = await reconcile_alert(
+            session, tenant, rule, [candidate], as_of=moment + timedelta(minutes=30)
+        )
+        reminder = await reconcile_alert(
+            session, tenant, rule, [candidate], as_of=moment + timedelta(minutes=60)
+        )
+        resolved = await reconcile_alert(
+            session, tenant, rule, [], as_of=moment + timedelta(minutes=61)
+        )
+        reopened = await reconcile_alert(
+            session, tenant, rule, [candidate], as_of=moment + timedelta(minutes=62)
+        )
+
+        assert first["notified"] == 1
+        assert quiet["notified"] == 0
+        assert quiet["resolved"] == 0
+        assert reminder["notified"] == 1
+        assert resolved["notified"] == 0
+        assert resolved["resolved"] == 1
+        assert reopened["notified"] == 1
+
+        states = list(
+            (
+                await session.execute(
+                    select(NotificationAlertState).where(
+                        NotificationAlertState.company_id == company.id,
+                        NotificationAlertState.rule_key == rule.key.value,
+                        NotificationAlertState.entity_id == entity_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(states) == 2
+        assert sum(state.resolved_at is None for state in states) == 1
+        assert sum(state.notified_count for state in states) == 3
+
+        notifications = list(
+            (
+                await session.execute(
+                    select(Notification).where(
+                        Notification.company_id == company.id,
+                        Notification.user_id == recipient.id,
+                        Notification.notification_type
+                        == NotificationType.STOCK_BELOW_REORDER.value,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(notifications) == 1
+        assert notifications[0].occurrence_count == 3
+        assert notifications[0].group_key == f"alert:{rule.key.value}"
 
 
 # -----------------------------------------------------------------------------

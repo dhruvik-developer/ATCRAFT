@@ -692,7 +692,7 @@ async def _notify_anomaly(
         severity=NotificationSeverity.WARNING,
         entity_type="dispatch" if dispatch is not None else "courier_tracking_event",
         entity_id=dispatch.id if dispatch is not None else None,
-        action_url=f"/dispatch/{dispatch.id}" if dispatch is not None else "/dispatch/tracking",
+        action_url="/dispatch?tab=tracking",
         group_key=f"courier-anomaly:{account.id}:{event['tracking_number']}",
     )
 

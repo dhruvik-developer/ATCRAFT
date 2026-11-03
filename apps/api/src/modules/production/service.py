@@ -66,6 +66,8 @@ from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import DemandType, ReservationType, StockReservation
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.bom import engine as bom_engine
 from src.modules.bom.models import Bom, BomStatus
@@ -78,9 +80,11 @@ from src.modules.inventory.service import (
     TraceabilityService,
     post_movements,
 )
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.organization.service import require_cost_centre
 from src.modules.production.models import (
     ISSUABLE_PRODUCTION_STATUSES,
+    OPEN_PRODUCTION_STATUSES,
     OVER_ISSUE_MULTIPLIER,
     OVER_ISSUE_TOLERANCE,
     OVER_PRODUCTION_MULTIPLIER,
@@ -1016,6 +1020,7 @@ async def _transition(
     reason: str,
     status_enum: Any,
     action: AuditAction = AuditAction.PRODUCTION_STATUS_CHANGE,
+    actor_user_id: uuid.UUID | None = None,
 ) -> None:
     """Move a document's status and record it.
 
@@ -1024,12 +1029,13 @@ async def _transition(
     writes the matching audit row (master rules section 73).
     """
     current = status_enum(entity.status)
+    actor_user_id = tenant.user_id if actor_user_id is None else actor_user_id
     machine.assert_transition(current, target)
     entity.status = target
     if hasattr(entity, "updated_by_id"):
         # A sweep carries the nil actor, which is not a user row; storing it
         # would violate the actor foreign key and roll the sweep back.
-        entity.updated_by_id = actor_id(tenant.user_id)
+        entity.updated_by_id = actor_id(actor_user_id)
     await session.flush()
 
     await record_status_change(
@@ -1040,7 +1046,7 @@ async def _transition(
         entity_code=entity_code,
         from_status=str(current),
         to_status=str(target),
-        user_id=tenant.user_id,
+        user_id=actor_user_id,
         action=action,
         reason=reason,
     )
@@ -1474,6 +1480,17 @@ async def create_order(
                 "source_line_id": order.source_line_id,
             },
         )
+        await open_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PRODUCTION_ORDER,
+            entity_id=order.id,
+            entity_code=order.code,
+            approve_permission=Permission.PRODUCTION_ORDER_APPROVE,
+            requested_by=tenant.user_id,
+            summary=f"Production order {order.code} requires approval.",
+            action_url=f"/production/{order.id}",
+        )
     return order
 
 
@@ -1666,6 +1683,17 @@ async def delete_draft_order(
             },
             context={"reason": reason},
         )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PRODUCTION_ORDER,
+            entity_id=order.id,
+            requested_action=Permission.PRODUCTION_ORDER_APPROVE,
+            outcome=ApprovalStatus.REJECTED,
+            decided_by=tenant.user_id,
+            decision_note=reason,
+            action_url=f"/production/{order.id}",
+        )
         await ProductionOrderRepository(session, tenant).hard_delete(order)
 
 
@@ -1701,6 +1729,18 @@ async def approve_order(
             reason=payload.note or "Approved",
             status_enum=ProductionOrderStatus,
             action=AuditAction.APPROVE,
+            actor_user_id=principal.user_id,
+        )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PRODUCTION_ORDER,
+            entity_id=order.id,
+            requested_action=Permission.PRODUCTION_ORDER_APPROVE,
+            outcome=ApprovalStatus.APPROVED,
+            decided_by=principal.user_id,
+            decision_note=payload.note,
+            action_url=f"/production/{order.id}",
         )
     return order
 
@@ -2465,6 +2505,17 @@ async def cancel_order(
             reason=payload.reason,
             status_enum=ProductionOrderStatus,
             action=AuditAction.CANCEL,
+        )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PRODUCTION_ORDER,
+            entity_id=order.id,
+            requested_action=Permission.PRODUCTION_ORDER_APPROVE,
+            outcome=ApprovalStatus.REJECTED,
+            decided_by=tenant.user_id,
+            decision_note=payload.reason,
+            action_url=f"/production/{order.id}",
         )
         await record_audit(
             session,
@@ -4633,6 +4684,43 @@ async def awaiting_quality_verdicts(
     for entry in entries:
         pairs.append((QUALITY_REFERENCE_ENTRY, entry.id))
     return pairs
+
+
+async def delayed_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Find live production orders past their planned end date."""
+    cutoff = (as_of - threshold).date()
+    stmt = (
+        select(ProductionOrder)
+        .where(
+            ProductionOrder.company_id == tenant.company_id,
+            ProductionOrder.status.in_(OPEN_PRODUCTION_STATUSES),
+            ProductionOrder.planned_end_date < cutoff,
+        )
+        .order_by(ProductionOrder.planned_end_date, ProductionOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="production_order",
+            entity_id=row.id,
+            title=f"Production order {row.code} is past its planned end date",
+            body=(
+                f"Order {row.code} was planned to finish on {row.planned_end_date}. "
+                "Review its production progress."
+            ),
+            action_url=f"/production/{row.id}",
+            creator_id=row.created_by_id,
+        )
+        for row in rows
+    ]
 
 
 __all__ = [

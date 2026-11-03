@@ -2,12 +2,8 @@
 
 Delivery workers and scheduled recovery tasks live here.
 
-``notifications.scan_dispatch_delays`` is the hourly beat job behind master rules
-section 23: a consignment past its promised delivery date is flagged and the
-people who can do something about it are told, rather than the delay waiting for
-somebody to notice. All of the logic is in
-:func:`src.modules.dispatch.service.scan_delays`; this module is the Celery
-adapter and nothing else.
+``notifications.scan_smart_alerts`` reconciles timed alert episodes using
+bounded scanners in the modules that own the relevant business data.
 
 **Re-delivery has to be harmless.** ``task_acks_late`` is on, so a worker killed
 mid-sweep has its task delivered again. That is survivable because the sweep is
@@ -42,7 +38,8 @@ from sqlalchemy import and_, any_, delete, func, literal, or_, select, update
 
 from src.core.clock import utcnow
 from src.core.config import EmailProvider, settings
-from src.core.database import affected_rows, session_scope
+from src.core.database import affected_rows, session_scope, transaction, try_advisory_xact_lock
+from src.core.deps import system_tenant
 from src.core.logging import get_logger
 from src.core.mail import OutboundEmail, deliver_email
 from src.core.messaging import (
@@ -60,6 +57,11 @@ from src.core.security import (
 )
 from src.core.webpush import PushOutcome, PushRetryableError, deliver_push, push_payload, push_topic
 from src.modules.dispatch import service as dispatch_service
+from src.modules.finance import service as finance_service
+from src.modules.inventory import service as inventory_service
+from src.modules.job_work import service as job_work_service
+from src.modules.notifications.alert_service import effective_alert_settings, reconcile_alert
+from src.modules.notifications.alerts import ALERT_RULES, AlertRuleKey
 from src.modules.notifications.models import (
     Notification,
     NotificationChannel,
@@ -69,10 +71,31 @@ from src.modules.notifications.models import (
     NotificationPreference,
     PushSubscription,
 )
+from src.modules.organization.models import Company
+from src.modules.procurement import inbound_service
+from src.modules.production import service as production_service
+from src.modules.quality import service as quality_service
+from src.modules.sales import service as sales_service
 from src.modules.users.models import PasswordResetToken, User, UserSession
 from src.workers.celery_app import async_task
 
 log = get_logger("worker.notifications")
+
+SMART_ALERT_SCANNERS = {
+    AlertRuleKey.PO_NOT_ACKNOWLEDGED: inbound_service.po_not_acknowledged_alert_candidates,
+    AlertRuleKey.PO_DELIVERY_MISSED: inbound_service.po_delivery_missed_alert_candidates,
+    AlertRuleKey.PO_DISPATCH_NOT_UPDATED: inbound_service.po_dispatch_not_updated_alert_candidates,
+    AlertRuleKey.PO_TRACKING_MISSING: inbound_service.po_tracking_missing_alert_candidates,
+    AlertRuleKey.GRN_NOT_CREATED: inbound_service.grn_not_created_alert_candidates,
+    AlertRuleKey.QC_PENDING: quality_service.pending_alert_candidates,
+    AlertRuleKey.VENDOR_INVOICE_PENDING: finance_service.pending_vendor_invoice_alert_candidates,
+    AlertRuleKey.VENDOR_PAYMENT_OVERDUE: finance_service.overdue_payment_alert_candidates,
+    AlertRuleKey.JOB_WORK_OVERDUE: job_work_service.overdue_alert_candidates,
+    AlertRuleKey.DISPATCH_DELAYED: dispatch_service.delayed_alert_candidates,
+    AlertRuleKey.PRODUCTION_ORDER_DELAYED: production_service.delayed_alert_candidates,
+    AlertRuleKey.SALES_ORDER_AT_RISK: sales_service.at_risk_alert_candidates,
+    AlertRuleKey.STOCK_BELOW_REORDER: inventory_service.below_reorder_alert_candidates,
+}
 
 
 def recent_push_session(moment: datetime) -> Any:
@@ -633,42 +656,99 @@ async def dispatch_pending_deliveries(request_id: str | None = None, **_: Any) -
     return {"scanned": len(pending), "queued": queued}
 
 
-@async_task(name="notifications.scan_dispatch_delays", queue="notifications")
-async def scan_dispatch_delays(request_id: str | None = None, **_: Any) -> dict[str, Any]:
-    """Flag every overdue consignment and alert the company that owns it.
+@async_task(name="notifications.scan_smart_alerts", queue="notifications")
+async def scan_smart_alerts(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Reconcile configured smart-alert episodes, isolated by tenant and rule."""
+    if not settings.alerts_enabled:
+        return {"enabled": False, "companies": 0, "notified": 0, "failed": 0}
 
-    Runs across all tenants: beat has no principal, so the sweep reads
-    cross-tenant and partitions by company before writing anything (see
-    ``dispatch.service.scan_delays``).
-
-    ``request_id`` is not read here but is picked up by the ``task_prerun``
-    signal, so a sweep triggered manually from the API keeps one correlation id
-    across both logs (section 55).
-    """
     async with session_scope() as session:
-        results = await dispatch_service.scan_delays(session)
+        company_ids = list(
+            (
+                await session.execute(
+                    select(Company.id)
+                    .where(Company.is_active.is_(True), Company.deleted_at.is_(None))
+                    .order_by(Company.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
-    delayed = sum(result.delayed_count for result in results)
-    notified = sum(result.notified_count for result in results)
-    log.info(
-        "dispatch.delay_scan_completed",
-        companies=len(results),
-        delayed=delayed,
-        notified=notified,
-    )
-    return {
-        "companies": len(results),
-        "delayed": delayed,
+    moment = utcnow()
+    notified = failed = processed = skipped = 0
+    for company_id in company_ids:
+        try:
+            async with session_scope() as session:
+                tenant = system_tenant(company_id)
+                async with transaction(session):
+                    if not await try_advisory_xact_lock(session, company_id, "smart-alerts"):
+                        skipped += 1
+                        continue
+
+                    configured = await effective_alert_settings(session, tenant)
+                    for rule_key, rule in ALERT_RULES.items():
+                        enabled, threshold_minutes, _remind_minutes = configured[rule_key]
+                        if not enabled:
+                            continue
+                        scanner = SMART_ALERT_SCANNERS.get(rule_key)
+                        if scanner is None:
+                            failed += 1
+                            log.error(
+                                "notifications.smart_alert_scanner_missing",
+                                company_id=str(company_id),
+                                rule=rule_key.value,
+                            )
+                            continue
+                        try:
+                            async with transaction(session):
+                                candidates = await scanner(
+                                    session,
+                                    tenant,
+                                    as_of=moment,
+                                    threshold=timedelta(minutes=threshold_minutes),
+                                    limit=500,
+                                )
+                                result = await reconcile_alert(
+                                    session, tenant, rule, candidates, as_of=moment
+                                )
+                                if rule_key is AlertRuleKey.DISPATCH_DELAYED:
+                                    await dispatch_service.mark_delay_notified(
+                                        session,
+                                        company_id=company_id,
+                                        dispatch_ids=result["notified_ids"],
+                                        at=moment,
+                                    )
+                            notified += result["notified"]
+                            processed += 1
+                        except Exception as exc:
+                            failed += 1
+                            log.error(
+                                "notifications.smart_alert_rule_failed",
+                                company_id=str(company_id),
+                                rule=rule_key.value,
+                                error_type=type(exc).__name__,
+                                exc_info=exc,
+                            )
+        except Exception as exc:
+            failed += 1
+            log.error(
+                "notifications.smart_alert_company_failed",
+                company_id=str(company_id),
+                error_type=type(exc).__name__,
+                exc_info=exc,
+            )
+
+    result = {
+        "enabled": True,
+        "companies": len(company_ids),
+        "rules_processed": processed,
         "notified": notified,
-        "by_company": [
-            {
-                "company_id": str(result.company_id),
-                "delayed": result.delayed_count,
-                "notified": result.notified_count,
-            }
-            for result in results
-        ],
+        "failed": failed,
+        "skipped": skipped,
     }
+    log.info("notifications.smart_alert_scan_completed", **result)
+    return result
 
 
 def _message_id(kind: str, record_id: uuid.UUID) -> str:
@@ -1025,7 +1105,7 @@ async def dispatch_pending_password_resets(
 __all__ = [
     "dispatch_pending_deliveries",
     "dispatch_pending_password_resets",
-    "scan_dispatch_delays",
+    "scan_smart_alerts",
     "send_email",
     "send_password_reset_email",
     "send_sms",

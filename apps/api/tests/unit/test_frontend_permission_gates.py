@@ -290,9 +290,9 @@ def test_the_dashboard_approval_panel_uses_the_endpoints_own_rule() -> None:
     """
     from src.modules.audit.query_service import DECIDABLE_PERMISSIONS
 
-    text = DASHBOARD.read_text(encoding="utf-8")
+    text = CATALOGUE.read_text(encoding="utf-8")
     assert "endsWith('.approve') || value.endsWith('_approve')" in text, (
-        "dashboard-page.tsx no longer derives APPROVAL_PERMISSIONS by the endpoint's "
+        "permissions.ts no longer derives APPROVAL_PERMISSIONS by the endpoint's "
         "suffix rule; a listed set drifts from GET /audit/approvals in both directions"
     )
     catalogue = set(_ENTRY.findall(CATALOGUE.read_text(encoding="utf-8")))

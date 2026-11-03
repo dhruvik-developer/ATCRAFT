@@ -129,6 +129,7 @@ class ItemFacts:
     standard_cost: Decimal
     reorder_level: Decimal
     can_scrap: bool = True
+    can_be_spare: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -548,6 +549,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             Item.standard_cost,
             Item.reorder_level,
             Item.can_scrap,
+            Item.can_be_spare,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.id.in_(list(dict.fromkeys(item_ids))),
@@ -563,6 +565,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
                 standard_cost=row.standard_cost,
                 reorder_level=row.reorder_level,
                 can_scrap=row.can_scrap,
+                can_be_spare=row.can_be_spare,
             )
             for row in (await self.session.execute(stmt)).all()
         }

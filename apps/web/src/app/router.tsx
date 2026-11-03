@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import { LoginPage } from '@/features/auth/login-page'
 import { SessionRecovery } from '@/features/auth/session-recovery'
-import { P, type PermissionKey } from '@/lib/permissions'
+import { APPROVAL_PERMISSIONS, P, type PermissionKey } from '@/lib/permissions'
 
 // --- lazy feature routes -----------------------------------------------------
 const PortalLayout = lazy(() => import('@/features/portals/portal-layout'))
@@ -87,9 +87,11 @@ const AuditPage = lazy(routeLoaders['/audit'])
 const UsersPage = lazy(routeLoaders['/admin/users'])
 const OrganisationPage = lazy(routeLoaders['/admin/organisation'])
 const SettingsPage = lazy(routeLoaders['/admin/settings'])
+const AlertsPage = lazy(routeLoaders['/admin/alerts'])
 const MessagingPage = lazy(routeLoaders['/admin/messaging'])
 const CourierIntegrationPage = lazy(routeLoaders['/admin/courier-integration'])
 const NotificationsPage = lazy(routeLoaders['/notifications'])
+const ApprovalsPage = lazy(routeLoaders['/approvals'])
 const PaymentsPage = lazy(routeLoaders['/finance/payments'])
 const AccountsPage = lazy(routeLoaders['/finance/accounts'])
 const TrialBalancePage = lazy(routeLoaders['/finance/trial-balance'])
@@ -569,6 +571,7 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     element: <SettingsPage />,
     permissions: [P.SETTINGS_VIEW],
   },
+  { path: '/admin/alerts', element: <AlertsPage />, permissions: [P.SETTINGS_VIEW] },
   {
     path: '/admin/messaging',
     element: <MessagingPage />,
@@ -585,5 +588,6 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   // let a user without it reach a page that could only 403. `/profile` below is
   // genuinely open: its endpoints are self-service `/auth/*` and gate on nothing.
   { path: '/notifications', element: <NotificationsPage />, permissions: [P.NOTIFICATION_VIEW] },
+  { path: '/approvals', element: <ApprovalsPage />, permissions: APPROVAL_PERMISSIONS },
   { path: '/profile', element: <ProfilePage />, permissions: [] },
 ]

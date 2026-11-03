@@ -513,9 +513,8 @@ export interface paths {
         put?: never;
         /**
          * Approve a pending request
-         * @description Records the decision and writes an audit entry against the record the request targets, in one transaction.
-         *
-         *     Refused with 403 when the caller does not hold the permission the requested action needs, and when the caller raised the request themselves - a request approved by its own author carries no second judgement. Refused with 422 when the request has already been decided.
+         * @deprecated
+         * @description Deprecated. Decisions must use the owning document workflow so its status and queue row change atomically.
          */
         post: operations["approve_request_api_v1_audit_approvals__approval_id__approve_post"];
         delete?: never;
@@ -535,7 +534,8 @@ export interface paths {
         put?: never;
         /**
          * Reject a pending request
-         * @description Same authority rules as approving. A `note` is required: a rejection without a stated reason is not evidence of a judgement, it is the start of a phone call.
+         * @deprecated
+         * @description Deprecated. Decisions must use the owning document workflow so its status and queue row change atomically.
          */
         post: operations["reject_request_api_v1_audit_approvals__approval_id__reject_post"];
         delete?: never;
@@ -4545,6 +4545,24 @@ export interface paths {
          */
         get: operations["list_notifications_api_v1_notifications_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Effective smart-alert rules */
+        get: operations["list_alert_rules_api_v1_notifications_alert_rules_get"];
+        /** Update smart-alert rules */
+        put: operations["update_alert_rules_api_v1_notifications_alert_rules_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -11394,6 +11412,16 @@ export interface components {
             total_outstanding: string;
         };
         /**
+         * AlertGranularity
+         * @enum {string}
+         */
+        AlertGranularity: "ENTITY" | "DIGEST";
+        /**
+         * AlertRuleKey
+         * @enum {string}
+         */
+        AlertRuleKey: "PO_NOT_ACKNOWLEDGED" | "PO_DELIVERY_MISSED" | "PO_DISPATCH_NOT_UPDATED" | "PO_TRACKING_MISSING" | "GRN_NOT_CREATED" | "QC_PENDING" | "VENDOR_INVOICE_PENDING" | "VENDOR_PAYMENT_OVERDUE" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER";
+        /**
          * AllocateOrderRequest
          * @description ``POST /sales/{id}/allocate``: top a short order up from free stock.
          */
@@ -14686,6 +14714,22 @@ export interface components {
         ApiResponse_list_DealerWishlistRead__: {
             /** Data */
             data?: components["schemas"]["DealerWishlistRead"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[list[NotificationAlertRuleRead]] */
+        ApiResponse_list_NotificationAlertRuleRead__: {
+            /** Data */
+            data?: components["schemas"]["NotificationAlertRuleRead"][] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -25826,6 +25870,51 @@ export interface components {
             /** Quantity */
             quantity: string;
         };
+        /**
+         * NotificationAlertRuleRead
+         * @description One effective alert rule, including code defaults for sparse settings.
+         */
+        NotificationAlertRuleRead: {
+            /** Description */
+            description: string;
+            granularity: components["schemas"]["AlertGranularity"];
+            /** Is Customized */
+            is_customized: boolean;
+            /** Is Enabled */
+            is_enabled: boolean;
+            key: components["schemas"]["AlertRuleKey"];
+            /** Name */
+            name: string;
+            /** Notification Type */
+            notification_type: string;
+            /** Remind Every Minutes */
+            remind_every_minutes: number;
+            /** Severity */
+            severity: string;
+            /** Threshold Minutes */
+            threshold_minutes: number;
+        };
+        /**
+         * NotificationAlertRuleUpdate
+         * @description A complete override for one changed alert rule.
+         */
+        NotificationAlertRuleUpdate: {
+            /** Is Enabled */
+            is_enabled: boolean;
+            key: components["schemas"]["AlertRuleKey"];
+            /** Remind Every Minutes */
+            remind_every_minutes: number;
+            /** Threshold Minutes */
+            threshold_minutes: number;
+        };
+        /**
+         * NotificationAlertRulesUpdate
+         * @description Only touched alert rows are submitted by the administration screen.
+         */
+        NotificationAlertRulesUpdate: {
+            /** Rules */
+            rules: components["schemas"]["NotificationAlertRuleUpdate"][];
+        };
         /** NotificationChannelTemplateRead */
         NotificationChannelTemplateRead: {
             /**
@@ -26046,7 +26135,7 @@ export interface components {
          *     inherits the defaults in :mod:`src.modules.notifications.service`.
          * @enum {string}
          */
-        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "STOCK_EXPIRY" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "JOB_WORK_CHALLAN_ISSUED" | "JOB_WORK_VENDOR_UPDATE" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "DEALER_ORDER_REQUEST_RECEIVED" | "DEALER_ORDER_CONFIRMED" | "DEALER_ORDER_DISPATCHED" | "DEALER_ORDER_DELIVERED" | "DEALER_INVOICE_ISSUED" | "DEALER_PAYMENT_REMINDER" | "DEALER_RETURN_RECEIVED" | "DEALER_RETURN_REQUEST_RECEIVED" | "DEALER_CREDIT_NOTE_ISSUED" | "COURIER_TRACKING_UPDATED" | "SYSTEM_ANNOUNCEMENT";
+        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PURCHASE_ORDER_NOT_ACKNOWLEDGED" | "PURCHASE_ORDER_DELIVERY_MISSED" | "PURCHASE_ORDER_DISPATCH_NOT_UPDATED" | "PURCHASE_ORDER_TRACKING_MISSING" | "GOODS_RECEIPT_NOT_CREATED" | "VENDOR_INVOICE_PENDING" | "VENDOR_PAYMENT_OVERDUE" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "STOCK_EXPIRY" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "JOB_WORK_CHALLAN_ISSUED" | "JOB_WORK_VENDOR_UPDATE" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "DEALER_ORDER_REQUEST_RECEIVED" | "DEALER_ORDER_CONFIRMED" | "DEALER_ORDER_DISPATCHED" | "DEALER_ORDER_DELIVERED" | "DEALER_INVOICE_ISSUED" | "DEALER_PAYMENT_REMINDER" | "DEALER_RETURN_RECEIVED" | "DEALER_RETURN_REQUEST_RECEIVED" | "DEALER_CREDIT_NOTE_ISSUED" | "COURIER_TRACKING_UPDATED" | "SYSTEM_ANNOUNCEMENT";
         /**
          * OfferScopeKind
          * @description What an offer applies to. The matching id column is required; the others are null.
@@ -78582,6 +78671,248 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CursorPaginatedResponse_NotificationRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_alert_rules_api_v1_notifications_alert_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_NotificationAlertRuleRead__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_alert_rules_api_v1_notifications_alert_rules_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationAlertRulesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_NotificationAlertRuleRead__"];
                 };
             };
             /** @description Malformed request */

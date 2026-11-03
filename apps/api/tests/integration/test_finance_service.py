@@ -42,7 +42,8 @@ from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
 from src.core.models import Base
 from src.core.pagination import DateCursorParams, PageParams
 from src.core.permissions import Permission
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.finance import service
 from src.modules.finance.models import (
@@ -464,6 +465,29 @@ class TestVendorInvoice:
         assert payable.credit_amount == Decimal("2950.0000")
         assert payable.party_id == fixture.vendor.id
 
+    async def test_disputing_a_pending_invoice_closes_its_approval_request(self, ctx) -> None:
+        session, tenant, _ = ctx
+        fixture = await seed(session, tenant.company_id)
+        invoice = await service.create_invoice(session, tenant, invoice_payload(fixture))
+        await service.submit_invoice(session, tenant, invoice.id, reason=None)
+        approval = await session.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.company_id == tenant.company_id,
+                ApprovalRequest.entity_type == "vendor_invoice",
+                ApprovalRequest.entity_id == invoice.id,
+            )
+        )
+        assert approval is not None
+        assert approval.status == ApprovalStatus.PENDING.value
+
+        disputed = await service.dispute_invoice(
+            session, tenant, invoice.id, reason="Quantity differs from the receipt"
+        )
+
+        assert VendorInvoiceStatus(disputed.status) is VendorInvoiceStatus.DISPUTED
+        assert approval.status == ApprovalStatus.REJECTED.value
+        assert approval.decided_by_id == tenant.user_id
+
     async def test_an_overbilled_invoice_is_refused_without_an_override(self, ctx) -> None:
         session, tenant, principal = ctx
         # Accepted 95, billed 100: the classic overbill.
@@ -613,7 +637,19 @@ class TestPaymentReducesOutstanding:
                 reference_number="UTR-0001",
             ),
         )
+        approval = await session.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.company_id == tenant.company_id,
+                ApprovalRequest.entity_type == "payment",
+                ApprovalRequest.entity_id == payment.id,
+            )
+        )
+        assert approval is not None
+        assert approval.status == ApprovalStatus.PENDING.value
+
         await service.approve_payment(session, tenant, principal, payment.id)
+        assert approval.status == ApprovalStatus.APPROVED.value
+        assert approval.decided_by_id == principal.user_id
 
         settled = await service.allocate_payment(
             session,

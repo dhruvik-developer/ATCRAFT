@@ -232,13 +232,10 @@ async def list_pending_approvals(
     response_model=ApiResponse[ApprovalRequestRead],
     summary="Approve a pending request",
     description=(
-        "Records the decision and writes an audit entry against the record the request "
-        "targets, in one transaction.\n\n"
-        "Refused with 403 when the caller does not hold the permission the requested action "
-        "needs, and when the caller raised the request themselves - a request approved by its "
-        "own author carries no second judgement. Refused with 422 when the request has "
-        "already been decided."
+        "Deprecated. Decisions must use the owning document workflow so its status and queue "
+        "row change atomically."
     ),
+    deprecated=True,
     dependencies=[require_any_permission(*DECIDABLE_PERMISSIONS)],
 )
 async def approve_request(
@@ -257,9 +254,10 @@ async def approve_request(
     response_model=ApiResponse[ApprovalRequestRead],
     summary="Reject a pending request",
     description=(
-        "Same authority rules as approving. A `note` is required: a rejection without a "
-        "stated reason is not evidence of a judgement, it is the start of a phone call."
+        "Deprecated. Decisions must use the owning document workflow so its status and queue "
+        "row change atomically."
     ),
+    deprecated=True,
     dependencies=[require_any_permission(*DECIDABLE_PERMISSIONS)],
 )
 async def reject_request(

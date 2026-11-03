@@ -1057,6 +1057,42 @@ async def scan_delayed_across_tenants(
     return [_delayed_row(row, as_of=as_of) for row in (await session.execute(stmt)).all()]
 
 
+async def scan_delayed_for_company(
+    session: AsyncSession, *, company_id: uuid.UUID, as_of: date, limit: int
+) -> list[DelayedDispatchRow]:
+    """Return one tenant's delayed consignments using the board's predicate."""
+    stmt = (
+        select(
+            Dispatch.id.label("dispatch_id"),
+            Dispatch.company_id.label("company_id"),
+            Dispatch.code.label("code"),
+            Dispatch.status.label("status"),
+            Dispatch.customer_id.label("customer_id"),
+            Dispatch.vendor_id.label("vendor_id"),
+            Customer.name.label("customer_name"),
+            Vendor.name.label("vendor_name"),
+            Dispatch.tracking_id.label("tracking_id"),
+            Dispatch.dispatch_date.label("dispatch_date"),
+            Dispatch.expected_delivery_date.label("expected_delivery_date"),
+            Dispatch.delay_reason.label("delay_reason"),
+            Dispatch.delay_notified_at.label("delay_notified_at"),
+        )
+        .select_from(Dispatch)
+        .outerjoin(
+            Customer,
+            and_(Customer.id == Dispatch.customer_id, Customer.company_id == Dispatch.company_id),
+        )
+        .outerjoin(
+            Vendor,
+            and_(Vendor.id == Dispatch.vendor_id, Vendor.company_id == Dispatch.company_id),
+        )
+        .where(Dispatch.company_id == company_id, _delayed_predicate(as_of))
+        .order_by(Dispatch.expected_delivery_date.asc(), Dispatch.id.asc())
+        .limit(limit)
+    )
+    return [_delayed_row(row, as_of=as_of) for row in (await session.execute(stmt)).all()]
+
+
 async def mark_delay_notified(
     session: AsyncSession,
     *,

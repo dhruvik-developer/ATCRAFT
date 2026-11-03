@@ -61,6 +61,8 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.vendors.models import (
     DEFAULT_RATING_WINDOW_DAYS,
@@ -112,6 +114,7 @@ AUDIT_ENTITY_VENDOR = "vendor"
 AUDIT_ENTITY_CONTACT = "vendor_contact"
 AUDIT_ENTITY_CATEGORY = "vendor_category"
 AUDIT_ENTITY_TRANSPORTER = "transporter"
+VENDOR_APPROVAL_URL = "/vendors"
 
 # ASSUMPTION: a vendor may not be approved by the person who created the record.
 # Vendor approval is what unlocks purchase orders and payments to a bank account
@@ -854,6 +857,17 @@ class VendorService:
                 user_id=self.tenant.user_id,
                 new_values=self._audit_snapshot(vendor),
             )
+            await open_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_VENDOR,
+                entity_id=vendor.id,
+                entity_code=vendor.code,
+                approve_permission=Permission.VENDOR_UPDATE,
+                requested_by=self.tenant.user_id,
+                summary=f"Vendor {vendor.code} requires approval.",
+                action_url=VENDOR_APPROVAL_URL,
+            )
 
         return self._to_read(vendor, 0, 0)
 
@@ -952,6 +966,17 @@ class VendorService:
                 action=AuditAction.APPROVE,
                 reason=reason,
             )
+            await close_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_VENDOR,
+                entity_id=vendor.id,
+                requested_action=Permission.VENDOR_UPDATE,
+                outcome=ApprovalStatus.APPROVED,
+                decided_by=self.tenant.user_id,
+                decision_note=reason,
+                action_url=VENDOR_APPROVAL_URL,
+            )
 
         return await self.get_vendor(vendor.id)
 
@@ -982,6 +1007,17 @@ class VendorService:
                 user_id=self.tenant.user_id,
                 action=AuditAction.REJECT,
                 reason=reason,
+            )
+            await open_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_VENDOR,
+                entity_id=vendor.id,
+                entity_code=vendor.code,
+                approve_permission=Permission.VENDOR_UPDATE,
+                requested_by=self.tenant.user_id,
+                summary=reason or f"Vendor {vendor.code} requires renewed approval.",
+                action_url=VENDOR_APPROVAL_URL,
             )
 
         return await self.get_vendor(vendor.id)
@@ -1017,6 +1053,30 @@ class VendorService:
                 user_id=self.tenant.user_id,
                 reason=reason,
             )
+            if target is VendorState.PENDING_APPROVAL:
+                await open_approval(
+                    self.session,
+                    tenant=self.tenant,
+                    entity_type=AUDIT_ENTITY_VENDOR,
+                    entity_id=vendor.id,
+                    entity_code=vendor.code,
+                    approve_permission=Permission.VENDOR_UPDATE,
+                    requested_by=self.tenant.user_id,
+                    summary=f"Vendor {vendor.code} requires approval.",
+                    action_url=VENDOR_APPROVAL_URL,
+                )
+            elif current is VendorState.PENDING_APPROVAL:
+                await close_approval(
+                    self.session,
+                    tenant=self.tenant,
+                    entity_type=AUDIT_ENTITY_VENDOR,
+                    entity_id=vendor.id,
+                    requested_action=Permission.VENDOR_UPDATE,
+                    outcome=ApprovalStatus.REJECTED,
+                    decided_by=self.tenant.user_id,
+                    decision_note=reason,
+                    action_url=VENDOR_APPROVAL_URL,
+                )
 
         return await self.get_vendor(vendor.id)
 
@@ -1044,6 +1104,19 @@ class VendorService:
                     f"Vendor {vendor.code} still has active portal users. "
                     "Deactivate their accounts first.",
                     vendor_code=vendor.code,
+                )
+
+            if current is VendorState.PENDING_APPROVAL:
+                await close_approval(
+                    self.session,
+                    tenant=self.tenant,
+                    entity_type=AUDIT_ENTITY_VENDOR,
+                    entity_id=vendor.id,
+                    requested_action=Permission.VENDOR_UPDATE,
+                    outcome=ApprovalStatus.REJECTED,
+                    decided_by=self.tenant.user_id,
+                    decision_note=reason,
+                    action_url=VENDOR_APPROVAL_URL,
                 )
 
             # Contacts and category qualifications cannot outlive the vendor:

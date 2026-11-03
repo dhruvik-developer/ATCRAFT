@@ -19,24 +19,30 @@ What is being defended:
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 import pytest
 
+from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode
 from src.modules.allocation.models import (
     DEFAULT_RESERVATION_PRIORITY,
     OPEN_RESERVATION_STATUSES,
+    DemandType,
     ReservationStatus,
 )
 from src.modules.allocation.service import (
     REALLOCATION_FLOW,
     RESERVATION_FLOW,
+    ReservationEngine,
     _parse_priority,
     plan_consume,
     plan_release,
     remaining_of,
 )
+from src.modules.inventory.models import InventoryBalance
+from src.modules.inventory.repository import ItemFacts
 
 pytestmark = pytest.mark.unit
 
@@ -85,6 +91,63 @@ class TestRemaining:
         assert remaining_of(Decimal("10.0001"), Decimal("3.3333"), Decimal("3.3333")) == Decimal(
             "3.3335"
         )
+
+
+class TestSpareReservationEligibility:
+    @staticmethod
+    def _engine() -> ReservationEngine:
+        engine = ReservationEngine.__new__(ReservationEngine)
+        engine.tenant = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+        return engine
+
+    @staticmethod
+    def _item(*, can_be_spare: bool) -> ItemFacts:
+        return ItemFacts(
+            id=uuid.uuid4(),
+            code="SPARE-TEST",
+            name="Spare test item",
+            is_batch_tracked=False,
+            is_serial_tracked=False,
+            is_active=True,
+            standard_cost=Decimal("1"),
+            reorder_level=Decimal("0"),
+            can_be_spare=can_be_spare,
+        )
+
+    @staticmethod
+    def _balance() -> InventoryBalance:
+        return InventoryBalance(
+            on_hand_quantity=Decimal("10"),
+            reserved_quantity=Decimal("0"),
+            qc_hold_quantity=Decimal("0"),
+            damaged_quantity=Decimal("0"),
+            updated_by_id=None,
+        )
+
+    def test_spare_demand_cannot_reserve_an_ineligible_item(self) -> None:
+        engine = self._engine()
+        with pytest.raises(BusinessRuleError, match="not configured"):
+            engine.apply_reserve(
+                self._balance(),
+                Decimal("1"),
+                item=self._item(can_be_spare=False),
+                warehouse_code="WH-1",
+                demand_type=DemandType.SPARE,
+            )
+
+    def test_spare_demand_can_reserve_an_item_marked_as_spare(self) -> None:
+        engine = self._engine()
+        balance = self._balance()
+        before = engine.apply_reserve(
+            balance,
+            Decimal("1"),
+            item=self._item(can_be_spare=True),
+            warehouse_code="WH-1",
+            demand_type=DemandType.SPARE,
+        )
+
+        assert before == Decimal("10")
+        assert balance.reserved_quantity == Decimal("1")
 
 
 class TestPartialRelease:

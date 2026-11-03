@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import UploadFile
+from sqlalchemy import exists, func, select
 
 from src.core.clock import today, utcnow
 from src.core.database import transaction
@@ -28,6 +29,7 @@ from src.modules.audit.service import record_audit
 from src.modules.documents.models import DocumentCategory
 from src.modules.documents.schemas import DocumentRead, DocumentUploadRequest
 from src.modules.documents.service import DocumentService
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationType
 from src.modules.notifications.repository import NotificationRepository
 from src.modules.notifications.service import notify
@@ -49,7 +51,15 @@ from src.modules.procurement.inbound_schemas import (
     InboundTrackingRead,
     InboundTrackingStatus,
 )
-from src.modules.procurement.models import PurchaseOrder, PurchaseOrderStatus
+from src.modules.procurement.models import (
+    RECEIVABLE_PO_STATUSES,
+    GoodsReceipt,
+    GoodsReceiptStatus,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseOrderLineStatus,
+    PurchaseOrderStatus,
+)
 from src.modules.procurement.repository import PurchaseOrderRepository
 from src.modules.procurement.schemas import PurchaseOrderSummary
 
@@ -531,6 +541,251 @@ async def accept_vendor_date(
                 new_values={"expected_delivery_date": order.expected_delivery_date},
             )
         return PurchaseOrderSummary.model_validate(order)
+
+
+async def po_not_acknowledged_alert_candidates(
+    session: Any,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    cutoff = as_of - threshold
+    stmt = (
+        select(PurchaseOrder)
+        .where(
+            PurchaseOrder.company_id == tenant.company_id,
+            PurchaseOrder.status == PurchaseOrderStatus.SENT,
+            PurchaseOrder.acknowledged_at.is_(None),
+            PurchaseOrder.sent_at <= cutoff,
+        )
+        .order_by(PurchaseOrder.sent_at, PurchaseOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="purchase_order",
+            entity_id=row.id,
+            title=f"Purchase order {row.code} has not been acknowledged",
+            body=f"Purchase order {row.code} was sent on {row.sent_at} and awaits vendor response.",
+            action_url=f"/procurement/purchase-orders/{row.id}",
+            creator_id=row.created_by_id,
+            vendor_id=row.vendor_id,
+            assigned_user_id=row.assigned_vendor_user_id,
+        )
+        for row in rows
+    ]
+
+
+async def po_delivery_missed_alert_candidates(
+    session: Any,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    cutoff = (as_of - threshold).date()
+    open_quantity = (
+        select(
+            func.coalesce(
+                func.sum(PurchaseOrderLine.quantity - PurchaseOrderLine.received_quantity), 0
+            )
+        )
+        .where(
+            PurchaseOrderLine.company_id == tenant.company_id,
+            PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+            PurchaseOrderLine.status.in_(
+                (PurchaseOrderLineStatus.PENDING, PurchaseOrderLineStatus.PARTIALLY_RECEIVED)
+            ),
+        )
+        .scalar_subquery()
+    )
+    stmt = (
+        select(PurchaseOrder)
+        .where(
+            PurchaseOrder.company_id == tenant.company_id,
+            po_is_late(
+                status=PurchaseOrder.status,
+                open_quantity=open_quantity,
+                expected_date=PurchaseOrder.expected_delivery_date,
+                as_of=cutoff,
+                sql=True,
+            ),
+        )
+        .order_by(PurchaseOrder.expected_delivery_date, PurchaseOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="purchase_order",
+            entity_id=row.id,
+            title=f"Purchase order {row.code} is past its expected delivery date",
+            body=(
+                f"Order {row.code} still has open lines and was due on "
+                f"{row.expected_delivery_date}."
+            ),
+            action_url="/procurement/inbound-tracking?overdue=1",
+            creator_id=row.created_by_id,
+            vendor_id=row.vendor_id,
+            assigned_user_id=row.assigned_vendor_user_id,
+        )
+        for row in rows
+    ]
+
+
+async def po_dispatch_not_updated_alert_candidates(
+    session: Any,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    from src.modules.procurement.inbound_models import PurchaseOrderShipment
+
+    cutoff = (as_of - threshold).date()
+    no_shipment = ~exists(
+        select(1).where(
+            PurchaseOrderShipment.company_id == tenant.company_id,
+            PurchaseOrderShipment.purchase_order_id == PurchaseOrder.id,
+        )
+    )
+    stmt = (
+        select(PurchaseOrder)
+        .where(
+            PurchaseOrder.company_id == tenant.company_id,
+            PurchaseOrder.status == PurchaseOrderStatus.ACKNOWLEDGED,
+            PurchaseOrder.expected_delivery_date.is_not(None),
+            PurchaseOrder.expected_delivery_date <= cutoff,
+            no_shipment,
+        )
+        .order_by(PurchaseOrder.expected_delivery_date, PurchaseOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="purchase_order",
+            entity_id=row.id,
+            title=f"Vendor dispatch for purchase order {row.code} is not updated",
+            body=f"Order {row.code} is near its due date with no shipment recorded.",
+            action_url=f"/procurement/purchase-orders/{row.id}",
+            creator_id=row.created_by_id,
+            vendor_id=row.vendor_id,
+            assigned_user_id=row.assigned_vendor_user_id,
+        )
+        for row in rows
+    ]
+
+
+async def po_tracking_missing_alert_candidates(
+    session: Any,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    from src.modules.procurement.inbound_models import PurchaseOrderShipment
+
+    cutoff = as_of - threshold
+    stmt = (
+        select(PurchaseOrder, PurchaseOrderShipment)
+        .join(
+            PurchaseOrderShipment,
+            (PurchaseOrderShipment.purchase_order_id == PurchaseOrder.id)
+            & (PurchaseOrderShipment.company_id == PurchaseOrder.company_id),
+        )
+        .where(
+            PurchaseOrder.company_id == tenant.company_id,
+            PurchaseOrderShipment.company_id == tenant.company_id,
+            PurchaseOrderShipment.shipped_at <= cutoff,
+            PurchaseOrderShipment.tracking_reference.is_(None),
+            PurchaseOrderShipment.lr_number.is_(None),
+        )
+        .order_by(PurchaseOrderShipment.shipped_at, PurchaseOrderShipment.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        AlertCandidate(
+            entity_type="po_shipment",
+            entity_id=shipment.id,
+            title=f"Tracking is missing for purchase order {order.code}",
+            body=f"Shipment {shipment.shipment_number} has no tracking reference or LR number.",
+            action_url=f"/procurement/purchase-orders/{order.id}",
+            creator_id=order.created_by_id,
+            vendor_id=order.vendor_id,
+            assigned_user_id=order.assigned_vendor_user_id,
+        )
+        for order, shipment in rows
+    ]
+
+
+async def grn_not_created_alert_candidates(
+    session: Any,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    from src.modules.procurement.inbound_models import PurchaseOrderShipment
+
+    cutoff = (as_of - threshold).date()
+    open_line = exists(
+        select(1).where(
+            PurchaseOrderLine.company_id == tenant.company_id,
+            PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+            PurchaseOrderLine.status.in_(
+                (PurchaseOrderLineStatus.PENDING, PurchaseOrderLineStatus.PARTIALLY_RECEIVED)
+            ),
+        )
+    )
+    no_posted_receipt = ~exists(
+        select(1).where(
+            GoodsReceipt.company_id == tenant.company_id,
+            GoodsReceipt.purchase_order_id == PurchaseOrder.id,
+            GoodsReceipt.status == GoodsReceiptStatus.POSTED,
+            GoodsReceipt.posted_at >= PurchaseOrderShipment.shipped_at,
+        )
+    )
+    stmt = (
+        select(PurchaseOrder, PurchaseOrderShipment)
+        .join(
+            PurchaseOrderShipment,
+            (PurchaseOrderShipment.purchase_order_id == PurchaseOrder.id)
+            & (PurchaseOrderShipment.company_id == PurchaseOrder.company_id),
+        )
+        .where(
+            PurchaseOrder.company_id == tenant.company_id,
+            PurchaseOrder.status.in_(RECEIVABLE_PO_STATUSES),
+            PurchaseOrderShipment.expected_delivery_date.is_not(None),
+            PurchaseOrderShipment.expected_delivery_date <= cutoff,
+            open_line,
+            no_posted_receipt,
+        )
+        .order_by(PurchaseOrderShipment.expected_delivery_date, PurchaseOrderShipment.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        AlertCandidate(
+            entity_type="po_shipment",
+            entity_id=shipment.id,
+            title=f"Goods receipt is overdue for purchase order {order.code}",
+            body=f"Shipment {shipment.shipment_number} has no posted goods receipt.",
+            action_url="/procurement/inbound-tracking?overdue=1",
+            creator_id=order.created_by_id,
+            vendor_id=order.vendor_id,
+            assigned_user_id=order.assigned_vendor_user_id,
+        )
+        for order, shipment in rows
+    ]
 
 
 __all__ = [

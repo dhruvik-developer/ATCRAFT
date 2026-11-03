@@ -32,7 +32,8 @@ from src.core.errors import AuthorizationError, BusinessRuleError, InvalidStateT
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.bom import engine, service
 from src.modules.bom.models import Bom, BomLine, BomOperation, BomStatus, BomType
 from src.modules.bom.schemas import (
@@ -495,6 +496,16 @@ async def test_approval_records_who_and_when_and_writes_a_status_audit_row(ctx: 
     assert len(rows) == 1
     assert rows[0].new_values == {"status": "APPROVED"}
     assert rows[0].context == {"reason": "Checked against drawing"}
+    approval = await ctx.session.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == ctx.author.company_id,
+            ApprovalRequest.entity_type == "bom",
+            ApprovalRequest.entity_id == bom.id,
+        )
+    )
+    assert approval is not None
+    assert approval.status == ApprovalStatus.APPROVED.value
+    assert approval.decided_by_id == ctx.reviewer.user_id
 
 
 async def test_an_author_cannot_approve_their_own_structure(ctx: Ctx) -> None:
@@ -641,6 +652,15 @@ async def test_rejection_returns_the_structure_to_its_author(ctx: Ctx) -> None:
         ctx.session, ctx.reviewer, bom.id, reason="Screw length is wrong"
     )
     assert returned.status == BomStatus.DRAFT
+    approval = await ctx.session.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == ctx.author.company_id,
+            ApprovalRequest.entity_type == "bom",
+            ApprovalRequest.entity_id == bom.id,
+        )
+    )
+    assert approval is not None
+    assert approval.status == ApprovalStatus.REJECTED.value
     # Editable again, which is the point of returning rather than deleting.
     updated, _, _ = await service.update_bom(
         ctx.session, ctx.author, bom.id, BomUpdate(notes="Corrected")

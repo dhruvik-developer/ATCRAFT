@@ -50,7 +50,8 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.types import to_money
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.bom.models import Bom, BomLine, BomOperation, BomStatus, BomType
 from src.modules.inventory.models import (
     InventoryBalance,
@@ -582,11 +583,23 @@ async def test_an_order_cannot_be_approved_by_the_person_who_raised_it(
 
 async def test_approval_records_who_and_when_and_writes_an_audit_row(db, tenant, masters, approver):
     order = await make_order(db, tenant, masters)
+    approval = await db.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == tenant.company_id,
+            ApprovalRequest.entity_type == "production_order",
+            ApprovalRequest.entity_id == order.id,
+        )
+    )
+    assert approval is not None
+    assert approval.status == ApprovalStatus.PENDING.value
+
     approved = await service.approve_order(db, tenant, approver, order.id, ApproveRequest())
 
     assert approved.status is ProductionOrderStatus.APPROVED
     assert approved.approved_by_id == approver.user_id
     assert approved.approved_at is not None
+    assert approval.status == ApprovalStatus.APPROVED.value
+    assert approval.decided_by_id == approver.user_id
 
     stmt = (
         select(func.count())
@@ -598,6 +611,15 @@ async def test_approval_records_who_and_when_and_writes_an_audit_row(db, tenant,
         )
     )
     assert (await db.execute(stmt)).scalar_one() == 1
+    approval_audit = await db.scalar(
+        select(AuditLog).where(
+            AuditLog.company_id == tenant.company_id,
+            AuditLog.entity_id == order.id,
+            AuditLog.action == AuditAction.APPROVE,
+        )
+    )
+    assert approval_audit is not None
+    assert approval_audit.created_by_id == approver.user_id
 
 
 async def test_an_approved_order_can_no_longer_be_edited(db, tenant, masters, approver):

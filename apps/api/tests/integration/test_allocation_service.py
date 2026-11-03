@@ -54,7 +54,8 @@ from src.modules.allocation.schemas import (
     ReallocationRequestCreate,
     ReservationFilters,
 )
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import (
     InventoryTransaction,
@@ -939,6 +940,15 @@ class TestReallocationLifecycle:
         request, donor, item_id, warehouse_id = await self._pending_request(session, tenant)
 
         assert request.status is ReallocationStatus.PENDING
+        approval = await session.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.company_id == tenant.company_id,
+                ApprovalRequest.entity_type == "reallocation_request",
+                ApprovalRequest.entity_id == request.id,
+            )
+        )
+        assert approval is not None
+        assert approval.status == ApprovalStatus.PENDING.value
         assert request.quantity == Decimal("40.0000")
         assert request.impact_summary["donor"]["quantity_after"] == "60.0000"
         assert request.impact_summary["requester"]["priority"] == 10
@@ -966,6 +976,15 @@ class TestReallocationLifecycle:
         assert executed.status is ReallocationStatus.EXECUTED
         assert executed.approved_by_id == approver.user_id
         assert executed.approved_at is not None
+        approval = await session.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.company_id == tenant.company_id,
+                ApprovalRequest.entity_type == "reallocation_request",
+                ApprovalRequest.entity_id == request.id,
+            )
+        )
+        assert approval is not None
+        assert approval.status == ApprovalStatus.APPROVED.value
 
         balance = await balance_of(session, tenant, item_id, warehouse_id)
         assert balance.on_hand_quantity == Decimal("100.0000"), "no stock moved"

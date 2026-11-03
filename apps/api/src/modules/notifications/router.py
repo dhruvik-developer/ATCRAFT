@@ -29,11 +29,14 @@ from src.core.responses import (
     ApiResponse,
     CursorPaginatedResponse,
 )
+from src.modules.notifications.alert_service import NotificationAlertService
 from src.modules.notifications.channel_service import NotificationChannelService
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.push_router import router as push_router
 from src.modules.notifications.schemas import (
     MarkReadResult,
+    NotificationAlertRuleRead,
+    NotificationAlertRulesUpdate,
     NotificationChannelsRead,
     NotificationChannelTemplateRead,
     NotificationChannelTemplatesUpdate,
@@ -69,6 +72,36 @@ def notification_filters(
 
 
 FilterDep = Annotated[NotificationFilters, Depends(notification_filters)]
+
+
+@router.get(
+    "/alert-rules",
+    response_model=ApiResponse[list[NotificationAlertRuleRead]],
+    summary="Effective smart-alert rules",
+    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+)
+async def list_alert_rules(
+    session: DbSession, tenant: Tenant
+) -> ApiResponse[list[NotificationAlertRuleRead]]:
+    rules = await NotificationAlertService(session, tenant).list_rules()
+    return ApiResponse[list[NotificationAlertRuleRead]].ok(rules)
+
+
+@router.put(
+    "/alert-rules",
+    response_model=ApiResponse[list[NotificationAlertRuleRead]],
+    summary="Update smart-alert rules",
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+)
+async def update_alert_rules(
+    session: DbSession,
+    tenant: Tenant,
+    payload: NotificationAlertRulesUpdate,
+) -> ApiResponse[list[NotificationAlertRuleRead]]:
+    rules = await NotificationAlertService(session, tenant).update_rules(payload)
+    return ApiResponse[list[NotificationAlertRuleRead]].ok(
+        rules, success_message("Smart alert rules", "saved")
+    )
 
 
 @router.get(

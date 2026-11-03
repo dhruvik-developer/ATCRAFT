@@ -72,6 +72,8 @@ x-api-env: &api-env
   WEB_PUSH_TTL_SECONDS: ${WEB_PUSH_TTL_SECONDS:-86400}
   WEB_PUSH_TIMEOUT_SECONDS: ${WEB_PUSH_TIMEOUT_SECONDS:-10}
   WEB_PUSH_ALLOWED_HOSTS: ${WEB_PUSH_ALLOWED_HOSTS:-fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,notify.windows.com,web.push.apple.com,push.apple.com}
+  ALERTS_ENABLED: ${ALERTS_ENABLED:-true}
+  ALERTS_SCAN_INTERVAL_SECONDS: ${ALERTS_SCAN_INTERVAL_SECONDS:-900}
 
   APP_ENV: ${APP_ENV:-development}
   # Hosts `postgres` and `redis` resolve on this project's network only.

@@ -39,7 +39,8 @@ from src.core.errors import (
 from src.core.ids import new_id
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
-from src.modules.audit.models import AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.dispatch.models import Dispatch, DispatchType
 from src.modules.organization.models import Branch, Company, Department, Plant
 from src.modules.procurement.models import GoodsReceipt, GoodsReceiptStatus, PurchaseOrder
@@ -586,6 +587,15 @@ class TestApproval:
     async def test_a_second_person_may_approve(self, session: AsyncSession) -> None:
         tenant, checker_id = await _seed_tenant(session)
         created = await VendorService(session, tenant).create_vendor(_approvable("VEND-001"))
+        approval = await session.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.company_id == tenant.company_id,
+                ApprovalRequest.entity_type == "vendor",
+                ApprovalRequest.entity_id == created.id,
+            )
+        )
+        assert approval is not None
+        assert approval.status == ApprovalStatus.PENDING.value
 
         checker = TenantContext(company_id=tenant.company_id, user_id=checker_id)
         approved = await VendorService(session, checker).approve_vendor(
@@ -596,6 +606,8 @@ class TestApproval:
         assert approved.approved_by_id == checker_id
         assert approved.approved_at is not None
         assert "APPROVE" in await _audit_actions(session, created.id)
+        assert approval.status == ApprovalStatus.APPROVED.value
+        assert approval.decided_by_id == checker_id
 
     async def test_the_creator_cannot_approve_their_own_vendor(self, session: AsyncSession) -> None:
         """Maker-checker: approval unlocks payments to a bank account the same
@@ -635,6 +647,21 @@ class TestApproval:
         # A stale approver on an unapproved record would read as a live approval.
         assert withdrawn.approved_by_id is None
         assert withdrawn.approved_at is None
+        approval_statuses = (
+            await session.scalars(
+                select(ApprovalRequest.status)
+                .where(
+                    ApprovalRequest.company_id == tenant.company_id,
+                    ApprovalRequest.entity_type == "vendor",
+                    ApprovalRequest.entity_id == created.id,
+                )
+                .order_by(ApprovalRequest.created_at, ApprovalRequest.id)
+            )
+        ).all()
+        assert approval_statuses == [
+            ApprovalStatus.APPROVED.value,
+            ApprovalStatus.PENDING.value,
+        ]
 
     async def test_approving_twice_is_refused_by_the_state_machine(
         self, session: AsyncSession

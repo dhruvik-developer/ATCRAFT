@@ -35,11 +35,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.actors import actor_id
 from src.core.clock import utcnow
-from src.core.database import transaction
+from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     AuthorizationError,
@@ -53,7 +55,7 @@ from src.core.pagination import CursorParams, PageParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
-from src.modules.audit.models import ApprovalRequest, AuditAction
+from src.modules.audit.models import ApprovalRequest
 from src.modules.audit.repository import ApprovalRequestRepository, AuditLogRepository
 from src.modules.audit.schemas import (
     MAX_ENTITY_TYPE_LENGTH,
@@ -66,7 +68,8 @@ from src.modules.audit.schemas import (
     AuditLogRead,
     AuditWindow,
 )
-from src.modules.audit.service import record_audit
+from src.modules.notifications.models import NotificationSeverity, NotificationType
+from src.modules.notifications.repository import NotificationRepository
 
 log = get_logger(__name__)
 
@@ -84,12 +87,6 @@ MAX_WINDOW_DAYS = 366
 
 _DEFAULT_WINDOW = timedelta(days=DEFAULT_WINDOW_DAYS)
 _MAX_WINDOW = timedelta(days=MAX_WINDOW_DAYS)
-
-#: ``entity_type`` of the audit rows this module writes about its own approvals.
-#: Only used when an approval request carries no target of its own, which the
-#: model does not allow - kept as a named fallback rather than an f-string
-#: buried in the audit call.
-APPROVAL_ENTITY_TYPE = "approval_request"
 
 # ASSUMPTION: a rejection must carry a note and an approval need not. A rejection
 # is an instruction to someone else to change something, and "rejected, no reason
@@ -397,6 +394,176 @@ class AuditQueryService:
         return [AuditLogListItem.model_validate(row) for row in rows], pagination
 
 
+async def open_approval(
+    session: AsyncSession,
+    *,
+    tenant: TenantContext,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    entity_code: str | None,
+    approve_permission: Permission,
+    requested_by: uuid.UUID | None,
+    summary: str,
+    action_url: str,
+    amount: Decimal | None = None,
+) -> ApprovalRequest:
+    """Create one pending request and notify its eligible approvers atomically."""
+    if not action_url.startswith("/"):
+        raise ValidationError("Approval action_url must be an application-relative path.")
+
+    repo = ApprovalRequestRepository(session, tenant)
+    async with transaction(session):
+        await advisory_xact_lock(
+            session,
+            "approval_request",
+            tenant.company_id,
+            entity_type,
+            entity_id,
+            str(approve_permission),
+        )
+        payload = {"amount": str(amount)} if amount is not None else None
+        existing = await repo.get_open(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            requested_action=str(approve_permission),
+        )
+        if existing is not None:
+            if (
+                existing.entity_code != entity_code
+                or existing.reason != summary
+                or existing.payload != payload
+            ):
+                existing.entity_code = entity_code
+                existing.reason = summary
+                existing.payload = payload
+                await session.flush()
+            return existing
+
+        record = ApprovalRequest(
+            company_id=tenant.company_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            entity_code=entity_code,
+            requested_action=str(approve_permission),
+            reason=summary,
+            payload=payload,
+            status=ApprovalStatus.PENDING.value,
+            created_by_id=actor_id(requested_by),
+        )
+        repo.add(record)
+        await session.flush()
+
+        recipients = await NotificationRepository(session, tenant).user_ids_with_permission(
+            str(approve_permission)
+        )
+        requester_id = actor_id(requested_by)
+        recipients = [user_id for user_id in recipients if user_id != requester_id]
+        from src.modules.notifications.service import NotificationDraft, notify_many
+
+        await notify_many(
+            session,
+            company_id=tenant.company_id,
+            notification_type=NotificationType.APPROVAL_PENDING,
+            drafts=[
+                NotificationDraft(
+                    user_ids=recipients,
+                    title="Approval pending",
+                    body=summary,
+                    severity=NotificationSeverity.WARNING,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    action_url=action_url,
+                    group_key=f"approval-pending:{record.id}",
+                )
+            ],
+            actor_id=requested_by,
+            write_audit=False,
+        )
+        return record
+
+
+async def close_approval(
+    session: AsyncSession,
+    *,
+    tenant: TenantContext,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    requested_action: Permission,
+    outcome: ApprovalStatus,
+    decided_by: uuid.UUID | None,
+    decision_note: str | None = None,
+    action_url: str,
+    notify_requester: bool = True,
+) -> ApprovalRequest | None:
+    """Close the pending queue row alongside the owning workflow's decision."""
+    if outcome not in {ApprovalStatus.APPROVED, ApprovalStatus.REJECTED}:
+        raise ValidationError("An approval outcome must be APPROVED or REJECTED.")
+    if not action_url.startswith("/"):
+        raise ValidationError("Approval action_url must be an application-relative path.")
+
+    repo = ApprovalRequestRepository(session, tenant)
+    async with transaction(session):
+        record = await repo.get_open(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            requested_action=str(requested_action),
+            for_update=True,
+        )
+        if record is None:
+            return None
+
+        APPROVAL_DECISION_MACHINE.assert_transition(current_status(record), outcome)
+        record.status = outcome.value
+        record.decided_by_id = actor_id(decided_by)
+        record.decision_note = decision_note
+        await session.flush()
+
+        if (
+            notify_requester
+            and record.created_by_id is not None
+            and record.created_by_id != actor_id(decided_by)
+        ):
+            from src.modules.notifications.service import NotificationDraft, notify_many
+
+            notification_type = (
+                NotificationType.APPROVAL_GRANTED
+                if outcome is ApprovalStatus.APPROVED
+                else NotificationType.APPROVAL_REJECTED
+            )
+            await notify_many(
+                session,
+                company_id=tenant.company_id,
+                notification_type=notification_type,
+                drafts=[
+                    NotificationDraft(
+                        user_ids=[record.created_by_id],
+                        title=f"Approval {outcome.value.lower()}",
+                        body=(
+                            decision_note
+                            or f"{entity_code_for_approval(record)} was {outcome.value.lower()}."
+                        ),
+                        severity=(
+                            NotificationSeverity.SUCCESS
+                            if outcome is ApprovalStatus.APPROVED
+                            else NotificationSeverity.WARNING
+                        ),
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        action_url=action_url,
+                        group_key=f"approval-decision:{record.id}",
+                    )
+                ],
+                actor_id=decided_by,
+                write_audit=False,
+            )
+        return record
+
+
+def entity_code_for_approval(record: ApprovalRequest) -> str:
+    """Give decision notifications a useful subject when a document has no code."""
+    return record.entity_code or record.entity_type.replace("_", " ")
+
+
 class ApprovalService:
     """The approval queue and the decisions taken on it.
 
@@ -465,19 +632,7 @@ class ApprovalService:
         target: ApprovalStatus,
         payload: ApprovalDecisionRequest,
     ) -> ApprovalRequestRead:
-        """Record one decision: lock, validate, write, audit - one transaction.
-
-        The audit entry is written against the *target* entity (the purchase
-        order, the stock adjustment), not against the approval row, so the
-        decision shows up in ``GET /audit/entity/{type}/{id}`` alongside
-        everything else that happened to that document. The approval row's own id
-        travels in ``context`` for anyone who needs to get back to it.
-
-        Recording the decision does not perform the underlying action. The module
-        that raised the request owns that, which is what ``payload`` on the
-        request row is for; keeping the two apart is what lets this endpoint be
-        generic over every document type without importing any of them.
-        """
+        """Refuse detached decisions that would leave the owning document pending."""
         note = payload.note
         if target is ApprovalStatus.REJECTED and (
             note is None or len(note) < MIN_REJECTION_NOTE_LENGTH
@@ -498,52 +653,18 @@ class ApprovalService:
                 requested_by_id=record.created_by_id,
                 requested_action=record.requested_action,
             )
-
-            record.status = target.value
-            record.decided_by_id = self.principal.user_id
-            record.decision_note = note
-            await self.session.flush()
-
-            # Same transaction as the status write: a decision that committed
-            # without its audit row, or an audit row for a decision that rolled
-            # back, are both worse than the request failing (sections 29/41).
-            await record_audit(
-                self.session,
-                company_id=self.tenant.company_id,
-                action=(
-                    AuditAction.APPROVE if target is ApprovalStatus.APPROVED else AuditAction.REJECT
-                ),
-                entity_type=record.entity_type or APPROVAL_ENTITY_TYPE,
-                entity_id=record.entity_id,
-                entity_code=record.entity_code,
-                summary=(
-                    f"{record.requested_action} "
-                    f"{'approved' if target is ApprovalStatus.APPROVED else 'rejected'} "
-                    f"by {self.principal.full_name}"
-                ),
-                user_id=self.principal.user_id,
-                actor_label=self.principal.full_name,
-                old_values={"status": ApprovalStatus.PENDING.value},
-                new_values={"status": target.value},
-                context={
-                    "approval_request_id": record.id,
+            raise BusinessRuleError(
+                "Approval decisions must be made from the owning document workflow so the "
+                "approval request and document status change together.",
+                details={
+                    "approval_request_id": str(record.id),
                     "requested_action": record.requested_action,
                     "required_permission": (
                         str(authority.permission) if authority.permission else None
                     ),
-                    "requested_by_id": record.created_by_id,
-                    "note": note,
+                    "decision": target.value,
                 },
             )
-
-        log.info(
-            "approval.decided",
-            approval_request_id=str(record.id),
-            decision=target.value,
-            requested_action=record.requested_action,
-            decided_by=str(self.principal.user_id),
-        )
-        return self._present(record)
 
 
 __all__ = [
@@ -558,10 +679,12 @@ __all__ = [
     "AuditQueryService",
     "DecisionAuthority",
     "assert_may_decide",
+    "close_approval",
     "current_status",
     "decidable_actions_for",
     "evaluate_decision_authority",
     "normalise_entity_type",
+    "open_approval",
     "permission_for_action",
     "resolve_window",
 ]

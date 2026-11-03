@@ -42,6 +42,8 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.bom import engine
 from src.modules.bom.models import (
@@ -787,6 +789,7 @@ async def _transition(
     *,
     reason: str,
     action: AuditAction = AuditAction.STATUS_CHANGE,
+    actor_user_id: uuid.UUID | None = None,
 ) -> Bom:
     """Move a BOM's status through the state machine and record it.
 
@@ -794,6 +797,7 @@ async def _transition(
     one place that can write ``boms.status`` and exactly one place that writes
     the matching audit row.
     """
+    actor_user_id = tenant.user_id if actor_user_id is None else actor_user_id
     current = BomStatus(bom.status)
     BOM_LIFECYCLE.assert_transition(current, target)
     bom.status = target
@@ -808,10 +812,36 @@ async def _transition(
         entity_code=bom.code,
         from_status=str(current),
         to_status=str(target),
-        user_id=tenant.user_id,
+        user_id=actor_user_id,
         action=action,
         reason=reason,
     )
+    if target is BomStatus.PENDING_APPROVAL:
+        await open_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_BOM,
+            entity_id=bom.id,
+            entity_code=bom.code,
+            approve_permission=Permission.BOM_APPROVE,
+            requested_by=actor_user_id,
+            summary=reason or f"BOM {bom.code} requires approval.",
+            action_url=f"/bom/{bom.id}",
+        )
+    elif current is BomStatus.PENDING_APPROVAL:
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_BOM,
+            entity_id=bom.id,
+            requested_action=Permission.BOM_APPROVE,
+            outcome=(
+                ApprovalStatus.APPROVED if target is BomStatus.APPROVED else ApprovalStatus.REJECTED
+            ),
+            decided_by=actor_user_id,
+            decision_note=reason,
+            action_url=f"/bom/{bom.id}",
+        )
     return bom
 
 
@@ -900,13 +930,13 @@ async def approve_bom(
                     entity_code=existing.code,
                     summary=f"{existing.code} is no longer the default structure; "
                     f"superseded by {bom.code} v{bom.version}",
-                    user_id=tenant.user_id,
+                    user_id=principal.user_id,
                     old_values={"is_default": True},
                     new_values={"is_default": False},
                 )
             await session.flush()
 
-        bom.approved_by_id = tenant.user_id
+        bom.approved_by_id = principal.user_id
         bom.approved_at = utcnow()
         await _transition(
             session,
@@ -915,6 +945,7 @@ async def approve_bom(
             BomStatus.APPROVED,
             reason=reason,
             action=AuditAction.APPROVE,
+            actor_user_id=principal.user_id,
         )
 
         # A draft approved without operations gets the item's default routing

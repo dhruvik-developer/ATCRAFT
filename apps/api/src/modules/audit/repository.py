@@ -181,6 +181,25 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
 
     model = ApprovalRequest
 
+    async def get_open(
+        self,
+        *,
+        entity_type: str,
+        entity_id: uuid.UUID,
+        requested_action: str,
+        for_update: bool = False,
+    ) -> ApprovalRequest | None:
+        """Find the pending approval for one tenant-scoped business action."""
+        stmt = self._scoped().where(
+            ApprovalRequest.entity_type == entity_type,
+            ApprovalRequest.entity_id == entity_id,
+            ApprovalRequest.requested_action == requested_action,
+            ApprovalRequest.status == ApprovalStatus.PENDING.value,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def list_pending(
         self,
         params: PageParams,

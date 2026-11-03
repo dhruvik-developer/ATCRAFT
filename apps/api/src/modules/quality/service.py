@@ -89,6 +89,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -114,8 +115,10 @@ from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import StockState
 from src.modules.inventory.service import change_stock_state, get_balance
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationSeverity, NotificationType
-from src.modules.notifications.service import notify_role
+from src.modules.notifications.repository import NotificationRepository
+from src.modules.notifications.service import NotificationDraft, notify_many, notify_role
 from src.modules.quality import owners
 from src.modules.quality.models import (
     DECIDED_STATUSES,
@@ -1562,6 +1565,28 @@ async def _raise_inspection(
             context={"reason": reason, "reference_code": reference_code},
         )
 
+        inspectors = await NotificationRepository.for_company(
+            session, tenant.company_id, tenant.user_id
+        ).user_ids_with_permission(str(Permission.QC_INSPECT))
+        if inspectors:
+            await notify_many(
+                session,
+                company_id=tenant.company_id,
+                notification_type=NotificationType.QC_INSPECTION_PENDING,
+                actor_id=tenant.user_id,
+                drafts=[
+                    NotificationDraft(
+                        user_ids=inspectors,
+                        title="QC inspection pending",
+                        body=f"{stage} inspection {code} is awaiting inspection.",
+                        entity_type=AUDIT_QC_INSPECTION,
+                        entity_id=inspection_id,
+                        action_url="/quality?tab=pending",
+                        group_key=f"qc-pending:{stage.value.lower()}",
+                    )
+                ],
+            )
+
     log.info(
         "quality.inspection_raised",
         inspection_id=str(inspection.id),
@@ -2791,6 +2816,39 @@ async def vendor_quality_summary(
         ],
         items_truncated=truncated,
     )
+
+
+async def pending_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Find open inspections older than the configured review threshold."""
+    cutoff = as_of - threshold
+    stmt = (
+        select(QcInspection)
+        .where(
+            QcInspection.company_id == tenant.company_id,
+            QcInspection.status.in_(OPEN_STATUSES),
+            QcInspection.created_at <= cutoff,
+        )
+        .order_by(QcInspection.created_at, QcInspection.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="qc_inspection",
+            entity_id=row.id,
+            title=f"Quality inspection {row.code} is pending",
+            body=f"Inspection {row.code} has been open since {row.created_at:%Y-%m-%d %H:%M} UTC.",
+            action_url="/quality?tab=pending",
+        )
+        for row in rows
+    ]
 
 
 __all__ = [

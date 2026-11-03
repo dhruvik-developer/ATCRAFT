@@ -978,7 +978,8 @@
             "The unread count on the bell and the count on this screen are the same figure and cannot disagree. Past a certain number the count stops being exact and shows as \"99+\" - that is a floor, not a precise figure.",
             "Email goes to the address on your own profile. Changing where email arrives means changing the account's address, which is an administrator's job.",
             "WhatsApp and SMS require a verified mobile number, explicit channel consent and an enabled notification preference. Change the number or withdraw consent from your profile; CRITICAL notifications remain in-app only.",
-            "The events that can raise a notification include approvals pending, granted and rejected, purchase orders and production orders running late, job work overdue, dispatch delayed, a sales order at risk, stock below reorder level, stock shortages, allocation changes, QC inspections pending and QC failures, goods receipts posted, payments due, MRP runs finishing, reports being ready, and background jobs finishing or failing."
+            "The events that can raise a notification include approvals pending, granted and rejected, purchase orders and production orders running late, job work overdue, dispatch delayed, a sales order at risk, stock below reorder level, stock shortages, allocation changes, QC inspections pending and QC failures, goods receipts posted, payments due, MRP runs finishing, reports being ready, and background jobs finishing or failing.",
+            "A new QC inspection immediately notifies eligible internal users with qc.inspect. Unread QC-pending notifications group by inspection stage and open the pending quality queue."
           ],
           "permission": "Everything here needs the right to see notifications, and everything shown is your own. The bell in the header is hidden entirely from an account without that right, rather than shown as a bell that could never fill up.",
           "notes": "For a good screenshot the demo account needs some unread notifications; a freshly seeded system may show \"Nothing unread\", which is an honest but dull picture. Consider capturing the Preferences tab as well - it is the part the client will actually be asked about."
@@ -4972,7 +4973,7 @@
             "If you need the full story of one document, press the history icon on the row and read the Entity history tab.",
             "Press \"Load more\" to walk further back."
           ],
-          "notes": "The most valuable point for the deck is the immutability, and it should be stated plainly and confidently: the database itself refuses any attempt to change or remove an audit row, and nothing anywhere in the system deletes them, so the trail is complete for the life of the system. Two limits are worth mentioning honestly: an audit query must have a date range and may span at most 366 days, and the Entity history tab currently asks for the record's internal id pasted in by hand \u2014 the practical way in is the history icon on an activity row, which fills both boxes for you. There is no export button on this screen. Note also that the approvals queue \u2014 requests waiting for someone's decision \u2014 lives on the dashboard rather than here.",
+          "notes": "The most valuable point for the deck is the immutability, and it should be stated plainly and confidently: the database itself refuses any attempt to change or remove an audit row, and nothing anywhere in the system deletes them, so the trail is complete for the life of the system. Two limits are worth mentioning honestly: an audit query must have a date range and may span at most 366 days, and the Entity history tab currently asks for the record's internal id pasted in by hand \u2014 the practical way in is the history icon on an activity row, which fills both boxes for you. There is no export button on this screen. Requests waiting for a decision appear on the Approvals page and in the dashboard panel.",
           "permission": "Needs the right to view the audit log. Filtering by user additionally needs the right to view users. The Auditor role in the system is exactly this: read-only across everything, plus the audit trail. Nobody has a right to edit or delete an audit entry, because no such right exists.",
           "rules": [
             "Audit entries are written once and never changed. The database refuses an update or a delete on this table outright, so the guarantee does not depend on anybody's good behaviour or on the application being correct.",
@@ -4982,6 +4983,41 @@
             "A date range is required, and it may span at most 366 days. The audit log keeps every action ever taken, and an unbounded query would read years of history to answer a question about last week.",
             "An audit entry survives the deletion of the thing it describes. Deleting a draft does not delete the record that it existed and was deleted, and by whom."
           ]
+        },
+        {
+          "route": "/approvals",
+          "title": "Approvals",
+          "purpose": "A single queue of open business decisions the signed-in person may be authorised to review. Each row links to the document that owns the decision; approval and rejection happen there, through that document's normal workflow.",
+          "whoUses": "People who hold at least one approval permission.",
+          "keyActions": [
+            {
+              "action": "Review decisions waiting for you",
+              "how": "Open Approvals from the left menu and read the document, requested action and reason.",
+              "note": "The queue is paginated and scoped to the signed-in company."
+            },
+            {
+              "action": "Open the owning document",
+              "how": "Select the document code in the row.",
+              "note": "Take the decision on that document, not from a generic queue action."
+            },
+            {
+              "action": "Understand why a request is waiting",
+              "how": "Read the Status column.",
+              "note": "A request may be open but unavailable while another approver or workflow step is outstanding."
+            }
+          ],
+          "flow": [
+            "Open Approvals from the Administration navigation.",
+            "Review the requested action and reason.",
+            "Open the source document and complete its approval workflow there."
+          ],
+          "rules": [
+            "The queue is read-only. Decisions stay on the owning document so there is one authorised state-transition path.",
+            "Only requests in the signed-in company are listed, and the server indicates whether the current person may decide each one.",
+            "A user needs at least one approval permission to open this page."
+          ],
+          "notes": "The dashboard's Needs your attention panel uses the same approval queue.",
+          "permission": "The page requires any permission ending in .approve or _approve."
         },
         {
           "route": "/documents",
@@ -5198,6 +5234,37 @@
           ],
           "notes": "Only the sales automation switch is on this page today. It is deliberately described as a default rather than a permission: a user who cannot confirm orders is unaffected by it. The setting is stored sparsely, one row per company, so a new company needs no setup before using the default.",
           "permission": "Opening Settings needs settings.view. Save and Restore default need settings.manage; the page disables them for a reader."
+        },
+        {
+          "route": "/admin/alerts",
+          "title": "Smart alerts",
+          "purpose": "Set the company-wide thresholds and reminder intervals for timed operational alerts, including late purchase orders, pending quality work and stock below reorder level.",
+          "whoUses": "Administrators who configure operating alerts. A settings reader can inspect the effective rules but cannot change them.",
+          "keyActions": [
+            {
+              "action": "Review the effective rules",
+              "how": "Read the name, description, enabled state, threshold and reminder interval in the table.",
+              "note": "The page shows built-in defaults when the company has not saved an override."
+            },
+            {
+              "action": "Change a rule",
+              "how": "Enable or disable the rule, choose its threshold and reminder interval, then Save changes.",
+              "note": "Durations can be entered in minutes, hours or days. The API stores whole minutes."
+            }
+          ],
+          "flow": [
+            "Open Smart alerts under Administration.",
+            "Review the default or company-specific settings for each operational alert.",
+            "Change only the rules that need a different threshold or reminder cadence, then save."
+          ],
+          "rules": [
+            "A company without an override follows the built-in rule defaults; saving a company value does not change another tenant's rules.",
+            "The deployment scans for timed alerts every fifteen minutes by default. Thresholds determine when a condition first becomes an alert; reminder intervals govern repeat notifications.",
+            "A QC inspection also raises an immediate event notification when it is created. That event is grouped by inspection stage and is separate from the timed QC-pending alert.",
+            "Changing a rule requires settings.manage. The screen is read-only for a user with settings.view alone."
+          ],
+          "notes": "The deployment operator controls the global ALERTS_ENABLED switch and scan cadence. Administrators control the company-level rules here.",
+          "permission": "Opening Smart alerts needs settings.view. Saving changes needs settings.manage."
         },
         {
           "route": "/admin/messaging",

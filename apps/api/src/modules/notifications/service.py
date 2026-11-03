@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -49,6 +50,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
+from src.core.actors import actor_id as persisted_actor_id
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
@@ -570,6 +572,7 @@ async def notify(
     bell row with the current wording and an occurrence count, instead of adding
     a row every hour until someone gives up and mutes the type.
     """
+    persisted_actor = persisted_actor_id(actor_id)
     recipients = dedupe_recipients(user_ids)
     if not recipients:
         return []
@@ -676,8 +679,8 @@ async def notify(
                 "occurrence_count": 1,
                 "created_at": moment,
                 "updated_at": moment,
-                "created_by_id": actor_id,
-                "updated_by_id": actor_id,
+                "created_by_id": persisted_actor,
+                "updated_by_id": persisted_actor,
             }
         )
 
@@ -704,7 +707,7 @@ async def notify(
             entity_id=written[0].id if len(written) == 1 else None,
             entity_code=str(notification_type),
             summary=f"Notified {len(written)} recipient(s): {clean_title}",
-            user_id=actor_id,
+            user_id=persisted_actor,
             new_values={
                 "notification_type": str(notification_type),
                 "severity": str(severity),
@@ -736,6 +739,214 @@ async def notify(
         muted=len(muted),
         email_queued=queued,
         group_key=clean_group_key,
+    )
+    return written
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDraft:
+    """One message and recipient set in a batched notification fan-out."""
+
+    user_ids: Sequence[uuid.UUID]
+    title: str
+    body: str
+    severity: NotificationSeverity = NotificationSeverity.INFO
+    entity_type: str | None = None
+    entity_id: uuid.UUID | None = None
+    action_url: str | None = None
+    group_key: str | None = None
+    template_data: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedNotification:
+    draft: NotificationDraft
+    recipients: list[uuid.UUID]
+    title: str
+    body: str
+    entity_type: str | None
+    entity_id: uuid.UUID | None
+    action_url: str | None
+    group_key: str | None
+
+
+async def notify_many(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    notification_type: NotificationType,
+    drafts: Sequence[NotificationDraft],
+    actor_id: uuid.UUID | None = None,
+    write_audit: bool = True,
+) -> list[Notification]:
+    """Raise many messages of one type with batched preference and device reads.
+
+    Set ``write_audit=False`` only when the caller records one higher-level
+    aggregate audit event in the same transaction, as the smart-alert runner does.
+    """
+    persisted_actor = persisted_actor_id(actor_id)
+    prepared: list[_PreparedNotification] = []
+    all_recipients: list[uuid.UUID] = []
+    for draft in drafts:
+        recipients = dedupe_recipients(draft.user_ids)
+        if not recipients:
+            continue
+        title = normalise_title(draft.title)
+        body = draft.body.strip() if draft.body and draft.body.strip() else title
+        entity_type, entity_id = normalise_entity_reference(draft.entity_type, draft.entity_id)
+        action_url = normalise_action_url(draft.action_url)
+        group_key = normalise_group_key(draft.group_key)
+        prepared.append(
+            _PreparedNotification(
+                draft=draft,
+                recipients=recipients,
+                title=title,
+                body=body,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action_url=action_url,
+                group_key=group_key,
+            )
+        )
+        all_recipients.extend(recipients)
+
+    if not prepared:
+        return []
+
+    recipients = dedupe_recipients(all_recipients)
+    repo = NotificationRepository.for_company(session, company_id, actor_id)
+    preferences = await repo.preferences_for_type(recipients, notification_type)
+    push_devices = await repo.users_with_push_devices(recipients)
+    messaging_profiles = (
+        await repo.messaging_profiles_for_users(recipients)
+        if settings.whatsapp_enabled or settings.sms_enabled
+        else {}
+    )
+    templates = (
+        await repo.active_template_channels(notification_type)
+        if settings.whatsapp_enabled or settings.sms_enabled
+        else set()
+    )
+
+    moment = utcnow()
+    rows: list[dict[str, Any]] = []
+    muted = 0
+    seen_groups: set[tuple[uuid.UUID, str, str]] = set()
+    for prepared_item in prepared:
+        draft = prepared_item.draft
+        for user_id in prepared_item.recipients:
+            in_app, email, push, whatsapp, sms = preferences.get(
+                user_id, (DEFAULT_IN_APP_ENABLED, DEFAULT_EMAIL_ENABLED, True, False, False)
+            )
+            phone, verified_at, whatsapp_opt_in_at, sms_opt_in_at = messaging_profiles.get(
+                user_id, (None, None, None, None)
+            )
+            channels = resolve_channels(
+                draft.severity,
+                in_app_enabled=in_app,
+                email_enabled=email,
+                push_enabled=push,
+                has_push_device=user_id in push_devices,
+                whatsapp_enabled=whatsapp,
+                sms_enabled=sms,
+                has_verified_phone=phone is not None and verified_at is not None,
+                whatsapp_opted_in=whatsapp_opt_in_at is not None,
+                sms_opted_in=sms_opt_in_at is not None,
+                whatsapp_configured=settings.whatsapp_enabled,
+                sms_configured=settings.sms_enabled,
+                has_whatsapp_template=NotificationChannel.WHATSAPP.value in templates,
+                has_sms_template=NotificationChannel.SMS.value in templates,
+            )
+            if not channels:
+                muted += 1
+                continue
+            group_key = prepared_item.group_key
+            if group_key is not None:
+                group_identity = (user_id, notification_type.value, group_key)
+                if group_identity in seen_groups:
+                    continue
+                seen_groups.add(group_identity)
+
+            title = prepared_item.title
+            body = prepared_item.body
+            rows.append(
+                {
+                    "id": new_id(),
+                    "company_id": company_id,
+                    "user_id": user_id,
+                    "notification_type": notification_type.value,
+                    "severity": draft.severity.value,
+                    "title": title,
+                    "body": body,
+                    "entity_type": prepared_item.entity_type,
+                    "entity_id": prepared_item.entity_id,
+                    "action_url": prepared_item.action_url,
+                    "template_data": (
+                        {
+                            "title": title,
+                            "body": body,
+                            "link": prepared_item.action_url or "",
+                            **(draft.template_data or {}),
+                        }
+                        if NotificationChannel.WHATSAPP.value in channels
+                        or NotificationChannel.SMS.value in channels
+                        else None
+                    ),
+                    "is_read": False,
+                    "read_at": None,
+                    "channels": list(channels),
+                    "delivered_at": (
+                        moment if NotificationChannel.IN_APP.value in channels else None
+                    ),
+                    "group_key": group_key,
+                    "occurrence_count": 1,
+                    "created_at": moment,
+                    "updated_at": moment,
+                    "created_by_id": persisted_actor,
+                    "updated_by_id": persisted_actor,
+                }
+            )
+
+    if not rows:
+        log.info(
+            "notifications.all_recipients_muted",
+            company_id=str(company_id),
+            notification_type=str(notification_type),
+            recipients=len(recipients),
+        )
+        return []
+
+    async with transaction(session):
+        written = await repo.upsert_many(rows)
+        if write_audit:
+            await record_audit(
+                session,
+                company_id=company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_ENTITY,
+                entity_id=written[0].id if len(written) == 1 else None,
+                entity_code=str(notification_type),
+                summary=f"Notified {len(written)} recipient(s): {prepared[0].title}",
+                user_id=persisted_actor,
+                new_values={
+                    "notification_type": notification_type.value,
+                    "message_count": len(prepared),
+                    "recipient_count": len(written),
+                },
+                context={"muted_recipients": muted},
+            )
+        queued = queue_email_delivery(session, written)
+        queue_push_delivery(session, written)
+        queue_messaging_delivery(session, written)
+
+    log.info(
+        "notifications.raised",
+        company_id=str(company_id),
+        notification_type=notification_type.value,
+        written=len(written),
+        muted=muted,
+        email_queued=queued,
+        message_count=len(prepared),
     )
     return written
 
@@ -1004,6 +1215,7 @@ __all__ = [
     "NOTIFICATION_SMS_TASK",
     "NOTIFICATION_WHATSAPP_TASK",
     "SEVERITIES_IGNORING_PREFERENCES",
+    "NotificationDraft",
     "NotificationReadState",
     "NotificationService",
     "dedupe_recipients",
@@ -1013,6 +1225,7 @@ __all__ = [
     "normalise_group_key",
     "normalise_title",
     "notify",
+    "notify_many",
     "notify_role",
     "queue_email_delivery",
     "queue_messaging_delivery",

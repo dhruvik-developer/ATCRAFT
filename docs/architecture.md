@@ -273,6 +273,14 @@ configured demand-line threshold, exports, PDF and Excel generation, bulk
 imports, notification fan-out, and the scheduled jobs that refresh summary tables
 and release stale reservations.
 
+The notification worker also scans bounded, tenant-scoped smart-alert
+candidates every `ALERTS_SCAN_INTERVAL_SECONDS` (900 seconds by default) when
+`ALERTS_ENABLED` is on. Owning modules provide the candidate queries; the
+notifications module reconciles new, continuing and resolved episodes, applies
+per-company thresholds and reminder cadence, and audits only scans that notify.
+QC inspection creation is an immediate event in the inspection transaction,
+separate from the timed `QC_PENDING` alert.
+
 ```
 POST /mrp/runs
    → create the run row (QUEUED)

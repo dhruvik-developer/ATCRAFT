@@ -88,7 +88,11 @@ from src.modules.job_work.models import (
     MATERIAL_AT_VENDOR_STATUSES,
     JobWorkOrder,
 )
-from src.modules.notifications.models import NotificationType
+from src.modules.notifications.models import (
+    Notification,
+    NotificationAlertState,
+    NotificationType,
+)
 from src.modules.notifications.service import notify_vendor
 from src.modules.quality import service as quality_service
 from src.modules.reports import service as reports_service
@@ -106,6 +110,8 @@ log = get_logger("worker.maintenance")
 #: table does not grow without bound. The security-relevant trail of *attempts*
 #: lives in ``login_attempts`` and is untouched by this sweep.
 SESSION_RETENTION_DAYS = 30
+NOTIFICATION_RETENTION_DAYS = 180
+RESOLVED_ALERT_RETENTION_DAYS = 90
 
 #: Age at which a file left in the scratch directory is removed. ASSUMPTION: no
 #: retention is specified for ``storage/temp``; a day is long enough that an
@@ -458,6 +464,69 @@ async def purge_expired_sessions(request_id: str | None = None, **_: Any) -> dic
 
     log.info("maintenance.expired_sessions_purged", removed=removed, cutoff=cutoff.isoformat())
     return {"removed": removed, "cutoff": cutoff.isoformat()}
+
+
+@async_task(name="maintenance.purge_read_notifications", queue="default")
+async def purge_read_notifications(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Bound deletion of old read notifications and resolved alert episodes."""
+    now = utcnow()
+    notification_cutoff = now - timedelta(days=NOTIFICATION_RETENTION_DAYS)
+    state_cutoff = now - timedelta(days=RESOLVED_ALERT_RETENTION_DAYS)
+    removed_notifications = 0
+    removed_states = 0
+
+    async with session_scope() as session:
+        for _batch in range(MAX_PURGE_BATCHES):
+            stale = (
+                select(Notification.id)
+                .where(
+                    Notification.is_read.is_(True),
+                    Notification.read_at.is_not(None),
+                    Notification.read_at <= notification_cutoff,
+                )
+                .order_by(Notification.read_at, Notification.id)
+                .limit(PURGE_BATCH)
+                .scalar_subquery()
+            )
+            async with transaction(session):
+                execute_result = await session.execute(
+                    delete(Notification).where(Notification.id.in_(stale))
+                )
+            deleted = affected_rows(execute_result)
+            removed_notifications += deleted
+            if deleted < PURGE_BATCH:
+                break
+
+        for _batch in range(MAX_PURGE_BATCHES):
+            stale_states = (
+                select(NotificationAlertState.id)
+                .where(
+                    NotificationAlertState.resolved_at.is_not(None),
+                    NotificationAlertState.resolved_at <= state_cutoff,
+                )
+                .order_by(NotificationAlertState.resolved_at, NotificationAlertState.id)
+                .limit(PURGE_BATCH)
+                .scalar_subquery()
+            )
+            async with transaction(session):
+                execute_result = await session.execute(
+                    delete(NotificationAlertState).where(
+                        NotificationAlertState.id.in_(stale_states)
+                    )
+                )
+            deleted = affected_rows(execute_result)
+            removed_states += deleted
+            if deleted < PURGE_BATCH:
+                break
+
+    summary = {
+        "notifications_removed": removed_notifications,
+        "alert_states_removed": removed_states,
+        "notification_cutoff": notification_cutoff.isoformat(),
+        "state_cutoff": state_cutoff.isoformat(),
+    }
+    log.info("maintenance.read_notifications_purged", **summary)
+    return summary
 
 
 # -----------------------------------------------------------------------------
@@ -828,7 +897,9 @@ __all__ = [
     "MAX_OVERDUE_JOB_WORK_ORDERS",
     "MAX_PURGE_BATCHES",
     "MAX_TOPUP_ORDERS",
+    "NOTIFICATION_RETENTION_DAYS",
     "PURGE_BATCH",
+    "RESOLVED_ALERT_RETENTION_DAYS",
     "SESSION_RETENTION_DAYS",
     "TEMP_FILE_MAX_AGE_HOURS",
     "allocate_short_orders",
@@ -836,6 +907,7 @@ __all__ = [
     "notify_job_work_overdue",
     "poll_courier_tracking",
     "purge_expired_sessions",
+    "purge_read_notifications",
     "purge_temp_files",
     "reconcile_quality_owners",
     "refresh_summary_views",

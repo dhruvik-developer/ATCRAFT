@@ -125,12 +125,10 @@ celery_app.conf.update(
                 "expires": max(settings.so_topup_interval_seconds // 2, 30),
             },
         },
-        # Section 23: a purchase order past its expected delivery date raises a
-        # delay alert rather than waiting for someone to notice.
-        "dispatch-delay-alerts": {
-            "task": "notifications.scan_dispatch_delays",
-            "schedule": 3600.0,
-            "options": {"queue": "notifications", "expires": 1800},
+        "smart-alerts": {
+            "task": "notifications.scan_smart_alerts",
+            "schedule": float(settings.alerts_scan_interval_seconds),
+            "options": {"queue": "notifications", "expires": 600},
         },
         "job-work-overdue-reminders": {
             "task": "maintenance.scan_job_work_overdue",
@@ -147,6 +145,11 @@ celery_app.conf.update(
         },
         "purge-expired-sessions": {
             "task": "maintenance.purge_expired_sessions",
+            "schedule": 86400.0,
+            "options": {"queue": "default"},
+        },
+        "purge-read-notifications": {
+            "task": "maintenance.purge_read_notifications",
             "schedule": 86400.0,
             "options": {"queue": "default"},
         },

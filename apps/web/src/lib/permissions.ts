@@ -235,3 +235,8 @@ export const P = {
 } as const
 
 export type PermissionKey = (typeof P)[keyof typeof P]
+
+/** The audit queue accepts any permission that can approve a business action. */
+export const APPROVAL_PERMISSIONS: PermissionKey[] = Object.values(P).filter(
+  (value) => value.endsWith('.approve') || value.endsWith('_approve'),
+)

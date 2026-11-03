@@ -50,9 +50,19 @@ def _route_permissions() -> dict[str, set[str]]:
     catalogue = (WEB / "lib" / "permissions.ts").read_text(encoding="utf-8")
     names = dict(re.findall(r"\b([A-Z][A-Z0-9_]*): '([^']+)'", catalogue))
     found: dict[str, set[str]] = {}
-    pairs = re.findall(r"path: '([^']+)'[\s\S]*?permissions: \[([^\]]*)\]", router)
-    for path, body in pairs:
+    pairs = re.findall(
+        r"path: '([^']+)'[\s\S]*?permissions:\s*(?:\[([^\]]*)\]|([A-Z][A-Z0-9_]*))",
+        router,
+    )
+    for path, body, permission_set in pairs:
         if ":" in path:
+            continue
+        if permission_set == "APPROVAL_PERMISSIONS":
+            found[path] = {
+                permission
+                for permission in names.values()
+                if permission.endswith(".approve") or permission.endswith("_approve")
+            }
             continue
         keys = re.findall(r"P\.([A-Z][A-Z0-9_]*)", body)
         found[path] = {names[key] for key in keys}

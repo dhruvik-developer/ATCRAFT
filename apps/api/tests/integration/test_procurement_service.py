@@ -46,7 +46,8 @@ from src.core.errors import (
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.courier_tracking import service as courier_service
 from src.modules.courier_tracking.models import CourierProvider
 from src.modules.courier_tracking.schemas import CourierAccountCreate
@@ -1489,6 +1490,64 @@ async def test_a_second_person_can_approve_and_the_evidence_is_stored(
     assert approved.status is PurchaseOrderStatus.APPROVED
     assert approved.approved_by_id == approver.user_id
     assert approved.approved_at is not None
+    approval = await db.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == tenant.company_id,
+            ApprovalRequest.entity_type == "purchase_order",
+            ApprovalRequest.entity_id == order.id,
+        )
+    )
+    assert approval is not None
+    assert approval.status == ApprovalStatus.APPROVED.value
+    assert approval.decided_by_id == approver.user_id
+
+
+async def test_rejecting_a_pending_order_closes_its_approval_request(
+    db, tenant, buyer, approver, masters
+):
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    rejected = await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.REJECTED, reason="Price needs review"
+    )
+    approval = await db.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == tenant.company_id,
+            ApprovalRequest.entity_type == "purchase_order",
+            ApprovalRequest.entity_id == order.id,
+        )
+    )
+
+    assert rejected.status is PurchaseOrderStatus.REJECTED
+    assert approval is not None
+    assert approval.status == ApprovalStatus.REJECTED.value
+    assert approval.decided_by_id == approver.user_id
+
+
+async def test_withdrawing_a_pending_order_closes_its_approval_request(db, tenant, buyer, masters):
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    cancelled = await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.CANCELLED, reason="Demand withdrawn"
+    )
+    approval = await db.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == tenant.company_id,
+            ApprovalRequest.entity_type == "purchase_order",
+            ApprovalRequest.entity_id == order.id,
+        )
+    )
+
+    assert cancelled.status is PurchaseOrderStatus.CANCELLED
+    assert approval is not None
+    assert approval.status == ApprovalStatus.REJECTED.value
+    assert approval.decided_by_id == buyer.user_id
 
 
 async def test_an_order_that_has_received_stock_cannot_be_cancelled(db, tenant, buyer, masters):

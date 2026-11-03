@@ -274,6 +274,8 @@ class Settings(BaseSettings):
     # Celery beat uses UTC. 20:30 UTC is 02:00 the following day in India.
     # Five-field cron syntax: minute hour day-of-month month day-of-week.
     mrp_schedule_cron: str = "30 20 * * *"
+    alerts_enabled: bool = True
+    alerts_scan_interval_seconds: Annotated[int, Field(ge=60)] = 900
     # A line discount above this percentage needs the
     # ``sales_order.discount_override`` right, and the order then needs
     # approval before it can be confirmed. Without the right the discount is

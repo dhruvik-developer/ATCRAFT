@@ -3,8 +3,8 @@
 These cover what only a database can prove: that the entity trail comes back in
 the right order and contains exactly the right rows, that the mandatory date
 window really is applied in SQL, that the list projection does not fetch the wide
-JSONB columns, that one tenant cannot read another's history, and that a decision
-on an approval request and its audit entry commit or roll back together.
+JSONB columns, that one tenant cannot read another's history, and that detached
+approval decisions cannot diverge from their owning document's workflow.
 
 Fixtures (``session``, ``tenant``, ``principal``, ``company``, ``other_company``,
 ``user``) come from ``tests/conftest.py``; the outer transaction is rolled back
@@ -18,12 +18,14 @@ from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, inspect, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     AuthorizationError,
+    BusinessRuleError,
     InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
@@ -652,6 +654,20 @@ async def test_the_queue_holds_only_pending_requests_oldest_first(
     assert [i.id for i in items] == [first.id, second.id]
 
 
+async def test_only_one_pending_request_exists_per_document_action(session: AsyncSession, company):
+    requester = await _make_user(session, company.id)
+    first = await _approval(session, company.id, requested_by=requester.id)
+
+    with pytest.raises(IntegrityError):
+        async with session.begin_nested():
+            await _approval(
+                session,
+                company.id,
+                requested_by=requester.id,
+                entity_id=first.entity_id,
+            )
+
+
 async def test_the_queue_is_tenant_scoped(
     session: AsyncSession, tenant: TenantContext, company, other_company, user
 ):
@@ -671,46 +687,25 @@ async def test_the_queue_is_tenant_scoped(
 # -----------------------------------------------------------------------------
 
 
-async def test_approving_records_the_decision_and_its_audit_entry(
+async def test_approval_decisions_must_use_the_owning_document_workflow(
     session: AsyncSession, tenant: TenantContext, company, user
 ):
     requester = await _make_user(session, company.id)
     request = await _approval(session, company.id, requested_by=requester.id)
     principal = _principal_for(company.id, user.id, Permission.PURCHASE_ORDER_APPROVE)
 
-    decided = await ApprovalService(session, tenant, principal).approve(
-        request.id, ApprovalDecisionRequest(note="Within the revised budget")
-    )
-
-    assert decided.status is ApprovalStatus.APPROVED
-    assert decided.decided_by_id == user.id
-    assert decided.decision_note == "Within the revised budget"
-    # Terminal: the row is no longer decidable by anyone.
-    assert decided.can_decide is False
-
-    trail = (
-        (
-            await session.execute(
-                select(AuditLog).where(
-                    AuditLog.company_id == company.id,
-                    AuditLog.entity_id == request.entity_id,
-                )
-            )
+    with pytest.raises(BusinessRuleError, match="owning document workflow"):
+        await ApprovalService(session, tenant, principal).approve(
+            request.id, ApprovalDecisionRequest(note="Within the revised budget")
         )
-        .scalars()
-        .all()
+
+    await session.refresh(request)
+    assert request.status == ApprovalStatus.PENDING.value
+    assert request.decided_by_id is None
+    count = await session.scalar(
+        select(func.count()).select_from(AuditLog).where(AuditLog.entity_id == request.entity_id)
     )
-    assert len(trail) == 1
-    entry = trail[0]
-    # Written against the *target* record, so the decision shows up in the
-    # purchase order's own trail rather than only in the approval row's.
-    assert entry.action == AuditAction.APPROVE
-    assert entry.entity_type == "purchase_order"
-    assert entry.created_by_id == user.id
-    assert entry.old_values == {"status": "PENDING"}
-    assert entry.new_values == {"status": "APPROVED"}
-    assert entry.context["approval_request_id"] == str(request.id)
-    assert entry.context["requested_by_id"] == str(requester.id)
+    assert count == 0
 
 
 async def test_rejecting_requires_a_reason(
@@ -724,20 +719,16 @@ async def test_rejecting_requires_a_reason(
     with pytest.raises(ValidationError):
         await service.reject(request.id, ApprovalDecisionRequest(note="   "))
 
-    decided = await service.reject(request.id, ApprovalDecisionRequest(note="Quote is out of date"))
+    with pytest.raises(BusinessRuleError, match="owning document workflow"):
+        await service.reject(request.id, ApprovalDecisionRequest(note="Quote is out of date"))
 
-    assert decided.status is ApprovalStatus.REJECTED
-    audit_actions = (
-        (
-            await session.execute(
-                select(AuditLog.action).where(AuditLog.entity_id == request.entity_id)
-            )
-        )
-        .scalars()
-        .all()
+    await session.refresh(request)
+    assert request.status == ApprovalStatus.PENDING.value
+    assert request.decided_by_id is None
+    count = await session.scalar(
+        select(func.count()).select_from(AuditLog).where(AuditLog.entity_id == request.entity_id)
     )
-    # Exactly one entry: the refused attempt rolled back with its transaction.
-    assert list(audit_actions) == [AuditAction.REJECT]
+    assert count == 0
 
 
 async def test_a_decided_request_cannot_be_decided_again(
@@ -748,7 +739,8 @@ async def test_a_decided_request_cannot_be_decided_again(
     principal = _principal_for(company.id, user.id, Permission.PURCHASE_ORDER_APPROVE)
     service = ApprovalService(session, tenant, principal)
 
-    await service.approve(request.id, ApprovalDecisionRequest())
+    request.status = ApprovalStatus.APPROVED.value
+    await session.flush()
 
     with pytest.raises(InvalidStateTransitionError):
         await service.reject(request.id, ApprovalDecisionRequest(note="changed my mind"))
@@ -756,7 +748,7 @@ async def test_a_decided_request_cannot_be_decided_again(
     count = await session.scalar(
         select(func.count()).select_from(AuditLog).where(AuditLog.entity_id == request.entity_id)
     )
-    assert count == 1
+    assert count == 0
 
 
 async def test_the_requester_cannot_approve_their_own_request(
@@ -785,11 +777,12 @@ async def test_a_superuser_may_decide_their_own_request(
     request = await _approval(session, company.id, requested_by=user.id)
     principal = _principal_for(company.id, user.id, is_superuser=True)
 
-    decided = await ApprovalService(session, tenant, principal).approve(
-        request.id, ApprovalDecisionRequest(note="Emergency override")
-    )
-
-    assert decided.status is ApprovalStatus.APPROVED
+    with pytest.raises(BusinessRuleError, match="owning document workflow"):
+        await ApprovalService(session, tenant, principal).approve(
+            request.id, ApprovalDecisionRequest(note="Emergency override")
+        )
+    await session.refresh(request)
+    assert request.status == ApprovalStatus.PENDING.value
 
 
 async def test_deciding_without_the_underlying_permission_is_refused(

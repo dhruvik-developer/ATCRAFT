@@ -120,6 +120,8 @@ from src.modules.allocation.schemas import (
     ReservationRead,
 )
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.inventory.models import InventoryBalance, TransactionType
 from src.modules.inventory.repository import (
@@ -1031,6 +1033,7 @@ class ReservationEngine:
         *,
         item: ItemFacts,
         warehouse_code: str,
+        demand_type: DemandType,
     ) -> Decimal:
         """Raise ``reserved_quantity`` on an already-locked balance row.
 
@@ -1048,6 +1051,11 @@ class ReservationEngine:
         to let line-side WIP go negative on an issue; it may never be configured
         to let the company promise stock it does not have.
         """
+        if demand_type is DemandType.SPARE and not item.can_be_spare:
+            raise BusinessRuleError(
+                f"Item {item.code} is not configured to be reserved as a spare part."
+            )
+
         available = self.promisable(balance)
         if quantity > available:
             insufficient_stock_events.inc()
@@ -1182,7 +1190,11 @@ async def reserve(
         )
         balance = await engine.lock_balance(grain)
         promisable_before = engine.apply_reserve(
-            balance, amount, item=item, warehouse_code=warehouse_code
+            balance,
+            amount,
+            item=item,
+            warehouse_code=warehouse_code,
+            demand_type=demand_type,
         )
 
         reservation = StockReservation(
@@ -1311,7 +1323,13 @@ async def reserve_from_stock(
             take = to_quantity(min(planned, engine.promisable(balance)))
             if take <= ZERO:
                 continue
-            before = engine.apply_reserve(balance, take, item=item, warehouse_code=warehouse_code)
+            before = engine.apply_reserve(
+                balance,
+                take,
+                item=item,
+                warehouse_code=warehouse_code,
+                demand_type=demand_type,
+            )
             reservation = StockReservation(
                 item_id=item_id,
                 warehouse_id=warehouse_id,
@@ -2160,7 +2178,13 @@ async def reallocate(
                 f"Reallocation from {donor.demand_code or donor.demand_id}: {request.reason}"
             )[:255]
         engine.reservations.touch(recipient)
-        engine.apply_reserve(balance, amount, item=item, warehouse_code=warehouse_code)
+        engine.apply_reserve(
+            balance,
+            amount,
+            item=item,
+            warehouse_code=warehouse_code,
+            demand_type=request.to_demand_type,
+        )
         # Flushed before the impact summary is written: the primary key is a
         # Python-side column default, so `recipient.id` is None until the INSERT
         # is emitted, and stamping "None" into the summary would lose the only
@@ -2290,6 +2314,18 @@ async def reallocate(
                 "reason": request.reason,
                 "balance_reserved_after": balance.reserved_quantity,
             },
+        )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_ENTITY_REALLOCATION,
+            entity_id=request.id,
+            requested_action=Permission.ALLOCATION_APPROVE,
+            outcome=ApprovalStatus.APPROVED,
+            decided_by=approved_by,
+            decision_note=decision_note,
+            action_url="/inventory/reservations",
+            notify_requester=False,
         )
         await _notify_donor_owner(
             session,
@@ -2836,6 +2872,20 @@ class AllocationService:
                     "donor_reservation_type": str(chosen.reservation_type),
                 },
             )
+            await open_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_REALLOCATION,
+                entity_id=request.id,
+                entity_code=payload.to_demand_code,
+                approve_permission=Permission.ALLOCATION_APPROVE,
+                requested_by=self.tenant.user_id,
+                summary=(
+                    f"Reallocation request for {payload.to_demand_type} "
+                    f"{payload.to_demand_code or payload.to_demand_id} requires approval."
+                ),
+                action_url="/inventory/reservations",
+            )
 
         read = (await self._to_request_reads([request]))[0]
         read.candidates = [_candidate_read(candidate) for candidate in candidates]
@@ -2883,6 +2933,18 @@ class AllocationService:
                 user_id=self.tenant.user_id,
                 action=AuditAction.REJECT,
                 reason=decision_note,
+            )
+            await close_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_REALLOCATION,
+                entity_id=request.id,
+                requested_action=Permission.ALLOCATION_APPROVE,
+                outcome=ApprovalStatus.REJECTED,
+                decided_by=self.tenant.user_id,
+                decision_note=decision_note,
+                action_url="/inventory/reservations",
+                notify_requester=False,
             )
             item, warehouse_code = await self.engine.resolve_position(
                 request.item_id, request.warehouse_id

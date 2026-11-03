@@ -308,6 +308,7 @@ export const queryKeys = {
     report: (key: string, params: unknown) => ['reports', key, params] as const,
   },
   audit: {
+    approvalsAll: ['audit', 'approvals'] as const,
     logsAll: ['audit', 'logs'] as const,
     logs: (params: unknown) => ['audit', 'logs', params] as const,
     entity: (type: string, id: string) => ['audit', 'entity', type, id] as const,
@@ -316,6 +317,7 @@ export const queryKeys = {
   },
   notifications: {
     all: ['notifications'] as const,
+    alertRules: ['notifications', 'alert-rules'] as const,
     channels: ['notifications', 'channels'] as const,
     unreadCount: ['notifications', 'unread-count'] as const,
     pushConfig: ['notifications', 'push-config'] as const,

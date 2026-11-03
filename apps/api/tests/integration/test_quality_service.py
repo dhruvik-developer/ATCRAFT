@@ -25,11 +25,12 @@ import contextlib
 import importlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -47,6 +48,7 @@ from src.core.errors import (
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
+from src.core.permissions import Permission
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import (
@@ -55,6 +57,7 @@ from src.modules.inventory.models import (
     StockState,
     TransactionType,
 )
+from src.modules.notifications.models import Notification, NotificationType
 from src.modules.products.models import ItemGroup, ProductionType
 from src.modules.quality import service
 from src.modules.quality.models import (
@@ -77,6 +80,7 @@ from src.modules.quality.schemas import (
     TemplateUpdate,
     TemplateVersionRequest,
 )
+from src.modules.users.models import Role, user_roles
 from src.modules.vendors.models import VendorType
 from src.modules.warehouses.models import WarehouseType
 from tests import seed_support
@@ -1398,6 +1402,79 @@ class TestRaisingInspections:
         codes = [(await raise_incoming(session, tenant, lot, quantity="10")).code for _ in range(3)]
         assert len(set(codes)) == 3
         assert all(code.startswith("QC/") for code in codes)
+
+    async def test_qc_inspections_notify_inspectors_in_a_stage_digest(
+        self, ctx: tuple[AsyncSession, TenantContext]
+    ) -> None:
+        session, tenant = ctx
+        observer = await seed_support.seed_user(
+            session,
+            company_id=tenant.company_id,
+            email=f"observer-{uuid.uuid4().hex[:8]}@atcraft.test",
+            full_name="QC Observer",
+        )
+        role = Role(
+            company_id=tenant.company_id,
+            code=_code("QC_INSPECTOR"),
+            name="QC Inspector",
+            permissions=[str(Permission.QC_INSPECT)],
+        )
+        session.add(role)
+        await session.flush()
+        await session.execute(insert(user_roles).values(user_id=tenant.user_id, role_id=role.id))
+
+        lot = await seed_lot(session, tenant, quantity="30")
+        first = await raise_incoming(session, tenant, lot, quantity="10")
+        second = await raise_incoming(session, tenant, lot, quantity="10")
+
+        notifications = list(
+            (
+                await session.execute(
+                    select(Notification).where(
+                        Notification.company_id == tenant.company_id,
+                        Notification.user_id == tenant.user_id,
+                        Notification.notification_type
+                        == NotificationType.QC_INSPECTION_PENDING.value,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(notifications) == 1
+        notification = notifications[0]
+        assert notification.user_id == tenant.user_id
+        assert notification.user_id != observer.id
+        assert notification.entity_id == second.id
+        assert notification.entity_type == "qc_inspection"
+        assert notification.action_url == "/quality?tab=pending"
+        assert notification.group_key == "qc-pending:incoming"
+        assert notification.occurrence_count == 2
+        assert first.id != second.id
+
+    async def test_pending_alert_scanner_uses_age_and_links_to_the_queue(
+        self, ctx: tuple[AsyncSession, TenantContext]
+    ) -> None:
+        session, tenant = ctx
+        lot = await seed_lot(session, tenant)
+        inspection = await raise_incoming(session, tenant, lot)
+
+        recent = await service.pending_alert_candidates(
+            session,
+            tenant,
+            as_of=inspection.created_at,
+            threshold=timedelta(days=1),
+        )
+        aged = await service.pending_alert_candidates(
+            session,
+            tenant,
+            as_of=inspection.created_at + timedelta(days=2),
+            threshold=timedelta(days=1),
+        )
+
+        assert recent == []
+        assert [candidate.entity_id for candidate in aged] == [inspection.id]
+        assert aged[0].action_url == "/quality?tab=pending"
 
 
 # =============================================================================

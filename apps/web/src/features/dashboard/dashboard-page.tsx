@@ -65,7 +65,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { P } from '@/lib/permissions'
+import { APPROVAL_PERMISSIONS, P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
 
@@ -170,10 +170,6 @@ interface AuditLogRow {
  * endpoint refuses, so a QC inspector was shown the panel and then a 403; and
  * it omitted `payment.approve`, so a payment approver never saw their queue.
  */
-const APPROVAL_PERMISSIONS: string[] = Object.values(P).filter(
-  (value) => value.endsWith('.approve') || value.endsWith('_approve'),
-)
-
 /**
  * Where an audit or approval row's record lives.
  *
@@ -741,9 +737,12 @@ export default function DashboardPage() {
                 Documents waiting on a decision from you.
               </p>
             </div>
-            {/* No "All approvals" link: nothing in the SPA lists the queue
-                beyond this preview, and the audit trail it used to point at is
-                gated on `audit_log.view`, which an approver need not hold. */}
+            <Link
+              to="/approvals"
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              View all
+            </Link>
           </CardHeader>
           <CardContent>
             {approvals.isLoading ? (

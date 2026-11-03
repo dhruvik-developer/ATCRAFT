@@ -119,6 +119,13 @@ class NotificationType(StrEnum):
 
     # --- delay alerts (section 23) -----------------------------------------
     PURCHASE_ORDER_DELAYED = "PURCHASE_ORDER_DELAYED"
+    PURCHASE_ORDER_NOT_ACKNOWLEDGED = "PURCHASE_ORDER_NOT_ACKNOWLEDGED"
+    PURCHASE_ORDER_DELIVERY_MISSED = "PURCHASE_ORDER_DELIVERY_MISSED"
+    PURCHASE_ORDER_DISPATCH_NOT_UPDATED = "PURCHASE_ORDER_DISPATCH_NOT_UPDATED"
+    PURCHASE_ORDER_TRACKING_MISSING = "PURCHASE_ORDER_TRACKING_MISSING"
+    GOODS_RECEIPT_NOT_CREATED = "GOODS_RECEIPT_NOT_CREATED"
+    VENDOR_INVOICE_PENDING = "VENDOR_INVOICE_PENDING"
+    VENDOR_PAYMENT_OVERDUE = "VENDOR_PAYMENT_OVERDUE"
     PRODUCTION_ORDER_DELAYED = "PRODUCTION_ORDER_DELAYED"
     JOB_WORK_OVERDUE = "JOB_WORK_OVERDUE"
     DISPATCH_DELAYED = "DISPATCH_DELAYED"
@@ -373,6 +380,60 @@ class NotificationPreference(TenantEntity):
     )
 
 
+class NotificationAlertRule(TenantEntity):
+    """Sparse per-company overrides for the timed-alert registry."""
+
+    __tablename__ = "notification_alert_rules"
+
+    rule_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    threshold_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    remind_every_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "rule_key", name="uq_notification_alert_rules_company_key"),
+        CheckConstraint("threshold_minutes >= 0", name="threshold_nonnegative"),
+        CheckConstraint("remind_every_minutes > 0", name="remind_every_positive"),
+    )
+
+
+class NotificationAlertState(TenantEntity):
+    """One open or resolved episode for a timed alert entity."""
+
+    __tablename__ = "notification_alert_states"
+
+    rule_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    first_detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notified_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index(
+            "uq_notification_alert_states_open",
+            "company_id",
+            "rule_key",
+            "entity_id",
+            unique=True,
+            postgresql_where=text("resolved_at IS NULL"),
+        ),
+        Index(
+            "ix_notification_alert_states_resolved",
+            "company_id",
+            "resolved_at",
+            "last_detected_at",
+        ),
+        CheckConstraint("notified_count >= 0", name="notified_count_nonnegative"),
+    )
+
+
 class NotificationChannelTemplate(TenantEntity):
     """One tenant-controlled provider template mapping for a notification type."""
 
@@ -456,6 +517,8 @@ class PushSubscription(TenantEntity):
 
 __all__ = [
     "Notification",
+    "NotificationAlertRule",
+    "NotificationAlertState",
     "NotificationChannel",
     "NotificationChannelTemplate",
     "NotificationDelivery",

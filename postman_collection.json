@@ -1382,7 +1382,7 @@
               },
               "raw": "{\n  \"note\": \"\"\n}"
             },
-            "description": "Records the decision and writes an audit entry against the record the request targets, in one transaction.\n\nRefused with 403 when the caller does not hold the permission the requested action needs, and when the caller raised the request themselves - a request approved by its own author carries no second judgement. Refused with 422 when the request has already been decided.",
+            "description": "Deprecated. Decisions must use the owning document workflow so its status and queue row change atomically.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1501,7 +1501,7 @@
               },
               "raw": "{\n  \"note\": \"\"\n}"
             },
-            "description": "Same authority rules as approving. A `note` is required: a rejection without a stated reason is not evidence of a judgement, it is the start of a phone call.",
+            "description": "Deprecated. Decisions must use the owning document workflow so its status and queue row change atomically.",
             "header": [
               {
                 "key": "Content-Type",
@@ -12766,6 +12766,26 @@
           }
         },
         {
+          "name": "Effective smart-alert rules",
+          "request": {
+            "description": "Effective smart-alert rules",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "alert-rules"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/alert-rules"
+            }
+          }
+        },
+        {
           "name": "Enabled external notification channels",
           "request": {
             "description": "Enabled external notification channels",
@@ -13212,6 +13232,40 @@
                 "preferences"
               ],
               "raw": "{{base_url}}/api/v1/notifications/preferences"
+            }
+          }
+        },
+        {
+          "name": "Update smart-alert rules",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"rules\": [\n    {\n      \"is_enabled\": {},\n      \"key\": {},\n      \"remind_every_minutes\": {},\n      \"threshold_minutes\": {}\n    }\n  ]\n}"
+            },
+            "description": "Update smart-alert rules",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "alert-rules"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/alert-rules"
             }
           }
         }

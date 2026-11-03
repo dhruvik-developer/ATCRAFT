@@ -46,8 +46,7 @@ order is a direct sale from free stock and keeps that path.
 
 **Delay is derived on read.** A consignment is late when it is on the road past
 its promised date. Nothing stores that as a flag - see the models docstring -
-and :func:`scan_delays` is the scheduled sweep that turns the derived answer into
-an alert somebody actually sees.
+and the smart-alert scanner reuses the board's predicate to notify its owners.
 
 **Serial-tracked goods consume their reservation unit by unit.** The inventory
 engine requires a serial, and a quantity of one, on every movement of a
@@ -68,7 +67,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -123,6 +122,7 @@ from src.modules.dispatch.repository import (
     WarehouseLookupRepository,
     mark_delay_notified,
     scan_delayed_across_tenants,
+    scan_delayed_for_company,
 )
 from src.modules.dispatch.schemas import (
     MAX_DELAY_SCAN,
@@ -147,6 +147,7 @@ from src.modules.dispatch.schemas import (
 )
 from src.modules.inventory.models import SerialStatus, StockState, TransactionType
 from src.modules.inventory.service import MovementRequest, post_movements
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify_role
 from src.modules.packing import service as packing
@@ -2496,13 +2497,10 @@ async def scan_delays(
     as_of: date | None = None,
     limit: int = MAX_DELAY_SCAN,
 ) -> list[DelayScanResult]:
-    """Find overdue consignments across every tenant and alert their owners.
+    """Legacy cross-tenant compatibility sweep for older integration callers.
 
-    Called by the ``notifications.scan_dispatch_delays`` beat task, which has no
-    principal and therefore no ``TenantContext`` - this is the one entry point in
-    the module that starts from a cross-tenant read (see
-    :func:`~src.modules.dispatch.repository.scan_delayed_across_tenants`) and it
-    immediately partitions the result by company so every write is scoped again.
+    Celery uses :func:`delayed_alert_candidates` and the shared smart-alert
+    episode engine instead.
 
     One alert per company, not one per consignment. The recipients are resolved
     from the role assignment at the moment of the sweep, and the ``group_key``
@@ -2549,6 +2547,37 @@ async def scan_delays(
     return results
 
 
+async def delayed_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Build delayed-dispatch alerts from the same predicate as the board."""
+    cutoff = (as_of - threshold).date()
+    rows = await scan_delayed_for_company(
+        session,
+        company_id=tenant.company_id,
+        as_of=cutoff,
+        limit=limit,
+    )
+    return [
+        AlertCandidate(
+            entity_type="dispatch",
+            entity_id=row.dispatch_id,
+            title=f"Consignment {row.code} is past its promised delivery date",
+            body=(
+                f"{row.code} was promised for {row.expected_delivery_date} and is "
+                f"{row.delay_days} day(s) overdue. Open the dispatch tracking board."
+            ),
+            action_url="/dispatch?tab=tracking&delayed_only=true",
+        )
+        for row in rows
+    ]
+
+
 async def _raise_delay_alert(
     session: AsyncSession,
     company_id: uuid.UUID,
@@ -2581,7 +2610,7 @@ async def _raise_delay_alert(
             severity=NotificationSeverity.WARNING,
             entity_type=AUDIT_DISPATCH,
             entity_id=worst.dispatch_id,
-            action_url="/dispatch?delayed_only=true",
+            action_url="/dispatch?tab=tracking&delayed_only=true",
             # One bell row per company that the hourly sweep updates in place.
             group_key=f"dispatch-delay:{company_id}",
         )
@@ -2598,7 +2627,7 @@ async def _raise_delay_alert(
             entity_code=worst.code,
             summary=f"Delay sweep flagged {len(delayed)} overdue consignment(s)",
             user_id=None,
-            actor_label="notifications.scan_dispatch_delays",
+            actor_label="notifications.scan_smart_alerts",
             context={
                 "as_of": as_of.isoformat(),
                 "delayed_codes": [row.code for row in delayed],

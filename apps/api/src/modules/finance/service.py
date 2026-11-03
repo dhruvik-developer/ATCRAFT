@@ -69,12 +69,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -98,6 +98,8 @@ from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.customers.schemas import OutstandingAdjustment
 from src.modules.customers.service import apply_outstanding_delta, get_customer_for_order
@@ -222,6 +224,7 @@ from src.modules.finance.schemas import (
     VendorInvoiceSummary,
     VendorInvoiceUpdate,
 )
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.organization.service import (
     COST_CENTRE_ENTITY,
     cost_centre_facts,
@@ -2849,6 +2852,7 @@ async def _transition_invoice(
     *,
     reason: str | None = None,
     action: AuditAction = AuditAction.STATUS_CHANGE,
+    actor_user_id: uuid.UUID | None = None,
 ) -> None:
     """Move an invoice through its state machine and record the move.
 
@@ -2856,6 +2860,7 @@ async def _transition_invoice(
     :class:`~src.core.errors.InvalidStateTransitionError` before anything else
     happens, so the rejection rolls back with the rest of the operation.
     """
+    actor_user_id = tenant.user_id if actor_user_id is None else actor_user_id
     current = VendorInvoiceStatus(invoice.status)
     if current is target:
         return
@@ -2872,10 +2877,40 @@ async def _transition_invoice(
         entity_code=invoice.code,
         from_status=str(current),
         to_status=str(target),
-        user_id=tenant.user_id,
+        user_id=actor_user_id,
         action=action,
         reason=reason,
     )
+    approval_url = VENDOR_INVOICES_URL
+    if target is VendorInvoiceStatus.PENDING_APPROVAL:
+        await open_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_VENDOR_INVOICE,
+            entity_id=invoice.id,
+            entity_code=invoice.code,
+            approve_permission=Permission.VENDOR_INVOICE_APPROVE,
+            requested_by=actor_user_id,
+            summary=reason or f"Vendor invoice {invoice.code} requires approval.",
+            action_url=approval_url,
+            amount=invoice.total_amount,
+        )
+    elif current is VendorInvoiceStatus.PENDING_APPROVAL:
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_VENDOR_INVOICE,
+            entity_id=invoice.id,
+            requested_action=Permission.VENDOR_INVOICE_APPROVE,
+            outcome=(
+                ApprovalStatus.APPROVED
+                if target is VendorInvoiceStatus.APPROVED
+                else ApprovalStatus.REJECTED
+            ),
+            decided_by=actor_user_id,
+            decision_note=reason,
+            action_url=approval_url,
+        )
 
 
 async def submit_invoice(
@@ -3210,6 +3245,7 @@ async def approve_invoice(
             VendorInvoiceStatus.APPROVED,
             reason=payload.override_reason,
             action=AuditAction.APPROVE,
+            actor_user_id=principal.user_id,
         )
 
         await _post_invoice_journal(session, tenant, invoice)
@@ -3844,6 +3880,18 @@ async def create_payment(
             user_id=tenant.user_id,
             new_values=snapshot(payment, PAYMENT_AUDITED_FIELDS),
         )
+        await open_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PAYMENT,
+            entity_id=payment.id,
+            entity_code=payment.code,
+            approve_permission=Permission.PAYMENT_APPROVE,
+            requested_by=tenant.user_id,
+            summary=f"Payment {payment.code} requires approval.",
+            action_url="/finance/payments",
+            amount=payment.amount,
+        )
 
     return await _payment_detail(session, tenant, payment)
 
@@ -3888,6 +3936,18 @@ async def update_payment(
             old_values=before,
             new_values=snapshot(payment, PAYMENT_AUDITED_FIELDS),
         )
+        await open_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PAYMENT,
+            entity_id=payment.id,
+            entity_code=payment.code,
+            approve_permission=Permission.PAYMENT_APPROVE,
+            requested_by=tenant.user_id,
+            summary=f"Payment {payment.code} requires approval.",
+            action_url="/finance/payments",
+            amount=payment.amount,
+        )
 
     return await _payment_detail(session, tenant, payment)
 
@@ -3915,6 +3975,17 @@ async def delete_draft_payment(
             user_id=tenant.user_id,
             old_values=snapshot(payment, PAYMENT_AUDITED_FIELDS),
             context={"reason": reason},
+        )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PAYMENT,
+            entity_id=payment.id,
+            requested_action=Permission.PAYMENT_APPROVE,
+            outcome=ApprovalStatus.REJECTED,
+            decided_by=tenant.user_id,
+            decision_note=reason,
+            action_url="/finance/payments",
         )
         await repo.hard_delete(payment)
 
@@ -3973,6 +4044,7 @@ async def approve_payment(
             PaymentStatus.APPROVED,
             reason=reason,
             action=AuditAction.PAYMENT,
+            actor_user_id=principal.user_id,
         )
 
         await _post_payment_journal(session, tenant, payment)
@@ -4176,8 +4248,10 @@ async def _transition_payment(
     *,
     reason: str | None = None,
     action: AuditAction = AuditAction.STATUS_CHANGE,
+    actor_user_id: uuid.UUID | None = None,
 ) -> None:
     """The only place ``payments.status`` is written."""
+    actor_user_id = tenant.user_id if actor_user_id is None else actor_user_id
     current = PaymentStatus(payment.status)
     if current is target:
         return
@@ -4192,10 +4266,29 @@ async def _transition_payment(
         entity_code=payment.code,
         from_status=str(current),
         to_status=str(target),
-        user_id=tenant.user_id,
+        user_id=actor_user_id,
         action=action,
         reason=reason,
     )
+    if current is PaymentStatus.DRAFT and target in {
+        PaymentStatus.APPROVED,
+        PaymentStatus.CANCELLED,
+    }:
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_PAYMENT,
+            entity_id=payment.id,
+            requested_action=Permission.PAYMENT_APPROVE,
+            outcome=(
+                ApprovalStatus.APPROVED
+                if target is PaymentStatus.APPROVED
+                else ApprovalStatus.REJECTED
+            ),
+            decided_by=actor_user_id,
+            decision_note=reason,
+            action_url="/finance/payments",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -5772,6 +5865,103 @@ async def gstr1_return(
         hsn=[Gstr1HsnRow.model_validate(dict(row._mapping)) for row in hsn],
         documents=[Gstr1DocumentSeriesRow.model_validate(dict(row._mapping)) for row in documents],
     )
+
+
+async def overdue_payment_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Find payable vendor invoices past due with a positive unpaid balance."""
+    cutoff = (as_of - threshold).date()
+    balance = (
+        VendorInvoice.total_amount
+        - VendorInvoice.paid_amount
+        - VendorInvoice.recovered_amount
+        - VendorInvoice.debit_allocated_amount
+    )
+    stmt = (
+        select(VendorInvoice)
+        .where(
+            VendorInvoice.company_id == tenant.company_id,
+            VendorInvoice.status.in_(PAYABLE_INVOICE_STATUSES),
+            VendorInvoice.due_date <= cutoff,
+            balance > 0,
+        )
+        .order_by(VendorInvoice.due_date, VendorInvoice.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="vendor_invoice",
+            entity_id=row.id,
+            title=f"Vendor invoice {row.code} is overdue",
+            body=(f"Invoice {row.code} was due on {row.due_date} and has an unpaid balance."),
+            action_url="/finance/vendor-invoices?overdue_only=true",
+            creator_id=row.created_by_id,
+        )
+        for row in rows
+    ]
+
+
+async def pending_vendor_invoice_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Find POs with an aged posted receipt not covered by an active invoice."""
+    from src.modules.procurement.models import GoodsReceipt, GoodsReceiptStatus, PurchaseOrder
+
+    cutoff = as_of - threshold
+    active_invoice = exists(
+        select(1).where(
+            VendorInvoice.company_id == tenant.company_id,
+            VendorInvoice.goods_receipt_id == GoodsReceipt.id,
+            VendorInvoice.status != VendorInvoiceStatus.CANCELLED,
+        )
+    )
+    aged_uninvoiced_receipt = exists(
+        select(1).where(
+            GoodsReceipt.company_id == tenant.company_id,
+            GoodsReceipt.purchase_order_id == PurchaseOrder.id,
+            GoodsReceipt.status == GoodsReceiptStatus.POSTED,
+            GoodsReceipt.posted_at <= cutoff,
+            ~active_invoice,
+        )
+    )
+    stmt = (
+        select(PurchaseOrder)
+        .where(
+            PurchaseOrder.company_id == tenant.company_id,
+            aged_uninvoiced_receipt,
+        )
+        .order_by(PurchaseOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="purchase_order",
+            entity_id=row.id,
+            title=f"Vendor invoice is pending for purchase order {row.code}",
+            body=(
+                f"At least one goods receipt for order {row.code} has been posted "
+                "without a linked vendor invoice."
+            ),
+            action_url=f"/procurement/purchase-orders/{row.id}",
+            creator_id=row.created_by_id,
+            vendor_id=row.vendor_id,
+            assigned_user_id=row.assigned_vendor_user_id,
+        )
+        for row in rows
+    ]
 
 
 __all__ = [

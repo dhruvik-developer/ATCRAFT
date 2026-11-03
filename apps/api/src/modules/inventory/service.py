@@ -87,8 +87,8 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, TypeVar
 
+from sqlalchemy import func, select
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -118,6 +118,8 @@ from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import (
     LAYER_ORIGIN_RECONCILIATION,
@@ -232,7 +234,10 @@ from src.modules.inventory.schemas import (
     WarehouseStockRowWithCost,
 )
 from src.modules.inventory.serial_labels_pdf import render_serial_labels_pdf
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.organization.service import require_cost_centre, require_department
+from src.modules.products.models import Item
+from src.modules.warehouses.models import Warehouse
 
 log = get_logger(__name__)
 
@@ -6461,6 +6466,34 @@ class StockAdjustmentService:
             action=action,
             reason=reason,
         )
+        if target is AdjustmentStatus.PENDING_APPROVAL:
+            await open_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_ADJUSTMENT,
+                entity_id=adjustment.id,
+                entity_code=adjustment.code,
+                approve_permission=Permission.INVENTORY_ADJUST_APPROVE,
+                requested_by=self.tenant.user_id,
+                summary=f"Stock adjustment {adjustment.code} requires approval.",
+                action_url="/inventory/movements",
+                amount=adjustment.total_value,
+            )
+        elif previous is AdjustmentStatus.PENDING_APPROVAL and target in {
+            AdjustmentStatus.APPROVED,
+            AdjustmentStatus.REJECTED,
+        }:
+            await close_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_ADJUSTMENT,
+                entity_id=adjustment.id,
+                requested_action=Permission.INVENTORY_ADJUST_APPROVE,
+                outcome=ApprovalStatus(target.value),
+                decided_by=self.tenant.user_id,
+                decision_note=reason,
+                action_url="/inventory/movements",
+            )
 
     @staticmethod
     def _to_read(
@@ -8328,6 +8361,38 @@ class InternalIssueService:
             action=action,
             reason=reason,
         )
+        if target is InternalIssueStatus.PENDING_APPROVAL:
+            await open_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_INTERNAL_ISSUE,
+                entity_id=issue.id,
+                entity_code=issue.code,
+                approve_permission=Permission.INTERNAL_ISSUE_APPROVE,
+                requested_by=self.tenant.user_id,
+                summary=f"Internal issue {issue.code} requires approval.",
+                action_url="/inventory/movements",
+                amount=issue.total_value,
+            )
+        elif previous is InternalIssueStatus.PENDING_APPROVAL and action in {
+            AuditAction.APPROVE,
+            AuditAction.REJECT,
+        }:
+            await close_approval(
+                self.session,
+                tenant=self.tenant,
+                entity_type=AUDIT_ENTITY_INTERNAL_ISSUE,
+                entity_id=issue.id,
+                requested_action=Permission.INTERNAL_ISSUE_APPROVE,
+                outcome=(
+                    ApprovalStatus.APPROVED
+                    if action is AuditAction.APPROVE
+                    else ApprovalStatus.REJECTED
+                ),
+                decided_by=self.tenant.user_id,
+                decision_note=reason,
+                action_url="/inventory/movements",
+            )
 
     @staticmethod
     def _to_read(
@@ -8390,6 +8455,53 @@ def _with_item(read: _LineReadT, item: ItemFacts | None) -> _LineReadT:
     read.item_code = item.code if item else None
     read.item_name = item.name if item else None
     return read
+
+
+async def below_reorder_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Build a bounded company digest from item/warehouse available balances."""
+    del as_of, threshold
+    stmt = (
+        select(
+            Item.code,
+            Warehouse.code.label("warehouse_code"),
+            func.sum(InventoryBalance.available_quantity).label("available"),
+            Item.reorder_level.label("reorder_level"),
+        )
+        .join(InventoryBalance, InventoryBalance.item_id == Item.id)
+        .join(Warehouse, Warehouse.id == InventoryBalance.warehouse_id)
+        .where(
+            InventoryBalance.company_id == tenant.company_id,
+            Item.company_id == tenant.company_id,
+            Warehouse.company_id == tenant.company_id,
+            Item.reorder_level > 0,
+        )
+        .group_by(Item.id, Item.code, Warehouse.code, Item.reorder_level)
+        .having(func.sum(InventoryBalance.available_quantity) <= Item.reorder_level)
+        .order_by(Item.code, Warehouse.code)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        return []
+    preview = ", ".join(f"{row.code} ({row.warehouse_code})" for row in rows[:5])
+    if len(rows) > 5:
+        preview = f"{preview}, and {len(rows) - 5} more"
+    return [
+        AlertCandidate(
+            entity_type="company",
+            entity_id=tenant.company_id,
+            title=f"{len(rows)} item/warehouse position(s) are below reorder level",
+            body=f"Below-reorder positions: {preview}. Review inventory.",
+            action_url="/inventory",
+        )
+    ]
 
 
 __all__ = [

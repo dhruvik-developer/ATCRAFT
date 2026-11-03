@@ -24,6 +24,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.modules.notifications.alerts import ALERT_RULES, AlertGranularity, AlertRuleKey
 from src.modules.notifications.models import (
     NotificationChannel,
     NotificationSeverity,
@@ -112,6 +113,49 @@ class NotificationPreferenceUpdate(BaseModel):
     push_enabled: bool | None = None
     whatsapp_enabled: bool | None = None
     sms_enabled: bool | None = None
+
+
+class NotificationAlertRuleRead(BaseModel):
+    """One effective alert rule, including code defaults for sparse settings."""
+
+    key: AlertRuleKey
+    notification_type: str
+    name: str
+    description: str
+    severity: str
+    granularity: AlertGranularity
+    is_enabled: bool
+    threshold_minutes: int = Field(ge=0)
+    remind_every_minutes: int = Field(ge=1)
+    is_customized: bool
+
+
+class NotificationAlertRuleUpdate(BaseModel):
+    """A complete override for one changed alert rule."""
+
+    key: AlertRuleKey
+    is_enabled: bool
+    threshold_minutes: int = Field(ge=0)
+    remind_every_minutes: int = Field(ge=1)
+
+
+class NotificationAlertRulesUpdate(BaseModel):
+    """Only touched alert rows are submitted by the administration screen."""
+
+    rules: Annotated[
+        list[NotificationAlertRuleUpdate],
+        Field(min_length=1, max_length=len(ALERT_RULES)),
+    ]
+
+    @field_validator("rules")
+    @classmethod
+    def _reject_duplicate_keys(
+        cls, value: list[NotificationAlertRuleUpdate]
+    ) -> list[NotificationAlertRuleUpdate]:
+        keys = {rule.key for rule in value}
+        if len(keys) != len(value):
+            raise ValueError("Each alert rule may appear only once.")
+        return value
 
 
 class PreferencesUpdateRequest(BaseModel):
@@ -229,6 +273,9 @@ class NotificationDeliveryRead(BaseModel):
 
 __all__ = [
     "MarkReadResult",
+    "NotificationAlertRuleRead",
+    "NotificationAlertRuleUpdate",
+    "NotificationAlertRulesUpdate",
     "NotificationChannelTemplateRead",
     "NotificationChannelTemplateUpdate",
     "NotificationChannelTemplatesUpdate",

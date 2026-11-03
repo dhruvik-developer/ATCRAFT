@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from src.core.registry import get_metadata
+from src.modules.audit.models import ApprovalRequest
 from src.modules.dealer_portal.models import DealerBanner
 from src.modules.organization.models import Company
 from tests.conftest import _pg_host, _pg_password, _pg_port, _pg_user
@@ -64,6 +65,12 @@ class _MigrationDatabase:
         return sa.create_engine(self.url, poolclass=NullPool)
 
     def alembic(self, *arguments: str) -> None:
+        result = self.run_alembic(*arguments)
+        assert result.returncode == 0, (
+            f"alembic {' '.join(arguments)} failed:\n{result.stdout}\n{result.stderr}"
+        )
+
+    def run_alembic(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         environment = dict(os.environ)
         environment["DATABASE_SYNC_URL"] = self.url.render_as_string(hide_password=False)
         environment["DATABASE_URL"] = self.url.set(
@@ -79,9 +86,7 @@ class _MigrationDatabase:
             check=False,
             timeout=600,
         )
-        assert result.returncode == 0, (
-            f"alembic {' '.join(arguments)} failed:\n{result.stdout}\n{result.stderr}"
-        )
+        return result
 
 
 @pytest.fixture(scope="module")
@@ -328,6 +333,42 @@ def test_fresh_schema_alignment_preserves_data_constraints_and_rollback(
             assert banner is not None
             assert (banner.created_at, banner.updated_at) == (created_at, updated_at)
 
+        duplicate_entity_id = uuid.uuid4()
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    ApprovalRequest(
+                        company_id=company_id,
+                        entity_type="purchase_order",
+                        entity_id=duplicate_entity_id,
+                        requested_action="purchase_order.approve",
+                    ),
+                    ApprovalRequest(
+                        company_id=company_id,
+                        entity_type="purchase_order",
+                        entity_id=duplicate_entity_id,
+                        requested_action="purchase_order.approve",
+                    ),
+                ]
+            )
+            session.commit()
+
+        failed_upgrade = database.run_alembic("upgrade", "head")
+        failure_text = failed_upgrade.stdout + failed_upgrade.stderr
+        assert failed_upgrade.returncode != 0
+        assert "duplicate open requests exist" in failure_text
+
+        with engine.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "UPDATE approval_requests SET status = 'REJECTED' "
+                    "WHERE id = (SELECT id FROM approval_requests "
+                    "WHERE company_id = :company_id AND entity_type = 'purchase_order' "
+                    "AND entity_id = :entity_id ORDER BY id DESC LIMIT 1)"
+                ),
+                {"company_id": company_id, "entity_id": duplicate_entity_id},
+            )
+
         # Upgrade to HEAD, not a pinned revision: `alembic check` refuses a database
         # that is behind, and only HEAD matches the current models. Historical
         # revision 27 is checked independently above; newer revisions legitimately
@@ -344,5 +385,9 @@ def test_fresh_schema_alignment_preserves_data_constraints_and_rollback(
             head_checks = _checks(connection)
         assert {(table, name) for table, name, _, _ in head_checks.values()} == expected_checks
         assert all(len(name.encode()) <= 63 for _, name in expected_checks)
+
+        database.alembic("downgrade", "20261119_0100")
+        database.alembic("upgrade", "head")
+        database.alembic("check")
     finally:
         engine.dispose()

@@ -66,6 +66,8 @@ from src.core.permissions import Permission, resolve_role_grants
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO, to_money, to_quantity
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.schemas import StockBatchCreate
@@ -488,6 +490,7 @@ async def _transition(
     reason: str,
     status_enum: Any,
     action: AuditAction = AuditAction.STATUS_CHANGE,
+    actor_user_id: uuid.UUID | None = None,
 ) -> None:
     """Move a document's status and record it.
 
@@ -495,13 +498,14 @@ async def _transition(
     one place that writes a procurement status column and exactly one place that
     writes the matching audit row (master rules section 73).
     """
+    actor_user_id = tenant.user_id if actor_user_id is None else actor_user_id
     current = status_enum(entity.status)
     machine.assert_transition(current, target)
     entity.status = target
     if hasattr(entity, "updated_by_id"):
         # NULL for the system actor a reconciliation sweep carries - the nil
         # placeholder is not a user (src.core.actors).
-        entity.updated_by_id = actor_id(tenant.user_id)
+        entity.updated_by_id = actor_id(actor_user_id)
     await session.flush()
 
     await record_status_change(
@@ -512,10 +516,54 @@ async def _transition(
         entity_code=entity_code,
         from_status=str(current),
         to_status=str(target),
-        user_id=tenant.user_id,
+        user_id=actor_user_id,
         action=action,
         reason=reason,
     )
+
+    approval_actions = {
+        AUDIT_REQUISITION: (
+            Permission.PURCHASE_REQUISITION_APPROVE,
+            "/procurement/requisitions",
+        ),
+        AUDIT_PURCHASE_ORDER: (
+            Permission.PURCHASE_ORDER_APPROVE,
+            f"/procurement/purchase-orders/{entity.id}",
+        ),
+    }
+    approval = approval_actions.get(entity_type)
+    if str(target) == "PENDING_APPROVAL" and approval is not None:
+        permission, action_url = approval
+        amount = getattr(entity, "total_amount", None)
+        await open_approval(
+            session,
+            tenant=tenant,
+            entity_type=entity_type,
+            entity_id=entity.id,
+            entity_code=entity_code,
+            approve_permission=permission,
+            requested_by=actor_user_id,
+            summary=reason,
+            action_url=action_url,
+            amount=amount if isinstance(amount, Decimal) else None,
+        )
+    elif str(current) == "PENDING_APPROVAL" and approval is not None:
+        permission, action_url = approval
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=entity_type,
+            entity_id=entity.id,
+            requested_action=permission,
+            outcome=(
+                ApprovalStatus.APPROVED
+                if str(target) == ApprovalStatus.APPROVED.value
+                else ApprovalStatus.REJECTED
+            ),
+            decided_by=actor_user_id,
+            decision_note=reason,
+            action_url=action_url,
+        )
 
 
 async def _load_items(
@@ -1286,6 +1334,7 @@ async def transition_requisition(
             reason=reason,
             status_enum=RequisitionStatus,
             action=action,
+            actor_user_id=principal.user_id,
         )
 
     return requisition
@@ -3175,6 +3224,7 @@ async def transition_purchase_order(
             reason=reason,
             status_enum=PurchaseOrderStatus,
             action=action,
+            actor_user_id=principal.user_id,
         )
 
         if target is PurchaseOrderStatus.SENT and order.assigned_vendor_user_id != assignee_before:

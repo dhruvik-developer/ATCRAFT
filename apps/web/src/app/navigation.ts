@@ -13,6 +13,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
+  BellRing,
   BookOpen,
   Boxes,
   Building2,
@@ -46,7 +47,7 @@ import {
   Wrench,
 } from 'lucide-react'
 
-import { P } from '@/lib/permissions'
+import { APPROVAL_PERMISSIONS, P } from '@/lib/permissions'
 
 export interface NavItem {
   label: string
@@ -361,6 +362,12 @@ export const navigation: NavSection[] = [
         permissions: [P.USER_VIEW, P.ROLE_VIEW],
       },
       {
+        label: 'Approvals',
+        to: '/approvals',
+        icon: ClipboardCheck,
+        permissions: APPROVAL_PERMISSIONS,
+      },
+      {
         label: 'Organisation',
         to: '/admin/organisation',
         icon: Building2,
@@ -370,6 +377,12 @@ export const navigation: NavSection[] = [
         label: 'Settings',
         to: '/admin/settings',
         icon: SlidersHorizontal,
+        permissions: [P.SETTINGS_VIEW],
+      },
+      {
+        label: 'Smart alerts',
+        to: '/admin/alerts',
+        icon: BellRing,
         permissions: [P.SETTINGS_VIEW],
       },
       {

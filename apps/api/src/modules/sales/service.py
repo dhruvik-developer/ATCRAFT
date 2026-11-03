@@ -34,10 +34,11 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -63,9 +64,12 @@ from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
+from src.modules.audit.query_service import close_approval, open_approval
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.customers.models import Customer
 from src.modules.customers.service import assert_within_credit_limit, get_customer_for_order
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.products.models import ItemPrice, PriceType
 from src.modules.products.service import ITEM_MASTER_FALLBACK_FIELD, select_price_row
 from src.modules.sales.models import (
@@ -2020,6 +2024,19 @@ async def create_order(
                 ],
             },
         )
+        if order.requires_approval:
+            await open_approval(
+                session,
+                tenant=tenant,
+                entity_type=AUDIT_SALES_ORDER,
+                entity_id=order.id,
+                entity_code=order.code,
+                approve_permission=Permission.SALES_ORDER_APPROVE,
+                requested_by=tenant.user_id,
+                summary=f"Sales order {order.code} requires pricing approval.",
+                action_url=f"/sales-orders/{order.id}",
+                amount=order.total_amount,
+            )
 
     return order, lines
 
@@ -2101,6 +2118,32 @@ async def update_order(
             old_values={**before, "line_count": len(lines)},
             new_values={**snapshot(order, ORDER_AUDITED_FIELDS), "line_count": len(lines)},
         )
+        if order.requires_approval:
+            await open_approval(
+                session,
+                tenant=tenant,
+                entity_type=AUDIT_SALES_ORDER,
+                entity_id=order.id,
+                entity_code=order.code,
+                approve_permission=Permission.SALES_ORDER_APPROVE,
+                requested_by=tenant.user_id,
+                summary=f"Sales order {order.code} requires pricing approval.",
+                action_url=f"/sales-orders/{order.id}",
+                amount=order.total_amount,
+            )
+        elif before["requires_approval"]:
+            await close_approval(
+                session,
+                tenant=tenant,
+                entity_type=AUDIT_SALES_ORDER,
+                entity_id=order.id,
+                requested_action=Permission.SALES_ORDER_APPROVE,
+                outcome=ApprovalStatus.REJECTED,
+                decided_by=tenant.user_id,
+                decision_note="The updated pricing no longer requires approval.",
+                action_url=f"/sales-orders/{order.id}",
+                notify_requester=False,
+            )
 
     return order, lines
 
@@ -2200,11 +2243,10 @@ async def _update_draft(
                 line.offer_id = previous[1]
     _apply_totals(order, sum_order_totals([p.amounts for p in priced]))
     order.requires_approval = any(p.is_below_cost or p.is_discount_override for p in priced)
-    if not order.requires_approval:
+    if not order.requires_approval or order.approved_at is not None:
         # A re-price that removed the below-cost line - or the above-threshold
-        # discount - also removes the reason the approval existed; a stale
-        # approval on a document nobody has looked at since is not evidence of
-        # anything.
+        # discount - removes the reason the approval existed. Any other edit to
+        # an already-approved draft also invalidates that decision.
         order.approved_by_id = None
         order.approved_at = None
 
@@ -2538,6 +2580,17 @@ async def delete_draft_order(
             old_values=snapshot(order, ORDER_AUDITED_FIELDS),
             context={"reason": reason},
         )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_SALES_ORDER,
+            entity_id=order.id,
+            requested_action=Permission.SALES_ORDER_APPROVE,
+            outcome=ApprovalStatus.REJECTED,
+            decided_by=tenant.user_id,
+            decision_note=reason,
+            action_url=f"/sales-orders/{order.id}",
+        )
         # Lines go with it through ON DELETE CASCADE.
         await repo.hard_delete(order)
 
@@ -2588,9 +2641,20 @@ async def approve_order(
             entity_id=order.id,
             entity_code=order.code,
             summary=f"Approved {order.code} for confirmation",
-            user_id=tenant.user_id,
+            user_id=principal.user_id,
             new_values={"approved_by_id": order.approved_by_id, "approved_at": order.approved_at},
             context={"reason": reason},
+        )
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_SALES_ORDER,
+            entity_id=order.id,
+            requested_action=Permission.SALES_ORDER_APPROVE,
+            outcome=ApprovalStatus.APPROVED,
+            decided_by=principal.user_id,
+            decision_note=reason,
+            action_url=f"/sales-orders/{order.id}",
         )
 
     return order
@@ -3064,6 +3128,52 @@ async def _transition(
         reason=reason,
     )
     return order
+
+
+async def at_risk_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Find open sales orders due within the threshold with undelivered lines."""
+    cutoff = (as_of + threshold).date()
+    short_line = exists(
+        select(1).where(
+            SalesOrderLine.company_id == tenant.company_id,
+            SalesOrderLine.sales_order_id == SalesOrder.id,
+            SalesOrderLine.status != SalesOrderLineStatus.CANCELLED,
+            SalesOrderLine.dispatched_quantity < SalesOrderLine.quantity,
+        )
+    )
+    stmt = (
+        select(SalesOrder)
+        .where(
+            SalesOrder.company_id == tenant.company_id,
+            SalesOrder.status.in_(OPEN_DEMAND_STATUSES),
+            SalesOrder.required_date <= cutoff,
+            short_line,
+        )
+        .order_by(SalesOrder.required_date, SalesOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="sales_order",
+            entity_id=row.id,
+            title=f"Sales order {row.code} is at risk",
+            body=(
+                f"Order {row.code} is due by {row.required_date} and still has "
+                "undispatched quantity."
+            ),
+            action_url=f"/sales-orders/{row.id}",
+            creator_id=row.created_by_id,
+        )
+        for row in rows
+    ]
 
 
 __all__ = [

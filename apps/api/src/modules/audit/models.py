@@ -140,6 +140,15 @@ class ApprovalRequest(ImmutableLedgerEntity):
     __table_args__ = (
         Index("ix_approval_requests_pending", "company_id", "status", "created_at"),
         Index("ix_approval_requests_entity", "company_id", "entity_type", "entity_id"),
+        Index(
+            "uq_approval_requests_pending_entity_action",
+            "company_id",
+            "entity_type",
+            "entity_id",
+            "requested_action",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
     )
 
 

@@ -1197,6 +1197,33 @@
         "title": "AgeingRow",
         "type": "object"
       },
+      "AlertGranularity": {
+        "enum": [
+          "ENTITY",
+          "DIGEST"
+        ],
+        "title": "AlertGranularity",
+        "type": "string"
+      },
+      "AlertRuleKey": {
+        "enum": [
+          "PO_NOT_ACKNOWLEDGED",
+          "PO_DELIVERY_MISSED",
+          "PO_DISPATCH_NOT_UPDATED",
+          "PO_TRACKING_MISSING",
+          "GRN_NOT_CREATED",
+          "QC_PENDING",
+          "VENDOR_INVOICE_PENDING",
+          "VENDOR_PAYMENT_OVERDUE",
+          "JOB_WORK_OVERDUE",
+          "DISPATCH_DELAYED",
+          "PRODUCTION_ORDER_DELAYED",
+          "SALES_ORDER_AT_RISK",
+          "STOCK_BELOW_REORDER"
+        ],
+        "title": "AlertRuleKey",
+        "type": "string"
+      },
       "AllocateOrderRequest": {
         "additionalProperties": false,
         "description": "``POST /sales/{id}/allocate``: top a short order up from free stock.",
@@ -7156,6 +7183,37 @@
           }
         },
         "title": "ApiResponse[list[DealerWishlistRead]]",
+        "type": "object"
+      },
+      "ApiResponse_list_NotificationAlertRuleRead__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NotificationAlertRuleRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[NotificationAlertRuleRead]]",
         "type": "object"
       },
       "ApiResponse_list_NotificationChannelTemplateRead__": {
@@ -38837,6 +38895,114 @@
         "title": "NeedsJobWorkRead",
         "type": "object"
       },
+      "NotificationAlertRuleRead": {
+        "description": "One effective alert rule, including code defaults for sparse settings.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "granularity": {
+            "$ref": "#/components/schemas/AlertGranularity"
+          },
+          "is_customized": {
+            "title": "Is Customized",
+            "type": "boolean"
+          },
+          "is_enabled": {
+            "title": "Is Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "$ref": "#/components/schemas/AlertRuleKey"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notification_type": {
+            "title": "Notification Type",
+            "type": "string"
+          },
+          "remind_every_minutes": {
+            "minimum": 1.0,
+            "title": "Remind Every Minutes",
+            "type": "integer"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "threshold_minutes": {
+            "minimum": 0.0,
+            "title": "Threshold Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "notification_type",
+          "name",
+          "description",
+          "severity",
+          "granularity",
+          "is_enabled",
+          "threshold_minutes",
+          "remind_every_minutes",
+          "is_customized"
+        ],
+        "title": "NotificationAlertRuleRead",
+        "type": "object"
+      },
+      "NotificationAlertRuleUpdate": {
+        "description": "A complete override for one changed alert rule.",
+        "properties": {
+          "is_enabled": {
+            "title": "Is Enabled",
+            "type": "boolean"
+          },
+          "key": {
+            "$ref": "#/components/schemas/AlertRuleKey"
+          },
+          "remind_every_minutes": {
+            "minimum": 1.0,
+            "title": "Remind Every Minutes",
+            "type": "integer"
+          },
+          "threshold_minutes": {
+            "minimum": 0.0,
+            "title": "Threshold Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "is_enabled",
+          "threshold_minutes",
+          "remind_every_minutes"
+        ],
+        "title": "NotificationAlertRuleUpdate",
+        "type": "object"
+      },
+      "NotificationAlertRulesUpdate": {
+        "description": "Only touched alert rows are submitted by the administration screen.",
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationAlertRuleUpdate"
+            },
+            "maxItems": 13,
+            "minItems": 1,
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "title": "NotificationAlertRulesUpdate",
+        "type": "object"
+      },
       "NotificationChannelTemplateRead": {
         "properties": {
           "channel": {
@@ -39386,6 +39552,13 @@
           "APPROVAL_GRANTED",
           "APPROVAL_REJECTED",
           "PURCHASE_ORDER_DELAYED",
+          "PURCHASE_ORDER_NOT_ACKNOWLEDGED",
+          "PURCHASE_ORDER_DELIVERY_MISSED",
+          "PURCHASE_ORDER_DISPATCH_NOT_UPDATED",
+          "PURCHASE_ORDER_TRACKING_MISSING",
+          "GOODS_RECEIPT_NOT_CREATED",
+          "VENDOR_INVOICE_PENDING",
+          "VENDOR_PAYMENT_OVERDUE",
           "PRODUCTION_ORDER_DELAYED",
           "JOB_WORK_OVERDUE",
           "DISPATCH_DELAYED",
@@ -46601,7 +46774,7 @@
             "items": {
               "$ref": "#/components/schemas/NotificationPreferenceUpdate"
             },
-            "maxItems": 41,
+            "maxItems": 48,
             "minItems": 1,
             "title": "Preferences",
             "type": "array"
@@ -87193,7 +87366,8 @@
     },
     "/api/v1/audit/approvals/{approval_id}/approve": {
       "post": {
-        "description": "Records the decision and writes an audit entry against the record the request targets, in one transaction.\n\nRefused with 403 when the caller does not hold the permission the requested action needs, and when the caller raised the request themselves - a request approved by its own author carries no second judgement. Refused with 422 when the request has already been decided.",
+        "deprecated": true,
+        "description": "Deprecated. Decisions must use the owning document workflow so its status and queue row change atomically.",
         "operationId": "approve_request_api_v1_audit_approvals__approval_id__approve_post",
         "parameters": [
           {
@@ -87352,7 +87526,8 @@
     },
     "/api/v1/audit/approvals/{approval_id}/reject": {
       "post": {
-        "description": "Same authority rules as approving. A `note` is required: a rejection without a stated reason is not evidence of a judgement, it is the start of a phone call.",
+        "deprecated": true,
+        "description": "Deprecated. Decisions must use the owning document workflow so its status and queue row change atomically.",
         "operationId": "reject_request_api_v1_audit_approvals__approval_id__reject_post",
         "parameters": [
           {
@@ -134006,6 +134181,286 @@
           }
         ],
         "summary": "List my notifications",
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/alert-rules": {
+      "get": {
+        "operationId": "list_alert_rules_api_v1_notifications_alert_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_NotificationAlertRuleRead__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Effective smart-alert rules",
+        "tags": [
+          "Notifications"
+        ]
+      },
+      "put": {
+        "operationId": "update_alert_rules_api_v1_notifications_alert_rules_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationAlertRulesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_NotificationAlertRuleRead__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HTTP method not allowed"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service temporarily unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update smart-alert rules",
         "tags": [
           "Notifications"
         ]

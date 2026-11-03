@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 758 requests in 32
+Import `postman_collection.json` (Postman v2.1 format, 760 requests in 32
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -555,15 +555,34 @@ aggregate quantity to individual sales lines.
 /documents            upload · download · metadata
 /notifications        list · unread count · read · preferences · push devices ·
                       messaging channel status · tenant templates · delivery history
+/admin/alerts         read and update company smart-alert thresholds and reminders
+/approvals            read open approval requests; decisions stay on their documents
 /vendor-portal        orders · consignments · shared documents · bills · payments · QC
 /dealer-portal        catalogue · pricing · cart · wishlist · checkout · orders · statement
                       own invoices/credits · return requests · banners/offers · item images
 /promotions           staff banner/offer management · lifecycle actions · eligibility preview
-/audit                logs · entity history · approvals
+/audit                logs · entity history · approval-request data
 ```
 
 Full request and response schemas are generated from the code in
 `openapi.json` and, in development, at `/docs`.
+
+## Smart alerts
+
+Timed operational alerts are scanned by Celery at the configured interval
+(900 seconds by default). Each rule keeps a company-scoped episode so repeated
+scans update the same alert instead of raising duplicate events. The
+`/admin/alerts` page reads and updates the effective rule matrix:
+
+| Route | Operation | Permission |
+|---|---|---|
+| `GET /notifications/alert-rules` | Read all rules, including defaults | `settings.view` |
+| `PUT /notifications/alert-rules` | Save changed company overrides | `settings.manage` |
+
+QC inspection creation also raises an immediate `QC_INSPECTION_PENDING`
+notification for eligible internal users with `qc.inspect`. Unread
+notifications collapse into one group per inspection stage and link to the
+quality pending queue.
 
 ## WhatsApp and SMS
 

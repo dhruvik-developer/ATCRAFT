@@ -138,7 +138,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -179,6 +179,7 @@ from src.modules.job_work.models import (
     ISSUED_OR_LATER_STATUSES,
     JOB_WORK_DEFAULT_GST_RATE,
     JOB_WORK_DEFAULT_SAC,
+    MATERIAL_AT_VENDOR_STATUSES,
     MAX_LINES_PER_ORDER,
     JobWorkChallan,
     JobWorkChallanLine,
@@ -239,6 +240,7 @@ from src.modules.job_work.serial_tracking import (
     receipt_movements,
     validate_receipt_units,
 )
+from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationType
 from src.modules.notifications.service import notify_vendor
 from src.modules.organization.models import Company
@@ -4095,6 +4097,44 @@ async def challan_pdf_data(
         "total_value": str(challan.total_value),
         "notes": challan.notes,
     }
+
+
+async def overdue_alert_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    as_of: datetime,
+    threshold: timedelta,
+    limit: int = 500,
+) -> list[AlertCandidate]:
+    """Find job-work orders overdue at the vendor using their lifecycle status."""
+    cutoff = (as_of - threshold).date()
+    stmt = (
+        select(JobWorkOrder)
+        .where(
+            JobWorkOrder.company_id == tenant.company_id,
+            JobWorkOrder.status.in_(MATERIAL_AT_VENDOR_STATUSES),
+            JobWorkOrder.expected_return_date < cutoff,
+        )
+        .order_by(JobWorkOrder.expected_return_date, JobWorkOrder.id)
+        .limit(max(1, min(limit, 500)))
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    return [
+        AlertCandidate(
+            entity_type="job_work_order",
+            entity_id=row.id,
+            title=f"Job-work order {row.code} is overdue",
+            body=(
+                f"Order {row.code} was due back on {row.expected_return_date} and "
+                "still has material at the vendor."
+            ),
+            action_url=f"/job-work/{row.id}",
+            creator_id=row.created_by_id,
+            vendor_id=row.vendor_id,
+        )
+        for row in rows
+    ]
 
 
 __all__ = [

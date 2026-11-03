@@ -88,7 +88,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
-| `notifications` | `notifications`, `notification_preferences`, `notification_channel_templates`, `notification_deliveries`, `push_subscriptions` |
+| `notifications` | `notifications`, `notification_preferences`, `notification_channel_templates`, `notification_deliveries`, `push_subscriptions`, `notification_alert_rules`, `notification_alert_states` |
 | `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
 | `dealer_portal` | `dealer_offers`, `dealer_banners`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, banner records, carts and wishlists |
 | `common` | `document_sequences` |
@@ -1366,6 +1366,20 @@ partial recovery indexes for the channel with its delivery marker NULL.
 `push_subscriptions` is a hard-deleted TenantEntity with user CASCADE FK, globally
 unique endpoint hash, encrypted URL, P-256 public/auth keys, user agent/label,
 expiry/seen/success/failure timestamps and nonnegative failure count.
+
+### Smart alert rules and episodes (B4)
+`notification_alert_rules` stores sparse company overrides keyed by
+`(company_id, rule_key)`. Threshold minutes are nonnegative and reminder minutes
+positive; the effective API matrix fills absent rows from the code registry.
+`notification_alert_states` stores one episode per company, rule and entity:
+first/last detection, last notification, notification count and resolution time.
+The unique partial index `uq_notification_alert_states_open` uses
+`(company_id, rule_key, entity_id) WHERE resolved_at IS NULL`; inserts pass the
+same predicate as their `ON CONFLICT` arbiter. The alert worker resolves cleared
+episodes before inserting recurrences, batches notifications by recipient
+resolution, and writes an audit event only when it actually raises notifications.
+Read notifications older than 180 days and resolved episodes older than 90 days
+are removed by bounded daily maintenance batches (assumptions §B4-1).
 
 ---
 

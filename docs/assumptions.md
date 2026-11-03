@@ -4043,6 +4043,32 @@ local seed run. The marker rolls back with a failed first initialization.
 **Impact if wrong.** A deliberate demo reset must be a separately authorized
 operation, never an implicit effect of the normal repeatable seed command.
 
+## §B4-1. Smart-alert timing, delivery and retention defaults
+
+**Assumed.** Timed alerts use UTC. Sparse per-company rule rows may override
+thresholds, reminders and enablement; absent a row, all registered rules are
+enabled. The default threshold/reminder cadence is: PO acknowledgement 24 h/24 h;
+missed PO delivery 0 d/24 h; missing dispatch update 1 d/24 h; missing shipment
+tracking 4 h/24 h; missing GRN 2 d/24 h; pending QC 24 h/24 h; vendor invoice
+pending 7 d/7 d; overdue vendor payment 0 d/3 d; job work overdue 0 d/24 h;
+dispatch delayed 0 d/24 h; production order delayed 0 d/24 h; sales order at
+risk 7 d/24 h; and stock below reorder 0 d/24 h. Stock below reorder is one
+company digest; other rules are per entity. Read notifications older than 180
+days and resolved alert episodes older than 90 days are purged in bounded
+batches.
+
+**Why.** The alert specifications require useful defaults but no tenant-specific
+schedule or retention period was supplied. UTC avoids interpreting the same
+timestamp differently across Celery and tenant time zones; company settings
+provide an escape hatch without silently changing code defaults.
+
+**Where.** `notifications/alerts.py`, `notification_alert_rules`,
+`notification_alert_states`, and `maintenance.purge_read_notifications`.
+
+**Impact if wrong.** A business-approved local schedule, recipient policy,
+threshold or retention period should be set through company alert rules or
+changed here only after updating the operating handbook and tests.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

@@ -56,7 +56,8 @@ from src.modules.allocation.models import (
     ReservationType,
     StockReservation,
 )
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalStatus
 from src.modules.customers.models import AddressType, Customer, CustomerAddress, CustomerType
 from src.modules.dealer_portal.models import DealerOffer
 from src.modules.inventory.models import InventoryBalance
@@ -938,6 +939,15 @@ async def test_a_below_cost_override_blocks_confirmation_until_approved(ctx: Ctx
 
     order = await make_draft(ctx, customer, warehouse, [line(item, "10", unit_price=Decimal("55"))])
     assert order.requires_approval is True
+    approval = await ctx.session.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == ctx.tenant.company_id,
+            ApprovalRequest.entity_type == "sales_order",
+            ApprovalRequest.entity_id == order.id,
+        )
+    )
+    assert approval is not None
+    assert approval.status == ApprovalStatus.PENDING.value
 
     with pytest.raises(ApprovalRequiredError):
         await service.confirm_order(
@@ -952,6 +962,8 @@ async def test_a_below_cost_override_blocks_confirmation_until_approved(ctx: Ctx
     await service.approve_order(
         ctx.session, ctx.approver_tenant, ctx.approver, order.id, reason="Strategic account"
     )
+    assert approval.status == ApprovalStatus.APPROVED.value
+    assert approval.decided_by_id == ctx.approver.user_id
     result = await service.confirm_order(
         ctx.session,
         ctx.tenant,

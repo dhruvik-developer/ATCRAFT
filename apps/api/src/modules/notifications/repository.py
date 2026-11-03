@@ -28,7 +28,20 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Select, and_, case, cast, func, or_, select, text, tuple_, update
+from sqlalchemy import (
+    Boolean,
+    Select,
+    and_,
+    case,
+    cast,
+    delete,
+    func,
+    or_,
+    select,
+    text,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +54,8 @@ from src.core.pagination import Cursor, CursorParams
 from src.core.responses import CursorPagination
 from src.modules.notifications.models import (
     Notification,
+    NotificationAlertRule,
+    NotificationAlertState,
     NotificationChannel,
     NotificationChannelTemplate,
     NotificationDelivery,
@@ -580,6 +595,60 @@ class NotificationRepository(BaseRepository[Notification]):
             stmt = stmt.where(or_(User.is_superuser.is_(True), self._holds(permission)))
         return await self._bounded_user_ids(stmt.order_by(User.id), purpose="vendor")
 
+    async def user_ids_by_vendor(
+        self, vendor_ids: Sequence[uuid.UUID], *, permission: str
+    ) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Resolve active vendor users for many vendors in one bounded query."""
+        from src.modules.users.models import User
+
+        if not vendor_ids:
+            return {}
+        stmt = (
+            select(User.vendor_id, User.id)
+            .where(
+                User.company_id == self.tenant.company_id,
+                User.vendor_id.in_(vendor_ids),
+                User.is_active.is_(True),
+                User.deleted_at.is_(None),
+                or_(User.is_superuser.is_(True), self._holds(permission)),
+            )
+            .order_by(User.vendor_id, User.id)
+        )
+        found = list((await self.session.execute(stmt.limit(MAX_ROLE_RECIPIENTS + 1))).all())
+        if len(found) > MAX_ROLE_RECIPIENTS:
+            log.warning(
+                "notifications.permission_fanout_truncated",
+                company_id=str(self.tenant.company_id),
+                purpose="vendor",
+                limit=MAX_ROLE_RECIPIENTS,
+            )
+            found = found[:MAX_ROLE_RECIPIENTS]
+        recipients: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for vendor_id, user_id in found:
+            if vendor_id is not None:
+                recipients.setdefault(vendor_id, []).append(user_id)
+        return recipients
+
+    async def active_assigned_vendor_users(
+        self, assignments: Sequence[tuple[uuid.UUID, uuid.UUID]]
+    ) -> set[uuid.UUID]:
+        """Validate assigned recipient ids against their active vendor accounts."""
+        from src.modules.users.models import User
+
+        if not assignments:
+            return set()
+        user_ids = {user_id for user_id, _ in assignments}
+        vendor_ids = {vendor_id for _, vendor_id in assignments}
+        stmt = select(User.id, User.vendor_id).where(
+            User.company_id == self.tenant.company_id,
+            User.id.in_(user_ids),
+            User.vendor_id.in_(vendor_ids),
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+        valid = set((await self.session.execute(stmt)).all())
+        return {user_id for user_id, vendor_id in assignments if (user_id, vendor_id) in valid}
+
     async def user_ids_with_permission(self, permission: str) -> list[uuid.UUID]:
         """Active internal users holding ``permission`` (superusers hold everything).
 
@@ -590,6 +659,7 @@ class NotificationRepository(BaseRepository[Notification]):
         stmt = select(User.id).where(
             User.company_id == self.tenant.company_id,
             User.vendor_id.is_(None),
+            User.customer_id.is_(None),
             User.is_active.is_(True),
             User.deleted_at.is_(None),
             or_(User.is_superuser.is_(True), self._holds(permission)),
@@ -609,6 +679,7 @@ class NotificationRepository(BaseRepository[Notification]):
                         User.company_id == self.tenant.company_id,
                         User.id.in_(user_ids),
                         User.vendor_id.is_(None),
+                        User.customer_id.is_(None),
                         User.is_active.is_(True),
                         User.deleted_at.is_(None),
                     )
@@ -721,12 +792,137 @@ class NotificationMessagingRepository(BaseRepository[NotificationChannelTemplate
         )
 
 
+class NotificationAlertRepository(BaseRepository[NotificationAlertRule]):
+    """Tenant-scoped alert configuration and episode-state persistence."""
+
+    model = NotificationAlertRule
+
+    async def list_rules(self) -> list[NotificationAlertRule]:
+        stmt = (
+            select(NotificationAlertRule)
+            .where(NotificationAlertRule.company_id == self.tenant.company_id)
+            .order_by(NotificationAlertRule.rule_key.asc())
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def upsert_rules(self, rows: Sequence[dict[str, Any]]) -> list[NotificationAlertRule]:
+        if not rows:
+            return []
+        insert_stmt = pg_insert(NotificationAlertRule).values(list(rows))
+        stmt = (
+            insert_stmt.on_conflict_do_update(
+                index_elements=["company_id", "rule_key"],
+                set_={
+                    "is_enabled": insert_stmt.excluded.is_enabled,
+                    "threshold_minutes": insert_stmt.excluded.threshold_minutes,
+                    "remind_every_minutes": insert_stmt.excluded.remind_every_minutes,
+                    "updated_at": insert_stmt.excluded.updated_at,
+                    "updated_by_id": insert_stmt.excluded.updated_by_id,
+                },
+            )
+            .returning(NotificationAlertRule)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def delete_rules(self, rule_keys: Sequence[str]) -> int:
+        if not rule_keys:
+            return 0
+        stmt = delete(NotificationAlertRule).where(
+            NotificationAlertRule.company_id == self.tenant.company_id,
+            NotificationAlertRule.rule_key.in_(rule_keys),
+        )
+        result = await self.session.execute(stmt)
+        return affected_rows(result)
+
+    async def list_open_states(self, rule_key: str) -> list[NotificationAlertState]:
+        stmt = (
+            select(NotificationAlertState)
+            .where(
+                NotificationAlertState.company_id == self.tenant.company_id,
+                NotificationAlertState.rule_key == rule_key,
+                NotificationAlertState.resolved_at.is_(None),
+            )
+            .order_by(NotificationAlertState.entity_id.asc())
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def insert_open_states(self, rows: Sequence[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        insert_stmt = pg_insert(NotificationAlertState).values(list(rows))
+        stmt = insert_stmt.on_conflict_do_nothing(
+            index_elements=["company_id", "rule_key", "entity_id"],
+            index_where=text("resolved_at IS NULL"),
+        )
+        return affected_rows(await self.session.execute(stmt))
+
+    async def update_detected(
+        self, rule_key: str, entity_ids: Sequence[uuid.UUID], *, at: datetime
+    ) -> int:
+        if not entity_ids:
+            return 0
+        stmt = (
+            update(NotificationAlertState)
+            .where(
+                NotificationAlertState.company_id == self.tenant.company_id,
+                NotificationAlertState.rule_key == rule_key,
+                NotificationAlertState.entity_id.in_(entity_ids),
+                NotificationAlertState.resolved_at.is_(None),
+            )
+            .values(last_detected_at=at, updated_at=at)
+            .execution_options(synchronize_session=False)
+        )
+        return affected_rows(await self.session.execute(stmt))
+
+    async def resolve_states(
+        self, rule_key: str, entity_ids: Sequence[uuid.UUID], *, at: datetime
+    ) -> int:
+        if not entity_ids:
+            return 0
+        stmt = (
+            update(NotificationAlertState)
+            .where(
+                NotificationAlertState.company_id == self.tenant.company_id,
+                NotificationAlertState.rule_key == rule_key,
+                NotificationAlertState.entity_id.in_(entity_ids),
+                NotificationAlertState.resolved_at.is_(None),
+            )
+            .values(resolved_at=at, updated_at=at)
+            .execution_options(synchronize_session=False)
+        )
+        return affected_rows(await self.session.execute(stmt))
+
+    async def mark_notified(
+        self, rule_key: str, entity_ids: Sequence[uuid.UUID], *, at: datetime
+    ) -> int:
+        if not entity_ids:
+            return 0
+        stmt = (
+            update(NotificationAlertState)
+            .where(
+                NotificationAlertState.company_id == self.tenant.company_id,
+                NotificationAlertState.rule_key == rule_key,
+                NotificationAlertState.entity_id.in_(entity_ids),
+                NotificationAlertState.resolved_at.is_(None),
+            )
+            .values(
+                last_notified_at=at,
+                notified_count=NotificationAlertState.notified_count + 1,
+                updated_at=at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return affected_rows(await self.session.execute(stmt))
+
+
 __all__ = [
     "INSERT_BATCH_SIZE",
     "MARK_ALL_BATCH",
     "MAX_ROLE_RECIPIENTS",
     "SYSTEM_ACTOR_ID",
     "UNREAD_COUNT_CEILING",
+    "NotificationAlertRepository",
     "NotificationMessagingRepository",
     "NotificationRepository",
 ]
