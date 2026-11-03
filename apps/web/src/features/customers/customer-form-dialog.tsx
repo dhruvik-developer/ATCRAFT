@@ -1,5 +1,6 @@
 /**
- * Create / edit dialog for a customer, in three tabs.
+ * Create / edit dialog for a customer, with supporting address, contact and
+ * collections tabs.
  *
  * One component serves both because the field set is identical apart from
  * `code`, which the API refuses to change once documents quote it.
@@ -16,7 +17,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { MapPin, ShieldAlert, ShieldCheck, UserRound } from 'lucide-react'
+import { Banknote, MapPin, ShieldAlert, ShieldCheck, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -62,6 +63,7 @@ import { toast } from '@/lib/toast'
 
 import { AddressesPanel, ContactsPanel, UnsavedCustomerNotice } from './customer-relations'
 import { CUSTOMER_TYPES, PRICE_TYPES, isDealerChannel, type CustomerDetail } from './customer-types'
+import { CustomerCollectionsPanel } from './customer-collections-panel'
 
 const MONEY = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
@@ -348,6 +350,7 @@ export function CustomerFormDialog({
   customerId,
   canEdit,
   canManageDealers,
+  canViewCollections,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -364,6 +367,7 @@ export function CustomerFormDialog({
    * before the record is loaded; this dialog applies it once it is.
    */
   canManageDealers: boolean
+  canViewCollections: boolean
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(customerId)
@@ -450,6 +454,12 @@ export function CustomerFormDialog({
               <UserRound className="h-3.5 w-3.5" aria-hidden />
               Contacts
             </TabsTrigger>
+            {isEdit && canViewCollections && (
+              <TabsTrigger value="collections">
+                <Banknote className="h-3.5 w-3.5" aria-hidden />
+                Collections
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="details" className="flex min-h-0 flex-col">
@@ -712,6 +722,12 @@ export function CustomerFormDialog({
               <UnsavedCustomerNotice what="Contacts" />
             )}
           </TabsContent>
+
+          {isEdit && canViewCollections && customerId && (
+            <TabsContent value="collections" className="min-h-0 overflow-y-auto">
+              <CustomerCollectionsPanel customerId={customerId} />
+            </TabsContent>
+          )}
         </Tabs>
       </DialogContent>
     </Dialog>

@@ -93,6 +93,52 @@ def test_the_vendor_score_weights_delivery_and_quality_equally() -> None:
     assert vendor_performance_score(Decimal("0"), Decimal("0")) == Decimal("0.00")
 
 
+def test_dealer_performance_derives_exact_percentages_and_average_order_value() -> None:
+    row = _derive(
+        ReportKey.DEALER_PERFORMANCE,
+        {
+            "dispatched_quantity": Decimal("75"),
+            "ordered_quantity": Decimal("100"),
+            "on_time_dispatched_quantity": Decimal("60"),
+            "receipts_amount": Decimal("300"),
+            "invoiced_amount": Decimal("400"),
+            "order_value_amount": Decimal("1000"),
+            "order_count": 4,
+            "credit_limit_amount": Decimal("500"),
+            "outstanding_amount": Decimal("250"),
+        },
+        _context(),
+    )
+
+    assert row["fulfilment_percent"] == Decimal("75.00")
+    assert row["on_time_dispatch_percent"] == Decimal("80.00")
+    assert row["collection_ratio_percent"] == Decimal("75.00")
+    assert row["average_order_value_amount"] == Decimal("250.0000")
+    assert row["credit_utilisation_percent"] == Decimal("50.00")
+
+
+def test_dealer_performance_reports_unlimited_credit_as_no_utilisation_percent() -> None:
+    row = _derive(
+        ReportKey.DEALER_PERFORMANCE,
+        {
+            "dispatched_quantity": Decimal("0"),
+            "ordered_quantity": Decimal("0"),
+            "on_time_dispatched_quantity": Decimal("0"),
+            "receipts_amount": Decimal("0"),
+            "invoiced_amount": Decimal("0"),
+            "order_value_amount": Decimal("0"),
+            "order_count": 0,
+            "credit_limit_amount": None,
+            "outstanding_amount": Decimal("0"),
+        },
+        _context(),
+    )
+
+    assert row["credit_utilisation_percent"] is None
+    assert row["fulfilment_percent"] == Decimal("0.00")
+    assert row["average_order_value_amount"] == Decimal("0")
+
+
 # -----------------------------------------------------------------------------
 # Sales order fulfilment
 # -----------------------------------------------------------------------------

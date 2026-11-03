@@ -1144,6 +1144,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/collections/follow-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List payment follow-ups */
+        get: operations["list_follow_ups_api_v1_collections_follow_ups_get"];
+        put?: never;
+        /** Open a payment follow-up */
+        post: operations["create_follow_up_api_v1_collections_follow_ups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/follow-ups/{follow_up_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a payment follow-up and its overdue invoices */
+        get: operations["get_follow_up_api_v1_collections_follow_ups__follow_up_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Reassign or reschedule a follow-up */
+        patch: operations["update_follow_up_api_v1_collections_follow_ups__follow_up_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/collections/follow-ups/{follow_up_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a follow-up opened in error */
+        post: operations["cancel_follow_up_api_v1_collections_follow_ups__follow_up_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/follow-ups/{follow_up_id}/escalate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Escalate a follow-up, optionally putting the customer on hold
+         * @description Blocking the customer requires `customer.update` in addition to `collection.manage`; without it the request is refused before anything moves.
+         */
+        post: operations["escalate_follow_up_api_v1_collections_follow_ups__follow_up_id__escalate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/follow-ups/{follow_up_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow-up notes, newest first
+         * @description Keyset-paginated by `(created_at, id)`: pass the `next_cursor` from the previous page rather than a page number.
+         */
+        get: operations["list_follow_up_notes_api_v1_collections_follow_ups__follow_up_id__notes_get"];
+        put?: never;
+        /** Log a contact attempt */
+        post: operations["add_follow_up_note_api_v1_collections_follow_ups__follow_up_id__notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/follow-ups/{follow_up_id}/promise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a dated promise from the customer */
+        post: operations["record_promise_api_v1_collections_follow_ups__follow_up_id__promise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/follow-ups/{follow_up_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve a follow-up */
+        post: operations["resolve_follow_up_api_v1_collections_follow_ups__follow_up_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collections/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overdue receivables worklist
+         * @description One row per customer and currency with invoices past their due date and an unsettled balance. The follow-up columns are null until somebody opens one.
+         */
+        get: operations["collection_worklist_api_v1_collections_worklist_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers": {
         parameters: {
             query?: never;
@@ -8248,6 +8396,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/dealer-performance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Dealer performance */
+        get: operations["dealer_performance_api_v1_reports_dealer_performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/dispatch": {
         parameters: {
             query?: never;
@@ -12382,6 +12547,36 @@ export interface components {
         /** ApiResponse[FinancialYearRead] */
         ApiResponse_FinancialYearRead_: {
             data?: components["schemas"]["FinancialYearRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[FollowUpDetail] */
+        ApiResponse_FollowUpDetail_: {
+            data?: components["schemas"]["FollowUpDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** ApiResponse[FollowUpNoteRead] */
+        ApiResponse_FollowUpNoteRead_: {
+            data?: components["schemas"]["FollowUpNoteRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -18492,6 +18687,23 @@ export interface components {
              */
             success: true;
         };
+        /** CursorPaginatedResponse[FollowUpNoteRead] */
+        CursorPaginatedResponse_FollowUpNoteRead_: {
+            /** Data */
+            data?: components["schemas"]["FollowUpNoteRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["CursorPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** CursorPaginatedResponse[LedgerEntryRead] */
         CursorPaginatedResponse_LedgerEntryRead_: {
             /** Data */
@@ -18933,6 +19145,8 @@ export interface components {
             collections_mtd?: string | null;
             /** Dispatches In Transit */
             dispatches_in_transit: number;
+            /** Follow Ups Due */
+            follow_ups_due?: number | null;
             /**
              * Generated At
              * Format: date-time
@@ -18968,6 +19182,10 @@ export interface components {
             qc_pending: number;
             /** Receivables Amount */
             receivables_amount?: string | null;
+            /** Receivables Outstanding */
+            receivables_outstanding?: string | null;
+            /** Receivables Overdue */
+            receivables_overdue?: string | null;
             /** Stock Refreshed At */
             stock_refreshed_at?: string | null;
             /** Stock Value */
@@ -20001,6 +20219,75 @@ export interface components {
             due_date: string | null;
             /** Outstanding Amount */
             outstanding_amount: string;
+        };
+        /** DealerPerformanceRow */
+        DealerPerformanceRow: {
+            /** Average Days To Pay */
+            average_days_to_pay: string | null;
+            /**
+             * Average Order Value Amount
+             * @default 0
+             */
+            average_order_value_amount: string;
+            /**
+             * Collection Ratio Percent
+             * @default 0
+             */
+            collection_ratio_percent: string;
+            /** Credit Limit Amount */
+            credit_limit_amount: string | null;
+            /** Credit Note Amount */
+            credit_note_amount: string;
+            /** Credit Utilisation Percent */
+            credit_utilisation_percent: string | null;
+            /** Currency */
+            currency: string;
+            /** Customer Code */
+            customer_code: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Customer Type */
+            customer_type: string;
+            /** Dispatched Quantity */
+            dispatched_quantity: string;
+            /**
+             * Fulfilment Percent
+             * @default 0
+             */
+            fulfilment_percent: string;
+            /** Invoiced Amount */
+            invoiced_amount: string;
+            /**
+             * On Time Dispatch Percent
+             * @default 0
+             */
+            on_time_dispatch_percent: string;
+            /** Order Count */
+            order_count: number;
+            /** Order Value Amount */
+            order_value_amount: string;
+            /** Ordered Quantity */
+            ordered_quantity: string;
+            /** Outstanding Amount */
+            outstanding_amount: string;
+            /** Overdue Amount */
+            overdue_amount: string;
+            /**
+             * Performance Score
+             * @default 0
+             */
+            performance_score: string;
+            /** Price List Type */
+            price_list_type: string;
+            /** Receipts Amount */
+            receipts_amount: string;
+            /** Returns Amount */
+            returns_amount: string;
         };
         /** DealerPortalMe */
         DealerPortalMe: {
@@ -21389,6 +21676,308 @@ export interface components {
             notes?: string | null;
             /** Start Date */
             start_date?: string | null;
+        };
+        /** FollowUpCancel */
+        FollowUpCancel: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * FollowUpChannel
+         * @description How the customer was contacted, or that the system acted.
+         * @enum {string}
+         */
+        FollowUpChannel: "CALL" | "EMAIL" | "VISIT" | "MESSAGE" | "SYSTEM";
+        /**
+         * FollowUpCreate
+         * @description Open a chase by hand, for a customer that already owes overdue money.
+         */
+        FollowUpCreate: {
+            /** Assigned To Id */
+            assigned_to_id?: string | null;
+            /** Currency */
+            currency: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Next Action Date */
+            next_action_date?: string | null;
+        };
+        /** FollowUpDetail */
+        FollowUpDetail: {
+            /** Assigned To Id */
+            assigned_to_id: string | null;
+            /** Assigned To Name */
+            assigned_to_name: string | null;
+            /** Cancellation Reason */
+            cancellation_reason: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string;
+            /** Current Overdue Amount */
+            current_overdue_amount: string;
+            /** Customer Code */
+            customer_code: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Escalated At */
+            escalated_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Invoices */
+            invoices?: components["schemas"]["FollowUpInvoiceRow"][];
+            /** Last Note */
+            last_note?: string | null;
+            /** Last Note At */
+            last_note_at?: string | null;
+            /** Last Reminded At */
+            last_reminded_at: string | null;
+            /** Next Action Date */
+            next_action_date: string | null;
+            /**
+             * Oldest Due Date
+             * Format: date
+             */
+            oldest_due_date: string;
+            /** Opened Overdue Amount */
+            opened_overdue_amount: string;
+            /** Promised Amount */
+            promised_amount: string | null;
+            /** Promised Date */
+            promised_date: string | null;
+            /** Resolution Note */
+            resolution_note: string | null;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Resolved By Id */
+            resolved_by_id: string | null;
+            status: components["schemas"]["FollowUpStatus"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * FollowUpEscalate
+         * @description Hand the chase to a manager, optionally putting the account on hold.
+         */
+        FollowUpEscalate: {
+            /**
+             * Block Customer
+             * @default false
+             */
+            block_customer: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * FollowUpInvoiceRow
+         * @description One overdue invoice behind a follow-up, with its settled balance.
+         */
+        FollowUpInvoiceRow: {
+            /** Balance Amount */
+            balance_amount: string;
+            /** Code */
+            code: string;
+            /** Credited Amount */
+            credited_amount: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invoice Date
+             * Format: date
+             */
+            invoice_date: string;
+            /** Overdue Days */
+            overdue_days: number;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Status */
+            status: string;
+            /** Total Amount */
+            total_amount: string;
+        };
+        /**
+         * FollowUpNoteCreate
+         * @description One contact attempt. ``SYSTEM`` is refused - that channel is the sweep's.
+         */
+        FollowUpNoteCreate: {
+            channel: components["schemas"]["FollowUpChannel"];
+            /** Next Action Date */
+            next_action_date?: string | null;
+            /** Note */
+            note: string;
+            outcome?: components["schemas"]["FollowUpOutcome"] | null;
+        };
+        /** FollowUpNoteRead */
+        FollowUpNoteRead: {
+            channel: components["schemas"]["FollowUpChannel"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id: string | null;
+            /** Created By Name */
+            created_by_name?: string | null;
+            /**
+             * Follow Up Id
+             * Format: uuid
+             */
+            follow_up_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Next Action Date */
+            next_action_date: string | null;
+            /** Note */
+            note: string;
+            outcome: components["schemas"]["FollowUpOutcome"] | null;
+        };
+        /**
+         * FollowUpOutcome
+         * @description What the contact produced. Optional on a note.
+         * @enum {string}
+         */
+        FollowUpOutcome: "PROMISED" | "DISPUTED" | "NO_RESPONSE" | "PARTIAL_PAYMENT" | "OTHER";
+        /**
+         * FollowUpPromise
+         * @description A dated commitment from the customer.
+         */
+        FollowUpPromise: {
+            /** Promised Amount */
+            promised_amount: number | string;
+            /**
+             * Promised Date
+             * Format: date
+             */
+            promised_date: string;
+        };
+        /** FollowUpResolve */
+        FollowUpResolve: {
+            /** Note */
+            note: string;
+        };
+        /**
+         * FollowUpStatus
+         * @description Lifecycle of a payment follow-up.
+         *
+         *     ``RESOLVED`` and ``CANCELLED`` are terminal. ``PROMISED`` records a dated
+         *     commitment from the customer; ``ESCALATED`` records that ordinary chasing has
+         *     failed and a manager or a credit hold is now involved.
+         * @enum {string}
+         */
+        FollowUpStatus: "OPEN" | "PROMISED" | "ESCALATED" | "RESOLVED" | "CANCELLED";
+        /** FollowUpSummary */
+        FollowUpSummary: {
+            /** Assigned To Id */
+            assigned_to_id: string | null;
+            /** Assigned To Name */
+            assigned_to_name: string | null;
+            /** Cancellation Reason */
+            cancellation_reason: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string;
+            /** Current Overdue Amount */
+            current_overdue_amount: string;
+            /** Customer Code */
+            customer_code: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Escalated At */
+            escalated_at: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Note */
+            last_note?: string | null;
+            /** Last Note At */
+            last_note_at?: string | null;
+            /** Last Reminded At */
+            last_reminded_at: string | null;
+            /** Next Action Date */
+            next_action_date: string | null;
+            /**
+             * Oldest Due Date
+             * Format: date
+             */
+            oldest_due_date: string;
+            /** Opened Overdue Amount */
+            opened_overdue_amount: string;
+            /** Promised Amount */
+            promised_amount: string | null;
+            /** Promised Date */
+            promised_date: string | null;
+            /** Resolution Note */
+            resolution_note: string | null;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Resolved By Id */
+            resolved_by_id: string | null;
+            status: components["schemas"]["FollowUpStatus"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: number;
+        };
+        /**
+         * FollowUpUpdate
+         * @description Reassign or reschedule. Both fields are nullable: clearing is meaningful.
+         */
+        FollowUpUpdate: {
+            /** Assigned To Id */
+            assigned_to_id?: string | null;
+            /** Next Action Date */
+            next_action_date?: string | null;
         };
         /**
          * FreightPaidBy
@@ -27171,6 +27760,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[DealerPerformanceRow] */
+        PaginatedResponse_DealerPerformanceRow_: {
+            /** Data */
+            data?: components["schemas"]["DealerPerformanceRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[DealerReturnSummary] */
         PaginatedResponse_DealerReturnSummary_: {
             /** Data */
@@ -27311,6 +27917,23 @@ export interface components {
         PaginatedResponse_FinancialYearRead_: {
             /** Data */
             data?: components["schemas"]["FinancialYearRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[FollowUpSummary] */
+        PaginatedResponse_FollowUpSummary_: {
+            /** Data */
+            data?: components["schemas"]["FollowUpSummary"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -29164,6 +29787,23 @@ export interface components {
         PaginatedResponse_WorkOrderRead_: {
             /** Data */
             data?: components["schemas"]["WorkOrderRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[WorklistRow] */
+        PaginatedResponse_WorklistRow_: {
+            /** Data */
+            data?: components["schemas"]["WorklistRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -33196,7 +33836,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "SALES_REGISTER" | "PURCHASE_REGISTER" | "GSTR1" | "TRIAL_BALANCE" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "DEALER_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "SALES_REGISTER" | "PURCHASE_REGISTER" | "GSTR1" | "TRIAL_BALANCE" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -39691,11 +40331,6 @@ export interface components {
             on_time_percent: string;
             /** On Time Receipt Count */
             on_time_receipt_count: number;
-            /**
-             * Performance Score
-             * @default 0
-             */
-            performance_score: string;
             /** Receipt Count */
             receipt_count: number;
             /** Received Quantity */
@@ -41415,6 +42050,71 @@ export interface components {
             planned_start_at?: string | null;
             /** Shift Id */
             shift_id?: string | null;
+        };
+        /**
+         * WorklistRow
+         * @description One customer's overdue position in one currency.
+         *
+         *     ``follow_up_id`` is null until somebody - a person or the nightly sweep -
+         *     opens a chase. The row still appears, because the money is overdue whether or
+         *     not it has an owner.
+         */
+        WorklistRow: {
+            /** Assigned To Id */
+            assigned_to_id?: string | null;
+            /** Assigned To Name */
+            assigned_to_name?: string | null;
+            /**
+             * Bucket 0 30 Amount
+             * @default 0
+             */
+            bucket_0_30_amount: string;
+            /**
+             * Bucket 31 60 Amount
+             * @default 0
+             */
+            bucket_31_60_amount: string;
+            /**
+             * Bucket 61 90 Amount
+             * @default 0
+             */
+            bucket_61_90_amount: string;
+            /**
+             * Bucket 90 Plus Amount
+             * @default 0
+             */
+            bucket_90_plus_amount: string;
+            /** Currency */
+            currency: string;
+            /** Customer Code */
+            customer_code: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Customer Name */
+            customer_name: string;
+            customer_type: components["schemas"]["CustomerType"];
+            /** Follow Up Code */
+            follow_up_code?: string | null;
+            /** Follow Up Id */
+            follow_up_id?: string | null;
+            /** Last Note At */
+            last_note_at?: string | null;
+            /** Next Action Date */
+            next_action_date?: string | null;
+            /** Oldest Overdue Days */
+            oldest_overdue_days: number;
+            /** Overdue Amount */
+            overdue_amount: string;
+            /** Overdue Invoice Count */
+            overdue_invoice_count: number;
+            /** Promised Amount */
+            promised_amount?: string | null;
+            /** Promised Date */
+            promised_date?: string | null;
+            status?: components["schemas"]["FollowUpStatus"] | null;
         };
         /**
          * ReleaseRequest
@@ -50184,6 +50884,1393 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_BomSummary_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_follow_ups_api_v1_collections_follow_ups_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                status?: components["schemas"]["FollowUpStatus"] | null;
+                customer_id?: string | null;
+                assigned_to_id?: string | null;
+                assigned_to_me?: boolean;
+                live_only?: boolean;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_FollowUpSummary_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_follow_up_api_v1_collections_follow_ups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_follow_up_api_v1_collections_follow_ups__follow_up_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_follow_up_api_v1_collections_follow_ups__follow_up_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_follow_up_api_v1_collections_follow_ups__follow_up_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    escalate_follow_up_api_v1_collections_follow_ups__follow_up_id__escalate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpEscalate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_follow_up_notes_api_v1_collections_follow_ups__follow_up_id__notes_get: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from the previous page */
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CursorPaginatedResponse_FollowUpNoteRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_follow_up_note_api_v1_collections_follow_ups__follow_up_id__notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpNoteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpNoteRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    record_promise_api_v1_collections_follow_ups__follow_up_id__promise_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpPromise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resolve_follow_up_api_v1_collections_follow_ups__follow_up_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                follow_up_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FollowUpResolve"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FollowUpDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    collection_worklist_api_v1_collections_worklist_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                customer_id?: string | null;
+                status?: components["schemas"]["FollowUpStatus"] | null;
+                assigned_to_me?: boolean;
+                min_overdue_days?: number | null;
+                dealer_only?: boolean;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_WorklistRow_"];
                 };
             };
             /** @description Malformed request */
@@ -112934,6 +115021,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -113084,6 +115172,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -113234,6 +115323,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -113618,6 +115708,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -113757,6 +115848,157 @@ export interface operations {
             };
         };
     };
+    dealer_performance_api_v1_reports_dealer_performance_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_DealerPerformanceRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     dispatch_report_api_v1_reports_dispatch_get: {
         parameters: {
             query?: {
@@ -113768,6 +116010,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -113922,6 +116165,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -114057,6 +116301,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -114203,6 +116448,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -114353,6 +116599,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -114503,6 +116750,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -114895,6 +117143,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115045,6 +117294,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115195,6 +117445,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115345,6 +117596,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115495,6 +117747,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115645,6 +117898,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115795,6 +118049,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -115945,6 +118200,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116095,6 +118351,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116245,6 +118502,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116395,6 +118653,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116545,6 +118804,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116695,6 +118955,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116845,6 +119106,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -116995,6 +119257,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -117145,6 +119408,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -117291,6 +119555,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -117441,6 +119706,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
@@ -117591,6 +119857,7 @@ export interface operations {
                 warehouse_id?: string | null;
                 vendor_id?: string | null;
                 customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;

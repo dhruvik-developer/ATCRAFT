@@ -61,7 +61,8 @@ from src.core.ids import new_id
 from src.core.pagination import COUNT_CEILING, PageParams
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO, Money
-from src.modules.customers.models import Customer
+from src.modules.collections.models import LIVE_FOLLOW_UP_STATUSES, PaymentFollowUp
+from src.modules.customers.models import Customer, CustomerType
 from src.modules.dispatch.models import (
     DELIVERED_STATUSES,
     IN_FLIGHT_STATUSES,
@@ -85,6 +86,7 @@ from src.modules.finance.models import (
     LedgerEntry,
     PartyType,
     Payment,
+    PaymentAllocation,
     PaymentType,
     SalesInvoice,
     SalesInvoiceLine,
@@ -119,7 +121,7 @@ from src.modules.job_work.models import (
     RejectionAction,
 )
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunStatus
-from src.modules.organization.models import CostCentre, Department
+from src.modules.organization.models import Company, CostCentre, Department
 from src.modules.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
@@ -1127,6 +1129,391 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
             stmt = stmt.where(or_(Vendor.code.ilike(pattern), Vendor.name.ilike(pattern)))
+        return stmt
+
+    def dealer_performance(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Commercial performance per customer and currency.
+
+        Each measure is aggregated at its own document grain before the grouped
+        subqueries are joined. This prevents invoice lines, dispatch lines and
+        payment allocations from multiplying one another in the outer query.
+        """
+        order_statuses = tuple(
+            status for status in SalesOrderStatus if status not in NON_REVENUE_SALES_STATUSES
+        )
+        currency_sources = union_all(
+            select(SalesOrder.customer_id, SalesOrder.currency).where(
+                SalesOrder.company_id == self._company,
+                SalesOrder.order_date.between(period.date_from, period.date_to),
+                SalesOrder.status.in_(order_statuses),
+            ),
+            select(SalesInvoice.customer_id, SalesInvoice.currency).where(
+                SalesInvoice.company_id == self._company,
+                SalesInvoice.invoice_date <= period.date_to,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            ),
+            select(CreditNote.customer_id, CreditNote.currency).where(
+                CreditNote.company_id == self._company,
+                CreditNote.note_date <= period.date_to,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+            ),
+            select(Payment.party_id, Payment.currency).where(
+                Payment.company_id == self._company,
+                Payment.payment_type == PaymentType.RECEIPT,
+                Payment.party_type == PartyType.CUSTOMER,
+                Payment.status.in_(POSTED_PAYMENT_STATUSES),
+                Payment.payment_date.between(period.date_from, period.date_to),
+            ),
+        ).subquery("dealer_performance_currency_sources")
+        currency_keys = (
+            select(currency_sources.c.customer_id, currency_sources.c.currency)
+            .distinct()
+            .subquery("dealer_performance_currency_keys")
+        )
+
+        orders = (
+            select(
+                SalesOrder.customer_id.label("customer_id"),
+                SalesOrder.currency.label("currency"),
+                func.count(SalesOrder.id).label("order_count"),
+                func.sum(SalesOrder.total_amount).label("order_value_amount"),
+            )
+            .where(
+                SalesOrder.company_id == self._company,
+                SalesOrder.order_date.between(period.date_from, period.date_to),
+                SalesOrder.status.in_(order_statuses),
+            )
+            .group_by(SalesOrder.customer_id, SalesOrder.currency)
+            .subquery("dealer_performance_orders")
+        )
+        ordered = (
+            select(
+                SalesOrder.customer_id.label("customer_id"),
+                SalesOrder.currency.label("currency"),
+                func.sum(SalesOrderLine.quantity).label("ordered_quantity"),
+            )
+            .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+            .where(
+                SalesOrderLine.company_id == self._company,
+                SalesOrder.order_date.between(period.date_from, period.date_to),
+                SalesOrder.status.in_(order_statuses),
+            )
+            .group_by(SalesOrder.customer_id, SalesOrder.currency)
+            .subquery("dealer_performance_ordered")
+        )
+        on_time_quantity = case(
+            (
+                Dispatch.dispatch_date
+                <= func.coalesce(SalesOrderLine.required_date, SalesOrder.required_date),
+                DispatchLine.quantity,
+            ),
+            else_=0,
+        )
+        dispatched = (
+            select(
+                SalesOrder.customer_id.label("customer_id"),
+                SalesOrder.currency.label("currency"),
+                func.sum(DispatchLine.quantity).label("dispatched_quantity"),
+                func.sum(on_time_quantity).label("on_time_dispatched_quantity"),
+            )
+            .select_from(DispatchLine)
+            .join(Dispatch, Dispatch.id == DispatchLine.dispatch_id)
+            .join(SalesOrderLine, SalesOrderLine.id == DispatchLine.sales_order_line_id)
+            .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+            .where(
+                DispatchLine.company_id == self._company,
+                Dispatch.dispatch_type == DispatchType.SALES,
+                Dispatch.status != "CANCELLED",
+                Dispatch.dispatched_at.is_not(None),
+                Dispatch.dispatch_date.between(period.date_from, period.date_to),
+                SalesOrder.order_date.between(period.date_from, period.date_to),
+                SalesOrder.status.in_(order_statuses),
+            )
+            .group_by(SalesOrder.customer_id, SalesOrder.currency)
+            .subquery("dealer_performance_dispatches")
+        )
+        invoices = (
+            select(
+                SalesInvoice.customer_id.label("customer_id"),
+                SalesInvoice.currency.label("currency"),
+                func.sum(SalesInvoice.total_amount).label("invoiced_gross_amount"),
+            )
+            .where(
+                SalesInvoice.company_id == self._company,
+                SalesInvoice.invoice_date.between(period.date_from, period.date_to),
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            )
+            .group_by(SalesInvoice.customer_id, SalesInvoice.currency)
+            .subquery("dealer_performance_invoices")
+        )
+        credits = (
+            select(
+                CreditNote.customer_id.label("customer_id"),
+                CreditNote.currency.label("currency"),
+                func.sum(CreditNote.total_amount).label("credit_note_amount"),
+                func.sum(
+                    case(
+                        (
+                            CreditNote.reason_type == CreditNoteReason.RETURN,
+                            CreditNote.total_amount,
+                        ),
+                        else_=0,
+                    )
+                ).label("returns_amount"),
+            )
+            .where(
+                CreditNote.company_id == self._company,
+                CreditNote.note_date.between(period.date_from, period.date_to),
+                CreditNote.status == CreditNoteStatus.ISSUED,
+            )
+            .group_by(CreditNote.customer_id, CreditNote.currency)
+            .subquery("dealer_performance_credits")
+        )
+        receipts = (
+            select(
+                Payment.party_id.label("customer_id"),
+                Payment.currency.label("currency"),
+                func.sum(Payment.amount).label("receipts_amount"),
+            )
+            .where(
+                Payment.company_id == self._company,
+                Payment.payment_type == PaymentType.RECEIPT,
+                Payment.party_type == PartyType.CUSTOMER,
+                Payment.status.in_(POSTED_PAYMENT_STATUSES),
+                Payment.payment_date.between(period.date_from, period.date_to),
+            )
+            .group_by(Payment.party_id, Payment.currency)
+            .subquery("dealer_performance_receipts")
+        )
+        payment_days = cast(Payment.payment_date - SalesInvoice.invoice_date, Numeric(18, 4))
+        allocated_receipts = (
+            select(
+                SalesInvoice.customer_id.label("customer_id"),
+                SalesInvoice.currency.label("currency"),
+                (
+                    func.sum(payment_days * PaymentAllocation.amount)
+                    / func.nullif(func.sum(PaymentAllocation.amount), 0)
+                ).label("average_days_to_pay"),
+            )
+            .join(
+                PaymentAllocation,
+                PaymentAllocation.sales_invoice_id == SalesInvoice.id,
+            )
+            .join(Payment, Payment.id == PaymentAllocation.payment_id)
+            .where(
+                SalesInvoice.company_id == self._company,
+                Payment.company_id == self._company,
+                Payment.payment_type == PaymentType.RECEIPT,
+                Payment.party_type == PartyType.CUSTOMER,
+                Payment.status.in_(POSTED_PAYMENT_STATUSES),
+                Payment.payment_date.between(period.date_from, period.date_to),
+                SalesInvoice.invoice_date <= Payment.payment_date,
+            )
+            .group_by(SalesInvoice.customer_id, SalesInvoice.currency)
+            .subquery("dealer_performance_payment_days")
+        )
+        paid_as_of = (
+            select(
+                PaymentAllocation.sales_invoice_id.label("invoice_id"),
+                func.sum(PaymentAllocation.amount).label("paid_amount"),
+            )
+            .join(Payment, Payment.id == PaymentAllocation.payment_id)
+            .where(
+                PaymentAllocation.company_id == self._company,
+                Payment.company_id == self._company,
+                Payment.payment_type == PaymentType.RECEIPT,
+                Payment.party_type == PartyType.CUSTOMER,
+                Payment.status.in_(POSTED_PAYMENT_STATUSES),
+                Payment.payment_date <= period.date_to,
+            )
+            .group_by(PaymentAllocation.sales_invoice_id)
+            .subquery("dealer_performance_paid_as_of")
+        )
+        credited_as_of = (
+            select(
+                CreditNote.sales_invoice_id.label("invoice_id"),
+                func.sum(CreditNote.total_amount).label("credited_amount"),
+            )
+            .where(
+                CreditNote.company_id == self._company,
+                CreditNote.note_date <= period.date_to,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+            )
+            .group_by(CreditNote.sales_invoice_id)
+            .subquery("dealer_performance_credited_as_of")
+        )
+        overdue = (
+            select(
+                SalesInvoice.customer_id.label("customer_id"),
+                SalesInvoice.currency.label("currency"),
+                func.sum(
+                    func.greatest(
+                        SalesInvoice.total_amount
+                        - func.coalesce(paid_as_of.c.paid_amount, 0)
+                        - func.coalesce(credited_as_of.c.credited_amount, 0),
+                        0,
+                    )
+                ).label("overdue_amount"),
+            )
+            .outerjoin(paid_as_of, paid_as_of.c.invoice_id == SalesInvoice.id)
+            .outerjoin(credited_as_of, credited_as_of.c.invoice_id == SalesInvoice.id)
+            .where(
+                SalesInvoice.company_id == self._company,
+                SalesInvoice.invoice_date <= period.date_to,
+                SalesInvoice.due_date < period.date_to,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            )
+            .group_by(SalesInvoice.customer_id, SalesInvoice.currency)
+            .subquery("dealer_performance_overdue")
+        )
+        current_credits = (
+            select(
+                CreditNote.sales_invoice_id.label("invoice_id"),
+                func.sum(CreditNote.total_amount).label("credited_amount"),
+            )
+            .where(
+                CreditNote.company_id == self._company,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+            )
+            .group_by(CreditNote.sales_invoice_id)
+            .subquery("dealer_performance_current_credits")
+        )
+        outstanding = (
+            select(
+                SalesInvoice.customer_id.label("customer_id"),
+                SalesInvoice.currency.label("currency"),
+                func.sum(
+                    func.greatest(
+                        SalesInvoice.total_amount
+                        - SalesInvoice.paid_amount
+                        - func.coalesce(current_credits.c.credited_amount, 0),
+                        0,
+                    )
+                ).label("outstanding_amount"),
+            )
+            .outerjoin(current_credits, current_credits.c.invoice_id == SalesInvoice.id)
+            .where(
+                SalesInvoice.company_id == self._company,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            )
+            .group_by(SalesInvoice.customer_id, SalesInvoice.currency)
+            .subquery("dealer_performance_outstanding")
+        )
+
+        zero_money = literal(ZERO, Numeric(18, 4))
+        zero_quantity = literal(ZERO, Numeric(18, 4))
+        invoiced_amount = func.coalesce(
+            invoices.c.invoiced_gross_amount, zero_money
+        ) - func.coalesce(credits.c.credit_note_amount, zero_money)
+        stmt = (
+            select(
+                Customer.id.label("customer_id"),
+                Customer.code.label("customer_code"),
+                Customer.name.label("customer_name"),
+                Customer.customer_type.label("customer_type"),
+                Customer.price_list_type.label("price_list_type"),
+                currency_keys.c.currency.label("currency"),
+                Customer.credit_limit.label("credit_limit_amount"),
+                func.coalesce(outstanding.c.outstanding_amount, zero_money).label(
+                    "outstanding_amount"
+                ),
+                func.coalesce(orders.c.order_count, 0).label("order_count"),
+                func.coalesce(orders.c.order_value_amount, zero_money).label("order_value_amount"),
+                invoiced_amount.label("invoiced_amount"),
+                func.coalesce(credits.c.credit_note_amount, zero_money).label("credit_note_amount"),
+                func.coalesce(credits.c.returns_amount, zero_money).label("returns_amount"),
+                func.coalesce(dispatched.c.dispatched_quantity, zero_quantity).label(
+                    "dispatched_quantity"
+                ),
+                func.coalesce(ordered.c.ordered_quantity, zero_quantity).label("ordered_quantity"),
+                func.coalesce(receipts.c.receipts_amount, zero_money).label("receipts_amount"),
+                allocated_receipts.c.average_days_to_pay.label("average_days_to_pay"),
+                func.coalesce(overdue.c.overdue_amount, zero_money).label("overdue_amount"),
+                func.coalesce(dispatched.c.on_time_dispatched_quantity, zero_quantity).label(
+                    "on_time_dispatched_quantity"
+                ),
+            )
+            .select_from(currency_keys)
+            .join(Customer, Customer.id == currency_keys.c.customer_id)
+            .outerjoin(
+                orders,
+                and_(
+                    orders.c.customer_id == Customer.id,
+                    orders.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                ordered,
+                and_(
+                    ordered.c.customer_id == Customer.id,
+                    ordered.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                dispatched,
+                and_(
+                    dispatched.c.customer_id == Customer.id,
+                    dispatched.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                invoices,
+                and_(
+                    invoices.c.customer_id == Customer.id,
+                    invoices.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                credits,
+                and_(
+                    credits.c.customer_id == Customer.id,
+                    credits.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                receipts,
+                and_(
+                    receipts.c.customer_id == Customer.id,
+                    receipts.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                allocated_receipts,
+                and_(
+                    allocated_receipts.c.customer_id == Customer.id,
+                    allocated_receipts.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                overdue,
+                and_(
+                    overdue.c.customer_id == Customer.id,
+                    overdue.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .outerjoin(
+                outstanding,
+                and_(
+                    outstanding.c.customer_id == Customer.id,
+                    outstanding.c.currency == currency_keys.c.currency,
+                ),
+            )
+            .where(Customer.company_id == self._company)
+            .order_by(invoiced_amount.desc(), Customer.code.asc(), Customer.id.asc())
+        )
+        if filters.customer_id:
+            stmt = stmt.where(Customer.id == filters.customer_id)
+        if filters.customer_type:
+            stmt = stmt.where(Customer.customer_type == filters.customer_type)
+        else:
+            stmt = stmt.where(
+                Customer.customer_type.in_(
+                    (CustomerType.DEALER, CustomerType.DISTRIBUTOR, CustomerType.OEM)
+                )
+            )
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(or_(Customer.code.ilike(pattern), Customer.name.ilike(pattern)))
         return stmt
 
     # --- 9. product profitability ------------------------------------------
@@ -2862,12 +3249,71 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             )
             .scalar_subquery()
         )
+        company_currency = select(Company.currency).where(Company.id == company).scalar_subquery()
         receivables = (
             select(func.coalesce(func.sum(SalesInvoice.total_amount - SalesInvoice.paid_amount), 0))
             .where(
                 SalesInvoice.company_id == company,
+                SalesInvoice.currency == company_currency,
                 SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
                 SalesInvoice.total_amount > SalesInvoice.paid_amount,
+            )
+            .scalar_subquery()
+        )
+        receivables_credits = (
+            select(
+                CreditNote.sales_invoice_id.label("sales_invoice_id"),
+                func.sum(CreditNote.total_amount).label("credited_amount"),
+            )
+            .where(
+                CreditNote.company_id == company,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+            )
+            .group_by(CreditNote.sales_invoice_id)
+            .subquery("dashboard_receivables_credits")
+        )
+        receivable_balance = func.greatest(
+            SalesInvoice.total_amount
+            - SalesInvoice.paid_amount
+            - func.coalesce(receivables_credits.c.credited_amount, 0),
+            0,
+        )
+        receivables_outstanding = (
+            select(func.coalesce(func.sum(receivable_balance), 0))
+            .outerjoin(
+                receivables_credits,
+                receivables_credits.c.sales_invoice_id == SalesInvoice.id,
+            )
+            .where(
+                SalesInvoice.company_id == company,
+                SalesInvoice.currency == company_currency,
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+            )
+            .scalar_subquery()
+        )
+        receivables_overdue = (
+            select(func.coalesce(func.sum(receivable_balance), 0))
+            .outerjoin(
+                receivables_credits,
+                receivables_credits.c.sales_invoice_id == SalesInvoice.id,
+            )
+            .where(
+                SalesInvoice.company_id == company,
+                SalesInvoice.currency == company_currency,
+                SalesInvoice.status.in_(
+                    (SalesInvoiceStatus.ISSUED, SalesInvoiceStatus.PARTIALLY_PAID)
+                ),
+                SalesInvoice.due_date < as_of,
+                receivable_balance > 0,
+            )
+            .scalar_subquery()
+        )
+        follow_ups_due = (
+            select(func.count(PaymentFollowUp.id))
+            .where(
+                PaymentFollowUp.company_id == company,
+                PaymentFollowUp.status.in_(LIVE_FOLLOW_UP_STATUSES),
+                PaymentFollowUp.next_action_date <= as_of,
             )
             .scalar_subquery()
         )
@@ -2937,6 +3383,9 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             payables_due.label("payables_due_amount"),
             payables_overdue.label("payables_overdue_amount"),
             receivables.label("receivables_amount"),
+            receivables_outstanding.label("receivables_outstanding"),
+            receivables_overdue.label("receivables_overdue"),
+            follow_ups_due.label("follow_ups_due"),
             invoiced_sales_mtd.label("invoiced_sales_mtd"),
             collections_mtd.label("collections_mtd"),
             mrp_shortages.label("mrp_shortage_count"),

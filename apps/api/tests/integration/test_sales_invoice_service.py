@@ -16,6 +16,10 @@ from src.core.pagination import PageParams, SortParams
 from src.core.types import ZERO
 from src.modules.allocation import service as allocation
 from src.modules.audit.models import AuditLog
+from src.modules.collections import service as collections_service
+from src.modules.collections.models import FollowUpStatus, PaymentFollowUp, PaymentFollowUpNote
+from src.modules.collections.schemas import FollowUpFilters, WorklistFilters
+from src.modules.customers.models import CustomerType
 from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.models import DispatchLine
 from src.modules.dispatch.schemas import DispatchCreate, DispatchRequest
@@ -1156,3 +1160,109 @@ async def test_product_profitability_nets_return_cost_and_estimates_uninvoiced_d
     assert second_movement.source_line_id == second_line.id
     assert Decimal(second_movement.total_cost) == Decimal("600.0000")
     assert Decimal(raw["provisional_cost_amount"]) == Decimal(second_movement.total_cost)
+
+
+async def test_dealer_performance_groups_sales_and_overdue_receivables_by_customer_currency(bench):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    invoice_row = await b.session.get(SalesInvoice, invoice.id)
+    assert invoice_row is not None
+    invoice_row.invoice_date = today() - timedelta(days=10)
+    invoice_row.due_date = today() - timedelta(days=2)
+    b.order.order_date = today() - timedelta(days=10)
+    b.order.required_date = today() - timedelta(days=5)
+    await b.session.flush()
+
+    period = ReportPeriod(date_from=today() - timedelta(days=30), date_to=today())
+    query = ReportQueryRepository(b.session, b.tenant).dealer_performance(
+        period,
+        ReportFilters(customer_id=b.customer.id, customer_type=CustomerType.CUSTOMER),
+    )
+    row = (await b.session.execute(query)).one()._mapping
+
+    assert row["customer_id"] == b.customer.id
+    assert row["currency"] == "INR"
+    assert row["order_count"] == 1
+    assert row["ordered_quantity"] == Decimal("500.0000")
+    assert row["dispatched_quantity"] == Decimal("200.0000")
+    assert row["invoiced_amount"] == invoice.total_amount
+    assert row["overdue_amount"] == invoice.total_amount
+    assert row["outstanding_amount"] == invoice.total_amount
+
+
+async def test_dashboard_receivables_tiles_exclude_foreign_currency_invoices(bench):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    invoice_row = await b.session.get(SalesInvoice, invoice.id)
+    assert invoice_row is not None
+    invoice_row.currency = "USD"
+    await b.session.flush()
+
+    dashboard = (
+        (
+            await b.session.execute(
+                ReportQueryRepository(b.session, b.tenant).dashboard(
+                    as_of=today(), month_start=today().replace(day=1)
+                )
+            )
+        )
+        .one()
+        ._mapping
+    )
+
+    assert Decimal(dashboard["receivables_outstanding"]) == ZERO
+    assert Decimal(dashboard["receivables_overdue"]) == ZERO
+
+
+async def test_collections_worklist_and_sweep_open_once_and_remind_on_cadence(bench):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    invoice_row = await b.session.get(SalesInvoice, invoice.id)
+    assert invoice_row is not None
+    invoice_row.invoice_date = today() - timedelta(days=20)
+    invoice_row.due_date = today() - timedelta(days=10)
+    await b.session.flush()
+
+    rows, _ = await collections_service.worklist(
+        b.session, b.tenant, WorklistFilters(customer_id=b.customer.id), PageParams(), SortParams()
+    )
+    assert len(rows) == 1
+    assert rows[0].overdue_amount == invoice.total_amount
+    assert rows[0].bucket_0_30_amount == invoice.total_amount
+    assert rows[0].follow_up_id is None
+
+    first = await collections_service.scan_overdue_receivables(b.session, b.tenant, as_of=today())
+    assert first.opened == 1
+    assert first.reminded == 1
+    follow_up = (
+        await b.session.scalars(
+            select(PaymentFollowUp).where(
+                PaymentFollowUp.customer_id == b.customer.id,
+                PaymentFollowUp.currency == invoice.currency,
+            )
+        )
+    ).one()
+    assert follow_up.status == FollowUpStatus.OPEN
+    follow_up_rows, _ = await collections_service.list_follow_ups(
+        b.session,
+        b.tenant,
+        FollowUpFilters(customer_id=b.customer.id, live_only=True),
+        PageParams(),
+    )
+    assert follow_up_rows[0].last_note
+    assert follow_up_rows[0].last_note_at is not None
+
+    notes_before = await b.session.scalar(
+        select(func.count())
+        .select_from(PaymentFollowUpNote)
+        .where(PaymentFollowUpNote.follow_up_id == follow_up.id)
+    )
+    second = await collections_service.scan_overdue_receivables(b.session, b.tenant, as_of=today())
+    notes_after = await b.session.scalar(
+        select(func.count())
+        .select_from(PaymentFollowUpNote)
+        .where(PaymentFollowUpNote.follow_up_id == follow_up.id)
+    )
+    assert second.changed is False
+    assert second.opened == second.reminded == 0
+    assert notes_after == notes_before

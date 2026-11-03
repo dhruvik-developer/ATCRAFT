@@ -135,6 +135,11 @@ celery_app.conf.update(
             "schedule": 86400.0,
             "options": {"queue": "default", "expires": 3600},
         },
+        "overdue-receivables-follow-ups": {
+            "task": "notifications.scan_overdue_receivables",
+            "schedule": 86400.0,
+            "options": {"queue": "notifications", "expires": 3600},
+        },
         "poll-courier-tracking": {
             "task": "maintenance.poll_courier_tracking",
             "schedule": float(settings.courier_poll_interval_seconds),

@@ -49,6 +49,7 @@ export type ReportKey =
   | 'PACKING_LIST'
   | 'JOB_WORK_COST'
   | 'JOB_WORK_CHALLAN'
+  | 'DEALER_PERFORMANCE'
 
 /**
  * A rendering hint derived on the server from the row model's field type.

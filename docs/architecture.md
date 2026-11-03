@@ -164,7 +164,7 @@ planning     mrp · procurement
    ↓
 execution    production · assembly · job_work
    ↓
-downstream   quality · packing · dispatch · sales_returns · finance · reports
+downstream   quality · packing · dispatch · sales_returns · finance · collections · reports
    ↓
 portals      vendor_portal · dealer_portal
 ```
@@ -208,6 +208,13 @@ would cycle. A dealer account cannot reach any other module: `core.deps`
 refuses every route outside `/dealer-portal/**`, `/notifications/**` and auth
 self-service for a principal with a `customer_id` (docs/security.md, Dealer
 portal isolation).
+
+`collections` sits downstream of finance and customers. It owns the payment
+follow-up lifecycle and immutable contact history, reads invoice balances
+through tenant-scoped repository queries, and sends reminders through
+`notifications`. It does not post money or alter invoices: receipts and credits
+remain finance-owned. The reports dashboard reads its live follow-up counts in
+the same bounded dashboard query.
 
 `sales_returns` owns customer-return documents and per-serial QC dispositions.
 It calls dispatch for shipped-line evidence, inventory for every receipt and

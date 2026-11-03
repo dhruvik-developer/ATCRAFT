@@ -102,6 +102,9 @@ interface DashboardPayload {
   payables_due_amount?: DecimalString | null
   payables_overdue_amount?: DecimalString | null
   receivables_amount?: DecimalString | null
+  receivables_outstanding?: DecimalString | null
+  receivables_overdue?: DecimalString | null
+  follow_ups_due?: number | null
   invoiced_sales_mtd?: DecimalString | null
   collections_mtd?: DecimalString | null
   mrp_shortage_count?: number | null
@@ -550,13 +553,37 @@ export default function DashboardPage() {
     {
       key: 'receivables',
       label: 'Receivables',
-      value: formatMoney(metrics?.receivables_amount, { compact: true }),
+      value: formatMoney(metrics?.receivables_outstanding ?? metrics?.receivables_amount, {
+        compact: true,
+      }),
       hint: 'Outstanding from customers',
       icon: CircleDollarSign,
       tone: 'default' as const,
       to: '/finance',
       permissions: [P.SALES_INVOICE_VIEW],
-      visible: shows(metrics?.receivables_amount),
+      visible: shows(metrics?.receivables_outstanding ?? metrics?.receivables_amount),
+    },
+    {
+      key: 'receivables-overdue',
+      label: 'Overdue receivables',
+      value: formatMoney(metrics?.receivables_overdue, { compact: true }),
+      hint: 'Past their invoice due dates',
+      icon: CircleDollarSign,
+      tone: 'destructive' as const,
+      to: '/finance/collections',
+      permissions: [P.COLLECTION_VIEW],
+      visible: shows(metrics?.receivables_overdue),
+    },
+    {
+      key: 'follow-ups-due',
+      label: 'Follow-ups due',
+      value: formatNumber(metrics?.follow_ups_due ?? undefined),
+      hint: 'Next action due today or earlier',
+      icon: CalendarClock,
+      tone: 'warning' as const,
+      to: '/finance/collections?view=follow-ups',
+      permissions: [P.COLLECTION_VIEW],
+      visible: shows(metrics?.follow_ups_due),
     },
     {
       key: 'invoiced-sales-mtd',

@@ -2847,6 +2847,537 @@
     {
       "item": [
         {
+          "name": "Cancel a follow-up opened in error",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel a follow-up opened in error",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}/cancel",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Escalate a follow-up, optionally putting the customer on hold",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\",\n  \"block_customer\": false\n}"
+            },
+            "description": "Blocking the customer requires `customer.update` in addition to `collection.manage`; without it the request is refused before anything moves.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id",
+                "escalate"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}/escalate",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Follow-up notes, newest first",
+          "request": {
+            "description": "Keyset-paginated by `(created_at, id)`: pass the `next_cursor` from the previous page rather than a page number.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id",
+                "notes"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}/notes?",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List payment follow-ups",
+          "request": {
+            "description": "List payment follow-ups",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "OPEN"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to_me",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "live_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups?"
+            }
+          }
+        },
+        {
+          "name": "Log a contact attempt",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"channel\": \"CALL\",\n  \"note\": \"\",\n  \"next_action_date\": \"2026-01-01\",\n  \"outcome\": \"PROMISED\"\n}"
+            },
+            "description": "Log a contact attempt",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id",
+                "notes"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}/notes",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Open a payment follow-up",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"currency\": \"\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"assigned_to_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"next_action_date\": \"2026-01-01\"\n}"
+            },
+            "description": "Open a payment follow-up",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups"
+            }
+          }
+        },
+        {
+          "name": "Overdue receivables worklist",
+          "request": {
+            "description": "One row per customer and currency with invoices past their due date and an unsettled balance. The follow-up columns are null until somebody opens one.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "worklist"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "OPEN"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to_me",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "min_overdue_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "dealer_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/collections/worklist?"
+            }
+          }
+        },
+        {
+          "name": "Read a payment follow-up and its overdue invoices",
+          "request": {
+            "description": "Read a payment follow-up and its overdue invoices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reassign or reschedule a follow-up",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"assigned_to_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"next_action_date\": \"2026-01-01\"\n}"
+            },
+            "description": "Reassign or reschedule a follow-up",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Record a dated promise from the customer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"promised_amount\": 0,\n  \"promised_date\": \"2026-01-01\"\n}"
+            },
+            "description": "Record a dated promise from the customer",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id",
+                "promise"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}/promise",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Resolve a follow-up",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"note\": \"\"\n}"
+            },
+            "description": "Resolve a follow-up",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "collections",
+                "follow-ups",
+                ":follow_up_id",
+                "resolve"
+              ],
+              "raw": "{{base_url}}/api/v1/collections/follow-ups/{follow_up_id}/resolve",
+              "variable": [
+                {
+                  "description": "follow_up_id of the record",
+                  "key": "follow_up_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Collections"
+    },
+    {
+      "item": [
+        {
           "name": "Courier Webhook",
           "request": {
             "description": "Courier Webhook",
@@ -24907,6 +25438,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25015,6 +25552,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -25131,6 +25674,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25243,6 +25792,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25343,6 +25898,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25400,6 +25961,124 @@
           }
         },
         {
+          "name": "Dealer performance",
+          "request": {
+            "description": "Dealer performance",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "dealer-performance"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/dealer-performance?"
+            }
+          }
+        },
+        {
           "name": "Dispatch",
           "request": {
             "description": "Dispatch",
@@ -25451,6 +26130,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -25608,6 +26293,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25698,6 +26389,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -25798,6 +26495,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -25914,6 +26617,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26022,6 +26731,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -26158,6 +26873,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26266,6 +26987,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -26402,6 +27129,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26510,6 +27243,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -26626,6 +27365,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26734,6 +27479,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -26850,6 +27601,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26958,6 +27715,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -27074,6 +27837,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27182,6 +27951,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -27298,6 +28073,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27406,6 +28187,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -27522,6 +28309,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27630,6 +28423,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -27746,6 +28545,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27842,6 +28647,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",
@@ -27979,6 +28790,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "category_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28087,6 +28904,12 @@
                   "disabled": true,
                   "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
                 },
                 {
                   "description": "",

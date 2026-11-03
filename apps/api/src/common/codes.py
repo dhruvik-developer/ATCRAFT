@@ -92,6 +92,9 @@ class DocTypes:
     DISPATCH = DocType("dispatch", "DSP")
     VENDOR_INVOICE = DocType("vendor_invoice", "VINV")
     PAYMENT = DocType("payment", "PAY")
+    #: A collections chase. Internal, but numbered like every other document so
+    #: a note or a call can cite the follow-up it belongs to.
+    PAYMENT_FOLLOW_UP = DocType("payment_follow_up", "FU")
     #: A debit or credit note posted against a customer's account by hand.
     CUSTOMER_ADJUSTMENT = DocType("customer_adjustment", "CADJ")
     MRP_RUN = DocType("mrp_run", "MRP", yearly=False)

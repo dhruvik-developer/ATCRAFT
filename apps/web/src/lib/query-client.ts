@@ -285,6 +285,13 @@ export const queryKeys = {
     list: (params: unknown) => ['customers', 'list', params] as const,
     detail: (id: string) => ['customers', 'detail', id] as const,
   },
+  collections: {
+    all: ['collections'] as const,
+    worklist: (params: unknown) => ['collections', 'worklist', params] as const,
+    followUps: (params: unknown) => ['collections', 'follow-ups', params] as const,
+    detail: (id: string) => ['collections', 'follow-ups', id] as const,
+    notes: (id: string) => ['collections', 'follow-ups', id, 'notes'] as const,
+  },
   users: {
     all: ['users'] as const,
     list: (params: unknown) => ['users', 'list', params] as const,

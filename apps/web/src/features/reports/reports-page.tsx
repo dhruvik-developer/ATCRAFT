@@ -74,6 +74,7 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  humanise,
   toDateInput,
 } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -140,10 +141,13 @@ type FilterKind =
   | 'CUSTOMER'
   | 'WORK_CENTER'
   | 'COST_CENTRE'
+  | 'CUSTOMER_TYPE'
   | 'STATUS'
   | 'MIN_DAYS'
 
-const FILTERS: { name: string; label: string; kind: FilterKind; help?: string }[] = [
+type ReportFilter = { name: string; label: string; kind: FilterKind; help?: string }
+
+const COMMON_FILTERS: ReportFilter[] = [
   { name: 'warehouse_id', label: 'Warehouse', kind: 'WAREHOUSE' },
   { name: 'item_id', label: 'Item', kind: 'ITEM' },
   { name: 'vendor_id', label: 'Vendor', kind: 'VENDOR' },
@@ -163,6 +167,11 @@ const FILTERS: { name: string; label: string; kind: FilterKind; help?: string }[
     help: 'Where the report ages something',
   },
 ]
+const DEALER_PERFORMANCE_FILTERS: ReportFilter[] = [
+  ...COMMON_FILTERS,
+  { name: 'customer_type', label: 'Customer type', kind: 'CUSTOMER_TYPE' },
+]
+const CUSTOMER_TYPES: SchemaOf<'CustomerType'>[] = ['DEALER', 'DISTRIBUTOR', 'OEM', 'CUSTOMER']
 
 export default function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -376,6 +385,8 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
   const { can } = useAuth()
 
   const requiresPeriod = definition.requires_period
+  const activeFilters =
+    definition.key === 'DEALER_PERFORMANCE' ? DEALER_PERFORMANCE_FILTERS : COMMON_FILTERS
   const schema = useMemo(() => buildSchema(requiresPeriod), [requiresPeriod])
 
   const form = useForm<RunFormValues>({
@@ -386,7 +397,7 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
         : '',
       date_to: requiresPeriod ? searchParams.get('date_to') || toDateInput(new Date()) : '',
       values: Object.fromEntries(
-        FILTERS.map((filter) => [filter.name, searchParams.get(filter.name) ?? '']),
+        activeFilters.map((filter) => [filter.name, searchParams.get(filter.name) ?? '']),
       ),
     },
   })
@@ -394,17 +405,17 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
   const hasRun = searchParams.get('run') === '1'
 
   const applied = useMemo(() => {
-    const filters: Record<string, unknown> = {}
+    const appliedFilters: Record<string, unknown> = {}
     if (requiresPeriod) {
-      filters.date_from = searchParams.get('date_from') ?? ''
-      filters.date_to = searchParams.get('date_to') ?? ''
+      appliedFilters.date_from = searchParams.get('date_from') ?? ''
+      appliedFilters.date_to = searchParams.get('date_to') ?? ''
     }
-    for (const filter of FILTERS) {
+    for (const filter of activeFilters) {
       const value = searchParams.get(filter.name)
-      if (value) filters[filter.name] = value
+      if (value) appliedFilters[filter.name] = value
     }
-    return filters
-  }, [searchParams, requiresPeriod])
+    return appliedFilters
+  }, [searchParams, requiresPeriod, activeFilters])
 
   const list = useListQuery<ReportRow>({
     path: reportPath(definition.key),
@@ -480,7 +491,7 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
       next.set('date_from', values.date_from)
       next.set('date_to', values.date_to)
     }
-    for (const filter of FILTERS) {
+    for (const filter of activeFilters) {
       const value = (values.values[filter.name] ?? '').trim()
       if (value) next.set(filter.name, value)
     }
@@ -568,23 +579,25 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
                 </>
               )}
 
-              {FILTERS.filter(
-                (filter) =>
-                  (filter.kind !== 'WORK_CENTER' || can(P.WORK_CENTER_VIEW)) &&
-                  (filter.kind !== 'COST_CENTRE' || can(P.COST_CENTRE_VIEW)),
-              ).map((filter) => (
-                <FilterField
-                  key={filter.name}
-                  filter={filter}
-                  value={form.watch(`values.${filter.name}` as `values.${string}`) ?? ''}
-                  onChange={(next) =>
-                    form.setValue(`values.${filter.name}` as `values.${string}`, next, {
-                      shouldValidate: form.formState.isSubmitted,
-                    })
-                  }
-                  error={valueErrors?.[filter.name]?.message}
-                />
-              ))}
+              {activeFilters
+                .filter(
+                  (filter) =>
+                    (filter.kind !== 'WORK_CENTER' || can(P.WORK_CENTER_VIEW)) &&
+                    (filter.kind !== 'COST_CENTRE' || can(P.COST_CENTRE_VIEW)),
+                )
+                .map((filter) => (
+                  <FilterField
+                    key={filter.name}
+                    filter={filter}
+                    value={form.watch(`values.${filter.name}` as `values.${string}`) ?? ''}
+                    onChange={(next) =>
+                      form.setValue(`values.${filter.name}` as `values.${string}`, next, {
+                        shouldValidate: form.formState.isSubmitted,
+                      })
+                    }
+                    error={valueErrors?.[filter.name]?.message}
+                  />
+                ))}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -714,7 +727,7 @@ function FilterField({
   onChange,
   error,
 }: {
-  filter: (typeof FILTERS)[number]
+  filter: ReportFilter
   value: string
   onChange: (next: string) => void
   error?: string
@@ -778,6 +791,31 @@ function FilterField({
           onChange={(next) => onChange(next ?? '')}
           invalid={Boolean(error)}
         />
+        <FieldError message={error} />
+      </div>
+    )
+  }
+
+  if (filter.kind === 'CUSTOMER_TYPE') {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id}>{filter.label}</Label>
+        <Select
+          value={value || SELECT_NONE}
+          onValueChange={(next) => onChange(next === SELECT_NONE ? '' : next)}
+        >
+          <SelectTrigger id={id} aria-label={filter.label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SELECT_NONE}>All customer types</SelectItem>
+            {CUSTOMER_TYPES.map((customerType) => (
+              <SelectItem key={customerType} value={customerType}>
+                {humanise(customerType)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <FieldError message={error} />
       </div>
     )

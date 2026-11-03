@@ -180,9 +180,24 @@ def test_fresh_local_seed_rerun_preserves_all_rows_and_existing_password(seed_da
             "physical_counts",
             "sales_returns",
             "credit_notes",
+            "payment_follow_ups",
+            "payment_follow_up_notes",
             "inventory_summary",
         ):
             assert before[table] > 0, f"Fresh seed left {table} empty."
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM payment_follow_ups WHERE status = 'PROMISED'"
+            ).fetchone()[0]
+            > 0
+        )
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM payment_follow_up_notes "
+                "WHERE channel = 'SYSTEM' AND note ILIKE '%was not met.%'"
+            ).fetchone()[0]
+            > 0
+        )
         for table in ("sales_invoices", "credit_notes"):
             assert (
                 connection.execute(

@@ -126,6 +126,7 @@ export const routeLoaders = {
   '/packing': () => import('@/features/packing/packing-page'),
   '/dispatch': () => import('@/features/dispatch/dispatch-page'),
   '/finance': () => import('@/features/finance/finance-page'),
+  '/finance/collections': () => import('@/features/collections/collections-page'),
   '/finance/sales-invoices': () => import('@/features/finance/sales-invoices-page'),
   '/finance/credit-notes': () => import('@/features/finance/credit-notes-page'),
   '/finance/vendor-invoices': () => import('@/features/finance/vendor-invoices-page'),

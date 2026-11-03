@@ -195,6 +195,8 @@ export const P = {
 
   // finance
   FINANCE_VIEW: 'finance.view',
+  COLLECTION_VIEW: 'collection.view',
+  COLLECTION_MANAGE: 'collection.manage',
   LEDGER_VIEW: 'ledger.view',
   VENDOR_INVOICE_VIEW: 'vendor_invoice.view',
   VENDOR_INVOICE_CREATE: 'vendor_invoice.create',

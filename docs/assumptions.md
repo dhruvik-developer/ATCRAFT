@@ -4069,6 +4069,128 @@ provide an escape hatch without silently changing code defaults.
 threshold or retention period should be set through company alert rules or
 changed here only after updating the operating handbook and tests.
 
+## §A4-1. Overdue is measured per invoice due date
+
+**Assumed.** An overdue receivable is an ISSUED or PARTIALLY_PAID sales invoice
+whose `due_date` is before the sweep's business date and whose balance remains
+positive after paid amounts and issued credit notes. Each customer/currency
+position is reported separately; currencies are never converted or added.
+
+**Why.** The customer is late against the date they agreed to pay, not the date
+the shipment left or a ledger posting was entered. Counting only unpaid status
+would also miss partially settled invoices and issued return credits.
+
+**Where.** `collections.repository` worklist and overdue queries; the
+`DEALER_PERFORMANCE` report in `reports.repository`.
+
+**Impact if wrong.** A different settlement or credit-note policy changes the
+overdue amount and ageing buckets, so it must be changed consistently in both
+the worklist and the report.
+
+## §A4-2. One live chase occupies each customer/currency position
+
+**Assumed.** A company may have at most one OPEN, PROMISED or ESCALATED
+follow-up for a customer and currency. RESOLVED and CANCELLED history remains
+available, but does not occupy that slot.
+
+**Why.** A single owner and promise per currency prevent two staff from
+contacting the same account with conflicting figures while preserving the
+immutable history of earlier chases.
+
+**Where.** `payment_follow_ups` partial unique index and
+`collections.service.create_follow_up` / `scan_overdue_receivables`.
+
+**Impact if wrong.** If the business needs concurrent campaigns for one
+customer/currency, the identity and uniqueness key must include an explicit
+campaign or invoice group rather than removing the constraint.
+
+## §A4-3. The daily sweep opens and reconciles chases
+
+**Assumed.** The daily sweep opens one follow-up when overdue money has none,
+assigns it to the customer's sales owner when available, otherwise leaves it
+unassigned for Accounts, and refreshes the current balance and oldest due date.
+It resolves a live follow-up once the overdue balance reaches zero.
+
+**Why.** An automatic worklist entry prevents overdue accounts from remaining
+invisible until somebody remembers to open a chase. Resolution follows the
+ledger facts rather than a manual close that could conceal an outstanding
+balance.
+
+**Where.** `collections.service.scan_overdue_receivables`, called once per
+company by `notifications.scan_overdue_receivables`.
+
+**Impact if wrong.** Disable or change the sweep only with a replacement
+ownership process; otherwise overdue accounts can be missed or repeatedly
+reopened.
+
+## §A4-4. A missed promise returns to ordinary follow-up
+
+**Assumed.** A PROMISED follow-up returns to OPEN when its promised date has
+passed and overdue money remains. The promise is cleared, the next action is
+due immediately, and a SYSTEM note and status audit record the missed date.
+
+**Why.** A promise does not settle an invoice. Keeping it in PROMISED after its
+date passes would make a broken commitment look current and suppress the next
+action.
+
+**Where.** `collections.service.scan_overdue_receivables`.
+
+**Impact if wrong.** A grace period or partial-promise policy must be explicit
+and tested before it replaces the current date-based rule.
+
+## §A4-5. Follow-up reminders are sent every three days
+
+**Assumed.** A live follow-up with a positive overdue balance is reminded at
+most once per three days. Assigned rows notify their assignee; unassigned rows
+notify users in the ACCOUNTS role. Notifications collapse by customer and
+currency.
+
+**Why.** The specification requires reminders but gives no cadence. Three days
+keeps an unresolved account visible without turning the notification bell into
+a daily duplicate.
+
+**Where.** `FOLLOW_UP_REMINDER_DAYS` in `collections.models` and
+`collections.service.scan_overdue_receivables`.
+
+**Impact if wrong.** A customer-approved cadence can be made a company setting;
+until then, changing the constant requires updating the cadence test and this
+record.
+
+## §A4-6. Sales may chase; customer blocking remains separately authorised
+
+**Assumed.** The Accounts and Sales permission presets receive
+`collection.view` and `collection.manage`, so sales executives may record
+contact and promises. Escalating with a customer credit hold additionally
+requires `customer.update`; collections permission alone cannot block sales.
+
+**Why.** Sales owns dealer relationships, but changing a customer's ability to
+place orders is a separate credit decision with a stronger permission.
+
+**Where.** `core.permissions`, the collections router and
+`collections.service.escalate`.
+
+**Impact if wrong.** Revisit the role presets and approval workflow together;
+removing the separate customer permission would let an ordinary follow-up
+operator change credit availability.
+
+## §A4-7. Dealer performance keeps periods and currencies explicit
+
+**Assumed.** Dealer performance is grouped by customer and invoice/order
+currency. Period totals use the requested inclusive dates; overdue and
+outstanding are positions as of the period end. Orders in DRAFT or CANCELLED
+are not revenue. Credit notes reduce invoiced value, receipts use their
+allocations, and a missing credit limit produces no utilisation percentage.
+
+**Why.** Summing unlike currencies or treating an unapproved order as a sale
+would produce a plausible-looking but financially meaningless ranking.
+
+**Where.** `reports.repository.dealer_performance` and the
+`DEALER_PERFORMANCE` catalogue definition.
+
+**Impact if wrong.** Any alternative revenue, fulfilment or collection
+definition must keep the currency grain and be reflected in report filters,
+the handbook and its integration fixtures.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

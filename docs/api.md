@@ -27,7 +27,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 760 requests in 32
+Import `postman_collection.json` (Postman v2.1 format, 772 requests in 33
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -550,6 +550,7 @@ aggregate quantity to individual sales lines.
 /dispatch             dispatches · tracking events · tracking board · delayed
 /finance              ledgers · vendor/sales invoices · credit notes · match · payments
                       return-debit allocations · ageing · GST · valuation
+/collections          overdue worklist · follow-up register · notes · promises · escalation
 /reports              catalogue · dashboard · background report jobs · one route per
                       report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
@@ -566,6 +567,35 @@ aggregate quantity to individual sales lines.
 
 Full request and response schemas are generated from the code in
 `openapi.json` and, in development, at `/docs`.
+
+## Collections
+
+The collections API is tenant-scoped and exposes balances by customer and
+currency; it never combines currencies. Overdue means an ISSUED or
+PARTIALLY_PAID sales invoice whose `due_date` is before the requested business
+date, less paid amounts and issued credit notes. All lists are paginated. Notes
+are append-only and cursor-paginated by `(created_at, id)`.
+
+| Route | Operation | Permission |
+|---|---|---|
+| `GET /collections/worklist` | Read overdue customers and live follow-up summaries | `collection.view` |
+| `GET /collections/follow-ups` | List and filter follow-ups | `collection.view` |
+| `POST /collections/follow-ups` | Open a follow-up for an overdue customer/currency | `collection.manage` |
+| `GET /collections/follow-ups/{id}` | Read a follow-up and its overdue invoices | `collection.view` |
+| `PATCH /collections/follow-ups/{id}` | Reassign or reschedule a follow-up | `collection.manage` |
+| `GET /collections/follow-ups/{id}/notes` | Read keyset-paginated history | `collection.view` |
+| `POST /collections/follow-ups/{id}/notes` | Append a contact note | `collection.manage` |
+| `POST /collections/follow-ups/{id}/promise` | Record a promise within the overdue balance | `collection.manage` |
+| `POST /collections/follow-ups/{id}/escalate` | Escalate a chase | `collection.manage`; `customer.update` if blocking the customer |
+| `POST /collections/follow-ups/{id}/resolve` | Resolve a chase | `collection.manage` |
+| `POST /collections/follow-ups/{id}/cancel` | Cancel a chase opened in error | `collection.manage` |
+
+The daily `notifications.scan_overdue_receivables` task opens missing chases,
+refreshes balances, returns broken promises to OPEN, resolves settled balances,
+and sends reminders on a three-day cadence. Status transitions
+and every write are audited. `GET /reports/dealer-performance` provides period
+aggregates without combining currencies; it is available through the standard
+`report.view` catalogue.
 
 ## Smart alerts
 

@@ -1,8 +1,8 @@
 # The client handbook
 
-`content.json` is the maintained handbook source. It describes all 80 current
+`content.json` is the maintained handbook source. It describes all 87 current
 application routes, three public authentication routes and selected master-data
-tabs: 98 screen/tab entries across eleven chapters. Parameter names such as
+tabs: 105 screen/tab entries across eleven chapters. Parameter names such as
 `:itemId` and `:id` describe the same detail route.
 
 `Atcraft-ERP-Handbook.pdf`, `handbook.html` and `screens/` are generated local
@@ -117,3 +117,9 @@ orders, shipments, receipts, invoices and payments screens. The maintained
 handbook includes these routes and the dealer storefront, account and return
 flows. A new edition needs a fresh capture before its images can be described
 as current visual evidence.
+
+Collections is the Finance worklist for overdue customer invoices. It keeps
+balances separate by currency and records contact notes, promises and
+escalations on a follow-up. The Dealer performance report compares sales,
+fulfilment and collections over a selected period; its row currency is never
+combined with another.

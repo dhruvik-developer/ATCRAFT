@@ -86,6 +86,7 @@ from src.modules.reports.schemas import (
     DashboardTrendSeries,
     DashboardTrendsRead,
     DeadStockRow,
+    DealerPerformanceRow,
     DispatchRow,
     InventoryValuationRow,
     ItemMovementRow,
@@ -503,6 +504,20 @@ def _derive_vendor_performance(row: dict[str, Any], ctx: ReportContext) -> dict[
     return row
 
 
+def _derive_dealer_performance(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    row["fulfilment_percent"] = percent(row["dispatched_quantity"], row["ordered_quantity"])
+    row["on_time_dispatch_percent"] = percent(
+        row["on_time_dispatched_quantity"], row["dispatched_quantity"]
+    )
+    row["collection_ratio_percent"] = percent(row["receipts_amount"], row["invoiced_amount"])
+    row["average_order_value_amount"] = ratio(row["order_value_amount"], row["order_count"])
+    credit_limit = row["credit_limit_amount"]
+    row["credit_utilisation_percent"] = (
+        None if credit_limit is None else percent(row["outstanding_amount"], credit_limit)
+    )
+    return row
+
+
 def _derive_product_profitability(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
     if row.get("cost_pending", False):
         row["cost_amount"] = None
@@ -695,6 +710,18 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=True,
         cacheable=True,
         derive=_derive_vendor_performance,
+    ),
+    ReportKey.DEALER_PERFORMANCE: ReportDefinition(
+        key=ReportKey.DEALER_PERFORMANCE,
+        title="Dealer performance",
+        description=(
+            "Orders, invoicing, dispatch, collections and credit per dealer and currency."
+        ),
+        row_model=DealerPerformanceRow,
+        build=lambda repo, ctx: repo.dealer_performance(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        derive=_derive_dealer_performance,
     ),
     ReportKey.PRODUCT_PROFITABILITY: ReportDefinition(
         key=ReportKey.PRODUCT_PROFITABILITY,
@@ -1932,7 +1959,7 @@ async def purge_expired_snapshots(
 #: changes, because the payload is a plain JSON document in Redis: a payload
 #: written before a field existed would validate with the field missing and the
 #: screen would show a blank tile until the TTL expired.
-DASHBOARD_CACHE_VERSION = "v2"
+DASHBOARD_CACHE_VERSION = "v3"
 
 #: Which permission shows which finance and operations tile. A tile the caller
 #: may not see is returned as ``None`` rather than omitted, so the shape of the
@@ -1945,6 +1972,9 @@ DASHBOARD_TILE_PERMISSIONS: dict[str, Permission] = {
     "payables_due_amount": Permission.VENDOR_INVOICE_VIEW,
     "payables_overdue_amount": Permission.VENDOR_INVOICE_VIEW,
     "receivables_amount": Permission.SALES_INVOICE_VIEW,
+    "receivables_outstanding": Permission.COLLECTION_VIEW,
+    "receivables_overdue": Permission.COLLECTION_VIEW,
+    "follow_ups_due": Permission.COLLECTION_VIEW,
     "invoiced_sales_mtd": Permission.SALES_INVOICE_VIEW,
     "collections_mtd": Permission.PAYMENT_VIEW,
     "mrp_shortage_count": Permission.MRP_VIEW,

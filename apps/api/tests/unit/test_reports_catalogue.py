@@ -21,8 +21,9 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
-from src.core.deps import Principal
+from src.core.deps import Principal, TenantContext
 from src.core.errors import ValidationError
 from src.core.permissions import Permission
 from src.modules.reports.models import (
@@ -32,6 +33,7 @@ from src.modules.reports.models import (
     ReportKey,
     ReportSnapshot,
 )
+from src.modules.reports.repository import ReportQueryRepository
 from src.modules.reports.schemas import (
     REPORT_MAX_RANGE_DAYS,
     DeadStockRow,
@@ -100,6 +102,7 @@ def test_the_master_rules_reports_are_all_present() -> None:
         "JOB_WORK_PENDING",
         "QC_REJECTION",
         "VENDOR_PERFORMANCE",
+        "DEALER_PERFORMANCE",
         "PRODUCT_PROFITABILITY",
         "FAST_MOVING",
         "SLOW_MOVING",
@@ -113,6 +116,19 @@ def test_the_master_rules_reports_are_all_present() -> None:
         "VENDOR_DISPATCH_HISTORY",
     }
     assert required <= {str(key) for key in REPORT_CATALOGUE}
+
+
+def test_dealer_performance_is_bounded_uncached_and_grouped_in_one_query() -> None:
+    definition = definition_for(ReportKey.DEALER_PERFORMANCE)
+    tenant = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+    query = ReportQueryRepository(None, tenant).dealer_performance(PERIOD, ReportFilters())
+    sql = str(query.compile(dialect=postgresql.dialect()))
+
+    assert definition.requires_period is True
+    assert definition.cacheable is False
+    assert "UNION ALL" in sql
+    assert "GROUP BY" in sql
+    assert "ORDER BY" in sql
 
 
 def test_the_descriptor_list_carries_a_column_set_for_every_report() -> None:

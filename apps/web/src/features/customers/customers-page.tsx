@@ -432,6 +432,7 @@ export default function CustomersPage() {
           // record is known: the dialog withholds Save, Block and Deactivate on
           // a dealer or distributor account from a principal without it.
           canManageDealers={canManageDealers}
+          canViewCollections={can(P.COLLECTION_VIEW)}
         />
       )}
 

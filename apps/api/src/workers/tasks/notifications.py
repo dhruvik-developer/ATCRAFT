@@ -36,7 +36,7 @@ from urllib.parse import urlencode
 
 from sqlalchemy import and_, any_, delete, func, literal, or_, select, update
 
-from src.core.clock import utcnow
+from src.core.clock import today, utcnow
 from src.core.config import EmailProvider, settings
 from src.core.database import affected_rows, session_scope, transaction, try_advisory_xact_lock
 from src.core.deps import system_tenant
@@ -56,6 +56,7 @@ from src.core.security import (
     hash_secret_token,
 )
 from src.core.webpush import PushOutcome, PushRetryableError, deliver_push, push_payload, push_topic
+from src.modules.collections import service as collections_service
 from src.modules.dispatch import service as dispatch_service
 from src.modules.finance import service as finance_service
 from src.modules.inventory import service as inventory_service
@@ -749,6 +750,62 @@ async def scan_smart_alerts(request_id: str | None = None, **_: Any) -> dict[str
     }
     log.info("notifications.smart_alert_scan_completed", **result)
     return result
+
+
+@async_task(name="notifications.scan_overdue_receivables", queue="notifications")
+async def scan_overdue_receivables(request_id: str | None = None, **_: Any) -> dict[str, int]:
+    """Open and reconcile payment follow-ups once per company."""
+    async with session_scope() as session:
+        company_ids = list(
+            (
+                await session.execute(
+                    select(Company.id)
+                    .where(Company.is_active.is_(True), Company.deleted_at.is_(None))
+                    .order_by(Company.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    totals = {
+        "companies": len(company_ids),
+        "opened": 0,
+        "refreshed": 0,
+        "broken_promises": 0,
+        "resolved": 0,
+        "reminded": 0,
+        "failed": 0,
+        "skipped": 0,
+    }
+    for company_id in company_ids:
+        try:
+            async with session_scope() as session:
+                tenant = system_tenant(company_id)
+                async with transaction(session):
+                    if not await try_advisory_xact_lock(session, company_id, "collections-overdue"):
+                        totals["skipped"] += 1
+                        continue
+                    result = await collections_service.scan_overdue_receivables(
+                        session, tenant, as_of=today()
+                    )
+                    totals["opened"] += result.opened
+                    totals["refreshed"] += result.refreshed
+                    totals["broken_promises"] += result.broken_promises
+                    totals["resolved"] += result.resolved
+                    totals["reminded"] += result.reminded
+        except Exception as exc:
+            totals["failed"] += 1
+            log.error(
+                "notifications.overdue_receivables_company_failed",
+                company_id=str(company_id),
+                request_id=request_id,
+                error_type=type(exc).__name__,
+                exc_info=exc,
+            )
+
+    log.info("notifications.overdue_receivables_scan_completed", **totals)
+    return totals
 
 
 def _message_id(kind: str, record_id: uuid.UUID) -> str:

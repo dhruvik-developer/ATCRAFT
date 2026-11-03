@@ -86,6 +86,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `packing` | `item_packing_specs`, `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations` |
+| `collections` | `payment_follow_ups`, `payment_follow_up_notes` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences`, `notification_channel_templates`, `notification_deliveries`, `push_subscriptions`, `notification_alert_rules`, `notification_alert_states` |
@@ -982,6 +983,10 @@ Sales order       DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DIS
 Sales invoice     ISSUED <-> PARTIALLY_PAID <-> PAID; ISSUED <-> PAID
                   ISSUED -> CANCELLED (irreversible; unpaid, within 24 hours)
 
+Payment follow-up OPEN -> PROMISED, ESCALATED, RESOLVED or CANCELLED
+                  PROMISED -> OPEN (broken promise), ESCALATED or RESOLVED
+                  ESCALATED -> OPEN or RESOLVED
+
 Sales return      DRAFT -> RECEIVED -> CLOSED
                   DRAFT -> CANCELLED (reason required)
                   Serial units must be accepted, marked damaged, or scrapped before close
@@ -1381,6 +1386,26 @@ resolution, and writes an audit event only when it actually raises notifications
 Read notifications older than 180 days and resolved episodes older than 90 days
 are removed by bounded daily maintenance batches (assumptions §B4-1).
 
+### Collections follow-ups (A4)
+`payment_follow_ups` is the mutable, optimistic-locked chase record; its partial
+unique index permits one OPEN, PROMISED or ESCALATED row per
+`(company_id, customer_id, currency)`. The currency is part of the key because
+balances in different denominations are never combined. A complete promise
+requires both positive `promised_amount` and `promised_date`. Status changes use
+the lifecycle above and are audited in the same transaction.
+
+`payment_follow_up_notes` is immutable evidence with an `ON DELETE RESTRICT`
+foreign key to its follow-up. Its migration installs the append-only rejection
+trigger and indexes `(company_id, follow_up_id, created_at, id)` for keyset
+history. Lists and the worklist join customer and assignee names and expose the
+latest note in the same query; no request performs one note lookup per row.
+
+The daily `notifications.scan_overdue_receivables` task calls the collections
+service once per company. It nets issued credit notes and paid amounts against
+ISSUED/PARTIALLY_PAID sales invoices, opens missing follow-ups, refreshes live
+balances, returns broken promises to OPEN, resolves settled balances, and sends
+at most one reminder per three days. A quiet run writes no audit row.
+
 ---
 
 ## 9. Reporting
@@ -1396,6 +1421,15 @@ aggregations on every request (§25). The order of escalation is fixed:
 6. ClickHouse only when measured volume proves the need — not before
 
 Inventory availability is **never** served from cache (§34).
+
+### Collections and dealer performance (A4)
+The collections worklist groups overdue invoices by customer and currency,
+including issued credits and paid amounts, and uses the same 30/60/90-day
+boundaries as finance ageing. The dealer-performance report builds grouped
+subqueries for orders, dispatches, invoices, credits, receipts and overdue
+balances; it keeps each currency separate and is not cached. Dashboard
+receivable tiles explicitly use the company's configured currency rather than
+summing unlike amounts.
 
 ### Job-work output costs and exports
 

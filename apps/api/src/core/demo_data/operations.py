@@ -2112,8 +2112,8 @@ SALES_ORDERS: tuple[_SalesSpec, ...] = (
         tag=("SO", "DEALER"),
         customer=("DLR", "VASTU"),
         po_number="VHM/PO/2214",
-        order_offset=-9,
-        required_offset=4,
+        order_offset=-42,
+        required_offset=-37,
         confirm=True,
         priority=4,
         sentence=(
@@ -2137,8 +2137,8 @@ SALES_ORDERS: tuple[_SalesSpec, ...] = (
         tag=("SO", "OEM"),
         customer=("CUST", "KALYAN"),
         po_number="KMF/SCH/8871",
-        order_offset=-11,
-        required_offset=2,
+        order_offset=-81,
+        required_offset=-72,
         confirm=True,
         priority=3,
         sentence=(
@@ -2516,7 +2516,7 @@ async def _seed_packing(
                 PackingOrderCreate(
                     customer_id=customer_id,
                     warehouse_id=warehouse_id,
-                    planned_date=_days_before(3),
+                    planned_date=_days_before(37),
                     sales_order_id=sales_order_id,
                     notes=_tagged(
                         tag,
@@ -2781,8 +2781,8 @@ async def _dispatch_shipped(
                 DispatchCreate(
                     dispatch_type=DispatchType.SALES,
                     warehouse_id=warehouse_id,
-                    dispatch_date=_days_before(2),
-                    expected_delivery_date=_days_after(1),
+                    dispatch_date=_days_before(36),
+                    expected_delivery_date=_days_before(35),
                     customer_id=await look.customer("DLR", "VASTU"),
                     sales_order_id=packed.sales_order_id,
                     packing_order_id=packed.order_id,
@@ -2843,8 +2843,8 @@ async def _dispatch_delivered(
                 DispatchCreate(
                     dispatch_type=DispatchType.SALES,
                     warehouse_id=warehouse_id,
-                    dispatch_date=_days_before(7),
-                    expected_delivery_date=_days_before(3),
+                    dispatch_date=_days_before(75),
+                    expected_delivery_date=_days_before(72),
                     customer_id=await look.customer("CUST", "KALYAN"),
                     sales_order_id=sales_order_id,
                     transporter_id=await look.transporter("TRN", "GATI"),
@@ -3010,7 +3010,7 @@ async def _advance_dispatch(
                 InTransitRequest(
                     reason="Carrier scan: consignment left the hub",
                     location=location,
-                    event_time=_at(_days_before(6), 20),
+                    event_time=_at(dispatch.dispatch_date + timedelta(days=1), 20),
                     source=TrackingEventSource.COURIER_API,
                 ),
             )
@@ -3025,10 +3025,10 @@ async def _advance_dispatch(
                     # A day inside the promised date, so no delay reason is owed.
                     # The module demands one for a late arrival, and an on-time
                     # delivery is the case worth showing first.
-                    actual_delivery_date=_days_before(4),
+                    actual_delivery_date=dispatch.dispatch_date + timedelta(days=2),
                     delivery_note="Received at the stores gate; challan signed and returned.",
                     location=location,
-                    event_time=_at(_days_before(4), 11),
+                    event_time=_at(dispatch.dispatch_date + timedelta(days=2), 11),
                     source=TrackingEventSource.MANUAL,
                 ),
             )

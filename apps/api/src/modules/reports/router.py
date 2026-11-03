@@ -58,6 +58,7 @@ from src.core.responses import (
     ApiResponse,
     PaginatedResponse,
 )
+from src.modules.customers.models import CustomerType
 from src.modules.documents.service import DOWNLOAD_HEADERS, content_disposition, stream_file
 from src.modules.reports import service
 from src.modules.reports.models import ReportKey
@@ -68,6 +69,7 @@ from src.modules.reports.schemas import (
     DashboardRead,
     DashboardTrendsRead,
     DeadStockRow,
+    DealerPerformanceRow,
     DispatchRow,
     InventoryValuationRow,
     ItemMovementRow,
@@ -135,6 +137,7 @@ def report_filters(
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     vendor_id: Annotated[uuid.UUID | None, Query()] = None,
     customer_id: Annotated[uuid.UUID | None, Query()] = None,
+    customer_type: Annotated[CustomerType | None, Query()] = None,
     category_id: Annotated[uuid.UUID | None, Query()] = None,
     work_center_id: Annotated[uuid.UUID | None, Query()] = None,
     cost_centre_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -151,6 +154,7 @@ def report_filters(
         warehouse_id=warehouse_id,
         vendor_id=vendor_id,
         customer_id=customer_id,
+        customer_type=customer_type,
         category_id=category_id,
         work_center_id=work_center_id,
         cost_centre_id=cost_centre_id,
@@ -894,6 +898,27 @@ async def vendor_performance(
 ) -> PaginatedResponse[VendorPerformanceRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.VENDOR_PERFORMANCE, period, filters, page
+    )
+
+
+@router.get(
+    "/dealer-performance",
+    response_model=None,
+    summary="Dealer performance",
+    responses=_report_responses(PaginatedResponse[DealerPerformanceRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def dealer_performance(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[DealerPerformanceRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.DEALER_PERFORMANCE, period, filters, page
     )
 
 

@@ -28,6 +28,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.errors import ValidationError
+from src.modules.customers.models import CustomerType
 from src.modules.reports.models import ReportJobStatus, ReportKey
 
 #: Longest period a report may cover. A year plus a day so "the whole financial
@@ -110,6 +111,7 @@ class ReportFilters(BaseModel):
     warehouse_id: uuid.UUID | None = None
     vendor_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None
+    customer_type: CustomerType | None = None
     category_id: uuid.UUID | None = None
     work_center_id: uuid.UUID | None = None
     cost_centre_id: uuid.UUID | None = None
@@ -297,6 +299,32 @@ class VendorPerformanceRow(ReportRowBase):
     rejected_quantity: Decimal
     on_time_percent: Decimal = Decimal("0")
     rejection_rate_percent: Decimal = Decimal("0")
+
+
+class DealerPerformanceRow(ReportRowBase):
+    customer_id: uuid.UUID
+    customer_code: str
+    customer_name: str
+    customer_type: str
+    price_list_type: str
+    currency: str
+    credit_limit_amount: Decimal | None
+    outstanding_amount: Decimal
+    order_count: int
+    order_value_amount: Decimal
+    invoiced_amount: Decimal
+    credit_note_amount: Decimal
+    returns_amount: Decimal
+    dispatched_quantity: Decimal
+    ordered_quantity: Decimal
+    fulfilment_percent: Decimal = Decimal("0")
+    on_time_dispatch_percent: Decimal = Decimal("0")
+    receipts_amount: Decimal
+    average_days_to_pay: Decimal | None
+    overdue_amount: Decimal
+    credit_utilisation_percent: Decimal | None
+    collection_ratio_percent: Decimal = Decimal("0")
+    average_order_value_amount: Decimal = Decimal("0")
     performance_score: Decimal = Decimal("0")
 
 
@@ -670,6 +698,9 @@ class DashboardRead(BaseModel):
     payables_due_amount: Decimal | None = None
     payables_overdue_amount: Decimal | None = None
     receivables_amount: Decimal | None = None
+    receivables_outstanding: Decimal | None = None
+    receivables_overdue: Decimal | None = None
+    follow_ups_due: int | None = None
     invoiced_sales_mtd: Decimal | None = None
     collections_mtd: Decimal | None = None
     mrp_shortage_count: int | None = None
@@ -746,6 +777,7 @@ __all__ = [
     "DashboardTrendSeries",
     "DashboardTrendsRead",
     "DeadStockRow",
+    "DealerPerformanceRow",
     "DispatchRow",
     "InventoryValuationRow",
     "ItemMovementRow",

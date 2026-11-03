@@ -368,3 +368,25 @@ There is no production server/domain. Public TLS, real delivery/provider
 accounts, encrypted off-box backups, production-sized load/recovery and
 operational ownership still require the [go-live gate](../deployment.md#go-live-gate).
 Remaining software packages are listed in the current scope checkpoint.
+
+## A4 and B4 delivery verification — 3 November 2026
+
+A4 collections and dealer-performance reporting, and B4 smart alerts and the
+approval inbox, are implemented. The A4 focused backend/report checks passed
+41 integration and 75 unit tests; report UI passed 10 tests, customer/dashboard
+UI passed 63 tests, and frontend type-check passed. B4 focused checks passed 76
+backend tests and 5 UI tests.
+
+The fresh local seed and rerun regression passed with the collections examples
+enabled: 5 tests passed in 251.19 seconds. It caught an enum identity comparison
+against a persisted `String` status, which had caused a repeated promise and
+extra audit/note rows on rerun. Status comparisons now use value equality, and
+the second seed leaves all recorded table counts unchanged.
+
+The complete backend unit suite passed 4,584 tests with two upstream
+deprecation warnings. The complete frontend suite passed 1,604 tests across
+123 files; the serial Windows run took 1,010.04 seconds. Backend Ruff/mypy,
+frontend ESLint/type-check/Prettier, whole-tree pre-commit hooks, OpenAPI and
+Postman contract checks, generated frontend types, Compose configuration and
+`git diff --check` all passed. CI for the resulting commit on both `develop`
+and `main` remains the gate before beginning B5.

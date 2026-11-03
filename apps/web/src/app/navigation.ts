@@ -302,6 +302,12 @@ export const navigation: NavSection[] = [
         permissions: [P.FINANCE_VIEW],
       },
       {
+        label: 'Collections',
+        to: '/finance/collections',
+        icon: Banknote,
+        permissions: [P.COLLECTION_VIEW],
+      },
+      {
         label: 'Sales invoices',
         to: '/finance/sales-invoices',
         icon: Receipt,

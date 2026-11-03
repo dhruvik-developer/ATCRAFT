@@ -243,6 +243,26 @@ def _established_keys(migration: _Migration) -> frozenset[str]:
             )
             return frozenset(array_spelled[0])
 
+    swap_arguments = [
+        argument
+        for node in ast.walk(upgrade)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"_swap", "_swap_report_snapshot_keys"}
+        for argument in node.args
+    ]
+    swapped = [
+        values
+        for argument in swap_arguments
+        for values in [_string_values(argument, assigned)]
+        if values
+    ]
+    if swapped:
+        assert len(swapped) == 1, (
+            f"{migration.path.name} passes {len(swapped)} key lists to its CHECK swap"
+        )
+        return frozenset(swapped[0])
+
     passed = [
         values
         for node in ast.walk(upgrade)

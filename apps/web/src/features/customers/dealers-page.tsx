@@ -310,6 +310,23 @@ export default function DealersPage() {
             '—'
           ),
       },
+      ...(can(P.REPORT_VIEW)
+        ? [
+            {
+              id: 'performance',
+              header: 'Performance',
+              enableSorting: false,
+              cell: ({ row }: { row: { original: Dealer } }) => (
+                <Link
+                  className="inline-flex min-h-11 items-center text-sm underline"
+                  to={`/reports?report=DEALER_PERFORMANCE&customer_id=${row.original.id}`}
+                >
+                  Report
+                </Link>
+              ),
+            } satisfies ColumnDef<Dealer, unknown>,
+          ]
+        : []),
     ],
     [can],
   )
@@ -340,6 +357,13 @@ export default function DealersPage() {
       <PageHeader
         title="Dealers"
         description="Dealer and distributor accounts, with the credit standing that governs their order entry. Read-only: accounts in this channel are opened and amended on the Customers screen."
+        actions={
+          can(P.REPORT_VIEW) ? (
+            <Button variant="outline" asChild>
+              <Link to="/reports?report=DEALER_PERFORMANCE">Performance report</Link>
+            </Button>
+          ) : undefined
+        }
       />
 
       <DataTable

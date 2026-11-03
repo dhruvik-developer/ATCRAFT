@@ -3,7 +3,7 @@
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
     "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton can only be reopened through the audited legacy recovery process, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
-    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, sales returns, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, specifications, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, the shift roster, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, sales invoices, credit notes, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, the organisation record and company settings. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
+    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, sales returns, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, batch and serial tracking, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, specifications, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, the shift roster, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, collections, sales invoices, credit notes, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, the organisation record and company settings. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
       {
         "step": 1,
@@ -107,7 +107,7 @@
         "step": 15,
         "title": "Settle the money, and be able to prove all of it",
         "route": "/finance",
-        "what": "Vendor invoices are entered against what was received and paid on Payments; customer outstanding and the ledgers sit under Ledgers & Outstanding, with the chart of accounts behind them. Reports covers the statutory and management views, and the Audit trail shows every create, approval, rejection and status change with who did it, when, and the reason they gave.",
+        "what": "Vendor invoices are entered against what was received and paid on Payments; customer outstanding and the ledgers sit under Ledgers & Outstanding, with the chart of accounts behind them. Collections follows overdue customer invoices, and Dealer performance compares customers over a chosen period. Reports covers the statutory and management views, and the Audit trail shows every create, approval, rejection and status change with who did it, when, and the reason they gave.",
         "effect": "Money is recorded, and the whole journey above becomes reconstructable from one screen: the order, the plan, the purchase, the receipt, the inspection, the job, the consignment."
       }
     ],
@@ -4291,7 +4291,7 @@
       ]
     },
     {
-      "groupIntro": "This part of the system is where money, evidence and control live. Finance is where you see what you owe your suppliers and what your customers owe you, where supplier bills are checked line by line against the order and the goods actually received before anyone approves them for payment, where payments and receipts are recorded and posted, and where the stock on hand is valued and the month's GST position is read. Reports answer the questions the owner asks on a Monday morning \u2014 what is late, what is not moving, which vendor is letting you down. The audit trail is the memory of the business: every change, who made it, when, and what the value was before and after, in a record that nobody can edit or delete. Documents holds the drawings, certificates and generated files; Users and roles decides who may do any of it. Together these screens are what make the ERP defensible in front of a customer, a supplier, an auditor or a tax officer \u2014 the rest of the system produces the work, and this part produces the proof.",
+      "groupIntro": "This part of the system is where money, evidence and control live. Finance is where you see what you owe your suppliers and what your customers owe you, where supplier bills are checked line by line against the order and the goods actually received before anyone approves them for payment, where payments and receipts are recorded and posted, and where the stock on hand is valued and the month's GST position is read. Collections turns overdue customer invoices into an owned follow-up, with contact notes, promises and escalation recorded against the customer's balance. Reports answer the questions the owner asks on a Monday morning \u2014 what is late, what is not moving, which vendor is letting you down, and which dealers are growing or paying slowly. The audit trail is the memory of the business: every change, who made it, when, and what the value was before and after, in a record that nobody can edit or delete. Documents holds the drawings, certificates and generated files; Users and roles decides who may do any of it. Together these screens are what make the ERP defensible in front of a customer, a supplier, an auditor or a tax officer \u2014 the rest of the system produces the work, and this part produces the proof.",
       "groupTitle": "Money, Evidence and Control",
       "screens": [
         {
@@ -4384,6 +4384,60 @@
             "The inventory valuation shows two value columns \u2014 the value written on each stock position, and the same total recomputed from the underlying cost layers. They are an independent check on each other. A few paise of difference is ordinary rounding; a material difference means that position needs reconciling.",
             "Cost per unit in the valuation is shown to six decimal places, not two, because a washer that genuinely costs four-tenths of a paisa each would otherwise appear to cost nothing.",
             "Output GST uses issued sales-invoice snapshots by invoice date, reduced by issued credit notes by credit-note date. Dispatched goods without an invoice are disclosed separately. Input tax comes from approved vendor invoices. Document counts are per HSN/rate slab and must not be added together across slabs."
+          ]
+        },
+        {
+          "route": "/finance/collections",
+          "title": "Collections",
+          "purpose": "The overdue worklist shows one row per customer and currency, whether or not a follow-up has been opened. A row is overdue only when an issued or partly paid invoice is past its own due date and still has an unsettled balance after receipts and issued credits.",
+          "whoUses": "Accounts staff and sales executives with collection.view. Recording contact, promises or decisions additionally needs collection.manage.",
+          "keyActions": [
+            {
+              "action": "Find the accounts that need attention",
+              "how": "Finance \u2192 Collections",
+              "note": "Search, choose a follow-up status, show only your work, or narrow by dealer channel, customer and days overdue. Filters stay in the address."
+            },
+            {
+              "action": "Open a follow-up",
+              "how": "Collections \u2192 select an overdue customer row \u2192 Open follow-up",
+              "note": "Only one live follow-up can exist for the same customer and currency. Opening it does not change the invoice or move money."
+            },
+            {
+              "action": "Record a call, visit or message",
+              "how": "Open a follow-up \u2192 Log note",
+              "note": "Notes are permanent history; correct a mistake with another note rather than editing the old one."
+            },
+            {
+              "action": "Record a payment promise",
+              "how": "Open a follow-up \u2192 Promise",
+              "note": "The date cannot be in the past and the promised amount cannot exceed the current overdue balance."
+            },
+            {
+              "action": "Escalate a difficult account",
+              "how": "Open a follow-up \u2192 Escalate",
+              "note": "Putting the customer on credit hold additionally requires customer.update. The follow-up permission alone cannot block new orders."
+            },
+            {
+              "action": "Review the customer's collection position",
+              "how": "Customers \u2192 open a customer \u2192 Collections panel",
+              "note": "The panel links to the same worklist with that customer selected."
+            }
+          ],
+          "flow": [
+            "Open Collections and start with the overdue amount and oldest overdue days.",
+            "Open a customer row to review its overdue invoices, balances and note history.",
+            "Log the contact and next action, or record the customer's dated promise.",
+            "Resolve only when the overdue balance is cleared; cancel only when the follow-up was opened in error.",
+            "Work from the dashboard's due-follow-ups tile or the daily reminder notification when an action date arrives."
+          ],
+          "notes": "Amounts stay in the invoice currency; a customer owing in two currencies has two rows. The daily sweep opens missing follow-ups, refreshes the amount and oldest due date, returns a missed promise to OPEN, resolves a settled balance and reminds the assignee every three days. If no salesperson owns the customer, the Accounts role receives the reminder. The page has a responsive mobile-card worklist and an infinite, cursor-paginated note timeline.",
+          "permission": "Reading the screen requires collection.view. Opening, updating, noting, promising, escalating, resolving or cancelling requires collection.manage. Blocking the customer during escalation also requires customer.update. Accounts and Sales presets include the collection permissions.",
+          "rules": [
+            "Overdue is based on each invoice's due_date, not its dispatch or ledger date.",
+            "Paid amounts and issued credit notes reduce the outstanding balance; a fully settled invoice does not remain in the worklist.",
+            "The same customer's currencies are never added together.",
+            "A missed promise returns to OPEN with a system note; the promise does not settle the invoice.",
+            "Follow-up notes are immutable, and every business change is audited."
           ]
         },
         {
@@ -4842,6 +4896,11 @@
               "action": "Run Vendor performance",
               "how": "Reports \u2192 Vendor performance",
               "note": "On-time delivery and rejection rate for each supplier over the period."
+            },
+            {
+              "action": "Run Dealer performance",
+              "how": "Reports \u2192 Dealer performance",
+              "note": "Compare dealer orders, invoicing, dispatch, overdue balances and receipts for the selected period. Each currency remains separate; the Dealers page also links to this report for one customer."
             },
             {
               "action": "Run Dispatch",

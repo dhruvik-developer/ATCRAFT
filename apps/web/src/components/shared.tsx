@@ -126,6 +126,9 @@ const STATUS_VARIANTS: Record<
   // neutral / early lifecycle
   DRAFT: 'muted',
   OPEN: 'default',
+  PROMISED: 'warning',
+  ESCALATED: 'destructive',
+  RESOLVED: 'success',
   PLANNED: 'secondary',
   PENDING: 'warning',
   PENDING_APPROVAL: 'warning',

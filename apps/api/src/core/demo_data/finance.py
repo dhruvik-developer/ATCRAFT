@@ -1,6 +1,6 @@
 """Finance demonstration data: bills, money that has moved, and a ledger that adds up.
 
-This is the last stage, and it is the one that turns what the earlier ones built
+This is the last financial stage, and it is the one that turns what the earlier ones built
 into figures somebody can argue about. Procurement received goods; this stage
 books the bills for them, pays some of those bills, charges customers for what
 went out, and takes money in against those charges. Nothing here writes a ledger
@@ -170,6 +170,7 @@ from src.core.clock import utcnow
 from src.core.demo_data import DEMO_PREFIX, DemoContext, find_by_code
 from src.core.errors import BusinessRuleError, NotFoundError
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
+from src.modules.customers.models import Customer
 from src.modules.customers.schemas import OutstandingAdjustment
 from src.modules.customers.service import apply_outstanding_delta
 from src.modules.finance import service as finance
@@ -1656,6 +1657,13 @@ async def _seed_sales_invoices(ctx: DemoContext) -> None:
     from src.modules.organization.schemas import CompanyUpdate
     from src.modules.organization.service import CompanyService
 
+    anchor = _anchor()
+    overdue_dispatch_days: dict[uuid.UUID, int] = {}
+    for parts, age_days in ((("DSP", "SHIPPED"), 15), (("DSP", "DELIVERED"), 45)):
+        dispatch_id = ctx.maybe_id("dispatch", ctx.code(*parts))
+        if dispatch_id is not None:
+            overdue_dispatch_days[dispatch_id] = age_days
+
     company = (
         await ctx.session.execute(select(Company).where(Company.id == ctx.company_id))
     ).scalar_one()
@@ -1730,14 +1738,35 @@ async def _seed_sales_invoices(ctx: DemoContext) -> None:
                     )
                 )
                 continue
+            invoice_date = None
+            overdue_age_days = overdue_dispatch_days.get(dispatch_id)
+            if overdue_age_days is not None:
+                customer_credit_days = (
+                    await ctx.session.execute(
+                        select(Customer.credit_days).where(
+                            Customer.company_id == ctx.company_id,
+                            Customer.id == dispatch.customer_id,
+                            Customer.deleted_at.is_(None),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if customer_credit_days is None:
+                    ctx.skipped.append(
+                        (STAGE, f"{dispatch.code} not invoiced: its customer is unavailable")
+                    )
+                    continue
+                invoice_date = anchor - timedelta(days=customer_credit_days + overdue_age_days)
             invoice = await sales_invoice_service.issue_sales_invoice(
-                ctx.session, ctx.tenant, SalesInvoiceCreate(dispatch_id=dispatch_id)
+                ctx.session,
+                ctx.tenant,
+                SalesInvoiceCreate(dispatch_id=dispatch_id, invoice_date=invoice_date),
             )
             ctx.note(STAGE, created=1)
             ctx.remember("sales_invoice", invoice.code, invoice.id)
         else:
             ctx.note(STAGE, existing=1)
-    # Allocate one existing demo receipt, only when it has not already been settled.
+    # Allocate a receipt to a non-collections invoice when one is available. The
+    # two dated invoices above must remain outstanding for the follow-up journey.
     receipts = list(
         (
             await ctx.session.execute(
@@ -1754,19 +1783,21 @@ async def _seed_sales_invoices(ctx: DemoContext) -> None:
         ).all()
     )
     for receipt in receipts:
+        receipt_invoice_stmt = select(
+            SalesInvoice.id, SalesInvoice.total_amount, SalesInvoice.paid_amount
+        ).where(
+            SalesInvoice.company_id == ctx.company_id,
+            SalesInvoice.customer_id == receipt.party_id,
+            SalesInvoice.currency == receipt.currency,
+            SalesInvoice.status.in_((SalesInvoiceStatus.ISSUED, SalesInvoiceStatus.PARTIALLY_PAID)),
+        )
+        if overdue_dispatch_days:
+            receipt_invoice_stmt = receipt_invoice_stmt.where(
+                SalesInvoice.dispatch_id.not_in(overdue_dispatch_days)
+            )
         receipt_invoice = (
             await ctx.session.execute(
-                select(SalesInvoice.id, SalesInvoice.total_amount, SalesInvoice.paid_amount)
-                .where(
-                    SalesInvoice.company_id == ctx.company_id,
-                    SalesInvoice.customer_id == receipt.party_id,
-                    SalesInvoice.currency == receipt.currency,
-                    SalesInvoice.status.in_(
-                        (SalesInvoiceStatus.ISSUED, SalesInvoiceStatus.PARTIALLY_PAID)
-                    ),
-                )
-                .order_by(SalesInvoice.due_date, SalesInvoice.id)
-                .limit(1)
+                receipt_invoice_stmt.order_by(SalesInvoice.due_date, SalesInvoice.id).limit(1)
             )
         ).first()
         if receipt_invoice:

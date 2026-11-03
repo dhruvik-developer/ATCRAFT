@@ -239,6 +239,10 @@ class Permission(StrEnum):
     PAYMENT_RECORD = "payment.record"
     PAYMENT_APPROVE = "payment.approve"
     GST_REPORT_VIEW = "gst_report.view"
+    #: Chasing overdue receivables. ``manage`` records promises, notes and
+    #: escalations; ``view`` reads the worklist and the register.
+    COLLECTION_VIEW = "collection.view"
+    COLLECTION_MANAGE = "collection.manage"
 
     # --- cross-cutting ------------------------------------------------------
     REPORT_VIEW = "report.view"
@@ -302,6 +306,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "payment",
         "gst_report",
         "credit_note",
+        "collection",
     ),
     "Reporting & Audit": ("report", "dashboard", "document", "notification", "audit_log", "job"),
 }
@@ -569,6 +574,9 @@ _SALES = frozenset(
         Permission.SALES_RETURN_VIEW,
         Permission.SALES_RETURN_CREATE,
         Permission.CREDIT_NOTE_VIEW,
+        # Sales executives chase their own dealers; docs/assumptions.md §A4-6.
+        Permission.COLLECTION_VIEW,
+        Permission.COLLECTION_MANAGE,
     }
 )
 
@@ -588,6 +596,8 @@ _ACCOUNTS = frozenset(
         Permission.CREDIT_NOTE_VIEW,
         Permission.CREDIT_NOTE_CREATE,
         Permission.CREDIT_NOTE_CANCEL,
+        Permission.COLLECTION_VIEW,
+        Permission.COLLECTION_MANAGE,
         Permission.PURCHASE_ORDER_VIEW,
         Permission.GRN_VIEW,
         Permission.CUSTOMER_VIEW,
