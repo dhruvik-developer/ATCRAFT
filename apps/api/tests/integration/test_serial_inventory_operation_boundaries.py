@@ -893,7 +893,11 @@ async def test_matching_serial_physical_count_confirms_without_inventory_changes
         count_id,
         PhysicalCountEntryRequest(
             entries=[
-                PhysicalCountEntry(line_id=lines[kit.item_id].id, counted_quantity=Decimal("2"))
+                PhysicalCountEntry(
+                    line_id=lines[kit.item_id].id,
+                    counted_quantity=Decimal("2"),
+                    serial_numbers=["BOUNDARY-1", "BOUNDARY-2"],
+                )
             ]
         ),
     )
@@ -932,9 +936,22 @@ async def test_matching_serial_physical_count_confirms_without_inventory_changes
 @pytest.mark.parametrize(
     "serial_count", [Decimal("1"), Decimal("3")], ids=["missing-unit", "extra-unit"]
 )
-async def test_serial_count_variance_refuses_atomically_including_an_ordinary_variance(
+async def test_serial_count_variance_names_each_unit_and_reconciles_with_an_ordinary_variance(
     kit: Kit, serial_count: Decimal
 ) -> None:
+    serial_numbers = ["BOUNDARY-1"]
+    expected_serial_transaction = TransactionType.COUNT_VARIANCE_DECREASE
+    if serial_count == Decimal("3"):
+        await inventory.TraceabilityService(kit.session, kit.tenant).bulk_create_serials(
+            StockSerialBulkCreate(
+                item_id=kit.item_id,
+                serial_numbers=["BOUNDARY-4"],
+                warehouse_id=kit.warehouse_id,
+            )
+        )
+        serial_numbers = ["BOUNDARY-1", "BOUNDARY-2", "BOUNDARY-4"]
+        expected_serial_transaction = TransactionType.COUNT_VARIANCE_INCREASE
+
     count_id, lines = await _count(kit, include_plain=True)
     service = inventory.PhysicalCountService(kit.session, kit.tenant)
     counted = await service.enter_counts(
@@ -944,19 +961,74 @@ async def test_serial_count_variance_refuses_atomically_including_an_ordinary_va
                 PhysicalCountEntry(
                     line_id=lines[kit.plain_item_id].id, counted_quantity=Decimal("3")
                 ),
-                PhysicalCountEntry(line_id=lines[kit.item_id].id, counted_quantity=serial_count),
+                PhysicalCountEntry(
+                    line_id=lines[kit.item_id].id,
+                    counted_quantity=serial_count,
+                    serial_numbers=serial_numbers,
+                ),
             ]
         ),
     )
     assert counted.status is PhysicalCountStatus.COUNTED
-    before = await _snapshot(kit.session)
-    with pytest.raises(BusinessRuleError) as refused:
-        await service.confirm(count_id)
-    assert refused.value.code is ErrorCode.SERIAL_REQUIRED
-    assert refused.value.details == {"item_code": kit.item_code, "item_id": str(kit.item_id)}
-    assert "a serial number is required to move it" in refused.value.message
-    assert await _snapshot(kit.session) == before
-    remaining = await service.get_count(count_id)
-    assert remaining.status is PhysicalCountStatus.COUNTED
-    assert remaining.confirmed_at is None
-    assert remaining.confirmed_by_id is None
+    confirmed = await service.confirm(count_id)
+
+    assert confirmed.status is PhysicalCountStatus.CONFIRMED
+    assert confirmed.variance_line_count == 2
+    assert confirmed.confirmed_at is not None
+    assert confirmed.confirmed_by_id == kit.tenant.user_id
+
+    serial_balance = await kit.session.scalar(
+        select(InventoryBalance).where(
+            InventoryBalance.company_id == kit.tenant.company_id,
+            InventoryBalance.item_id == kit.item_id,
+            InventoryBalance.warehouse_id == kit.warehouse_id,
+        )
+    )
+    plain_balance = await kit.session.scalar(
+        select(InventoryBalance).where(
+            InventoryBalance.company_id == kit.tenant.company_id,
+            InventoryBalance.item_id == kit.plain_item_id,
+            InventoryBalance.warehouse_id == kit.warehouse_id,
+        )
+    )
+    assert serial_balance is not None
+    assert serial_balance.on_hand_quantity == serial_count
+    assert plain_balance is not None
+    assert plain_balance.on_hand_quantity == Decimal("3")
+
+    serial_transaction = await kit.session.scalar(
+        select(InventoryTransaction).where(
+            InventoryTransaction.reference_id == count_id,
+            InventoryTransaction.serial_id.is_not(None),
+        )
+    )
+    assert serial_transaction is not None
+    assert serial_transaction.transaction_type is expected_serial_transaction
+
+    serials = (
+        await kit.session.scalars(
+            select(StockSerial).where(
+                StockSerial.company_id == kit.tenant.company_id,
+                StockSerial.item_id == kit.item_id,
+                StockSerial.serial_number.in_(serial_numbers),
+            )
+        )
+    ).all()
+    status_by_number = {serial.serial_number: serial.status for serial in serials}
+    if serial_count == Decimal("1"):
+        assert status_by_number == {"BOUNDARY-1": SerialStatus.IN_STOCK}
+        missing = await kit.session.scalar(
+            select(StockSerial).where(
+                StockSerial.company_id == kit.tenant.company_id,
+                StockSerial.item_id == kit.item_id,
+                StockSerial.serial_number == "BOUNDARY-2",
+            )
+        )
+        assert missing is not None
+        assert missing.status is SerialStatus.MISSING
+    else:
+        assert status_by_number == {
+            "BOUNDARY-1": SerialStatus.IN_STOCK,
+            "BOUNDARY-2": SerialStatus.IN_STOCK,
+            "BOUNDARY-4": SerialStatus.IN_STOCK,
+        }

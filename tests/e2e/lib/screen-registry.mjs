@@ -11,6 +11,7 @@ export const detailScreenSources = {
   '/job-work/:orderId': '/job-work',
   '/mrp/runs/:runId': '/mrp/runs',
   '/vendor/orders/:orderId': '/vendor-portal/purchase-orders',
+  '/vendor/job-work/:orderId': '/vendor-portal/job-work',
   '/vendor/invoices/:invoiceId': '/vendor-portal/invoices',
   '/dealer/catalog/:itemId': '/dealer-portal/catalog/items',
   '/dealer/orders/:orderId': '/dealer-portal/orders',
