@@ -52,6 +52,32 @@ domain has been supplied, so live-host verification remains separate.
 | [E3b planning outputs/scheduling](specs/E3b-mrp-outputs-scheduling.md) | Implemented: transfer, reallocation, assembly and reorder suggestions; configurable per-company nightly [`mrp.scheduled_run`](../../apps/api/src/workers/tasks/mrp.py); and packing-material demand from [item packing specifications](../../apps/api/src/modules/packing/models.py). The [MRP engine](../../apps/api/src/modules/mrp/engine.py) retains level-by-level netting. |
 | [E10b finance and reports](specs/E10b-finance-reports-dashboard.md) | Implemented, including invoice revenue net of credits and FIFO dispatch costs net of customer returns for actual profitability. Finance/report integrations, exports, permissions and management reporting were verified in the E10b completion checkpoint. |
 | Vendor job-work / rejected-stock reissue | Implemented in this delivery: vendor/category-scoped orders and audited progress events, overdue reminders, and source-linked rework from physically returned `RETURN_TO_STOCK` output. The current focused and full-suite verification is recorded by the delivery checks. |
+
+## Remaining software packages and delivery order
+
+The following scoped packages are **not implemented**. They were omitted from
+the earlier remaining-gates summary and must not be treated as delivered:
+
+| Sequence | Package | Required dependency and sequencing |
+|---|---|---|
+| 1 | [A4 collections and dealer performance](specs/A4-collections-dealer-performance.md) | Build on A2/A3 invoice, credit and receipt accounting. This owns customer overdue follow-up and provides the collections/payment reminder seam required by B4 and A5. |
+| 2 | [B4 smart alerts and approval inbox](specs/B4-smart-alerts-events.md) | After A4 so customer overdue reminders are not duplicated. Wire real approval-request writers as well as the queue reader; the dashboard must not imply a live inbox while no workflow creates requests. |
+| 3 | [A5 dealer notifications](specs/A5-dealer-notifications-commercial-e2e.md) | After A4 and B4; C3/C4 dealer identity and screens are already present. |
+| 4 | [B5 procurement and inbound reports](specs/B5-procurement-reports-ops-e2e.md) | After B4 because its operations journeys exercise alert behavior. C1a, D1 and the vendor job-work/invoice foundations are present. A5 and B5 are otherwise independent; this serial order keeps the single-checkout migrations and shared handbook/e2e updates reviewable. |
+| 5 | [E12 security, legacy, deployment and dead-code closeout](specs/E12-phase1-documents-cleanup.md) | Final evidence pass after A4/B4/A5/B5 and their end-to-end integrations. Include the reported `allocated_quantity`, `can_be_spare` reservation enforcement and unused `customer_price_type` findings; verify each against current behavior before deleting or changing it. |
+
+Use one focused delivery checkpoint per package: tests with implementation,
+reviewed migrations and generated contracts where applicable, the package's
+documented end-to-end evidence, then push and obtain green CI on both existing
+branches before moving to the next package. A calendar estimate is deliberately
+not asserted without a committed owner and capacity plan.
+
+The eight unresolved client policy questions remain listed in
+[`assumptions.md`](../assumptions.md#open-questions-for-atcraft). Record answers
+there before changing the affected business rule. The current recommendation is
+to preserve the shipped behavior until a decision is recorded; do not silently
+turn a proposed default into an approved policy. D4 remains separate and cannot
+start until the signing/legal model and certificate procurement are approved.
 ## Remaining serial-operation boundaries
 
 [BinMoveLineCreate](../../apps/api/src/modules/inventory/schemas.py) now
@@ -94,9 +120,10 @@ serial trace, without registering the unit again.
 ## Remaining production gates
 
 The scoped software packages D2, D3, E3b and E10b are implemented as recorded
-above. D4 is not implemented: it remains gated on the signing authority and
-retention model receiving legal/compliance confirmation and on procuring the
-certificate, timestamp and token services described in the
+above. A4, B4, A5, B5 and E12 remain open in the order above. D4 is not
+implemented: it remains gated on the signing authority and retention model
+receiving legal/compliance confirmation and on procuring the certificate,
+timestamp and token services described in the
 [D4 decision memo](d4-dsc-pades-compliance-20261019.md). D2 and D3 have passed
 fake-provider verification, but live activation and end-to-end testing require
 the customer's Meta/DLT and courier accounts.

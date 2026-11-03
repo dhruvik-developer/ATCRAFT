@@ -280,6 +280,33 @@ settlement checks passed 21. The Git pre-push hooks and CI rerun the current
 whole-tree checks; these earlier counts are not a claim that every function has
 complete coverage.
 
+## Serial-count and vendor job-work route verification - 3 November 2026
+
+The physical-count integration fixtures now submit the label for every unit
+found, as required by the serial-count contract. The missing-unit case confirms
+the named remaining unit and records the other as `MISSING`; the extra-unit case
+registers an unreceived label at the counted position and confirms it together
+with a plain-stock variance. The complete
+[serial inventory operation-boundary module](../../apps/api/tests/integration/test_serial_inventory_operation_boundaries.py)
+passed **18 tests** against PostgreSQL.
+
+The vendor job-work detail route now resolves from its own vendor GET
+collection, and the handbook includes the populated detail screen and its
+list-based resolver. The focused screen-registry suite passed **4 tests**; the
+complete handbook/navigation/portal/registry check passed **46 tests** and
+reported 102 handbook views covering 84 application routes and three public
+routes, with 424 non-session API writes blocked.
+
+Mandatory local pre-push checks passed on both branches. GitHub CI also passed
+all five jobs on the same revision:
+[develop run 41582879389](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/41582879389)
+and
+[main run 41584363878](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/41584363878).
+These results verify commit `9b39cc6`; later commits require their own checks.
+The next package order and production commissioning gates are recorded in the
+[current production scope](production-scope-20261025.md) and
+[deployment checklist](../deployment.md).
+
 The [first pushed checkpoint's CI run](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/40256351834)
 passed frontend tests/builds, backend quality checks, all three image scans and
 24 browser journeys. Its full backend run recorded 6,169 passes, two failures

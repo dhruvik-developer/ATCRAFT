@@ -153,6 +153,47 @@ Data and operations:
 - [ ] The end-to-end manufacturing journey, real-role permissions, and expected
       concurrency have been tested against the release candidate.
 
+## Production commissioning sequence
+
+Commissioning has not started: no production host/domain or client environment
+has been supplied. Keep the system in pre-production until each step has named
+owners and retained evidence.
+
+1. **Provision the target.** Record the client-approved host/domain, DNS owner,
+   environment owner, firewall/network boundaries, support contact and
+   maintenance window. Confirm the selected host meets the documented storage
+   and resource budget.
+2. **Configure secrets and transport security.** Generate independent
+   production secrets outside Git; configure the private env file, DNS, TLS
+   certificates and renewal, HTTPS redirect, HSTS, firewall and unknown-host
+   rejection. Run `doctor` and the installed host-Nginx check.
+3. **Install the release.** Deploy the exact verified `main` revision with the
+   guarded script. Verify migrations, required seed/setup, health checks, Celery
+   queues and beat. Complete first-admin login, password change, MFA policy and
+   client-owned role grants.
+4. **Prove off-box recovery.** Configure encrypted database and storage backups
+   to a separate failure domain with client-approved retention. Restore both
+   into an isolated target; verify schema, row counts, document hashes and file
+   permissions, then retain the drill report and operator sign-off.
+5. **Measure load and concurrency.** Agree workload and acceptance thresholds
+   with the client, then exercise representative concurrent reads and writes
+   across purchasing, allocation, stock posting, QC, dispatch and invoicing.
+   Record latency, error rate, database/worker saturation and any fixes; do not
+   invent a capacity sign-off threshold.
+6. **Run restricted-role UAT.** Use real staff, vendor and dealer principals
+   with least-privilege roles. Verify permitted and refused actions, tenant
+   isolation, approvals, stock traceability, finance totals and recovery from
+   expected errors. Retain the signed scenario results.
+7. **Complete browser and handbook verification.** Run the full browser
+   journeys, accessibility sweeps and read-only route sweep against the release
+   candidate. Recapture and visually review every handbook screen using its
+   bound staff/vendor/dealer principal. Confirm all expected routes, pages and
+   captures have zero failures.
+8. **Authorize go-live.** Re-run the release checks against the final revision,
+   close or formally accept every open assumption and external-provider gate,
+   verify monitoring/on-call ownership, and obtain client and operator sign-off.
+   Retain the revision, CI runs, restore report, UAT evidence and final checklist.
+
 ## Scaling order
 
 Fix SQL and indexes first, then add safe Redis caching, move heavy work to
