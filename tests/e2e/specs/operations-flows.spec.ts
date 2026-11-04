@@ -525,7 +525,7 @@ test('one requisition converts into three category orders with scoped assignees'
     ])
     for (const category of categories) {
       if (pairs.some((pair) => pair.categoryId === category.item_category_id)) continue
-      const email = `e2e.b5.${candidate.id.slice(0, 8)}.${category.item_category_id.slice(0, 8)}@atcraft.example`
+      const email = `e2e.b5.${RUN}.${candidate.id.slice(0, 8)}.${category.item_category_id.slice(0, 8)}@atcraft.example`
       const existing = users.find((row) => row.email.toLowerCase() === email)
       const otherScopedUser = users.some(
         (row) =>
