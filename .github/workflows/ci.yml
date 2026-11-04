@@ -192,6 +192,22 @@ jobs:
         working-directory: tests/e2e
         run: npx playwright test
 
+      - name: Check every registered screen at mobile, tablet and desktop widths
+        working-directory: tests/e2e
+        env:
+          READINESS_WIDTHS: 320,375,768,1440
+          SWEEP_OUT: responsive-sweep.json
+        run: node scripts/responsive-sweep.mjs
+
+      - name: Upload the responsive-screen report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: responsive-screen-report
+          path: tests/e2e/responsive-sweep.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Check all static screens for accessibility in light mode
         working-directory: tests/e2e
         env:

@@ -31,6 +31,12 @@ unrelated proposal and deployment findings.
 - Browser checks now fail on API/network/render failures and visible error
   notifications, including an invalid response delivered with HTTP 200. This
   prevents a failed widget from counting as a successfully loaded screen.
+- CI runs the route-registry-driven responsive sweep after the browser journeys:
+  every registered staff and portal screen is loaded with its real API data,
+  primary tabs and forms are opened without submitting writes, and layout
+  overflow is checked at 320, 375, 768 and 1440 pixels. The JSON report is
+  retained as a CI artifact so a backend/API or screen change cannot silently
+  skip responsive verification.
 - Sales fulfilment now reads the mapped MRP availability-date field, with HTTP
   regressions for dated and legacy-null suggestions. Its joined query uses
   typed SQLAlchemy tuples so static checking catches invalid mapped fields.

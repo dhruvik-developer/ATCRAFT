@@ -128,7 +128,7 @@ interface WorkCentre {
   id: string
 }
 
-interface RosterOperator {
+interface StaffUser {
   id: string
   full_name: string
 }
@@ -263,7 +263,10 @@ async function api<T>(
     reply.status,
     `${method} ${path}: ${reply.status} ${reply.body.error?.message ?? ''}`,
   ).toBeGreaterThanOrEqual(200)
-  expect(reply.status, `${method} ${path} failed`).toBeLessThan(300)
+  expect(
+    reply.status,
+    `${method} ${path} returned ${reply.status}: ${JSON.stringify(reply.body.error ?? reply.body)}`,
+  ).toBeLessThan(300)
   expect(reply.body.success, `${method} ${path} returned an unsuccessful envelope`).toBe(true)
   return reply.body.data
 }
@@ -444,16 +447,17 @@ test('shift roster refuses double booking and shift production reports the booki
     token,
     '/routing/work-centers?is_active=true&page=1&limit=100',
   )
-  const [operator] = await list<RosterOperator>(
-    token,
-    '/routing/roster/operators?page=1&limit=100',
-  )
   expect(workCentre?.id, 'A seeded active work centre is required').toBeTruthy()
-  expect(operator?.id, 'A roster-eligible operator is required').toBeTruthy()
 
+  const operator = await api<StaffUser>(token, 'POST', '/users', {
+    email: `e2e.b5.${RUN}.${suffix()}.operator@atcraft.example`,
+    password: `R0ster!${suffix()}Aa`,
+    full_name: `B5 E2E operator ${suffix()}`,
+    must_change_password: false,
+  })
   const shift = await api<Shift>(token, 'POST', '/routing/shifts', {
-    code: `E2E${RUN}`,
-    name: `B5 E2E shift ${RUN}`,
+    code: `E2E${suffix()}`,
+    name: `B5 E2E shift ${suffix()}`,
     start_time: '06:00:00',
     end_time: '06:45:00',
     break_minutes: 0,
