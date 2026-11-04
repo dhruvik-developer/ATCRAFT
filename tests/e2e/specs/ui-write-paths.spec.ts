@@ -231,7 +231,7 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
       base_uom_id: (unit as { id: string }).id,
       production_type: 'BUY',
       can_purchase: true,
-      // Five units at this cost is well under ADJUSTMENT_APPROVAL_VALUE_THRESHOLD,
+      // Five units at this cost is well under the default adjustment approval threshold,
       // so the draft can be posted straight away without a second approver.
       standard_cost: '10.00',
     },

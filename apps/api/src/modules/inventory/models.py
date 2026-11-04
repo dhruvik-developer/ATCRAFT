@@ -1954,8 +1954,8 @@ class InternalIssue(TenantEntity):
     business rather than built into a product, so no production order or BOM is
     behind it. Each line posts a ``MATERIAL_ISSUE`` with
     ``reference_type="internal_issue"``. A document worth more than
-    ``INTERNAL_ISSUE_APPROVAL_VALUE`` is approved by a second person before it
-    posts, measured on the FIFO cost the issue will really consume.
+    the company's internal-issue approval threshold is approved by a second
+    person before it posts, measured on the FIFO cost the issue will really consume.
     """
 
     __tablename__ = "internal_issues"

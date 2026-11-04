@@ -1096,7 +1096,7 @@ class TestStockAdjustment:
             )
         )
         assert adjustment.total_value == Decimal("50000.0000")
-        assert adjustment.total_value > inv.ADJUSTMENT_APPROVAL_VALUE_THRESHOLD
+        assert adjustment.total_value > await inv.adjustment_approval_threshold(session, tenant)
         assert adjustment.requires_approval is True
 
         adjustment_id = adjustment.id

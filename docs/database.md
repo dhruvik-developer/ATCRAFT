@@ -651,10 +651,10 @@ and layer reconciliation exclude the scrap queue.
 `MATERIAL_ISSUE` with `reference_type="internal_issue"`. Its machine is DRAFT to
 POSTED below the approval threshold, otherwise DRAFT to PENDING_APPROVAL to
 POSTED. Draft or pending issues may be cancelled; rejection ends CANCELLED
-with its reason. `INTERNAL_ISSUE_APPROVAL_VALUE` is 25,000 in company currency;
-the actual FIFO posting rechecks it atomically. A separate approver is required,
-with the existing superuser exception. Rights are `internal_issue.create` and
-`internal_issue.approve`. CONSUMABLES is a warehouse classification, not an
+with its reason. The company's internal-issue approval threshold defaults to
+25,000 in company currency; the actual FIFO posting rechecks it atomically. A
+separate approver is required, with the existing superuser exception. Rights are
+`internal_issue.create` and `internal_issue.approve`. CONSUMABLES is a warehouse classification, not an
 inventory permission or a posting restriction.
 
 `SCRAP_REGISTER` reads bounded ledger movements into and out of scrap, at their

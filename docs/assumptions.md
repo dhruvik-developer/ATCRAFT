@@ -1842,9 +1842,9 @@ it from a later receipt would invent a cost the ledger never charged.
 **Impact if wrong.** If scrap should be valued at current standard cost, the
 SCRAP queue and the backfill both go.
 
-## §E8-3. Internal issues use the existing stock-adjustment approval value
+## §E8-3. Internal issues default to the stock-adjustment approval value
 
-**Assumed.** The named INTERNAL_ISSUE_APPROVAL_VALUE is 25,000 in company
+**Assumed.** The default internal-issue approval threshold is 25,000 in company
 currency, measured against FIFO cost rather than sale price or net variance. A
 larger issue needs submission and a separate approver, with the existing
 superuser exception. Posting rechecks the actual cost and rolls back entirely
@@ -1854,11 +1854,12 @@ if approval is needed. A low-value draft posts directly.
 warehouse as a write-off, so they share that threshold until the business names
 another.
 
-**Where.** `src/modules/inventory/service.py` - `INTERNAL_ISSUE_APPROVAL_VALUE`,
-`InternalIssueService`.
+**Where.** `src/modules/audit/service.py` -
+`DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD`; `src/modules/inventory/service.py` -
+`internal_issue_approval_threshold`, `InternalIssueService`.
 
-**Impact if wrong.** Change the constant. Confirm the amount before production
-use.
+**Impact if wrong.** Set the company's `internal_issue_approval_threshold`
+through `PUT /audit/approval-settings`. Confirm the amount before production use.
 
 ## §E8-4. Disposal proceeds describe the disposal
 
@@ -4228,11 +4229,10 @@ module is used in production:
    together with the costing dispatch that honours it.
 2. **Approval thresholds.** At what value does a purchase order, a stock
    adjustment or a price override require a second approval? The
-   stock-adjustment threshold is a code constant
-   (`ADJUSTMENT_APPROVAL_VALUE_THRESHOLD`, 25 000, in
-   `src/modules/inventory/service.py`) pending the business decision; there is
-   no setting for it, and the OpenAPI description of `POST /inventory/adjustments`
-   says so.
+   stock-adjustment and internal-issue thresholds default to 25 000 in company
+   currency and accept per-company overrides through `PUT /audit/approval-settings`.
+   The administration UI and procurement approval-rule integration remain pending;
+   confirm the approved values and policies before production use.
 3. **Multi-currency.** Companies have a configurable currency; customer orders,
    invoices and credit flows use that company currency. Vendor documents can
    carry other currencies, and reports keep denominations separate. Which FX

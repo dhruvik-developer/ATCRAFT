@@ -9717,7 +9717,7 @@
               },
               "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"serial_numbers\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
             },
-            "description": "Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the approval threshold - a fixed value, ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in the error's details when posting is refused - the document must be approved by a second person before it can post.",
+            "description": "Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the company's adjustment approval threshold, the document must be approved by a second person before it can post. Posting refusals include the effective threshold in the error's details.",
             "header": [
               {
                 "key": "Content-Type",
@@ -9751,7 +9751,7 @@
               },
               "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"issue_date\": \"2026-01-01\",\n  \"notes\": \"\"\n}"
             },
-            "description": "Nothing moves until the draft is posted. Lines are valued at what the FIFO cost layers say the stock cost; above INTERNAL_ISSUE_APPROVAL_VALUE in the inventory service the issue must be submitted and approved by a second person, and approving it posts it.",
+            "description": "Nothing moves until the draft is posted. Lines are valued at what the FIFO cost layers say the stock cost; above the company's internal-issue approval threshold the issue must be submitted and approved by a second person, and approving it posts it.",
             "header": [
               {
                 "key": "Content-Type",

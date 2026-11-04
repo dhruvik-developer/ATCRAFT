@@ -3334,7 +3334,7 @@ export interface paths {
         put?: never;
         /**
          * Draft a stock adjustment
-         * @description Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the approval threshold - a fixed value, ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in the error's details when posting is refused - the document must be approved by a second person before it can post.
+         * @description Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the company's adjustment approval threshold, the document must be approved by a second person before it can post. Posting refusals include the effective threshold in the error's details.
          */
         post: operations["create_adjustment_api_v1_inventory_adjustments_post"];
         delete?: never;
@@ -3635,7 +3635,7 @@ export interface paths {
         put?: never;
         /**
          * Draft an issue of stock to a department or cost centre
-         * @description Nothing moves until the draft is posted. Lines are valued at what the FIFO cost layers say the stock cost; above INTERNAL_ISSUE_APPROVAL_VALUE in the inventory service the issue must be submitted and approved by a second person, and approving it posts it.
+         * @description Nothing moves until the draft is posted. Lines are valued at what the FIFO cost layers say the stock cost; above the company's internal-issue approval threshold the issue must be submitted and approved by a second person, and approving it posts it.
          */
         post: operations["create_internal_issue_api_v1_inventory_internal_issues_post"];
         delete?: never;
