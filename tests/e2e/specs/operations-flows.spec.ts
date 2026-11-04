@@ -1,5 +1,5 @@
 /** API-driven coverage for the procurement and operations journeys in B5. */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +31,7 @@ interface ApiEnvelope<T> {
 
 interface ApiReply<T> {
   status: number
+  requestId: string | null
   body: ApiEnvelope<T>
 }
 
@@ -249,8 +250,10 @@ async function exchange<T>(
     },
     ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   })
+  const requestId = response.headers.get('x-request-id')
   return {
     status: response.status,
+    requestId,
     body: (await response.json()) as ApiEnvelope<T>,
   }
 }
@@ -262,13 +265,15 @@ async function api<T>(
   data?: unknown,
 ): Promise<T> {
   const reply = await exchange<T>(bearer, method, path, data)
+  const requestId = reply.requestId ? ` (request id ${reply.requestId})` : ''
+  const errorDetails = JSON.stringify(reply.body.error ?? reply.body)
   expect(
     reply.status,
     `${method} ${path}: ${reply.status} ${reply.body.error?.message ?? ''}`,
   ).toBeGreaterThanOrEqual(200)
   expect(
     reply.status,
-    `${method} ${path} returned ${reply.status}: ${JSON.stringify(reply.body.error ?? reply.body)}`,
+    `${method} ${path} returned ${reply.status}${requestId}: ${errorDetails}`,
   ).toBeLessThan(300)
   expect(reply.body.success, `${method} ${path} returned an unsuccessful envelope`).toBe(true)
   return reply.body.data
@@ -532,9 +537,11 @@ test('one requisition converts into three category orders with scoped assignees'
     ])
     for (const category of categories) {
       if (pairs.some((pair) => pair.categoryId === category.item_category_id)) continue
-      const vendorKey = candidate.id.replaceAll('-', '')
-      const categoryKey = category.item_category_id.replaceAll('-', '')
-      const email = `e2e.b5.${RUN}.${vendorKey}.${categoryKey}@atcraft.example`
+      const pairKey = createHash('sha256')
+        .update(`${candidate.id}:${category.item_category_id}`)
+        .digest('hex')
+        .slice(0, 32)
+      const email = `e2e.b5.${RUN}.${pairKey}@atcraft.example`
       const existing = users.find((row) => row.email.toLowerCase() === email)
       let userId = existing?.id
       if (existing) {
