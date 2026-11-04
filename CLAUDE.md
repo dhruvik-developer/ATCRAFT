@@ -582,6 +582,16 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   30 minutes later. `TEST_TIMEOUT_MS` in `vite.config.ts` and
   `ASYNC_QUERY_TIMEOUT_MS` in `src/test/setup.ts` are the one place for each; a
   per-test timeout below the suite's is now stricter than the default, not looser.
+- **`gh auth switch` is a machine-wide toggle, not a fix for one repository.** `gh`
+  on this machine holds two accounts and `gh auth git-credential` follows the
+  active one, so a push here worked or failed according to the last switch made
+  for any other repository. Pull and push here always use `dhruvik-developer`, the
+  only account with write access. `[credential "https://github.com"]` in
+  `.git/config` clears the inherited helpers and runs `gh auth token --hostname
+  github.com --user dhruvik-developer`, which ignores the toggle. `.git/config` is
+  not versioned, so a fresh checkout needs it set again. `git ls-remote` proves
+  nothing about this on a public repository; `git push --dry-run origin
+  refs/remotes/origin/develop:refs/heads/develop` authenticates and pushes nothing.
 
 ## Things not to do
 

@@ -21,3 +21,10 @@ This repository has exactly one working copy on this machine,
   a task needs a throwaway one, drop it before you finish.
 - Leave `TEST_POSTGRES_DB` unset (it defaults to `atcraft_erp_test`). The test
   fixture creates whatever database that variable names, and nothing drops it.
+
+## GitHub account
+
+Pull and push in this repository always use the GitHub username
+`dhruvik-developer`. `.git/config` pins it for this repository alone, so leave
+that in place and never run `gh auth switch` to fix a push. A push that fails with
+no permission error is usually the pre-push hook, not the account.
