@@ -3361,7 +3361,7 @@
             "Night shifts belong to the date they start. Adjacent windows do not overlap.",
             "An operator cannot hold overlapping planned windows; each machine permits one operator at a time. Use a cell assignment when tending several machines.",
             "Maintenance and breakdown warn rather than refuse a staffing plan.",
-            "Legacy production shift text is shown read-only and retained."
+            "New production bookings select a shift master and retain its code. Older bookings without a linked shift remain readable under their stored shift text."
           ],
           "permission": "shift_roster.view opens the board; shift_roster.manage plans and cancels. shift.view opens the shift register; shift.manage changes the master. Administrators must grant new rights to existing non-system roles.",
           "notes": "Rostered capacity is displayed beside calendar capacity in Machine utilisation. Daily production by shift reports output, rejections, downtime and yield."
@@ -5451,7 +5451,7 @@
     },
     {
       "groupTitle": "Vendor app",
-      "groupIntro": "Suppliers use a separate workspace for the orders the buyer has shared with their vendor account. The phone navigation provides Home, Orders, Shipments, Invoices and More. More leads to receipts and quality, job work for vendor owners and managers, payments, notifications, profile and sign out. Roles decide which actions appear; a vendor cannot enter the staff workspace or choose a different vendor identity.",
+      "groupIntro": "Suppliers use a separate workspace for the orders the buyer has shared with their vendor account. The phone navigation provides Home, Orders, Shipments, Invoices and More. More leads to receipts and quality, job work for vendor owners and managers, payments, notifications, profile and sign out. Roles decide which actions appear; a vendor cannot enter the staff workspace or choose a different vendor identity. To receive background web push, open Profile & sessions on a supported secure browser and enable notifications for this device, then allow the browser prompt. On iPhone or iPad, first use Add to Home Screen and open the installed app; the device card explains when push is unavailable for the deployment.",
       "screens": [
         {
           "whoUses": "Supplier staff with a vendor account. Roles and category assignments restrict the orders and actions you can see.",
