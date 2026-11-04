@@ -538,8 +538,8 @@ function PreferencesTab() {
         </Alert>
       )}
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm">
+      <div className="min-w-0 max-w-full overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[36rem] text-sm">
           <caption className="sr-only">Notification channels per event type</caption>
           <thead className="bg-muted/50">
             <tr className="border-b">

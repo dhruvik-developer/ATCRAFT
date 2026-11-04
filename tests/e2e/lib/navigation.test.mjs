@@ -85,7 +85,13 @@ test('readiness probes form openers and refuses immediate business submissions',
     assert.equal(isReadinessDialogOpener(label, 'button'), true)
     assert.equal(isReadinessDialogOpener(label, 'submit'), false)
   }
-  for (const label of ['Add to cart', 'Add to wishlist', 'Save changes', 'Place order request']) {
+  for (const label of [
+    'Add template',
+    'Add to cart',
+    'Add to wishlist',
+    'Save changes',
+    'Place order request',
+  ]) {
     assert.equal(isReadinessDialogOpener(label, 'button'), false)
     assert.equal(isReadinessDialogOpener(label, 'submit'), false)
   }

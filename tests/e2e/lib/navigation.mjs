@@ -80,6 +80,8 @@ export function isReadinessDialogOpener(label, type) {
   return (
     type !== 'submit' &&
     /^(new|add|create|raise|record|invite|upload|register)\b/i.test(label) &&
+    // The messaging settings action adds an inline editor row; it opens no dialog.
+    !/^add template$/i.test(label.trim()) &&
     !/^add to (cart|wishlist)\b/i.test(label)
   )
 }

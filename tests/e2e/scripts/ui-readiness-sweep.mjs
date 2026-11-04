@@ -3,7 +3,7 @@
  * Routes come from the application's loader registry so new screens cannot
  * silently escape the audit. Detail pages must have data; a skipped detail
  * page is not a passing check. Tabs and primary forms are exercised as views,
- * without submitting documents or changing stock.
+ * dialog forms without submitting documents or changing stock.
  *
  * npm run test:readiness
  * READINESS_WIDTHS=320,667 READINESS_ROUTES=/items,/assembly npm run test:readiness
