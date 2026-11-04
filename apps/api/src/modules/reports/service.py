@@ -87,7 +87,11 @@ from src.modules.reports.schemas import (
     DashboardTrendsRead,
     DeadStockRow,
     DealerPerformanceRow,
+    DelayedPurchaseOrdersRow,
     DispatchRow,
+    DuplicatePoOverridesRow,
+    InboundFreightRow,
+    InboundShipmentRow,
     InventoryValuationRow,
     ItemMovementRow,
     JobWorkCostRow,
@@ -99,6 +103,8 @@ from src.modules.reports.schemas import (
     ProductionEfficiencyRow,
     ProductionPendingRow,
     ProductProfitabilityRow,
+    PurchaseOrderRegisterRow,
+    PurchaseOrderSummaryRow,
     PurchasePendingRow,
     PurchaseRegisterRow,
     QcRejectionRow,
@@ -114,7 +120,9 @@ from src.modules.reports.schemas import (
     ScrapRegisterRow,
     ShiftProductionRow,
     StockAvailabilityRow,
+    VendorAcceptanceRow,
     VendorDispatchHistoryRow,
+    VendorInboundHistoryRow,
     VendorPerformanceRow,
 )
 
@@ -470,6 +478,23 @@ def _derive_purchase_pending(row: dict[str, Any], ctx: ReportContext) -> dict[st
     return row
 
 
+def _derive_purchase_order_register(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    row["received_percent"] = percent(row["received_quantity"], row["ordered_quantity"])
+    return row
+
+
+def _derive_vendor_acceptance(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    row["acknowledged_within_24h_percent"] = percent(
+        row["acknowledged_within_24h_count"], row["sent_count"]
+    )
+    return row
+
+
+def _derive_vendor_inbound_history(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    row["on_time_percent"] = percent(row["on_time_count"], row["on_time_count"] + row["late_count"])
+    return row
+
+
 def _derive_production_pending(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
     late = overdue_days(row["planned_end_date"], ctx.as_of)
     row["days_overdue"] = late
@@ -661,6 +686,55 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         cacheable=True,
         derive=_derive_purchase_pending,
     ),
+    ReportKey.PURCHASE_ORDER_REGISTER: ReportDefinition(
+        key=ReportKey.PURCHASE_ORDER_REGISTER,
+        title="Purchase order register",
+        description=(
+            "Purchase orders raised in the period with vendor, category, assignee, "
+            "committed dates and received progress."
+        ),
+        row_model=PurchaseOrderRegisterRow,
+        build=lambda repo, ctx: repo.purchase_order_register(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        derive=_derive_purchase_order_register,
+    ),
+    ReportKey.PURCHASE_ORDER_SUMMARY: ReportDefinition(
+        key=ReportKey.PURCHASE_ORDER_SUMMARY,
+        title="Purchase order summary",
+        description=(
+            "Purchase-order totals grouped by vendor or category. Vendor totals include "
+            "freight; category totals use line totals because header freight is not allocated."
+        ),
+        row_model=PurchaseOrderSummaryRow,
+        build=lambda repo, ctx: repo.purchase_order_summary(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+    ),
+    ReportKey.DELAYED_PURCHASE_ORDERS: ReportDefinition(
+        key=ReportKey.DELAYED_PURCHASE_ORDERS,
+        title="Delayed purchase orders",
+        description=(
+            "Open purchase-order quantities whose line delivery date falls in the period "
+            "and is overdue at the period end."
+        ),
+        row_model=DelayedPurchaseOrdersRow,
+        build=lambda repo, ctx: repo.delayed_purchase_orders(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+    ),
+    ReportKey.DUPLICATE_PO_OVERRIDES: ReportDefinition(
+        key=ReportKey.DUPLICATE_PO_OVERRIDES,
+        title="Duplicate PO overrides",
+        description=(
+            "Purchase orders created after a duplicate warning was acknowledged, with "
+            "the recorded reason and user evidence."
+        ),
+        row_model=DuplicatePoOverridesRow,
+        build=lambda repo, ctx: repo.duplicate_po_overrides(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+    ),
     ReportKey.PRODUCTION_PENDING: ReportDefinition(
         key=ReportKey.PRODUCTION_PENDING,
         title="Production pending",
@@ -710,6 +784,19 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=True,
         cacheable=True,
         derive=_derive_vendor_performance,
+    ),
+    ReportKey.VENDOR_ACCEPTANCE: ReportDefinition(
+        key=ReportKey.VENDOR_ACCEPTANCE,
+        title="Vendor acceptance",
+        description=(
+            "Orders sent to vendors in the period, including acknowledgement times and "
+            "the share acknowledged within 24 hours."
+        ),
+        row_model=VendorAcceptanceRow,
+        build=lambda repo, ctx: repo.vendor_acceptance(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        derive=_derive_vendor_acceptance,
     ),
     ReportKey.DEALER_PERFORMANCE: ReportDefinition(
         key=ReportKey.DEALER_PERFORMANCE,
@@ -869,6 +956,40 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=True,
         cacheable=True,
         derive=_derive_dispatch,
+    ),
+    ReportKey.INBOUND_SHIPMENTS: ReportDefinition(
+        key=ReportKey.INBOUND_SHIPMENTS,
+        title="Inbound shipments",
+        description=(
+            "Vendor consignments shipped in the period with carrier, tracking, expected "
+            "arrival and delivery status."
+        ),
+        row_model=InboundShipmentRow,
+        build=lambda repo, ctx: repo.inbound_shipments(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+    ),
+    ReportKey.INBOUND_FREIGHT: ReportDefinition(
+        key=ReportKey.INBOUND_FREIGHT,
+        title="Inbound freight",
+        description="Inbound shipment freight grouped by transporter or courier and UTC month.",
+        row_model=InboundFreightRow,
+        build=lambda repo, ctx: repo.inbound_freight(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+    ),
+    ReportKey.VENDOR_INBOUND_HISTORY: ReportDefinition(
+        key=ReportKey.VENDOR_INBOUND_HISTORY,
+        title="Vendor inbound history",
+        description=(
+            "Shipment counts, freight and on-time delivery by vendor for consignments "
+            "shipped in the period."
+        ),
+        row_model=VendorInboundHistoryRow,
+        build=lambda repo, ctx: repo.vendor_inbound_history(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        derive=_derive_vendor_inbound_history,
     ),
     ReportKey.COURIER_TRACKING: ReportDefinition(
         key=ReportKey.COURIER_TRACKING,
@@ -1103,9 +1224,12 @@ def parameters_of(definition: ReportDefinition, ctx: ReportContext) -> dict[str,
     ``vendor_id`` describe the same report and share one snapshot, and a period
     is absent entirely for a report that does not take one.
     """
+    filter_values = ctx.filters.model_dump(mode="json", exclude_none=True)
+    if definition.key is ReportKey.PURCHASE_ORDER_SUMMARY:
+        filter_values.setdefault("group_by", "vendor")
     parameters: dict[str, Any] = {
         "report_key": str(definition.key),
-        "filters": ctx.filters.model_dump(mode="json", exclude_none=True),
+        "filters": filter_values,
     }
     if definition.calculation_version > 1:
         parameters[REPORT_CALCULATION_VERSION_PARAMETER] = definition.calculation_version

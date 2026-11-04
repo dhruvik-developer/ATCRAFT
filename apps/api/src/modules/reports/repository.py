@@ -34,6 +34,7 @@ from typing import Any
 from sqlalchemy import (
     ColumnElement,
     Date,
+    Integer,
     Numeric,
     Row,
     Select,
@@ -52,7 +53,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
@@ -122,6 +123,8 @@ from src.modules.job_work.models import (
 )
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunStatus
 from src.modules.organization.models import Company, CostCentre, Department
+from src.modules.procurement.inbound_models import PurchaseOrderShipment
+from src.modules.procurement.inbound_repository import po_is_late
 from src.modules.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
@@ -139,7 +142,7 @@ from src.modules.production.models import (
     ProductionOrderStatus,
     WorkOrder,
 )
-from src.modules.products.models import Item
+from src.modules.products.models import Item, ItemCategory
 from src.modules.quality.models import InspectionResult, InspectionStatus, QcInspection
 from src.modules.reports.models import InventorySummary, ReportJobStatus, ReportKey, ReportSnapshot
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
@@ -773,6 +776,369 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             stmt = stmt.where(PurchaseOrder.code.ilike(f"%{filters.search.strip()}%"))
         return stmt
 
+    def purchase_order_register(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        line_totals = (
+            select(
+                PurchaseOrderLine.purchase_order_id.label("purchase_order_id"),
+                func.sum(PurchaseOrderLine.quantity).label("ordered_quantity"),
+                func.sum(PurchaseOrderLine.received_quantity).label("received_quantity"),
+            )
+            .where(PurchaseOrderLine.company_id == self._company)
+            .group_by(PurchaseOrderLine.purchase_order_id)
+            .subquery()
+        )
+        assigned_user = aliased(User)
+        ordered = func.coalesce(line_totals.c.ordered_quantity, 0)
+        received = func.coalesce(line_totals.c.received_quantity, 0)
+        stmt = (
+            select(
+                PurchaseOrder.id.label("purchase_order_id"),
+                PurchaseOrder.code.label("code"),
+                PurchaseOrder.po_date.label("po_date"),
+                Vendor.id.label("vendor_id"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                ItemCategory.id.label("category_id"),
+                ItemCategory.code.label("category_code"),
+                ItemCategory.name.label("category_name"),
+                assigned_user.id.label("assigned_vendor_user_id"),
+                assigned_user.full_name.label("assigned_vendor_user_name"),
+                PurchaseOrder.status.label("status"),
+                PurchaseOrder.total_amount.label("total_amount"),
+                PurchaseOrder.expected_delivery_date.label("expected_delivery_date"),
+                PurchaseOrder.vendor_committed_date.label("vendor_committed_date"),
+                ordered.label("ordered_quantity"),
+                received.label("received_quantity"),
+                (ordered - received).label("pending_quantity"),
+            )
+            .join(
+                Vendor,
+                and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+            )
+            .outerjoin(line_totals, line_totals.c.purchase_order_id == PurchaseOrder.id)
+            .outerjoin(
+                ItemCategory,
+                and_(
+                    ItemCategory.id == PurchaseOrder.item_category_id,
+                    ItemCategory.company_id == self._company,
+                ),
+            )
+            .outerjoin(
+                assigned_user,
+                and_(
+                    assigned_user.id == PurchaseOrder.assigned_vendor_user_id,
+                    assigned_user.company_id == self._company,
+                ),
+            )
+            .where(
+                PurchaseOrder.company_id == self._company,
+                PurchaseOrder.po_date.between(period.date_from, period.date_to),
+            )
+            .order_by(PurchaseOrder.po_date.desc(), PurchaseOrder.id.desc())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+        if filters.status:
+            stmt = stmt.where(PurchaseOrder.status == filters.status)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    PurchaseOrder.code.ilike(pattern),
+                    Vendor.code.ilike(pattern),
+                    Vendor.name.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def purchase_order_summary(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Group vendor totals or item-category line totals without multiplying POs.
+
+        Vendor totals use the header amount, including freight. Category totals
+        use the sum of categorized line totals; header freight is not assigned
+        to a category because the PO does not store a freight allocation.
+        """
+        group_by = filters.group_by or "vendor"
+        line_totals = (
+            select(
+                PurchaseOrderLine.purchase_order_id.label("purchase_order_id"),
+                func.sum(PurchaseOrderLine.quantity).label("ordered_quantity"),
+                func.sum(PurchaseOrderLine.received_quantity).label("received_quantity"),
+            )
+            .where(PurchaseOrderLine.company_id == self._company)
+            .group_by(PurchaseOrderLine.purchase_order_id)
+            .subquery()
+        )
+        if group_by == "vendor":
+            stmt = (
+                select(
+                    literal("vendor").label("group_by"),
+                    Vendor.id.label("vendor_id"),
+                    Vendor.code.label("vendor_code"),
+                    Vendor.name.label("vendor_name"),
+                    literal(None).label("category_id"),
+                    literal(None).label("category_code"),
+                    literal(None).label("category_name"),
+                    func.count(PurchaseOrder.id).label("purchase_order_count"),
+                    func.sum(PurchaseOrder.total_amount).label("group_total_amount"),
+                    func.coalesce(func.sum(line_totals.c.ordered_quantity), 0).label(
+                        "ordered_quantity"
+                    ),
+                    func.coalesce(func.sum(line_totals.c.received_quantity), 0).label(
+                        "received_quantity"
+                    ),
+                    func.coalesce(
+                        func.sum(line_totals.c.ordered_quantity - line_totals.c.received_quantity),
+                        0,
+                    ).label("pending_quantity"),
+                )
+                .select_from(PurchaseOrder)
+                .join(
+                    Vendor,
+                    and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+                )
+                .outerjoin(line_totals, line_totals.c.purchase_order_id == PurchaseOrder.id)
+                .where(
+                    PurchaseOrder.company_id == self._company,
+                    PurchaseOrder.po_date.between(period.date_from, period.date_to),
+                )
+                .group_by(Vendor.id, Vendor.code, Vendor.name)
+                .order_by(Vendor.name.asc(), Vendor.id.asc())
+            )
+            if filters.vendor_id is not None:
+                stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+            if filters.category_id is not None:
+                stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+            if filters.status:
+                stmt = stmt.where(PurchaseOrder.status == filters.status)
+            if filters.search:
+                pattern = f"%{filters.search.strip()}%"
+                stmt = stmt.where(
+                    or_(
+                        PurchaseOrder.code.ilike(pattern),
+                        Vendor.code.ilike(pattern),
+                        Vendor.name.ilike(pattern),
+                    )
+                )
+            return stmt
+
+        ordered = PurchaseOrderLine.quantity
+        received = PurchaseOrderLine.received_quantity
+        stmt = (
+            select(
+                literal("category").label("group_by"),
+                literal(None).label("vendor_id"),
+                literal(None).label("vendor_code"),
+                literal(None).label("vendor_name"),
+                ItemCategory.id.label("category_id"),
+                ItemCategory.code.label("category_code"),
+                ItemCategory.name.label("category_name"),
+                func.count(func.distinct(PurchaseOrder.id)).label("purchase_order_count"),
+                func.sum(PurchaseOrderLine.line_total).label("group_total_amount"),
+                func.sum(ordered).label("ordered_quantity"),
+                func.sum(received).label("received_quantity"),
+                func.sum(ordered - received).label("pending_quantity"),
+            )
+            .select_from(PurchaseOrderLine)
+            .join(
+                PurchaseOrder,
+                and_(
+                    PurchaseOrder.id == PurchaseOrderLine.purchase_order_id,
+                    PurchaseOrder.company_id == self._company,
+                ),
+            )
+            .join(
+                Item,
+                and_(Item.id == PurchaseOrderLine.item_id, Item.company_id == self._company),
+            )
+            .outerjoin(
+                ItemCategory,
+                and_(ItemCategory.id == Item.category_id, ItemCategory.company_id == self._company),
+            )
+            .where(
+                PurchaseOrderLine.company_id == self._company,
+                PurchaseOrder.po_date.between(period.date_from, period.date_to),
+            )
+            .group_by(ItemCategory.id, ItemCategory.code, ItemCategory.name)
+            .order_by(ItemCategory.name.asc().nulls_last(), ItemCategory.id.asc().nulls_last())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(Item.category_id == filters.category_id)
+        if filters.status:
+            stmt = stmt.where(PurchaseOrder.status == filters.status)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    PurchaseOrder.code.ilike(pattern),
+                    ItemCategory.code.ilike(pattern),
+                    ItemCategory.name.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def delayed_purchase_orders(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        line_due = func.coalesce(
+            PurchaseOrderLine.required_date, PurchaseOrder.expected_delivery_date
+        )
+        line_pending = PurchaseOrderLine.quantity - PurchaseOrderLine.received_quantity
+        late_lines = (
+            select(
+                PurchaseOrder.id.label("purchase_order_id"),
+                func.min(line_due).label("expected_delivery_date"),
+                func.sum(line_pending).label("pending_quantity"),
+            )
+            .join(
+                PurchaseOrderLine,
+                and_(
+                    PurchaseOrderLine.purchase_order_id == PurchaseOrder.id,
+                    PurchaseOrderLine.company_id == self._company,
+                ),
+            )
+            .where(
+                PurchaseOrder.company_id == self._company,
+                line_due.between(period.date_from, period.date_to),
+                po_is_late(
+                    status=PurchaseOrder.status,
+                    open_quantity=line_pending,
+                    expected_date=line_due,
+                    as_of=period.date_to,
+                    sql=True,
+                ),
+            )
+            .group_by(PurchaseOrder.id)
+            .subquery()
+        )
+        stmt = (
+            select(
+                PurchaseOrder.id.label("purchase_order_id"),
+                PurchaseOrder.code.label("code"),
+                Vendor.id.label("vendor_id"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                ItemCategory.id.label("category_id"),
+                ItemCategory.code.label("category_code"),
+                ItemCategory.name.label("category_name"),
+                PurchaseOrder.status.label("status"),
+                late_lines.c.expected_delivery_date.label("expected_delivery_date"),
+                late_lines.c.pending_quantity.label("pending_quantity"),
+                cast(
+                    literal(period.date_to, type_=Date) - late_lines.c.expected_delivery_date,
+                    Integer,
+                ).label("days_late"),
+            )
+            .join(late_lines, late_lines.c.purchase_order_id == PurchaseOrder.id)
+            .join(
+                Vendor,
+                and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+            )
+            .outerjoin(
+                ItemCategory,
+                and_(
+                    ItemCategory.id == PurchaseOrder.item_category_id,
+                    ItemCategory.company_id == self._company,
+                ),
+            )
+            .where(PurchaseOrder.company_id == self._company)
+            .order_by(late_lines.c.expected_delivery_date.asc(), PurchaseOrder.id.asc())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+        if filters.status:
+            stmt = stmt.where(PurchaseOrder.status == filters.status)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    PurchaseOrder.code.ilike(pattern),
+                    Vendor.code.ilike(pattern),
+                    Vendor.name.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def duplicate_po_overrides(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        creator = aliased(User)
+        confirmer = aliased(User)
+        start = datetime.combine(period.date_from, datetime.min.time(), UTC)
+        end = datetime.combine(period.date_to + timedelta(days=1), datetime.min.time(), UTC)
+        stmt = (
+            select(
+                PurchaseOrder.id.label("purchase_order_id"),
+                PurchaseOrder.code.label("code"),
+                Vendor.id.label("vendor_id"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                ItemCategory.id.label("category_id"),
+                ItemCategory.code.label("category_code"),
+                ItemCategory.name.label("category_name"),
+                PurchaseOrder.created_at.label("created_at"),
+                creator.id.label("created_by_id"),
+                creator.full_name.label("created_by_name"),
+                PurchaseOrder.duplicate_acknowledgement_reason.label(
+                    "duplicate_acknowledgement_reason"
+                ),
+                PurchaseOrder.duplicate_confirmed_at.label("duplicate_confirmed_at"),
+                confirmer.id.label("duplicate_confirmed_by_id"),
+                confirmer.full_name.label("duplicate_confirmed_by_name"),
+                PurchaseOrder.duplicate_confirmation_reason.label("duplicate_confirmation_reason"),
+            )
+            .join(
+                Vendor,
+                and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+            )
+            .outerjoin(
+                ItemCategory,
+                and_(
+                    ItemCategory.id == PurchaseOrder.item_category_id,
+                    ItemCategory.company_id == self._company,
+                ),
+            )
+            .outerjoin(
+                creator,
+                and_(
+                    creator.id == PurchaseOrder.created_by_id,
+                    creator.company_id == self._company,
+                ),
+            )
+            .outerjoin(
+                confirmer,
+                and_(
+                    confirmer.id == PurchaseOrder.duplicate_confirmed_by_id,
+                    confirmer.company_id == self._company,
+                ),
+            )
+            .where(
+                PurchaseOrder.company_id == self._company,
+                PurchaseOrder.duplicate_acknowledged.is_(True),
+                PurchaseOrder.created_at >= start,
+                PurchaseOrder.created_at < end,
+            )
+            .order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+        if filters.status:
+            stmt = stmt.where(PurchaseOrder.status == filters.status)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    PurchaseOrder.code.ilike(pattern),
+                    Vendor.code.ilike(pattern),
+                    Vendor.name.ilike(pattern),
+                )
+            )
+        return stmt
+
     # --- 5. production pending ----------------------------------------------
 
     def production_pending(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
@@ -1126,6 +1492,323 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         )
         if filters.vendor_id:
             stmt = stmt.where(Vendor.id == filters.vendor_id)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(or_(Vendor.code.ilike(pattern), Vendor.name.ilike(pattern)))
+        return stmt
+
+    def vendor_acceptance(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        start = datetime.combine(period.date_from, datetime.min.time(), UTC)
+        end = datetime.combine(period.date_to + timedelta(days=1), datetime.min.time(), UTC)
+        elapsed_hours = (
+            func.extract("epoch", PurchaseOrder.acknowledged_at - PurchaseOrder.sent_at) / 3600
+        )
+        acknowledged_hours = case(
+            (PurchaseOrder.acknowledged_at.is_not(None), elapsed_hours), else_=None
+        )
+        acknowledged = case(
+            (PurchaseOrder.acknowledged_at.is_not(None), PurchaseOrder.id), else_=None
+        )
+        declined = case(
+            (PurchaseOrder.status == PurchaseOrderStatus.VENDOR_DECLINED, PurchaseOrder.id),
+            else_=None,
+        )
+        within_24h = case(
+            (
+                and_(
+                    PurchaseOrder.acknowledged_at.is_not(None),
+                    PurchaseOrder.acknowledged_at <= PurchaseOrder.sent_at + timedelta(hours=24),
+                ),
+                PurchaseOrder.id,
+            ),
+            else_=None,
+        )
+        stmt = (
+            select(
+                Vendor.id.label("vendor_id"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                func.count(PurchaseOrder.id).label("sent_count"),
+                func.count(acknowledged).label("acknowledged_count"),
+                func.count(declined).label("declined_count"),
+                func.avg(acknowledged_hours).label("average_hours_to_acknowledge"),
+                func.percentile_cont(0.5)
+                .within_group(acknowledged_hours)
+                .label("median_hours_to_acknowledge"),
+                func.count(within_24h).label("acknowledged_within_24h_count"),
+            )
+            .join(
+                Vendor,
+                and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+            )
+            .where(
+                PurchaseOrder.company_id == self._company,
+                PurchaseOrder.sent_at >= start,
+                PurchaseOrder.sent_at < end,
+            )
+            .group_by(Vendor.id, Vendor.code, Vendor.name)
+            .order_by(Vendor.name.asc(), Vendor.id.asc())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.status:
+            stmt = stmt.where(PurchaseOrder.status == filters.status)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(or_(Vendor.code.ilike(pattern), Vendor.name.ilike(pattern)))
+        return stmt
+
+    def inbound_shipments(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        start = datetime.combine(period.date_from, datetime.min.time(), UTC)
+        end = datetime.combine(period.date_to + timedelta(days=1), datetime.min.time(), UTC)
+        delivered_date = cast(PurchaseOrderShipment.delivered_at, Date)
+        late_days = case(
+            (PurchaseOrderShipment.expected_delivery_date.is_(None), 0),
+            (
+                PurchaseOrderShipment.delivered_at.is_not(None),
+                func.greatest(
+                    delivered_date - PurchaseOrderShipment.expected_delivery_date,
+                    0,
+                ),
+            ),
+            (
+                PurchaseOrderShipment.expected_delivery_date < period.date_to,
+                literal(period.date_to, type_=Date) - PurchaseOrderShipment.expected_delivery_date,
+            ),
+            else_=0,
+        )
+        shipment_status = case(
+            (PurchaseOrderShipment.delivered_at.is_not(None), "RECEIVED"),
+            else_="IN_TRANSIT",
+        )
+        stmt = (
+            select(
+                PurchaseOrderShipment.id.label("shipment_id"),
+                PurchaseOrder.id.label("purchase_order_id"),
+                PurchaseOrder.code.label("purchase_order_code"),
+                Vendor.id.label("vendor_id"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                PurchaseOrderShipment.shipment_number.label("shipment_number"),
+                Transporter.id.label("transporter_id"),
+                Transporter.code.label("transporter_code"),
+                Transporter.name.label("transporter_name"),
+                PurchaseOrderShipment.courier_name.label("courier_name"),
+                PurchaseOrderShipment.tracking_reference.label("tracking_reference"),
+                PurchaseOrderShipment.lr_number.label("lr_number"),
+                PurchaseOrderShipment.shipped_at.label("shipped_at"),
+                PurchaseOrderShipment.expected_delivery_date.label("expected_delivery_date"),
+                PurchaseOrderShipment.delivered_at.label("delivered_at"),
+                shipment_status.label("status"),
+                PurchaseOrderShipment.freight_amount.label("freight_amount"),
+                late_days.label("days_late"),
+            )
+            .join(
+                PurchaseOrder,
+                and_(
+                    PurchaseOrder.id == PurchaseOrderShipment.purchase_order_id,
+                    PurchaseOrder.company_id == self._company,
+                ),
+            )
+            .join(
+                Vendor,
+                and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+            )
+            .outerjoin(
+                Transporter,
+                and_(
+                    Transporter.id == PurchaseOrderShipment.transporter_id,
+                    Transporter.company_id == self._company,
+                ),
+            )
+            .where(
+                PurchaseOrderShipment.company_id == self._company,
+                PurchaseOrderShipment.shipped_at >= start,
+                PurchaseOrderShipment.shipped_at < end,
+            )
+            .order_by(PurchaseOrderShipment.shipped_at.desc(), PurchaseOrderShipment.id.desc())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+        if filters.transporter_id is not None:
+            stmt = stmt.where(PurchaseOrderShipment.transporter_id == filters.transporter_id)
+        if filters.status:
+            stmt = stmt.where(shipment_status == filters.status)
+        if filters.in_transit_only:
+            stmt = stmt.where(PurchaseOrderShipment.delivered_at.is_(None))
+        if filters.expected_today:
+            # ASSUMPTION: "Today" in a replayable report means the selected
+            # period's inclusive end, not the machine's current date.
+            stmt = stmt.where(PurchaseOrderShipment.expected_delivery_date == period.date_to)
+        if filters.late_only:
+            stmt = stmt.where(
+                PurchaseOrderShipment.delivered_at.is_(None),
+                PurchaseOrderShipment.expected_delivery_date < period.date_to,
+            )
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    PurchaseOrder.code.ilike(pattern),
+                    Vendor.code.ilike(pattern),
+                    Vendor.name.ilike(pattern),
+                    PurchaseOrderShipment.tracking_reference.ilike(pattern),
+                    PurchaseOrderShipment.lr_number.ilike(pattern),
+                    PurchaseOrderShipment.courier_name.ilike(pattern),
+                    Transporter.name.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def inbound_freight(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        start = datetime.combine(period.date_from, datetime.min.time(), UTC)
+        end = datetime.combine(period.date_to + timedelta(days=1), datetime.min.time(), UTC)
+        # ASSUMPTION: Freight months follow UTC, independent of the operator's
+        # browser timezone, so repeated exports group the same shipment alike.
+        month = cast(
+            func.date_trunc("month", func.timezone("UTC", PurchaseOrderShipment.shipped_at)),
+            Date,
+        )
+        stmt = (
+            select(
+                month.label("month"),
+                Transporter.id.label("transporter_id"),
+                Transporter.code.label("transporter_code"),
+                Transporter.name.label("transporter_name"),
+                PurchaseOrderShipment.courier_name.label("courier_name"),
+                func.count(PurchaseOrderShipment.id).label("shipment_count"),
+                func.sum(PurchaseOrderShipment.freight_amount).label("freight_amount"),
+            )
+            .select_from(PurchaseOrderShipment)
+            .join(
+                PurchaseOrder,
+                and_(
+                    PurchaseOrder.id == PurchaseOrderShipment.purchase_order_id,
+                    PurchaseOrder.company_id == self._company,
+                ),
+            )
+            .outerjoin(
+                Transporter,
+                and_(
+                    Transporter.id == PurchaseOrderShipment.transporter_id,
+                    Transporter.company_id == self._company,
+                ),
+            )
+            .where(
+                PurchaseOrderShipment.company_id == self._company,
+                PurchaseOrderShipment.shipped_at >= start,
+                PurchaseOrderShipment.shipped_at < end,
+            )
+            .group_by(
+                month,
+                Transporter.id,
+                Transporter.code,
+                Transporter.name,
+                PurchaseOrderShipment.courier_name,
+            )
+            .order_by(
+                month.desc(),
+                Transporter.name.asc().nulls_last(),
+                PurchaseOrderShipment.courier_name.asc().nulls_last(),
+            )
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+        if filters.transporter_id is not None:
+            stmt = stmt.where(PurchaseOrderShipment.transporter_id == filters.transporter_id)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    Transporter.code.ilike(pattern),
+                    Transporter.name.ilike(pattern),
+                    PurchaseOrderShipment.courier_name.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def vendor_inbound_history(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        start = datetime.combine(period.date_from, datetime.min.time(), UTC)
+        end = datetime.combine(period.date_to + timedelta(days=1), datetime.min.time(), UTC)
+        delivered_date = cast(PurchaseOrderShipment.delivered_at, Date)
+        on_time = case(
+            (
+                and_(
+                    PurchaseOrderShipment.expected_delivery_date.is_not(None),
+                    PurchaseOrderShipment.delivered_at.is_not(None),
+                    delivered_date <= PurchaseOrderShipment.expected_delivery_date,
+                ),
+                PurchaseOrderShipment.id,
+            ),
+            else_=None,
+        )
+        late = case(
+            (
+                and_(
+                    PurchaseOrderShipment.expected_delivery_date.is_not(None),
+                    or_(
+                        and_(
+                            PurchaseOrderShipment.delivered_at.is_not(None),
+                            delivered_date > PurchaseOrderShipment.expected_delivery_date,
+                        ),
+                        and_(
+                            PurchaseOrderShipment.delivered_at.is_(None),
+                            PurchaseOrderShipment.expected_delivery_date < period.date_to,
+                        ),
+                    ),
+                ),
+                PurchaseOrderShipment.id,
+            ),
+            else_=None,
+        )
+        stmt = (
+            select(
+                Vendor.id.label("vendor_id"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                func.count(PurchaseOrderShipment.id).label("shipment_count"),
+                func.count(
+                    case(
+                        (PurchaseOrderShipment.delivered_at.is_not(None), PurchaseOrderShipment.id),
+                        else_=None,
+                    )
+                ).label("delivered_count"),
+                func.count(on_time).label("on_time_count"),
+                func.count(late).label("late_count"),
+                func.coalesce(func.sum(PurchaseOrderShipment.freight_amount), 0).label(
+                    "freight_amount"
+                ),
+            )
+            .select_from(PurchaseOrderShipment)
+            .join(
+                PurchaseOrder,
+                and_(
+                    PurchaseOrder.id == PurchaseOrderShipment.purchase_order_id,
+                    PurchaseOrder.company_id == self._company,
+                ),
+            )
+            .join(
+                Vendor,
+                and_(Vendor.id == PurchaseOrder.vendor_id, Vendor.company_id == self._company),
+            )
+            .where(
+                PurchaseOrderShipment.company_id == self._company,
+                PurchaseOrderShipment.shipped_at >= start,
+                PurchaseOrderShipment.shipped_at < end,
+            )
+            .group_by(Vendor.id, Vendor.code, Vendor.name)
+            .order_by(Vendor.name.asc(), Vendor.id.asc())
+        )
+        if filters.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == filters.vendor_id)
+        if filters.category_id is not None:
+            stmt = stmt.where(PurchaseOrder.item_category_id == filters.category_id)
+        if filters.transporter_id is not None:
+            stmt = stmt.where(PurchaseOrderShipment.transporter_id == filters.transporter_id)
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
             stmt = stmt.where(or_(Vendor.code.ilike(pattern), Vendor.name.ilike(pattern)))

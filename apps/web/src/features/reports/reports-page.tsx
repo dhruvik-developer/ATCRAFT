@@ -55,6 +55,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Checkbox,
   Input,
   Label,
   Skeleton,
@@ -63,6 +64,8 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
+import { useCategoryOptions } from '@/features/items/item-model'
+import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
@@ -131,8 +134,8 @@ function sameQuery(a: URLSearchParams, b: URLSearchParams): boolean {
  *
  * Taken from `report_filters` in the API rather than from the descriptor, which
  * declares none: the dependency is shared by every route, so this list is the
- * contract. `category_id` is accepted too but has no picker in this app yet, so
- * it is not offered rather than being offered as a UUID box.
+ * contract. Report-specific filters are explicit below; category and
+ * transporter values use their permission-gated option endpoints.
  */
 type FilterKind =
   | 'WAREHOUSE'
@@ -142,6 +145,10 @@ type FilterKind =
   | 'WORK_CENTER'
   | 'COST_CENTRE'
   | 'CUSTOMER_TYPE'
+  | 'CATEGORY'
+  | 'TRANSPORTER'
+  | 'GROUP_BY'
+  | 'BOOLEAN'
   | 'STATUS'
   | 'MIN_DAYS'
 
@@ -171,6 +178,34 @@ const DEALER_PERFORMANCE_FILTERS: ReportFilter[] = [
   ...COMMON_FILTERS,
   { name: 'customer_type', label: 'Customer type', kind: 'CUSTOMER_TYPE' },
 ]
+const PURCHASE_ORDER_FILTERS: ReportFilter[] = [
+  { name: 'vendor_id', label: 'Vendor', kind: 'VENDOR' },
+  { name: 'category_id', label: 'Category', kind: 'CATEGORY' },
+  { name: 'status', label: 'Status', kind: 'STATUS' },
+]
+const INBOUND_SHIPMENT_FILTERS: ReportFilter[] = [
+  ...PURCHASE_ORDER_FILTERS.slice(0, 2),
+  { name: 'transporter_id', label: 'Transporter', kind: 'TRANSPORTER' },
+  { name: 'status', label: 'Status', kind: 'STATUS' },
+  { name: 'in_transit_only', label: 'In transit only', kind: 'BOOLEAN' },
+  { name: 'expected_today', label: 'Expected on period end', kind: 'BOOLEAN' },
+  { name: 'late_only', label: 'Late only', kind: 'BOOLEAN' },
+]
+const INBOUND_FREIGHT_FILTERS: ReportFilter[] = [
+  { name: 'vendor_id', label: 'Vendor', kind: 'VENDOR' },
+  { name: 'category_id', label: 'Category', kind: 'CATEGORY' },
+  { name: 'transporter_id', label: 'Transporter', kind: 'TRANSPORTER' },
+]
+const REPORT_FILTERS: Partial<Record<ReportDescriptor['key'], ReportFilter[]>> = {
+  PURCHASE_ORDER_REGISTER: PURCHASE_ORDER_FILTERS,
+  PURCHASE_ORDER_SUMMARY: [{ name: 'group_by', label: 'Group by', kind: 'GROUP_BY' }],
+  DELAYED_PURCHASE_ORDERS: PURCHASE_ORDER_FILTERS,
+  DUPLICATE_PO_OVERRIDES: PURCHASE_ORDER_FILTERS,
+  VENDOR_ACCEPTANCE: [{ name: 'vendor_id', label: 'Vendor', kind: 'VENDOR' }],
+  INBOUND_SHIPMENTS: INBOUND_SHIPMENT_FILTERS,
+  INBOUND_FREIGHT: INBOUND_FREIGHT_FILTERS,
+  VENDOR_INBOUND_HISTORY: INBOUND_FREIGHT_FILTERS,
+}
 const CUSTOMER_TYPES: SchemaOf<'CustomerType'>[] = ['DEALER', 'DISTRIBUTOR', 'OEM', 'CUSTOMER']
 
 export default function ReportsPage() {
@@ -386,7 +421,8 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
 
   const requiresPeriod = definition.requires_period
   const activeFilters =
-    definition.key === 'DEALER_PERFORMANCE' ? DEALER_PERFORMANCE_FILTERS : COMMON_FILTERS
+    REPORT_FILTERS[definition.key] ??
+    (definition.key === 'DEALER_PERFORMANCE' ? DEALER_PERFORMANCE_FILTERS : COMMON_FILTERS)
   const schema = useMemo(() => buildSchema(requiresPeriod), [requiresPeriod])
 
   const form = useForm<RunFormValues>({
@@ -583,7 +619,10 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
                 .filter(
                   (filter) =>
                     (filter.kind !== 'WORK_CENTER' || can(P.WORK_CENTER_VIEW)) &&
-                    (filter.kind !== 'COST_CENTRE' || can(P.COST_CENTRE_VIEW)),
+                    (filter.kind !== 'COST_CENTRE' || can(P.COST_CENTRE_VIEW)) &&
+                    (filter.kind !== 'VENDOR' || can(P.VENDOR_VIEW)) &&
+                    (filter.kind !== 'CATEGORY' || can(P.CATEGORY_VIEW)) &&
+                    (filter.kind !== 'TRANSPORTER' || can(P.TRANSPORTER_VIEW)),
                 )
                 .map((filter) => (
                   <FilterField
@@ -733,6 +772,8 @@ function FilterField({
   error?: string
 }) {
   const id = `report-filter-${filter.name}`
+  const categories = useCategoryOptions(filter.kind === 'CATEGORY')
+  const transporters = useTransporterOptions({ enabled: filter.kind === 'TRANSPORTER' })
 
   if (filter.kind === 'WAREHOUSE') {
     return (
@@ -816,6 +857,88 @@ function FilterField({
             ))}
           </SelectContent>
         </Select>
+        <FieldError message={error} />
+      </div>
+    )
+  }
+
+  if (filter.kind === 'CATEGORY') {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id}>{filter.label}</Label>
+        <Select
+          value={value || SELECT_NONE}
+          onValueChange={(next) => onChange(next === SELECT_NONE ? '' : next)}
+        >
+          <SelectTrigger id={id} aria-label={filter.label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SELECT_NONE}>All categories</SelectItem>
+            {(categories.data ?? []).map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.code} - {category.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldError message={error} />
+      </div>
+    )
+  }
+
+  if (filter.kind === 'TRANSPORTER') {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id}>{filter.label}</Label>
+        <Select
+          value={value || SELECT_NONE}
+          onValueChange={(next) => onChange(next === SELECT_NONE ? '' : next)}
+        >
+          <SelectTrigger id={id} aria-label={filter.label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SELECT_NONE}>All transporters</SelectItem>
+            {(transporters.data ?? []).map((transporter) => (
+              <SelectItem key={transporter.id} value={transporter.id}>
+                {transporter.code} - {transporter.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldError message={error} />
+      </div>
+    )
+  }
+
+  if (filter.kind === 'GROUP_BY') {
+    return (
+      <div className="space-y-1.5">
+        <Label htmlFor={id}>{filter.label}</Label>
+        <Select value={value || 'vendor'} onValueChange={onChange}>
+          <SelectTrigger id={id} aria-label={filter.label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="vendor">Vendor</SelectItem>
+            <SelectItem value="category">Category</SelectItem>
+          </SelectContent>
+        </Select>
+        <FieldError message={error} />
+      </div>
+    )
+  }
+
+  if (filter.kind === 'BOOLEAN') {
+    return (
+      <div className="flex items-center gap-2 pt-6">
+        <Checkbox
+          id={id}
+          checked={value === 'true'}
+          onCheckedChange={(checked) => onChange(checked === true ? 'true' : '')}
+        />
+        <Label htmlFor={id}>{filter.label}</Label>
         <FieldError message={error} />
       </div>
     )

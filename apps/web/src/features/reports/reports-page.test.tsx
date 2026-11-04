@@ -249,6 +249,181 @@ describe('production cost filters', () => {
   })
 })
 
+describe('procurement report filters', () => {
+  const INBOUND_SHIPMENTS: ReportDescriptor = {
+    key: 'INBOUND_SHIPMENTS',
+    title: 'Inbound shipments',
+    description: 'Expected and actual inbound shipment dates.',
+    requires_period: true,
+    columns: [],
+  }
+
+  it('uses category and transporter options and submits the inbound flags', async () => {
+    const asked: URL[] = []
+    const { user } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW, P.CATEGORY_VIEW, P.TRANSPORTER_VIEW, P.VENDOR_VIEW],
+      route: '/reports?report=INBOUND_SHIPMENTS&date_from=2026-09-01&date_to=2026-09-30',
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([INBOUND_SHIPMENTS]),
+        'GET /products/categories': page([
+          {
+            id: 'cat-hardware',
+            code: 'HARDWARE',
+            name: 'Hardware',
+            path: 'HARDWARE',
+            depth: 0,
+            is_active: true,
+          },
+        ]),
+        'GET /transporters/options': ok([
+          {
+            id: 'tr-fast',
+            code: 'FAST',
+            name: 'Fast Freight',
+            transporter_type: 'COURIER',
+            has_tracking: true,
+          },
+        ]),
+        'GET /reports/inbound-shipments': ({ url }) => {
+          asked.push(url)
+          return page([])
+        },
+      },
+    })
+
+    await user.click(await screen.findByRole('combobox', { name: 'Category' }))
+    await user.click(await screen.findByRole('option', { name: 'HARDWARE - Hardware' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Transporter' }))
+    await user.click(await screen.findByRole('option', { name: 'FAST - Fast Freight' }))
+    await user.click(screen.getByRole('checkbox', { name: 'In transit only' }))
+    await user.click(screen.getByRole('button', { name: 'Run report' }))
+    await screen.findByText('No rows for these parameters')
+
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.searchParams.get('category_id')).toBe('cat-hardware')
+    expect(asked[0]!.searchParams.get('transporter_id')).toBe('tr-fast')
+    expect(asked[0]!.searchParams.get('in_transit_only')).toBe('true')
+    expect(asked[0]!.searchParams.has('expected_today')).toBe(false)
+    expect(asked[0]!.searchParams.has('late_only')).toBe(false)
+  })
+
+  it('lets the purchase summary switch between vendor and category totals', async () => {
+    const SUMMARY: ReportDescriptor = {
+      key: 'PURCHASE_ORDER_SUMMARY',
+      title: 'Purchase order summary',
+      description: 'Purchase totals by vendor or category.',
+      requires_period: true,
+      columns: [
+        { name: 'group_by', label: 'Group', kind: 'text' },
+        { name: 'group_total_amount', label: 'Total', kind: 'number' },
+      ],
+    }
+    const asked: URL[] = []
+    const { user } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW],
+      route: '/reports?report=PURCHASE_ORDER_SUMMARY&date_from=2026-09-01&date_to=2026-09-30',
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([SUMMARY]),
+        'GET /reports/purchase-order-summary': ({ url }) => {
+          asked.push(url)
+          return page([])
+        },
+      },
+    })
+
+    await user.click(await screen.findByRole('combobox', { name: 'Group by' }))
+    await user.click(await screen.findByRole('option', { name: 'Category' }))
+    await user.click(screen.getByRole('button', { name: 'Run report' }))
+    await screen.findByText('No rows for these parameters')
+
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.searchParams.get('group_by')).toBe('category')
+  })
+
+  it('does not offer or fetch master-data filters without their view permissions', async () => {
+    const { fetch } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW],
+      route: '/reports?report=INBOUND_SHIPMENTS&date_from=2026-09-01&date_to=2026-09-30',
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([INBOUND_SHIPMENTS]),
+      },
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Inbound shipments' })).toBeVisible()
+    expect(screen.queryByRole('combobox', { name: 'Vendor' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Category' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Transporter' })).not.toBeInTheDocument()
+    expect(
+      fetch.calls.some((call) =>
+        ['/vendors', '/products/categories', '/transporters/options'].includes(call.path),
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('procurement report filters', () => {
+  const INBOUND_SHIPMENTS: ReportDescriptor = {
+    key: 'INBOUND_SHIPMENTS',
+    title: 'Inbound shipments',
+    description: 'Expected and actual inbound shipment dates.',
+    requires_period: true,
+    columns: [],
+  }
+
+  it('uses category and transporter options and submits the inbound flags', async () => {
+    const asked: URL[] = []
+    const { user } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW, P.CATEGORY_VIEW, P.TRANSPORTER_VIEW, P.VENDOR_VIEW],
+      route: '/reports?report=INBOUND_SHIPMENTS&date_from=2026-09-01&date_to=2026-09-30',
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([INBOUND_SHIPMENTS]),
+        'GET /products/categories': page([
+          {
+            id: 'cat-hardware',
+            code: 'HARDWARE',
+            name: 'Hardware',
+            path: 'HARDWARE',
+            depth: 0,
+            is_active: true,
+          },
+        ]),
+        'GET /transporters/options': ok([
+          {
+            id: 'tr-fast',
+            code: 'FAST',
+            name: 'Fast Freight',
+            transporter_type: 'COURIER',
+            has_tracking: true,
+          },
+        ]),
+        'GET /reports/inbound-shipments': ({ url }) => {
+          asked.push(url)
+          return page([])
+        },
+      },
+    })
+
+    await user.click(await screen.findByRole('combobox', { name: 'Category' }))
+    await user.click(await screen.findByRole('option', { name: 'HARDWARE - Hardware' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Transporter' }))
+    await user.click(await screen.findByRole('option', { name: 'FAST - Fast Freight' }))
+    await user.click(screen.getByRole('checkbox', { name: 'In transit only' }))
+    await user.click(screen.getByRole('button', { name: 'Run report' }))
+    await screen.findByText('No rows for these parameters')
+
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.searchParams.get('category_id')).toBe('cat-hardware')
+    expect(asked[0]!.searchParams.get('transporter_id')).toBe('tr-fast')
+    expect(asked[0]!.searchParams.get('in_transit_only')).toBe('true')
+    expect(asked[0]!.searchParams.has('expected_today')).toBe(false)
+    expect(asked[0]!.searchParams.has('late_only')).toBe(false)
+  })
+})
+
 describe('actual product profitability', () => {
   const PROFITABILITY: ReportDescriptor = {
     key: 'PRODUCT_PROFITABILITY',

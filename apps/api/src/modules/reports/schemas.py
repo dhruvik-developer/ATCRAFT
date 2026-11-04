@@ -23,7 +23,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -113,9 +113,14 @@ class ReportFilters(BaseModel):
     customer_id: uuid.UUID | None = None
     customer_type: CustomerType | None = None
     category_id: uuid.UUID | None = None
+    transporter_id: uuid.UUID | None = None
     work_center_id: uuid.UUID | None = None
     cost_centre_id: uuid.UUID | None = None
     status: Annotated[str | None, Field(max_length=32)] = None
+    group_by: Literal["vendor", "category"] | None = None
+    in_transit_only: bool | None = None
+    expected_today: bool | None = None
+    late_only: bool | None = None
     #: Age threshold in days: dead stock older than this, delays longer than this.
     min_days: Annotated[int | None, Field(ge=0, le=3650)] = None
     search: Annotated[str | None, Field(max_length=120)] = None
@@ -190,6 +195,134 @@ class PurchasePendingRow(ReportRowBase):
     pending_quantity: Decimal
     days_overdue: int = 0
     ageing_bucket: str = ""
+
+
+class PurchaseOrderRegisterRow(ReportRowBase):
+    purchase_order_id: uuid.UUID
+    code: str
+    po_date: date
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    category_id: uuid.UUID | None = None
+    category_code: str | None = None
+    category_name: str | None = None
+    assigned_vendor_user_id: uuid.UUID | None = None
+    assigned_vendor_user_name: str | None = None
+    status: str
+    total_amount: Decimal
+    expected_delivery_date: date | None = None
+    vendor_committed_date: date | None = None
+    ordered_quantity: Decimal
+    received_quantity: Decimal
+    pending_quantity: Decimal
+    received_percent: Decimal = Decimal("0")
+
+
+class PurchaseOrderSummaryRow(ReportRowBase):
+    group_by: str
+    vendor_id: uuid.UUID | None = None
+    vendor_code: str | None = None
+    vendor_name: str | None = None
+    category_id: uuid.UUID | None = None
+    category_code: str | None = None
+    category_name: str | None = None
+    purchase_order_count: int
+    group_total_amount: Decimal
+    ordered_quantity: Decimal
+    received_quantity: Decimal
+    pending_quantity: Decimal
+
+
+class DelayedPurchaseOrdersRow(ReportRowBase):
+    purchase_order_id: uuid.UUID
+    code: str
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    category_id: uuid.UUID | None = None
+    category_code: str | None = None
+    category_name: str | None = None
+    status: str
+    expected_delivery_date: date
+    pending_quantity: Decimal
+    days_late: int
+
+
+class DuplicatePoOverridesRow(ReportRowBase):
+    purchase_order_id: uuid.UUID
+    code: str
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    category_id: uuid.UUID | None = None
+    category_code: str | None = None
+    category_name: str | None = None
+    created_at: datetime
+    created_by_id: uuid.UUID | None = None
+    created_by_name: str | None = None
+    duplicate_acknowledgement_reason: str
+    duplicate_confirmed_at: datetime | None = None
+    duplicate_confirmed_by_id: uuid.UUID | None = None
+    duplicate_confirmed_by_name: str | None = None
+    duplicate_confirmation_reason: str | None = None
+
+
+class VendorAcceptanceRow(ReportRowBase):
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    sent_count: int
+    acknowledged_count: int
+    declined_count: int
+    average_hours_to_acknowledge: Decimal | None = None
+    median_hours_to_acknowledge: Decimal | None = None
+    acknowledged_within_24h_count: int
+    acknowledged_within_24h_percent: Decimal = Decimal("0")
+
+
+class InboundShipmentRow(ReportRowBase):
+    shipment_id: uuid.UUID
+    purchase_order_id: uuid.UUID
+    purchase_order_code: str
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    shipment_number: int
+    transporter_id: uuid.UUID | None = None
+    transporter_code: str | None = None
+    transporter_name: str | None = None
+    courier_name: str | None = None
+    tracking_reference: str | None = None
+    lr_number: str | None = None
+    shipped_at: datetime
+    expected_delivery_date: date | None = None
+    delivered_at: datetime | None = None
+    status: str
+    freight_amount: Decimal
+    days_late: int = 0
+
+
+class InboundFreightRow(ReportRowBase):
+    month: date
+    transporter_id: uuid.UUID | None = None
+    transporter_code: str | None = None
+    transporter_name: str | None = None
+    courier_name: str | None = None
+    shipment_count: int
+    freight_amount: Decimal
+
+
+class VendorInboundHistoryRow(ReportRowBase):
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    shipment_count: int
+    delivered_count: int
+    on_time_count: int
+    late_count: int
+    freight_amount: Decimal
+    on_time_percent: Decimal = Decimal("0")
 
 
 class ProductionPendingRow(ReportRowBase):

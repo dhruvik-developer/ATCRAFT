@@ -64,6 +64,7 @@ class PurchaseOrderShipment(TenantEntity):
             "delivered_at IS NULL OR delivered_at >= shipped_at", name="delivery_after_dispatch"
         ),
         Index("ix_po_shipments_order", "company_id", "purchase_order_id", "shipment_number"),
+        Index("ix_po_shipments_company_shipped_at", "company_id", "shipped_at"),
     )
 
 

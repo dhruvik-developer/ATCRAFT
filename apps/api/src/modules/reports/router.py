@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
@@ -70,7 +70,11 @@ from src.modules.reports.schemas import (
     DashboardTrendsRead,
     DeadStockRow,
     DealerPerformanceRow,
+    DelayedPurchaseOrdersRow,
     DispatchRow,
+    DuplicatePoOverridesRow,
+    InboundFreightRow,
+    InboundShipmentRow,
     InventoryValuationRow,
     ItemMovementRow,
     JobWorkCostRow,
@@ -82,6 +86,8 @@ from src.modules.reports.schemas import (
     ProductionEfficiencyRow,
     ProductionPendingRow,
     ProductProfitabilityRow,
+    PurchaseOrderRegisterRow,
+    PurchaseOrderSummaryRow,
     PurchasePendingRow,
     PurchaseRegisterRow,
     QcRejectionRow,
@@ -95,7 +101,9 @@ from src.modules.reports.schemas import (
     ScrapRegisterRow,
     ShiftProductionRow,
     StockAvailabilityRow,
+    VendorAcceptanceRow,
     VendorDispatchHistoryRow,
+    VendorInboundHistoryRow,
     VendorPerformanceRow,
 )
 
@@ -139,9 +147,14 @@ def report_filters(
     customer_id: Annotated[uuid.UUID | None, Query()] = None,
     customer_type: Annotated[CustomerType | None, Query()] = None,
     category_id: Annotated[uuid.UUID | None, Query()] = None,
+    transporter_id: Annotated[uuid.UUID | None, Query()] = None,
     work_center_id: Annotated[uuid.UUID | None, Query()] = None,
     cost_centre_id: Annotated[uuid.UUID | None, Query()] = None,
     status_filter: Annotated[str | None, Query(alias="status", max_length=32)] = None,
+    group_by: Annotated[Literal["vendor", "category"] | None, Query()] = None,
+    in_transit_only: Annotated[bool | None, Query()] = None,
+    expected_today: Annotated[bool | None, Query()] = None,
+    late_only: Annotated[bool | None, Query()] = None,
     min_days: Annotated[
         int | None,
         Query(ge=0, le=3650, description="Age threshold in days, where the report uses one"),
@@ -156,9 +169,14 @@ def report_filters(
         customer_id=customer_id,
         customer_type=customer_type,
         category_id=category_id,
+        transporter_id=transporter_id,
         work_center_id=work_center_id,
         cost_centre_id=cost_centre_id,
         status=status_filter,
+        group_by=group_by,
+        in_transit_only=in_transit_only,
+        expected_today=expected_today,
+        late_only=late_only,
         min_days=min_days,
         search=search,
     )
@@ -651,6 +669,118 @@ async def purchase_pending(
 
 
 @router.get(
+    "/purchase-order-register",
+    response_model=None,
+    summary="Purchase order register",
+    responses=_report_responses(PaginatedResponse[PurchaseOrderRegisterRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def purchase_order_register(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[PurchaseOrderRegisterRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.PURCHASE_ORDER_REGISTER,
+        period,
+        filters,
+        page,
+    )
+
+
+@router.get(
+    "/purchase-order-summary",
+    response_model=None,
+    summary="Purchase order summary",
+    responses=_report_responses(PaginatedResponse[PurchaseOrderSummaryRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def purchase_order_summary(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[PurchaseOrderSummaryRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.PURCHASE_ORDER_SUMMARY,
+        period,
+        filters,
+        page,
+    )
+
+
+@router.get(
+    "/delayed-purchase-orders",
+    response_model=None,
+    summary="Delayed purchase orders",
+    responses=_report_responses(PaginatedResponse[DelayedPurchaseOrdersRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def delayed_purchase_orders(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[DelayedPurchaseOrdersRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.DELAYED_PURCHASE_ORDERS,
+        period,
+        filters,
+        page,
+    )
+
+
+@router.get(
+    "/duplicate-po-overrides",
+    response_model=None,
+    summary="Duplicate PO overrides",
+    responses=_report_responses(PaginatedResponse[DuplicatePoOverridesRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def duplicate_po_overrides(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[DuplicatePoOverridesRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.DUPLICATE_PO_OVERRIDES,
+        period,
+        filters,
+        page,
+    )
+
+
+@router.get(
     "/production-pending",
     response_model=None,
     summary="Production pending",
@@ -902,6 +1032,27 @@ async def vendor_performance(
 
 
 @router.get(
+    "/vendor-acceptance",
+    response_model=None,
+    summary="Vendor acceptance",
+    responses=_report_responses(PaginatedResponse[VendorAcceptanceRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def vendor_acceptance(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[VendorAcceptanceRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.VENDOR_ACCEPTANCE, period, filters, page
+    )
+
+
+@router.get(
     "/dealer-performance",
     response_model=None,
     summary="Dealer performance",
@@ -966,6 +1117,76 @@ async def courier_tracking(
 ) -> PaginatedResponse[CourierTrackingRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.COURIER_TRACKING, period, filters, page
+    )
+
+
+@router.get(
+    "/inbound-shipments",
+    response_model=None,
+    summary="Inbound shipments",
+    responses=_report_responses(PaginatedResponse[InboundShipmentRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def inbound_shipments(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[InboundShipmentRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.INBOUND_SHIPMENTS, period, filters, page
+    )
+
+
+@router.get(
+    "/inbound-freight",
+    response_model=None,
+    summary="Inbound freight",
+    responses=_report_responses(PaginatedResponse[InboundFreightRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def inbound_freight(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[InboundFreightRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.INBOUND_FREIGHT, period, filters, page
+    )
+
+
+@router.get(
+    "/vendor-inbound-history",
+    response_model=None,
+    summary="Vendor inbound history",
+    responses=_report_responses(PaginatedResponse[VendorInboundHistoryRow]),
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def vendor_inbound_history(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[VendorInboundHistoryRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.VENDOR_INBOUND_HISTORY,
+        period,
+        filters,
+        page,
     )
 
 

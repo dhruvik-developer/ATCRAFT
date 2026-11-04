@@ -25450,6 +25450,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25464,6 +25470,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -25568,6 +25598,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25582,6 +25618,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -25686,6 +25746,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25700,6 +25766,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -25804,6 +25894,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25818,6 +25914,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -25910,6 +26030,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -25924,6 +26050,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26028,6 +26178,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26042,6 +26198,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26075,6 +26255,154 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/dealer-performance?"
+            }
+          }
+        },
+        {
+          "name": "Delayed purchase orders",
+          "request": {
+            "description": "Delayed purchase orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "delayed-purchase-orders"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/delayed-purchase-orders?"
             }
           }
         },
@@ -26146,6 +26474,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26160,6 +26494,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26222,6 +26580,154 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Duplicate PO overrides",
+          "request": {
+            "description": "Duplicate PO overrides",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "duplicate-po-overrides"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/duplicate-po-overrides?"
             }
           }
         },
@@ -26305,6 +26811,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26319,6 +26831,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26405,6 +26941,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26419,6 +26961,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26452,6 +27018,302 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/fast-moving?"
+            }
+          }
+        },
+        {
+          "name": "Inbound freight",
+          "request": {
+            "description": "Inbound freight",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "inbound-freight"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/inbound-freight?"
+            }
+          }
+        },
+        {
+          "name": "Inbound shipments",
+          "request": {
+            "description": "Inbound shipments",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "inbound-shipments"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/inbound-shipments?"
             }
           }
         },
@@ -26511,6 +27373,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26525,6 +27393,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26629,6 +27521,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26643,6 +27541,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26747,6 +27669,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26761,6 +27689,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -26885,6 +27837,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -26899,6 +27857,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27003,6 +27985,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27017,6 +28005,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27141,6 +28153,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27155,6 +28173,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27259,6 +28301,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27273,6 +28321,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27377,6 +28449,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27391,6 +28469,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27495,6 +28597,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27509,6 +28617,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27613,6 +28745,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27627,6 +28765,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27660,6 +28822,302 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/production-pending?"
+            }
+          }
+        },
+        {
+          "name": "Purchase order register",
+          "request": {
+            "description": "Purchase order register",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "purchase-order-register"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/purchase-order-register?"
+            }
+          }
+        },
+        {
+          "name": "Purchase order summary",
+          "request": {
+            "description": "Purchase order summary",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "purchase-order-summary"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/purchase-order-summary?"
             }
           }
         },
@@ -27731,6 +29189,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27745,6 +29209,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27849,6 +29337,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27863,6 +29357,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -27967,6 +29485,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -27981,6 +29505,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28085,6 +29633,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28099,6 +29653,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28203,6 +29781,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28217,6 +29801,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28321,6 +29929,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28335,6 +29949,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28439,6 +30077,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28453,6 +30097,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28557,6 +30225,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28571,6 +30245,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28663,6 +30361,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28677,6 +30381,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28731,6 +30459,154 @@
                 "trends"
               ],
               "raw": "{{base_url}}/api/v1/reports/dashboard/trends"
+            }
+          }
+        },
+        {
+          "name": "Vendor acceptance",
+          "request": {
+            "description": "Vendor acceptance",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "vendor-acceptance"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/vendor-acceptance?"
             }
           }
         },
@@ -28802,6 +30678,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28816,6 +30698,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",
@@ -28849,6 +30755,154 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/vendor-dispatch-history?"
+            }
+          }
+        },
+        {
+          "name": "Vendor inbound history",
+          "request": {
+            "description": "Vendor inbound history",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "vendor-inbound-history"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_type",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/vendor-inbound-history?"
             }
           }
         },
@@ -28920,6 +30974,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "transporter_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "work_center_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -28934,6 +30994,30 @@
                   "disabled": true,
                   "key": "status",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "group_by",
+                  "value": "vendor"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
                 },
                 {
                   "description": "Age threshold in days, where the report uses one",

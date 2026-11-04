@@ -990,6 +990,14 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
 
     __table_args__ = (
         UniqueConstraint("company_id", "code", name="uq_purchase_orders_company_id_code"),
+        Index("ix_purchase_orders_company_po_date", "company_id", "po_date"),
+        Index("ix_purchase_orders_company_sent_at", "company_id", "sent_at"),
+        Index(
+            "ix_purchase_orders_duplicate_override_created",
+            "company_id",
+            "created_at",
+            postgresql_where=text("duplicate_acknowledged"),
+        ),
         # The buyer's default list: open orders by promised date.
         Index(
             "ix_purchase_orders_status_expected",

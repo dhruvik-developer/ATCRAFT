@@ -43,6 +43,9 @@ from src.modules.reports.schemas import (
 )
 from src.modules.reports.service import (
     REPORT_CATALOGUE,
+    _derive_purchase_order_register,
+    _derive_vendor_acceptance,
+    _derive_vendor_inbound_history,
     _job_sensitive_fields_accessible,
     _redact_rows,
     build_context,
@@ -129,6 +132,58 @@ def test_dealer_performance_is_bounded_uncached_and_grouped_in_one_query() -> No
     assert "UNION ALL" in sql
     assert "GROUP BY" in sql
     assert "ORDER BY" in sql
+
+
+def test_b5_procurement_report_queries_compile_with_tenant_scope_and_filters() -> None:
+    tenant = TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
+    filters = ReportFilters(
+        vendor_id=uuid.uuid4(),
+        category_id=uuid.uuid4(),
+        transporter_id=uuid.uuid4(),
+        status="IN_TRANSIT",
+        group_by="category",
+        in_transit_only=True,
+        expected_today=True,
+        late_only=True,
+        search="PO",
+    )
+    repository = ReportQueryRepository(None, tenant)
+    queries = {
+        "purchase order register": repository.purchase_order_register(PERIOD, filters),
+        "purchase order summary": repository.purchase_order_summary(PERIOD, filters),
+        "delayed purchase orders": repository.delayed_purchase_orders(PERIOD, filters),
+        "duplicate PO overrides": repository.duplicate_po_overrides(PERIOD, filters),
+        "vendor acceptance": repository.vendor_acceptance(PERIOD, filters),
+        "inbound shipments": repository.inbound_shipments(PERIOD, filters),
+        "inbound freight": repository.inbound_freight(PERIOD, filters),
+        "vendor inbound history": repository.vendor_inbound_history(PERIOD, filters),
+    }
+
+    compiled = {
+        name: str(query.compile(dialect=postgresql.dialect())) for name, query in queries.items()
+    }
+    for name, sql in compiled.items():
+        assert "company_id" in sql, f"{name} must remain tenant-scoped"
+        assert "ORDER BY" in sql, f"{name} must have deterministic row ordering"
+    assert "transporter_id" in compiled["inbound shipments"]
+    assert "expected_delivery_date" in compiled["inbound shipments"]
+    assert "category_id" in compiled["inbound freight"]
+
+
+def test_b5_derived_report_percentages_are_exact_and_zero_safe() -> None:
+    register = {"received_quantity": Decimal("3"), "ordered_quantity": Decimal("8")}
+    acceptance = {
+        "acknowledged_within_24h_count": 2,
+        "sent_count": 3,
+    }
+    inbound_history = {"on_time_count": 0, "late_count": 0}
+
+    assert _derive_purchase_order_register(register, None)["received_percent"] == Decimal("37.50")
+    accepted_percent = _derive_vendor_acceptance(acceptance, None)[
+        "acknowledged_within_24h_percent"
+    ]
+    assert accepted_percent == Decimal("66.67")
+    assert _derive_vendor_inbound_history(inbound_history, None)["on_time_percent"] == Decimal("0")
 
 
 def test_the_descriptor_list_carries_a_column_set_for_every_report() -> None:

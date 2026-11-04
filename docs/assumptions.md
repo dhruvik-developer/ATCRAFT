@@ -4191,6 +4191,32 @@ would produce a plausible-looking but financially meaningless ranking.
 definition must keep the currency grain and be reflected in report filters,
 the handbook and its integration fixtures.
 
+## §B5-1. Procurement report periods and category totals
+
+**Assumed.** Delayed PO lines are selected when their effective due date falls
+inside the requested period and are considered late at that period's inclusive
+end, using the procurement module's shared late predicate. In inbound reports,
+`expected_today` means the selected period's end date so a historical extract is
+replayable; shipment status is derived from `delivered_at`. Vendor on-time
+percentage counts only shipments with an expected date and a known delivery or
+late outcome. Freight is grouped by UTC calendar month. Vendor PO summaries use
+the PO header total, including freight; category summaries use categorized line
+totals and do not apportion header freight.
+
+**Why.** The report proposal requires historical, filterable views but does not
+define a wall-clock interpretation for "today", a timezone for freight months,
+or a rule for allocating header freight to item categories. Using the period
+boundary and stored category/line values makes the answer deterministic without
+inventing allocations.
+
+**Where.** `reports.repository` report builders, `reports.service` row
+derivations, and PostgreSQL coverage in
+`tests/integration/test_reports_procurement.py`.
+
+**Impact if wrong.** If the business wants a live "today" filter, local-time
+freight months, or allocated category freight, those policies need an explicit
+accounting timezone/allocation rule and matching report and test changes.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

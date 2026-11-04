@@ -4801,8 +4801,8 @@
             },
             {
               "action": "Narrow a report",
-              "how": "Reports, open a report, set the applicable Warehouse, Item, Vendor, Customer, Work centre, Cost centre, Status or Age threshold filters, then Run report.",
-              "note": "The common toolbar offers up to eight filters. Cost centre is shown only with the cost-centre read right. A report ignores filters that do not apply to it."
+              "how": "Reports, open a report, set its applicable Warehouse, Item, Vendor, Category, Transporter, Customer, Work centre, Cost centre, Status, grouping, shipment or Age threshold filters, then Run report.",
+              "note": "Filters depend on the report. Vendor, category, transporter and cost-centre pickers are shown only with their corresponding view right. A report ignores filters that do not apply to it."
             },
             {
               "action": "Search within the results on screen",
@@ -4866,6 +4866,46 @@
               "action": "Run Purchase pending",
               "how": "Reports \u2192 Purchase pending",
               "note": "Which committed purchase orders are still waiting for delivery, and how long they have been waiting."
+            },
+            {
+              "action": "Run Purchase order register",
+              "how": "Reports \u2192 Purchase order register",
+              "note": "Purchase orders raised in the selected period, with vendor, category, assigned vendor user, dates, status and received progress. Filter by vendor, category or status; table search also searches PO and vendor details."
+            },
+            {
+              "action": "Run Purchase order summary",
+              "how": "Reports \u2192 Purchase order summary \u2192 Group by",
+              "note": "Compare period totals by vendor or category. Vendor totals include PO header freight. Category totals add categorized line totals and do not allocate unassigned header freight."
+            },
+            {
+              "action": "Run Delayed purchase orders",
+              "how": "Reports \u2192 Delayed purchase orders",
+              "note": "Open quantities whose due date is within the selected period and still late at its end, using the procurement module's shared late rule."
+            },
+            {
+              "action": "Run Duplicate PO overrides",
+              "how": "Reports \u2192 Duplicate PO overrides",
+              "note": "Orders raised after a duplicate warning was acknowledged, including the recorded reason and user evidence."
+            },
+            {
+              "action": "Run Vendor acceptance",
+              "how": "Reports \u2192 Vendor acceptance",
+              "note": "Orders sent and acknowledged or declined, acknowledgement hours and the share acknowledged within 24 hours."
+            },
+            {
+              "action": "Run Inbound shipments",
+              "how": "Reports \u2192 Inbound shipments",
+              "note": "Vendor consignments with tracking/LR details, carrier, expected and delivered dates, and lateness. In-transit, expected-on-period-end and late-only filters are available; status follows delivery confirmation."
+            },
+            {
+              "action": "Run Inbound freight",
+              "how": "Reports \u2192 Inbound freight",
+              "note": "Freight by transporter or courier and UTC calendar month."
+            },
+            {
+              "action": "Run Vendor inbound history",
+              "how": "Reports \u2192 Vendor inbound history",
+              "note": "Inbound shipment counts, freight and on-time percentage by vendor. Shipments without a known expected date and delivery/late outcome are excluded from the percentage."
             },
             {
               "action": "Run Production pending",

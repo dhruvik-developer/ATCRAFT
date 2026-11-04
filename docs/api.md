@@ -597,6 +597,34 @@ and every write are audited. `GET /reports/dealer-performance` provides period
 aggregates without combining currencies; it is available through the standard
 `report.view` catalogue.
 
+## Procurement reports
+
+The reports catalogue includes purchase-order register and summary, delayed
+orders, duplicate-warning overrides, vendor acceptance, inbound shipments,
+inbound freight and vendor inbound history. Each report is tenant-scoped,
+paginated, requires `report.view`, and accepts the common bounded
+`date_from`/`date_to` period. New report keys are included in the literal
+`report_snapshots.report_key` check constraint by Alembic migration.
+
+| Route | What it reports | Relevant filters |
+|---|---|---|
+| `GET /reports/purchase-order-register` | Purchase orders raised in the period, with vendor/category, status, assigned vendor user and receipt progress | `vendor_id`, `category_id`, `status`, `search` |
+| `GET /reports/purchase-order-summary` | Period totals by vendor or category | `group_by=vendor\|category`; vendor totals use PO header amounts including freight, while category totals sum categorized lines and do not assign unallocated freight |
+| `GET /reports/delayed-purchase-orders` | Open PO quantities whose line due date falls in the period and remains late at its end | `vendor_id`, `category_id`, `status`, `search` |
+| `GET /reports/duplicate-po-overrides` | POs raised after a duplicate warning was acknowledged, including the recorded reason and user evidence | `vendor_id`, `category_id`, `status`, `search` |
+| `GET /reports/vendor-acceptance` | Sent, acknowledged and declined counts, acknowledgement times and acknowledgement-within-24-hours rate | `vendor_id`, `status`, `search` |
+| `GET /reports/inbound-shipments` | Vendor consignments with carrier, tracking/LR details, dates, status and lateness | `vendor_id`, `category_id`, `transporter_id`, `status`, `in_transit_only`, `expected_today`, `late_only`, `search` |
+| `GET /reports/inbound-freight` | Freight totals by transporter/courier and UTC month | `vendor_id`, `category_id`, `transporter_id`, `search` |
+| `GET /reports/vendor-inbound-history` | Shipment counts, freight and on-time delivery by vendor | `vendor_id`, `category_id`, `transporter_id`, `search` |
+
+`expected_today=true` means expected on the selected period's inclusive end,
+which keeps past-period exports reproducible. Shipment state comes from
+`delivered_at`. Inbound history's on-time percentage uses shipments with both an
+expected date and a delivery/late outcome; shipments missing either date are
+excluded rather than counted as on-time. UTC defines freight month boundaries.
+Filters that do not apply to a report are ignored by its query and do not affect
+its snapshot identity.
+
 ## Smart alerts
 
 Timed operational alerts are scanned by Celery at the configured interval

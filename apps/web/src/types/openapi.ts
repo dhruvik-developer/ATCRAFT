@@ -8413,6 +8413,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/delayed-purchase-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Delayed purchase orders */
+        get: operations["delayed_purchase_orders_api_v1_reports_delayed_purchase_orders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/dispatch": {
         parameters: {
             query?: never;
@@ -8422,6 +8439,23 @@ export interface paths {
         };
         /** Dispatch */
         get: operations["dispatch_report_api_v1_reports_dispatch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/duplicate-po-overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Duplicate PO overrides */
+        get: operations["duplicate_po_overrides_api_v1_reports_duplicate_po_overrides_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8459,6 +8493,40 @@ export interface paths {
         };
         /** Fast-moving items */
         get: operations["fast_moving_api_v1_reports_fast_moving_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/inbound-freight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inbound freight */
+        get: operations["inbound_freight_api_v1_reports_inbound_freight_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/inbound-shipments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inbound shipments */
+        get: operations["inbound_shipments_api_v1_reports_inbound_shipments_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8683,6 +8751,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/purchase-order-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Purchase order register */
+        get: operations["purchase_order_register_api_v1_reports_purchase_order_register_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/purchase-order-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Purchase order summary */
+        get: operations["purchase_order_summary_api_v1_reports_purchase_order_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/purchase-pending": {
         parameters: {
             query?: never;
@@ -8868,6 +8970,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/vendor-acceptance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Vendor acceptance */
+        get: operations["vendor_acceptance_api_v1_reports_vendor_acceptance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/vendor-dispatch-history": {
         parameters: {
             query?: never;
@@ -8877,6 +8996,23 @@ export interface paths {
         };
         /** Vendor dispatch history */
         get: operations["vendor_dispatch_history_api_v1_reports_vendor_dispatch_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/vendor-inbound-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Vendor inbound history */
+        get: operations["vendor_inbound_history_api_v1_reports_vendor_inbound_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -20756,6 +20892,42 @@ export interface components {
             /** Vendor Id */
             vendor_id: string | null;
         };
+        /** DelayedPurchaseOrdersRow */
+        DelayedPurchaseOrdersRow: {
+            /** Category Code */
+            category_code?: string | null;
+            /** Category Id */
+            category_id?: string | null;
+            /** Category Name */
+            category_name?: string | null;
+            /** Code */
+            code: string;
+            /** Days Late */
+            days_late: number;
+            /**
+             * Expected Delivery Date
+             * Format: date
+             */
+            expected_delivery_date: string;
+            /** Pending Quantity */
+            pending_quantity: string;
+            /**
+             * Purchase Order Id
+             * Format: uuid
+             */
+            purchase_order_id: string;
+            /** Status */
+            status: string;
+            /** Vendor Code */
+            vendor_code: string;
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
+            /** Vendor Name */
+            vendor_name: string;
+        };
         /**
          * DeliveryConfirmation
          * @description Confirm the receiver has the goods.
@@ -21495,6 +21667,50 @@ export interface components {
             candidates: components["schemas"]["DuplicateCandidateRead"][];
             /** Requires Acknowledgement */
             requires_acknowledgement: boolean;
+        };
+        /** DuplicatePoOverridesRow */
+        DuplicatePoOverridesRow: {
+            /** Category Code */
+            category_code?: string | null;
+            /** Category Id */
+            category_id?: string | null;
+            /** Category Name */
+            category_name?: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /** Created By Name */
+            created_by_name?: string | null;
+            /** Duplicate Acknowledgement Reason */
+            duplicate_acknowledgement_reason: string;
+            /** Duplicate Confirmation Reason */
+            duplicate_confirmation_reason?: string | null;
+            /** Duplicate Confirmed At */
+            duplicate_confirmed_at?: string | null;
+            /** Duplicate Confirmed By Id */
+            duplicate_confirmed_by_id?: string | null;
+            /** Duplicate Confirmed By Name */
+            duplicate_confirmed_by_name?: string | null;
+            /**
+             * Purchase Order Id
+             * Format: uuid
+             */
+            purchase_order_id: string;
+            /** Vendor Code */
+            vendor_code: string;
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
+            /** Vendor Name */
+            vendor_name: string;
         };
         /**
          * EffectivePermissions
@@ -22572,6 +22788,26 @@ export interface components {
             /** Uploaded By Id */
             uploaded_by_id: string | null;
         };
+        /** InboundFreightRow */
+        InboundFreightRow: {
+            /** Courier Name */
+            courier_name?: string | null;
+            /** Freight Amount */
+            freight_amount: string;
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Shipment Count */
+            shipment_count: number;
+            /** Transporter Code */
+            transporter_code?: string | null;
+            /** Transporter Id */
+            transporter_id?: string | null;
+            /** Transporter Name */
+            transporter_name?: string | null;
+        };
         /**
          * InboundShipmentCreate
          * @description One consignment, as a vendor or a buyer records it.
@@ -22666,6 +22902,62 @@ export interface components {
             vehicle_number: string | null;
             /** Weight Kg */
             weight_kg: string | null;
+        };
+        /** InboundShipmentRow */
+        InboundShipmentRow: {
+            /** Courier Name */
+            courier_name?: string | null;
+            /**
+             * Days Late
+             * @default 0
+             */
+            days_late: number;
+            /** Delivered At */
+            delivered_at?: string | null;
+            /** Expected Delivery Date */
+            expected_delivery_date?: string | null;
+            /** Freight Amount */
+            freight_amount: string;
+            /** Lr Number */
+            lr_number?: string | null;
+            /** Purchase Order Code */
+            purchase_order_code: string;
+            /**
+             * Purchase Order Id
+             * Format: uuid
+             */
+            purchase_order_id: string;
+            /**
+             * Shipment Id
+             * Format: uuid
+             */
+            shipment_id: string;
+            /** Shipment Number */
+            shipment_number: number;
+            /**
+             * Shipped At
+             * Format: date-time
+             */
+            shipped_at: string;
+            /** Status */
+            status: string;
+            /** Tracking Reference */
+            tracking_reference?: string | null;
+            /** Transporter Code */
+            transporter_code?: string | null;
+            /** Transporter Id */
+            transporter_id?: string | null;
+            /** Transporter Name */
+            transporter_name?: string | null;
+            /** Vendor Code */
+            vendor_code: string;
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
+            /** Vendor Name */
+            vendor_name: string;
         };
         /**
          * InboundTrackingRead
@@ -27828,6 +28120,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[DelayedPurchaseOrdersRow] */
+        PaginatedResponse_DelayedPurchaseOrdersRow_: {
+            /** Data */
+            data?: components["schemas"]["DelayedPurchaseOrdersRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[DemandSummaryRow] */
         PaginatedResponse_DemandSummaryRow_: {
             /** Data */
@@ -27913,6 +28222,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[DuplicatePoOverridesRow] */
+        PaginatedResponse_DuplicatePoOverridesRow_: {
+            /** Data */
+            data?: components["schemas"]["DuplicatePoOverridesRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[FinancialYearRead] */
         PaginatedResponse_FinancialYearRead_: {
             /** Data */
@@ -27981,10 +28307,44 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[InboundFreightRow] */
+        PaginatedResponse_InboundFreightRow_: {
+            /** Data */
+            data?: components["schemas"]["InboundFreightRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[InboundShipmentRead] */
         PaginatedResponse_InboundShipmentRead_: {
             /** Data */
             data?: components["schemas"]["InboundShipmentRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[InboundShipmentRow] */
+        PaginatedResponse_InboundShipmentRow_: {
+            /** Data */
+            data?: components["schemas"]["InboundShipmentRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -28631,6 +28991,40 @@ export interface components {
         PaginatedResponse_ProductionPendingRow_: {
             /** Data */
             data?: components["schemas"]["ProductionPendingRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[PurchaseOrderRegisterRow] */
+        PaginatedResponse_PurchaseOrderRegisterRow_: {
+            /** Data */
+            data?: components["schemas"]["PurchaseOrderRegisterRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[PurchaseOrderSummaryRow] */
+        PaginatedResponse_PurchaseOrderSummaryRow_: {
+            /** Data */
+            data?: components["schemas"]["PurchaseOrderSummaryRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -29477,6 +29871,23 @@ export interface components {
              */
             success: true;
         };
+        /** PaginatedResponse[VendorAcceptanceRow] */
+        PaginatedResponse_VendorAcceptanceRow_: {
+            /** Data */
+            data?: components["schemas"]["VendorAcceptanceRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** PaginatedResponse[VendorCategoryRead] */
         PaginatedResponse_VendorCategoryRead_: {
             /** Data */
@@ -29532,6 +29943,23 @@ export interface components {
         PaginatedResponse_VendorDispatchHistoryRow_: {
             /** Data */
             data?: components["schemas"]["VendorDispatchHistoryRow"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[VendorInboundHistoryRow] */
+        PaginatedResponse_VendorInboundHistoryRow_: {
+            /** Data */
+            data?: components["schemas"]["VendorInboundHistoryRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -31997,6 +32425,59 @@ export interface components {
             kind: "MANUAL";
             purchase_order: components["schemas"]["PurchaseOrderCreate"];
         };
+        /** PurchaseOrderRegisterRow */
+        PurchaseOrderRegisterRow: {
+            /** Assigned Vendor User Id */
+            assigned_vendor_user_id?: string | null;
+            /** Assigned Vendor User Name */
+            assigned_vendor_user_name?: string | null;
+            /** Category Code */
+            category_code?: string | null;
+            /** Category Id */
+            category_id?: string | null;
+            /** Category Name */
+            category_name?: string | null;
+            /** Code */
+            code: string;
+            /** Expected Delivery Date */
+            expected_delivery_date?: string | null;
+            /** Ordered Quantity */
+            ordered_quantity: string;
+            /** Pending Quantity */
+            pending_quantity: string;
+            /**
+             * Po Date
+             * Format: date
+             */
+            po_date: string;
+            /**
+             * Purchase Order Id
+             * Format: uuid
+             */
+            purchase_order_id: string;
+            /**
+             * Received Percent
+             * @default 0
+             */
+            received_percent: string;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Status */
+            status: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Vendor Code */
+            vendor_code: string;
+            /** Vendor Committed Date */
+            vendor_committed_date?: string | null;
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
+            /** Vendor Name */
+            vendor_name: string;
+        };
         /** PurchaseOrderRequisitionDuplicateDraft */
         PurchaseOrderRequisitionDuplicateDraft: {
             conversion: components["schemas"]["RequisitionConversionRequest"];
@@ -32134,6 +32615,33 @@ export interface components {
              * Format: uuid
              */
             warehouse_id: string;
+        };
+        /** PurchaseOrderSummaryRow */
+        PurchaseOrderSummaryRow: {
+            /** Category Code */
+            category_code?: string | null;
+            /** Category Id */
+            category_id?: string | null;
+            /** Category Name */
+            category_name?: string | null;
+            /** Group By */
+            group_by: string;
+            /** Group Total Amount */
+            group_total_amount: string;
+            /** Ordered Quantity */
+            ordered_quantity: string;
+            /** Pending Quantity */
+            pending_quantity: string;
+            /** Purchase Order Count */
+            purchase_order_count: number;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Vendor Code */
+            vendor_code?: string | null;
+            /** Vendor Id */
+            vendor_id?: string | null;
+            /** Vendor Name */
+            vendor_name?: string | null;
         };
         /**
          * PurchaseOrderTracking
@@ -33836,7 +34344,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "DEALER_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "SALES_REGISTER" | "PURCHASE_REGISTER" | "GSTR1" | "TRIAL_BALANCE" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PURCHASE_ORDER_REGISTER" | "PURCHASE_ORDER_SUMMARY" | "DELAYED_PURCHASE_ORDERS" | "DUPLICATE_PO_OVERRIDES" | "VENDOR_ACCEPTANCE" | "INBOUND_SHIPMENTS" | "INBOUND_FREIGHT" | "VENDOR_INBOUND_HISTORY" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "DEALER_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "SALES_REGISTER" | "PURCHASE_REGISTER" | "GSTR1" | "TRIAL_BALANCE" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -39277,6 +39785,35 @@ export interface components {
             /** Size Id */
             size_id?: string | null;
         };
+        /** VendorAcceptanceRow */
+        VendorAcceptanceRow: {
+            /** Acknowledged Count */
+            acknowledged_count: number;
+            /** Acknowledged Within 24H Count */
+            acknowledged_within_24h_count: number;
+            /**
+             * Acknowledged Within 24H Percent
+             * @default 0
+             */
+            acknowledged_within_24h_percent: string;
+            /** Average Hours To Acknowledge */
+            average_hours_to_acknowledge?: string | null;
+            /** Declined Count */
+            declined_count: number;
+            /** Median Hours To Acknowledge */
+            median_hours_to_acknowledge?: string | null;
+            /** Sent Count */
+            sent_count: number;
+            /** Vendor Code */
+            vendor_code: string;
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
+            /** Vendor Name */
+            vendor_name: string;
+        };
         /**
          * VendorAssigneeReason
          * @description Why an order was - or was not - handed to a particular vendor user.
@@ -39601,6 +40138,33 @@ export interface components {
             tracking_id?: string | null;
             /** Vendor Code */
             vendor_code: string;
+            /** Vendor Name */
+            vendor_name: string;
+        };
+        /** VendorInboundHistoryRow */
+        VendorInboundHistoryRow: {
+            /** Delivered Count */
+            delivered_count: number;
+            /** Freight Amount */
+            freight_amount: string;
+            /** Late Count */
+            late_count: number;
+            /** On Time Count */
+            on_time_count: number;
+            /**
+             * On Time Percent
+             * @default 0
+             */
+            on_time_percent: string;
+            /** Shipment Count */
+            shipment_count: number;
+            /** Vendor Code */
+            vendor_code: string;
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
             /** Vendor Name */
             vendor_name: string;
         };
@@ -115023,9 +115587,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -115174,9 +115743,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -115325,9 +115899,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -115710,9 +116289,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -115861,9 +116445,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -115999,6 +116588,162 @@ export interface operations {
             };
         };
     };
+    delayed_purchase_orders_api_v1_reports_delayed_purchase_orders_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_DelayedPurchaseOrdersRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     dispatch_report_api_v1_reports_dispatch_get: {
         parameters: {
             query?: {
@@ -116012,9 +116757,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -116150,6 +116900,162 @@ export interface operations {
             };
         };
     };
+    duplicate_po_overrides_api_v1_reports_duplicate_po_overrides_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_DuplicatePoOverridesRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     export_report_api_v1_reports_export_post: {
         parameters: {
             query: {
@@ -116167,9 +117073,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -116303,9 +117214,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -116441,6 +117357,318 @@ export interface operations {
             };
         };
     };
+    inbound_freight_api_v1_reports_inbound_freight_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_InboundFreightRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    inbound_shipments_api_v1_reports_inbound_shipments_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_InboundShipmentRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     inventory_valuation_api_v1_reports_inventory_valuation_get: {
         parameters: {
             query?: {
@@ -116450,9 +117678,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -116601,9 +117834,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -116752,9 +117990,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -117145,9 +118388,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -117296,9 +118544,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -117447,9 +118700,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -117598,9 +118856,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -117749,9 +119012,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -117900,9 +119168,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118051,9 +119324,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118189,6 +119467,318 @@ export interface operations {
             };
         };
     };
+    purchase_order_register_api_v1_reports_purchase_order_register_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_PurchaseOrderRegisterRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    purchase_order_summary_api_v1_reports_purchase_order_summary_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_PurchaseOrderSummaryRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     purchase_pending_api_v1_reports_purchase_pending_get: {
         parameters: {
             query?: {
@@ -118202,9 +119792,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118353,9 +119948,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118504,9 +120104,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118655,9 +120260,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118806,9 +120416,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -118957,9 +120572,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -119108,9 +120728,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -119259,9 +120884,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -119410,9 +121040,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -119557,9 +121192,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -119695,6 +121335,162 @@ export interface operations {
             };
         };
     };
+    vendor_acceptance_api_v1_reports_vendor_acceptance_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_VendorAcceptanceRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     vendor_dispatch_history_api_v1_reports_vendor_dispatch_history_get: {
         parameters: {
             query?: {
@@ -119708,9 +121504,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
@@ -119846,6 +121647,162 @@ export interface operations {
             };
         };
     };
+    vendor_inbound_history_api_v1_reports_vendor_inbound_history_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                customer_type?: components["schemas"]["CustomerType"] | null;
+                category_id?: string | null;
+                transporter_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_VendorInboundHistoryRow_"];
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     vendor_performance_api_v1_reports_vendor_performance_get: {
         parameters: {
             query?: {
@@ -119859,9 +121816,14 @@ export interface operations {
                 customer_id?: string | null;
                 customer_type?: components["schemas"]["CustomerType"] | null;
                 category_id?: string | null;
+                transporter_id?: string | null;
                 work_center_id?: string | null;
                 cost_centre_id?: string | null;
                 status?: string | null;
+                group_by?: ("vendor" | "category") | null;
+                in_transit_only?: boolean | null;
+                expected_today?: boolean | null;
+                late_only?: boolean | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
                 search?: string | null;
