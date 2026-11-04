@@ -58,6 +58,9 @@ interface VendorUser {
   email: string
   vendor_id: string | null
   is_active: boolean
+}
+
+interface VendorUserDetail extends VendorUser {
   allowed_category_ids: string[]
 }
 
@@ -529,19 +532,15 @@ test('one requisition converts into three category orders with scoped assignees'
     ])
     for (const category of categories) {
       if (pairs.some((pair) => pair.categoryId === category.item_category_id)) continue
-      const email = `e2e.b5.${RUN}.${candidate.id.slice(0, 8)}.${category.item_category_id.slice(0, 8)}@atcraft.example`
+      const vendorKey = candidate.id.replaceAll('-', '')
+      const categoryKey = category.item_category_id.replaceAll('-', '')
+      const email = `e2e.b5.${RUN}.${vendorKey}.${categoryKey}@atcraft.example`
       const existing = users.find((row) => row.email.toLowerCase() === email)
-      const otherScopedUser = users.some(
-        (row) =>
-          row.is_active &&
-          row.email.toLowerCase() !== email &&
-          row.allowed_category_ids.length > 0,
-      )
-      if (otherScopedUser && !existing) continue
       let userId = existing?.id
       if (existing) {
         expect(existing.vendor_id).toBe(candidate.id)
-        expect(existing.allowed_category_ids).toContain(category.item_category_id)
+        const detail = await api<VendorUserDetail>(token, 'GET', `/users/${existing.id}`)
+        expect(detail.allowed_category_ids).toContain(category.item_category_id)
       } else {
         const created = await api<VendorUser>(token, 'POST', '/users', {
           email,
