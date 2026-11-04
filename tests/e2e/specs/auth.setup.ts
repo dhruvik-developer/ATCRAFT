@@ -26,7 +26,7 @@ const AUTH_FILE = './.auth/admin.json'
 setup('authenticate as administrator', async ({ page }) => {
   const token = await readyAdminToken()
   await ensurePortalAccounts(token)
-  for (const audience of ['vendor', 'dealer'] as const) {
+  for (const audience of ['vendor', 'vendor-job-work', 'dealer'] as const) {
     const portalToken = await readyAdminToken(accountForAudience(audience))
     await assertPortalData(audience, portalToken)
   }

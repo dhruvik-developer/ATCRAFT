@@ -4,6 +4,7 @@ import { API_URL } from './env.mjs'
 
 const demoBindings = {
   vendor: { resource: '/vendors', code: 'DM-VEN-PACK' },
+  'vendor-job-work': { resource: '/vendors', code: 'DM-VEN-PLATE' },
   dealer: { resource: '/customers', code: 'DM-DLR-VASTU' },
 }
 
@@ -27,7 +28,7 @@ async function request(token, method, path, body) {
 export async function ensurePortalAccounts(
   token,
   environment = process.env,
-  audiences = ['vendor', 'dealer'],
+  audiences = ['vendor', 'vendor-job-work', 'dealer'],
 ) {
   const roles = await request(token, 'GET', '/roles?page=1&limit=200')
   for (const audience of audiences) {
@@ -38,7 +39,8 @@ export async function ensurePortalAccounts(
       `/users?page=1&limit=100&search=${encodeURIComponent(account.email)}`,
     )
     const existing = users.find((user) => user.email.toLowerCase() === account.email.toLowerCase())
-    const binding = audience === 'vendor' ? 'vendor_id' : 'customer_id'
+    const isVendor = audience !== 'dealer'
+    const binding = isVendor ? 'vendor_id' : 'customer_id'
     if (existing) {
       if (!existing[binding] || !existing.is_active)
         throw new Error(
@@ -46,7 +48,8 @@ export async function ensurePortalAccounts(
         )
       continue
     }
-    const role = roles.find((row) => row.code === `${audience.toUpperCase()}_OWNER`)
+    const roleCode = isVendor ? 'VENDOR_OWNER' : 'DEALER_OWNER'
+    const role = roles.find((row) => row.code === roleCode)
     if (!role) throw new Error(`Seed the ${audience} roles before running browser tests.`)
     const { code, resource } = demoBindings[audience]
     const masters = await request(token, 'GET', `${resource}?page=1&limit=100&search=${code}`)
@@ -56,18 +59,26 @@ export async function ensurePortalAccounts(
         `Populated ${audience} fixture ${code} is missing. Run python -m src.core.demo_data before browser setup; an empty portal is not passing coverage.`,
       )
     let categories = []
-    if (audience === 'vendor') {
+    if (isVendor) {
       const qualifications = await request(
         token,
         'GET',
         `/vendors/${master.id}/categories?page=1&limit=100`,
       )
-      const packing = qualifications.find((row) => row.item_category_code === 'PACKING')
-      if (!packing)
-        throw new Error(
-          `Vendor fixture ${code} has no PACKING qualification. Complete the demonstration seed before browser setup.`,
-        )
-      categories = [packing.item_category_id]
+      if (audience === 'vendor-job-work') {
+        categories = qualifications.map((row) => row.item_category_id)
+        if (!categories.length)
+          throw new Error(
+            `Vendor fixture ${code} has no qualified categories. Complete the demonstration seed before browser setup.`,
+          )
+      } else {
+        const packing = qualifications.find((row) => row.item_category_code === 'PACKING')
+        if (!packing)
+          throw new Error(
+            `Vendor fixture ${code} has no PACKING qualification. Complete the demonstration seed before browser setup.`,
+          )
+        categories = [packing.item_category_id]
+      }
     }
     await request(token, 'POST', '/users', {
       email: account.email,
@@ -76,24 +87,30 @@ export async function ensurePortalAccounts(
       [binding]: master.id,
       role_ids: [role.id],
       must_change_password: false,
-      ...(audience === 'vendor' ? { allowed_category_ids: categories } : {}),
+      ...(isVendor ? { allowed_category_ids: categories } : {}),
     })
   }
 }
 
 /** Verify populated list and detail coverage using the portal's own token. */
 export async function assertPortalData(audience, token) {
-  if (!['vendor', 'dealer'].includes(audience))
+  if (!['vendor', 'vendor-job-work', 'dealer'].includes(audience))
     throw new Error(`Unknown portal audience: ${audience}`)
   const profile = await request(token, 'GET', '/auth/me')
-  const binding = audience === 'vendor' ? 'vendor_id' : 'customer_id'
-  const other = audience === 'vendor' ? 'customer_id' : 'vendor_id'
+  const isVendor = audience !== 'dealer'
+  const binding = isVendor ? 'vendor_id' : 'customer_id'
+  const other = isVendor ? 'customer_id' : 'vendor_id'
   if (profile.is_superuser || !profile[binding] || profile[other])
     throw new Error(
       `The ${audience} browser fixture must be a non-superuser bound only by ${binding}.`,
     )
-  const base = `/${audience}-portal`
-  const resources = audience === 'vendor' ? ['purchase-orders', 'invoices'] : ['orders', 'invoices']
+  const base = `/${isVendor ? 'vendor' : 'dealer'}-portal`
+  const resources =
+    audience === 'vendor-job-work'
+      ? ['job-work']
+      : audience === 'vendor'
+        ? ['purchase-orders', 'invoices']
+        : ['orders', 'invoices']
   const verified = {}
   for (const resource of resources) {
     const path = `${base}/${resource}`

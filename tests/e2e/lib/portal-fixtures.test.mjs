@@ -6,6 +6,8 @@ import { assertPortalData, ensurePortalAccounts } from './portal-fixtures.mjs'
 const environment = {
   E2E_VENDOR_EMAIL: 'vendor@example.com',
   E2E_VENDOR_PASSWORD: 'test-only-vendor',
+  E2E_JOB_WORK_VENDOR_EMAIL: 'job-work-vendor@example.com',
+  E2E_JOB_WORK_VENDOR_PASSWORD: 'test-only-job-work-vendor',
   E2E_DEALER_EMAIL: 'dealer@example.com',
   E2E_DEALER_PASSWORD: 'test-only-dealer',
 }
@@ -45,29 +47,44 @@ test('existing bound test users are reused without password changes', async (t) 
         ],
   )
   await ensurePortalAccounts('admin-token', environment)
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 4)
   assert.ok(calls.every((call) => call.method === 'GET'))
 })
 
 test('new test users bind to populated demo entities with a qualified vendor scope', async (t) => {
   const calls = stub(t, (url, init, body) => {
     if (url.pathname.endsWith('/roles')) return roles
-    if (url.pathname.endsWith('/vendors')) return [{ code: 'DM-VEN-PACK', id: 'packing-vendor' }]
+    if (url.pathname.endsWith('/vendors'))
+      return [
+        {
+          code: url.searchParams.get('search'),
+          id: url.searchParams.get('search') === 'DM-VEN-PLATE' ? 'plating-vendor' : 'packing-vendor',
+        },
+      ]
     if (url.pathname.endsWith('/customers')) return [{ code: 'DM-DLR-VASTU', id: 'vastu-dealer' }]
     if (url.pathname.endsWith('/categories'))
-      return [{ item_category_id: 'packing-category', item_category_code: 'PACKING' }]
+      return url.pathname.includes('plating-vendor')
+        ? [
+            { item_category_id: 'lever-category', item_category_code: 'HANDLE-LEVER' },
+            { item_category_id: 'lock-category', item_category_code: 'LOCK-MORT' },
+          ]
+        : [{ item_category_id: 'packing-category', item_category_code: 'PACKING' }]
     if (init.method === 'GET') return []
     return { id: `${body.code ?? body.email}-id` }
   })
   await ensurePortalAccounts('admin-token', environment)
   const users = calls.filter((call) => call.method === 'POST' && call.path.endsWith('/users'))
-  assert.equal(users.length, 2)
+  assert.equal(users.length, 3)
   assert.equal(users[0].body.vendor_id, 'packing-vendor')
   assert.equal(users[0].body.customer_id, undefined)
   assert.deepEqual(users[0].body.role_ids, ['vendor-role'])
   assert.deepEqual(users[0].body.allowed_category_ids, ['packing-category'])
-  assert.equal(users[1].body.customer_id, 'vastu-dealer')
-  assert.deepEqual(users[1].body.role_ids, ['dealer-role'])
+  assert.equal(users[1].body.vendor_id, 'plating-vendor')
+  assert.equal(users[1].body.customer_id, undefined)
+  assert.deepEqual(users[1].body.role_ids, ['vendor-role'])
+  assert.deepEqual(users[1].body.allowed_category_ids, ['lever-category', 'lock-category'])
+  assert.equal(users[2].body.customer_id, 'vastu-dealer')
+  assert.deepEqual(users[2].body.role_ids, ['dealer-role'])
   assert.ok(calls.every((call) => !call.path.endsWith('/reset-password')))
   assert.ok(
     calls.filter((call) => call.method === 'POST').every((call) => call.path.endsWith('/users')),
@@ -90,23 +107,33 @@ test('a vendor cannot be provisioned with an unqualified category scope', async 
   assert.ok(calls.every((call) => call.method === 'GET'))
 })
 
-for (const audience of ['vendor', 'dealer']) {
+for (const audience of ['vendor', 'vendor-job-work', 'dealer']) {
   test(`${audience} coverage proves populated scoped lists and details with its own token`, async (t) => {
-    const binding = audience === 'vendor' ? 'vendor_id' : 'customer_id'
-    const orders = audience === 'vendor' ? 'purchase-orders' : 'orders'
+    const isVendor = audience !== 'dealer'
+    const binding = isVendor ? 'vendor_id' : 'customer_id'
+    const resource =
+      audience === 'vendor-job-work'
+        ? 'job-work'
+        : audience === 'vendor'
+          ? 'purchase-orders'
+          : 'orders'
+    const portal = isVendor ? 'vendor' : 'dealer'
     const calls = stub(t, (url) => {
       if (url.pathname.endsWith('/auth/me')) return { [binding]: 'own-party', is_superuser: false }
       if (url.searchParams.has('page'))
         return [{ id: url.pathname.endsWith('/invoices') ? 'invoice-1' : 'order-1' }]
       return { id: url.pathname.split('/').at(-1), [binding]: 'own-party' }
     })
-    assert.deepEqual(await assertPortalData(audience, 'own-portal-token'), {
-      [orders]: 'order-1',
-      invoices: 'invoice-1',
-    })
-    assert.equal(calls.length, 5)
+    const verified = await assertPortalData(audience, 'own-portal-token')
+    assert.deepEqual(
+      verified,
+      audience === 'vendor-job-work'
+        ? { 'job-work': 'order-1' }
+        : { [resource]: 'order-1', invoices: 'invoice-1' },
+    )
+    assert.equal(calls.length, audience === 'vendor-job-work' ? 3 : 5)
     assert.ok(calls.every((call) => call.authorization === 'Bearer own-portal-token'))
-    assert.ok(calls.some((call) => call.path.endsWith(`/${audience}-portal/${orders}/order-1`)))
+    assert.ok(calls.some((call) => call.path.endsWith(`/${portal}-portal/${resource}/order-1`)))
   })
 }
 

@@ -60,6 +60,9 @@ test('every dynamic screen resolves from a real GET collection in its own API au
     assert.ok(operation, `${route} uses a missing GET collection: ${source}`)
     const audience = routeAudience(route)
     if (audience !== 'staff')
-      assert.ok(source.startsWith(`/${audience}-portal/`), `${route} crosses API audience`)
+      assert.ok(
+        source.startsWith(`/${audience === 'vendor-job-work' ? 'vendor' : audience}-portal/`),
+        `${route} crosses API audience`,
+      )
   }
 })
