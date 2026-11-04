@@ -253,21 +253,6 @@ log = get_logger(__name__)
 #: blocked for thirty is an outage in the making (section 30).
 LOCK_TIMEOUT_MS = 5_000
 
-# ASSUMPTION: a stock adjustment worth more than this must be approved by a
-# second person before it posts. The master rules require an approval threshold
-# but do not fix the number (docs/assumptions.md, open question 2). It is a named
-# constant so raising it is a one-line, reviewable change rather than a hunt
-# through the service.
-ADJUSTMENT_APPROVAL_VALUE_THRESHOLD = Decimal("25000.00")
-
-# ASSUMPTION: an internal issue worth more than this - measured on the FIFO
-# cost it will really consume - is approved by a second person before it posts.
-# The same figure as the adjustment threshold, for the same reason: stock
-# leaving the books with no production order or customer behind it is exactly
-# the movement that needs a second pair of eyes, and the master rules name a
-# threshold without fixing it (docs/assumptions.md §E8-3, open question 2).
-INTERNAL_ISSUE_APPROVAL_VALUE = Decimal("25000.00")
-
 # ASSUMPTION: a count sheet larger than this is refused. A person cannot work
 # through 20,000 lines in one session, and building the sheet would hold a
 # transaction open long enough to matter. Narrow the scope by location or item
@@ -7944,10 +7929,10 @@ class InternalIssueService:
 
     The approval control is the stock adjustment's, measured the same way: a
     draft is priced off the FIFO layers it will consume, and one worth more than
-    :data:`INTERNAL_ISSUE_APPROVAL_VALUE` cannot take the DRAFT -> POSTED edge.
-    It is submitted, and a second person approves it - approving is what posts
-    it. A draft that looked small and turns out, at posting, to cost more than
-    the threshold is refused and nothing reaches the ledger.
+    the company-configured threshold cannot take the DRAFT -> POSTED edge. It is
+    submitted, and a second person approves it - approving is what posts it. A
+    draft that looked small and turns out, at posting, to cost more than the
+    threshold is refused and nothing reaches the ledger.
     """
 
     def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
@@ -8531,11 +8516,9 @@ async def below_reorder_alert_candidates(
 
 
 __all__ = [
-    "ADJUSTMENT_APPROVAL_VALUE_THRESHOLD",
     "ADJUSTMENT_FLOW",
     "BIN_MOVE_FLOW",
     "COUNT_FLOW",
-    "INTERNAL_ISSUE_APPROVAL_VALUE",
     "INTERNAL_ISSUE_FLOW",
     "LOCK_TIMEOUT_MS",
     "MAX_COUNT_LINES",

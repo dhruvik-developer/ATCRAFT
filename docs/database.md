@@ -66,7 +66,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 |---|---|
 | `organization` | `companies`, `branches`, `plants`, `departments`, `cost_centres`, `financial_years` |
 | `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `user_phone_verification_challenges`, `login_attempts` |
-| `audit` | `audit_logs`, `approval_requests` |
+| `audit` | `audit_logs`, `approval_requests`, `company_approval_settings` |
 | `warehouses` | `warehouses`, `storage_locations` |
 | `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links`, `specification_attributes`, `category_specifications`, `item_specifications`, `item_accessories` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
@@ -93,6 +93,22 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
 | `dealer_portal` | `dealer_offers`, `dealer_banners`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, banner records, carts and wishlists |
 | `common` | `document_sequences` |
+
+### Company approval settings
+
+Audit owns the sparse `company_approval_settings` table introduced by revision
+`20261124_0100`. It has one row per company, four nullable `NUMERIC(18,4)`
+thresholds, and creation provenance. An absent row or a NULL threshold uses the
+application default; the migration inserts no overrides and changes no existing
+stock, documents or audit records. The company foreign key uses `RESTRICT`, and
+the optional creator foreign key uses `SET NULL`.
+
+Upgrade and downgrade bound lock acquisition to five seconds and roll back
+atomically on failure. Downgrade takes an exclusive table lock and refuses if
+any settings row exists, preserving company configuration against concurrent
+writes. An empty table can be downgraded and recreated. The migration and
+application reads on the migrated schema are verified in
+`tests/integration/test_approval_settings_migration.py` under `apps/api`.
 
 ### Cost centres
 
