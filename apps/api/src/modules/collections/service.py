@@ -296,7 +296,7 @@ async def list_notes(
 def _assert_live(follow: PaymentFollowUp) -> None:
     if follow.status in FOLLOW_UP_LIFECYCLE.terminal:
         raise BusinessRuleError(
-            f"Follow-up {follow.code} is {follow.status.value.lower()} and cannot be changed.",
+            f"Follow-up {follow.code} is {str(follow.status).lower()} and cannot be changed.",
             details={"status": str(follow.status)},
         )
 

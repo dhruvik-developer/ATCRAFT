@@ -11,14 +11,36 @@ import pytest
 from sqlalchemy import func, select
 
 from src.core.clock import today, utcnow
-from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
-from src.core.pagination import PageParams, SortParams
+from src.core.errors import (
+    BusinessRuleError,
+    DuplicateError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.types import ZERO
 from src.modules.allocation import service as allocation
 from src.modules.audit.models import AuditLog
 from src.modules.collections import service as collections_service
-from src.modules.collections.models import FollowUpStatus, PaymentFollowUp, PaymentFollowUpNote
-from src.modules.collections.schemas import FollowUpFilters, WorklistFilters
+from src.modules.collections.models import (
+    FollowUpChannel,
+    FollowUpOutcome,
+    FollowUpStatus,
+    PaymentFollowUp,
+    PaymentFollowUpNote,
+)
+from src.modules.collections.schemas import (
+    FollowUpCancel,
+    FollowUpCreate,
+    FollowUpEscalate,
+    FollowUpFilters,
+    FollowUpNoteCreate,
+    FollowUpPromise,
+    FollowUpResolve,
+    FollowUpUpdate,
+    WorklistFilters,
+)
 from src.modules.customers.models import CustomerType
 from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.models import DispatchLine
@@ -1266,3 +1288,276 @@ async def test_collections_worklist_and_sweep_open_once_and_remind_on_cadence(be
     assert second.changed is False
     assert second.opened == second.reminded == 0
     assert notes_after == notes_before
+
+
+async def _overdue_follow_up(bench):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    invoice_row = await b.session.get(SalesInvoice, invoice.id)
+    assert invoice_row is not None
+    invoice_row.invoice_date = today() - timedelta(days=20)
+    invoice_row.due_date = today() - timedelta(days=10)
+    await b.session.flush()
+    follow = await collections_service.create_follow_up(
+        b.session,
+        b.tenant,
+        FollowUpCreate(customer_id=b.customer.id, currency=invoice.currency),
+    )
+    return b, invoice_row, follow
+
+
+async def test_follow_up_create_rejects_duplicate_and_missing_overdue_and_reassigns(bench):
+    b, _, follow = await _overdue_follow_up(bench)
+
+    with pytest.raises(DuplicateError, match="already has a live follow-up"):
+        await collections_service.create_follow_up(
+            b.session,
+            b.tenant,
+            FollowUpCreate(customer_id=b.customer.id, currency=follow.currency),
+        )
+
+    with pytest.raises(NotFoundError, match="User"):
+        await collections_service.update_follow_up(
+            b.session,
+            b.tenant,
+            follow.id,
+            FollowUpUpdate(assigned_to_id=uuid.uuid4()),
+        )
+
+    next_action = today() + timedelta(days=2)
+    updated = await collections_service.update_follow_up(
+        b.session,
+        b.tenant,
+        follow.id,
+        FollowUpUpdate(assigned_to_id=b.tenant.user_id, next_action_date=next_action),
+    )
+    assert updated.assigned_to_id == b.tenant.user_id
+    assert updated.next_action_date == next_action
+
+    customer = await seed_customer(
+        b.session, company_id=b.tenant.company_id, code=f"CU{uuid.uuid4().hex[:6]}"
+    )
+    with pytest.raises(BusinessRuleError, match="no overdue invoices"):
+        await collections_service.create_follow_up(
+            b.session,
+            b.tenant,
+            FollowUpCreate(customer_id=customer.id, currency="INR"),
+        )
+
+
+async def test_follow_up_notes_reject_system_channel_propagate_action_and_keyset_page(bench):
+    b, _, follow = await _overdue_follow_up(bench)
+
+    with pytest.raises(BusinessRuleError, match="system channel is reserved"):
+        await collections_service.add_note(
+            b.session,
+            b.tenant,
+            follow.id,
+            FollowUpNoteCreate(channel=FollowUpChannel.SYSTEM, note="forged system note"),
+        )
+
+    action_date = today() + timedelta(days=1)
+    first = await collections_service.add_note(
+        b.session,
+        b.tenant,
+        follow.id,
+        FollowUpNoteCreate(
+            channel=FollowUpChannel.CALL,
+            outcome=FollowUpOutcome.NO_RESPONSE,
+            note="Called the accounts contact",
+            next_action_date=action_date,
+        ),
+    )
+    second = await collections_service.add_note(
+        b.session,
+        b.tenant,
+        follow.id,
+        FollowUpNoteCreate(channel=FollowUpChannel.EMAIL, note="Sent the statement"),
+    )
+    assert (
+        await collections_service.get_follow_up(b.session, b.tenant, follow.id)
+    ).next_action_date == action_date
+
+    first_page, first_cursor = await collections_service.list_notes(
+        b.session, b.tenant, follow.id, CursorParams(limit=1)
+    )
+    assert [row.id for row in first_page] == [second.id]
+    assert first_cursor.has_next is True
+    second_page, second_cursor = await collections_service.list_notes(
+        b.session,
+        b.tenant,
+        follow.id,
+        CursorParams(limit=1, cursor=first_cursor.next_cursor),
+    )
+    assert [row.id for row in second_page] == [first.id]
+    assert second_cursor.has_next is True
+    third_page, third_cursor = await collections_service.list_notes(
+        b.session,
+        b.tenant,
+        follow.id,
+        CursorParams(limit=1, cursor=second_cursor.next_cursor),
+    )
+    assert third_page[0].channel == FollowUpChannel.SYSTEM
+    assert third_cursor.has_next is False
+
+
+async def test_follow_up_promise_rejects_past_or_excess_and_allows_extension(bench):
+    b, _, follow = await _overdue_follow_up(bench)
+    overdue = follow.current_overdue_amount
+
+    with pytest.raises(BusinessRuleError, match="cannot be in the past"):
+        await collections_service.record_promise(
+            b.session,
+            b.tenant,
+            follow.id,
+            FollowUpPromise(
+                promised_amount=Decimal("1"), promised_date=today() - timedelta(days=1)
+            ),
+        )
+    with pytest.raises(BusinessRuleError, match="cannot exceed"):
+        await collections_service.record_promise(
+            b.session,
+            b.tenant,
+            follow.id,
+            FollowUpPromise(promised_amount=overdue + Decimal("1"), promised_date=today()),
+        )
+
+    first_date = today() + timedelta(days=2)
+    first = await collections_service.record_promise(
+        b.session,
+        b.tenant,
+        follow.id,
+        FollowUpPromise(promised_amount=overdue / 2, promised_date=first_date),
+    )
+    extended_date = first_date + timedelta(days=2)
+    extended = await collections_service.record_promise(
+        b.session,
+        b.tenant,
+        follow.id,
+        FollowUpPromise(
+            promised_amount=(overdue / 3).quantize(Decimal("0.01")),
+            promised_date=extended_date,
+        ),
+    )
+    assert first.status == FollowUpStatus.PROMISED
+    assert extended.status == FollowUpStatus.PROMISED
+    assert extended.promised_date == extended_date
+    assert extended.promised_amount == (overdue / 3).quantize(Decimal("0.01"))
+
+
+async def test_follow_up_escalation_requires_customer_right_and_preserves_existing_block(
+    bench, principal
+):
+    b, _, follow = await _overdue_follow_up(bench)
+    restricted = principal.__class__(
+        user_id=principal.user_id,
+        company_id=principal.company_id,
+        email=principal.email,
+        full_name=principal.full_name,
+        is_superuser=False,
+        permissions=frozenset(
+            permission for permission in principal.permissions if permission != "customer.update"
+        ),
+        role_codes=principal.role_codes,
+    )
+    with pytest.raises(PermissionDeniedError, match=r"customer\.update"):
+        await collections_service.escalate(
+            b.session,
+            b.tenant,
+            restricted,
+            follow.id,
+            FollowUpEscalate(reason="Repeated missed commitments", block_customer=True),
+        )
+
+    b.customer.is_blocked = True
+    b.customer.block_reason = "Existing credit hold"
+    b.customer.blocked_at = utcnow()
+    b.customer.blocked_by_id = b.tenant.user_id
+    await b.session.flush()
+    escalated = await collections_service.escalate(
+        b.session,
+        b.tenant,
+        principal,
+        follow.id,
+        FollowUpEscalate(reason="Escalation reviewed", block_customer=True),
+    )
+    await b.session.refresh(b.customer)
+    assert escalated.status == FollowUpStatus.ESCALATED
+    assert b.customer.block_reason == "Existing credit hold"
+
+
+@pytest.mark.parametrize("terminal", ["resolved", "cancelled"])
+async def test_follow_up_terminal_states_refuse_replay_and_updates(bench, terminal):
+    b, _, follow = await _overdue_follow_up(bench)
+    if terminal == "resolved":
+        closed = await collections_service.resolve(
+            b.session, b.tenant, follow.id, FollowUpResolve(note="Balance settled")
+        )
+
+        async def replay():
+            return await collections_service.resolve(
+                b.session, b.tenant, follow.id, FollowUpResolve(note="Repeated resolution")
+            )
+
+    else:
+        closed = await collections_service.cancel(
+            b.session, b.tenant, follow.id, FollowUpCancel(reason="Opened in error")
+        )
+
+        async def replay():
+            return await collections_service.cancel(
+                b.session, b.tenant, follow.id, FollowUpCancel(reason="Repeated cancellation")
+            )
+
+    assert closed.status == (
+        FollowUpStatus.RESOLVED if terminal == "resolved" else FollowUpStatus.CANCELLED
+    )
+    with pytest.raises(BusinessRuleError, match="cannot be changed"):
+        await replay()
+    with pytest.raises(BusinessRuleError, match="cannot be changed"):
+        await collections_service.update_follow_up(
+            b.session, b.tenant, follow.id, FollowUpUpdate(next_action_date=today())
+        )
+    with pytest.raises(BusinessRuleError, match="cannot be changed"):
+        await collections_service.add_note(
+            b.session,
+            b.tenant,
+            follow.id,
+            FollowUpNoteCreate(channel=FollowUpChannel.CALL, note="Should be refused"),
+        )
+
+
+async def test_collections_sweep_breaks_promises_resolves_paid_and_repeats_reminders(bench):
+    b, invoice, follow = await _overdue_follow_up(bench)
+    row = await b.session.get(PaymentFollowUp, follow.id)
+    assert row is not None
+    row.status = FollowUpStatus.PROMISED
+    row.promised_amount = Decimal("10")
+    row.promised_date = today() - timedelta(days=1)
+    row.last_reminded_at = utcnow() - timedelta(days=4)
+    await b.session.flush()
+
+    broken = await collections_service.scan_overdue_receivables(b.session, b.tenant, as_of=today())
+    assert broken.broken_promises == 1
+    assert broken.reminded == 1
+    await b.session.refresh(row)
+    assert row.status == FollowUpStatus.OPEN
+    assert row.promised_date is None
+
+    same_day = await collections_service.scan_overdue_receivables(
+        b.session, b.tenant, as_of=today()
+    )
+    assert same_day.reminded == 0
+
+    row.last_reminded_at = utcnow() - timedelta(days=3)
+    await b.session.flush()
+    cadence = await collections_service.scan_overdue_receivables(b.session, b.tenant, as_of=today())
+    assert cadence.reminded == 1
+
+    invoice.paid_amount = invoice.total_amount
+    invoice.status = SalesInvoiceStatus.PAID
+    await b.session.flush()
+    settled = await collections_service.scan_overdue_receivables(b.session, b.tenant, as_of=today())
+    assert settled.resolved == 1
+    await b.session.refresh(row)
+    assert row.status == FollowUpStatus.RESOLVED
