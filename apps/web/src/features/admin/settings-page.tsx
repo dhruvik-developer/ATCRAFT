@@ -274,26 +274,30 @@ export default function SettingsPage() {
                 ['adjustment_approval_threshold', 'Stock adjustment approval threshold'],
                 ['internal_issue_approval_threshold', 'Internal issue approval threshold'],
                 ['requisition_auto_approve_limit', 'Requisition auto-approve limit'],
-              ].map(([key, label]) => (
-                <div key={key} className="space-y-2">
-                  <Label htmlFor={key}>{label}</Label>
-                  <Input
-                    id={key}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={approvalValue[key as keyof ApprovalDraft]}
-                    disabled={!canManage || approvalSettings.isLoading}
-                    onChange={(event) => {
-                      const nextValue = event.target.value
-                      setApprovalDraft((current) => ({
-                        ...(current ?? toApprovalDraft(approvalSettings.data)),
-                        [key]: nextValue,
-                      }))
-                    }}
-                  />
-                </div>
-              ))}
+              ].map(([key, label]) => {
+                const fieldKey = key as keyof ApprovalDraft
+
+                return (
+                  <div key={key} className="space-y-2">
+                    <Label htmlFor={key}>{label}</Label>
+                    <Input
+                      id={key}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={approvalValue[fieldKey]}
+                      disabled={!canManage || approvalSettings.isLoading}
+                      onChange={(event) => {
+                        const nextValue = event.target.value
+                        setApprovalDraft((current) => ({
+                          ...(current ?? toApprovalDraft(approvalSettings.data)),
+                          [fieldKey]: nextValue,
+                        }))
+                      }}
+                    />
+                  </div>
+                )
+              })}
             </div>
 
             {approvalSettings.data && (
