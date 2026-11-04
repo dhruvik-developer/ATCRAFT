@@ -1414,6 +1414,40 @@
           }
         },
         {
+          "name": "Change the company's approval thresholds",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"adjustment_approval_threshold\": 0,\n  \"internal_issue_approval_threshold\": 0,\n  \"po_dual_approval_amount\": 0,\n  \"requisition_auto_approve_limit\": 0\n}"
+            },
+            "description": "Omitted fields are left unchanged; an explicit null restores the code default. Every update is audited.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "approval-settings"
+              ],
+              "raw": "{{base_url}}/api/v1/audit/approval-settings"
+            }
+          }
+        },
+        {
           "name": "Full history of one record",
           "request": {
             "description": "The traceability trail required by master rules section 42: every recorded action against one record, newest first.\n\nNot date-windowed, unlike `/audit/logs` - the point of this endpoint is the complete history, and pinning the query to one `entity_id` already bounds it.",
@@ -1486,6 +1520,26 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Read the company's approval thresholds",
+          "request": {
+            "description": "Returns the effective values after code defaults are applied; any NULL in the stored row means the company has not overridden that setting yet.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "audit",
+                "approval-settings"
+              ],
+              "raw": "{{base_url}}/api/v1/audit/approval-settings"
             }
           }
         },

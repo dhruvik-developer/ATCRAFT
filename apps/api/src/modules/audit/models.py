@@ -10,10 +10,11 @@ enforced by PostgreSQL rather than by convention.
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, String, Text, text
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -152,4 +153,28 @@ class ApprovalRequest(ImmutableLedgerEntity):
     )
 
 
-__all__ = ["ApprovalRequest", "AuditAction", "AuditLog"]
+class CompanyApprovalSettings(ImmutableLedgerEntity):
+    """Sparse, per-company approval thresholds and routing defaults.
+
+    The table is a sparse override row: any NULL column means "use the code
+    default". That keeps the defaults reviewable in code while allowing a company
+    to choose a custom threshold without writing a full row copy.
+    """
+
+    __tablename__ = "company_approval_settings"
+
+    po_dual_approval_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    adjustment_approval_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 4), nullable=True
+    )
+    internal_issue_approval_threshold: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 4), nullable=True
+    )
+    requisition_auto_approve_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 4), nullable=True
+    )
+
+    __table_args__ = (UniqueConstraint("company_id", name="uq_company_approval_settings_company"),)
+
+
+__all__ = ["ApprovalRequest", "AuditAction", "AuditLog", "CompanyApprovalSettings"]

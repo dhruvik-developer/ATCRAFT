@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any
 
@@ -249,6 +250,27 @@ class ApprovalDecisionRequest(BaseModel):
         return cleaned or None
 
 
+class ApprovalSettingsRead(BaseModel):
+    """Effective approval thresholds for the current company."""
+
+    po_dual_approval_amount: Decimal
+    adjustment_approval_threshold: Decimal
+    internal_issue_approval_threshold: Decimal
+    requisition_auto_approve_limit: Decimal
+    is_default: bool
+
+
+class ApprovalSettingsUpdate(BaseModel):
+    """Sparse company override: omitted keys stay as-is; null restores the code default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    po_dual_approval_amount: Decimal | None = None
+    adjustment_approval_threshold: Decimal | None = None
+    internal_issue_approval_threshold: Decimal | None = None
+    requisition_auto_approve_limit: Decimal | None = None
+
+
 __all__ = [
     "MAX_DECISION_NOTE_LENGTH",
     "MAX_ENTITY_TYPE_LENGTH",
@@ -256,6 +278,8 @@ __all__ = [
     "ApprovalDecisionRequest",
     "ApprovalFilters",
     "ApprovalRequestRead",
+    "ApprovalSettingsRead",
+    "ApprovalSettingsUpdate",
     "ApprovalStatus",
     "AuditLogFilters",
     "AuditLogListItem",

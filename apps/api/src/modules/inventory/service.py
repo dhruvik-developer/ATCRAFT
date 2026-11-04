@@ -120,7 +120,12 @@ from src.core.types import to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    get_company_approval_settings,
+    record_audit,
+    record_status_change,
+    snapshot,
+)
 from src.modules.inventory.models import (
     LAYER_ORIGIN_RECONCILIATION,
     MAX_SERIALS_PER_PHYSICAL_COUNT,
@@ -268,6 +273,19 @@ INTERNAL_ISSUE_APPROVAL_VALUE = Decimal("25000.00")
 # transaction open long enough to matter. Narrow the scope by location or item
 # instead - which is what cycle counting means.
 MAX_COUNT_LINES = 5_000
+
+
+async def adjustment_approval_threshold(session: AsyncSession, tenant: TenantContext) -> Decimal:
+    """The company-specific threshold for stock adjustment approval."""
+    return (await get_company_approval_settings(session, tenant)).adjustment_approval_threshold
+
+
+async def internal_issue_approval_threshold(
+    session: AsyncSession, tenant: TenantContext
+) -> Decimal:
+    """The company-specific threshold for internal issue approval."""
+    return (await get_company_approval_settings(session, tenant)).internal_issue_approval_threshold
+
 
 AUDIT_ENTITY_MOVEMENT = "inventory_transaction"
 AUDIT_ENTITY_BALANCE = "inventory_balance"
@@ -6096,7 +6114,8 @@ class StockAdjustmentService:
                 )
             )
         set_committed_value(adjustment, "lines", lines)
-        self._set_value(adjustment, total_value)
+        threshold = await adjustment_approval_threshold(self.session, self.tenant)
+        self._set_value(adjustment, total_value, threshold)
 
     async def submit(self, adjustment_id: uuid.UUID) -> StockAdjustmentRead:
         """Send the document for approval, re-priced against the layers as they are now.
@@ -6115,6 +6134,7 @@ class StockAdjustmentService:
             if adjustment is None:  # pragma: no cover - the lock already found it
                 raise NotFoundError("Stock adjustment", adjustment_id)
             ADJUSTMENT_FLOW.assert_transition(adjustment.status, AdjustmentStatus.PENDING_APPROVAL)
+            threshold = await adjustment_approval_threshold(self.session, self.tenant)
             await self._reprice(adjustment)
             if not adjustment.requires_approval:
                 raise BusinessRuleError(
@@ -6122,7 +6142,7 @@ class StockAdjustmentService:
                     "be posted directly.",
                     details={
                         "total_value": str(adjustment.total_value),
-                        "threshold": str(ADJUSTMENT_APPROVAL_VALUE_THRESHOLD),
+                        "threshold": str(threshold),
                     },
                 )
             previous = adjustment.status
@@ -6211,6 +6231,7 @@ class StockAdjustmentService:
             if adjustment is None:  # pragma: no cover - the lock already found it
                 raise NotFoundError("Stock adjustment", adjustment_id)
             ADJUSTMENT_FLOW.assert_transition(adjustment.status, AdjustmentStatus.POSTED)
+            threshold = await adjustment_approval_threshold(self.session, self.tenant)
             assert_warehouse_scope(self.tenant, adjustment.warehouse_id)
 
             if adjustment.status is AdjustmentStatus.DRAFT and adjustment.requires_approval:
@@ -6221,7 +6242,7 @@ class StockAdjustmentService:
                     status_code=422,
                     details={
                         "total_value": str(adjustment.total_value),
-                        "threshold": str(ADJUSTMENT_APPROVAL_VALUE_THRESHOLD),
+                        "threshold": str(threshold),
                     },
                 )
 
@@ -6265,11 +6286,9 @@ class StockAdjustmentService:
             self._restate_from_ledger(
                 adjustment,
                 [transactions[start:end] for start, end in movement_slices],
+                threshold,
             )
-            if (
-                previous is AdjustmentStatus.DRAFT
-                and adjustment.total_value > ADJUSTMENT_APPROVAL_VALUE_THRESHOLD
-            ):
+            if previous is AdjustmentStatus.DRAFT and adjustment.total_value > threshold:
                 raise BusinessRuleError(
                     f"Adjustment {adjustment.code} costs {adjustment.total_value} against the "
                     "cost layers it consumes and must be approved before it can post.",
@@ -6277,7 +6296,7 @@ class StockAdjustmentService:
                     status_code=422,
                     details={
                         "total_value": str(adjustment.total_value),
-                        "threshold": str(ADJUSTMENT_APPROVAL_VALUE_THRESHOLD),
+                        "threshold": str(threshold),
                     },
                 )
 
@@ -6361,7 +6380,7 @@ class StockAdjustmentService:
             )
 
     @staticmethod
-    def _set_value(adjustment: StockAdjustment, total: Decimal) -> None:
+    def _set_value(adjustment: StockAdjustment, total: Decimal, threshold: Decimal) -> None:
         """The document's value and its approval flag, always set together.
 
         One place, because they are one decision: a value written without the
@@ -6369,7 +6388,7 @@ class StockAdjustmentService:
         on another.
         """
         adjustment.total_value = to_money(total)
-        adjustment.requires_approval = adjustment.total_value > ADJUSTMENT_APPROVAL_VALUE_THRESHOLD
+        adjustment.requires_approval = adjustment.total_value > threshold
 
     async def _reprice(self, adjustment: StockAdjustment) -> Decimal:
         """Re-cost every line against the position's layers as they stand now.
@@ -6404,7 +6423,8 @@ class StockAdjustmentService:
             line.total_cost = cost.total_cost
             self.line_repo.touch(line)
             total += cost.total_cost
-        self._set_value(adjustment, total)
+        threshold = await adjustment_approval_threshold(self.session, self.tenant)
+        self._set_value(adjustment, total, threshold)
         self.repo.touch(adjustment)
         return adjustment.total_value
 
@@ -6412,6 +6432,7 @@ class StockAdjustmentService:
         self,
         adjustment: StockAdjustment,
         transactions: Sequence[Sequence[InventoryTransaction]],
+        threshold: Decimal,
     ) -> Decimal:
         """Write what the engine actually charged back onto the document.
 
@@ -6442,7 +6463,7 @@ class StockAdjustmentService:
             )
             self.line_repo.touch(line)
             total += line.total_cost
-        self._set_value(adjustment, total)
+        self._set_value(adjustment, total, threshold)
         return adjustment.total_value
 
     async def _record_transition(
@@ -8048,7 +8069,8 @@ class InternalIssueService:
                         notes=line.notes,
                     )
                 )
-            self._set_value(issue, total_value)
+            threshold = await internal_issue_approval_threshold(self.session, self.tenant)
+            self._set_value(issue, total_value, threshold)
             await self.session.flush()
 
             await record_audit(
@@ -8092,6 +8114,7 @@ class InternalIssueService:
             INTERNAL_ISSUE_FLOW.assert_transition(
                 issue.status, InternalIssueStatus.PENDING_APPROVAL
             )
+            threshold = await internal_issue_approval_threshold(self.session, self.tenant)
             assert_warehouse_scope(self.tenant, issue.warehouse_id)
             await self._reprice(issue)
             if not issue.requires_approval:
@@ -8100,7 +8123,7 @@ class InternalIssueService:
                     "posted directly.",
                     details={
                         "total_value": str(issue.total_value),
-                        "threshold": str(INTERNAL_ISSUE_APPROVAL_VALUE),
+                        "threshold": str(threshold),
                     },
                 )
             issue.status = InternalIssueStatus.PENDING_APPROVAL
@@ -8129,12 +8152,13 @@ class InternalIssueService:
                     code=ErrorCode.APPROVAL_REQUIRED,
                     status_code=422,
                 )
+            threshold = await internal_issue_approval_threshold(self.session, self.tenant)
             assert_warehouse_scope(self.tenant, issue.warehouse_id)
             if issue.requires_approval:
-                raise self._approval_required(issue)
+                raise self._approval_required(issue, threshold)
             await self._post_lines(issue)
-            if issue.total_value > INTERNAL_ISSUE_APPROVAL_VALUE:
-                raise self._approval_required(issue)
+            if issue.total_value > threshold:
+                raise self._approval_required(issue, threshold)
             await self._finish_posting(issue, InternalIssueStatus.DRAFT, AuditAction.STATUS_CHANGE)
         return await self.get_issue(issue_id)
 
@@ -8237,7 +8261,7 @@ class InternalIssueService:
             )
 
     @staticmethod
-    def _approval_required(issue: InternalIssue) -> BusinessRuleError:
+    def _approval_required(issue: InternalIssue, threshold: Decimal) -> BusinessRuleError:
         return BusinessRuleError(
             f"Internal issue {issue.code} is worth {issue.total_value} against the cost "
             "layers it consumes and must be approved before it can post.",
@@ -8245,15 +8269,15 @@ class InternalIssueService:
             status_code=422,
             details={
                 "total_value": str(issue.total_value),
-                "threshold": str(INTERNAL_ISSUE_APPROVAL_VALUE),
+                "threshold": str(threshold),
             },
         )
 
     @staticmethod
-    def _set_value(issue: InternalIssue, total: Decimal) -> None:
+    def _set_value(issue: InternalIssue, total: Decimal, threshold: Decimal) -> None:
         """The value and the approval flag, always set together."""
         issue.total_value = to_money(total)
-        issue.requires_approval = issue.total_value > INTERNAL_ISSUE_APPROVAL_VALUE
+        issue.requires_approval = issue.total_value > threshold
 
     async def _reprice(self, issue: InternalIssue) -> None:
         lines = sorted(issue.lines, key=lambda line: line.line_number)
@@ -8281,7 +8305,8 @@ class InternalIssueService:
             line.total_cost = cost.total_cost
             self.line_repo.touch(line)
             total += cost.total_cost
-        self._set_value(issue, total)
+        threshold = await internal_issue_approval_threshold(self.session, self.tenant)
+        self._set_value(issue, total, threshold)
         self.repo.touch(issue)
 
     async def _post_lines(self, issue: InternalIssue) -> None:
@@ -8327,7 +8352,8 @@ class InternalIssueService:
             )
             self.line_repo.touch(line)
             total += line.total_cost
-        self._set_value(issue, total)
+        threshold = await internal_issue_approval_threshold(self.session, self.tenant)
+        self._set_value(issue, total, threshold)
 
     async def _finish_posting(
         self, issue: InternalIssue, previous: InternalIssueStatus, action: AuditAction

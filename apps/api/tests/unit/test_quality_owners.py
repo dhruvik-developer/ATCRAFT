@@ -25,9 +25,11 @@ pytestmark = pytest.mark.unit
 @pytest.fixture(autouse=True)
 def _fresh_resolution() -> Any:
     """``resolve_owner`` caches per process; each test starts from the table."""
-    owners.resolve_owner.cache_clear()
+    if hasattr(owners.resolve_owner, "cache_clear"):
+        owners.resolve_owner.cache_clear()
     yield
-    owners.resolve_owner.cache_clear()
+    if hasattr(owners.resolve_owner, "cache_clear"):
+        owners.resolve_owner.cache_clear()
 
 
 def _inspection(**quantities: str) -> QcInspection:

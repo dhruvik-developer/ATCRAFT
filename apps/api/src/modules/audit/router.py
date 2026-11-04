@@ -60,9 +60,15 @@ from src.modules.audit.schemas import (
     ApprovalDecisionRequest,
     ApprovalFilters,
     ApprovalRequestRead,
+    ApprovalSettingsRead,
+    ApprovalSettingsUpdate,
     AuditLogFilters,
     AuditLogListItem,
     AuditLogRead,
+)
+from src.modules.audit.service import (
+    get_company_approval_settings,
+    update_company_approval_settings,
 )
 
 router = APIRouter(prefix="/audit", tags=["Audit"], responses=COMMON_ERROR_RESPONSES)
@@ -194,6 +200,50 @@ async def get_entity_history(
         entity_type, entity_id, params
     )
     return CursorPaginatedResponse[AuditLogListItem](data=items, pagination=pagination)
+
+
+# -----------------------------------------------------------------------------
+# Company approval settings
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/approval-settings",
+    response_model=ApiResponse[ApprovalSettingsRead],
+    summary="Read the company's approval thresholds",
+    description=(
+        "Returns the effective values after code defaults are applied; any NULL in the stored "
+        "row means the company has not overridden that setting yet."
+    ),
+    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+)
+async def get_approval_settings(
+    session: DbSession, tenant: Tenant
+) -> ApiResponse[ApprovalSettingsRead]:
+    return ApiResponse[ApprovalSettingsRead].ok(
+        await get_company_approval_settings(session, tenant)
+    )
+
+
+@router.put(
+    "/approval-settings",
+    response_model=ApiResponse[ApprovalSettingsRead],
+    summary="Change the company's approval thresholds",
+    description=(
+        "Omitted fields are left unchanged; an explicit null restores the code default. "
+        "Every update is audited."
+    ),
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+)
+async def update_approval_settings(
+    payload: ApprovalSettingsUpdate,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[ApprovalSettingsRead]:
+    settings = await update_company_approval_settings(session, tenant, payload)
+    return ApiResponse[ApprovalSettingsRead].ok(
+        settings, success_message("Approval settings", "updated")
+    )
 
 
 # -----------------------------------------------------------------------------

@@ -480,6 +480,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit/approval-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the company's approval thresholds
+         * @description Returns the effective values after code defaults are applied; any NULL in the stored row means the company has not overridden that setting yet.
+         */
+        get: operations["get_approval_settings_api_v1_audit_approval_settings_get"];
+        /**
+         * Change the company's approval thresholds
+         * @description Omitted fields are left unchanged; an explicit null restores the code default. Every update is audited.
+         */
+        put: operations["update_approval_settings_api_v1_audit_approval_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/approvals": {
         parameters: {
             query?: never;
@@ -11840,6 +11864,21 @@ export interface components {
              */
             success: true;
         };
+        /** ApiResponse[ApprovalSettingsRead] */
+        ApiResponse_ApprovalSettingsRead_: {
+            data?: components["schemas"]["ApprovalSettingsRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
         /** ApiResponse[AssemblyOrderDetail] */
         ApiResponse_AssemblyOrderDetail_: {
             data?: components["schemas"]["AssemblyOrderDetail"] | null;
@@ -15337,6 +15376,36 @@ export interface components {
             /** Required Permission */
             required_permission?: string | null;
             status: components["schemas"]["ApprovalStatus"];
+        };
+        /**
+         * ApprovalSettingsRead
+         * @description Effective approval thresholds for the current company.
+         */
+        ApprovalSettingsRead: {
+            /** Adjustment Approval Threshold */
+            adjustment_approval_threshold: string;
+            /** Internal Issue Approval Threshold */
+            internal_issue_approval_threshold: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Po Dual Approval Amount */
+            po_dual_approval_amount: string;
+            /** Requisition Auto Approve Limit */
+            requisition_auto_approve_limit: string;
+        };
+        /**
+         * ApprovalSettingsUpdate
+         * @description Sparse company override: omitted keys stay as-is; null restores the code default.
+         */
+        ApprovalSettingsUpdate: {
+            /** Adjustment Approval Threshold */
+            adjustment_approval_threshold?: number | string | null;
+            /** Internal Issue Approval Threshold */
+            internal_issue_approval_threshold?: number | string | null;
+            /** Po Dual Approval Amount */
+            po_dual_approval_amount?: number | string | null;
+            /** Requisition Auto Approve Limit */
+            requisition_auto_approve_limit?: number | string | null;
         };
         /**
          * ApprovalStatus
@@ -46723,6 +46792,248 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_AssemblyOrderSummary_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_approval_settings_api_v1_audit_approval_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ApprovalSettingsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HTTP method not allowed */
+            405: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_approval_settings_api_v1_audit_approval_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ApprovalSettingsRead_"];
                 };
             };
             /** @description Malformed request */

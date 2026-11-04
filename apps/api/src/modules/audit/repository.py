@@ -37,7 +37,7 @@ from sqlalchemy.orm import load_only
 from src.common.repository import BaseRepository
 from src.core.pagination import CursorParams, PageParams
 from src.core.responses import CursorPagination, OffsetPagination
-from src.modules.audit.models import ApprovalRequest, AuditLog
+from src.modules.audit.models import ApprovalRequest, AuditLog, CompanyApprovalSettings
 from src.modules.audit.schemas import (
     ApprovalFilters,
     ApprovalStatus,
@@ -168,6 +168,19 @@ class AuditLogRepository(BaseRepository[AuditLog]):
 
     async def bulk_delete(self, ids: Any) -> NoReturn:
         raise TypeError(_IMMUTABLE)
+
+
+class CompanyApprovalSettingsRepository(BaseRepository[CompanyApprovalSettings]):
+    """Sparse per-company approval settings."""
+
+    model = CompanyApprovalSettings
+
+    async def for_company(self, *, lock: bool = False) -> CompanyApprovalSettings | None:
+        """Read the sparse row. A missing row means the code defaults apply."""
+        stmt = self._scoped().where(CompanyApprovalSettings.company_id == self.tenant.company_id)
+        if lock:
+            stmt = stmt.with_for_update()
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
 
 class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):

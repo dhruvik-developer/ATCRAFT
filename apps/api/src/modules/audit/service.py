@@ -18,12 +18,15 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.actors import SYSTEM_ACTOR_LABEL, actor_id, is_system_actor
+from src.core.database import transaction
 from src.core.logging import (
     get_request_id,
     ip_address_ctx,
     user_agent_ctx,
 )
-from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.models import AuditAction, AuditLog, CompanyApprovalSettings
+from src.modules.audit.repository import CompanyApprovalSettingsRepository
+from src.modules.audit.schemas import ApprovalSettingsRead, ApprovalSettingsUpdate
 
 # Never persist these into old_values/new_values, whatever a caller passes.
 _NEVER_LOG = frozenset(
@@ -46,6 +49,11 @@ _NEVER_LOG = frozenset(
 # A field whose serialised value exceeds this is summarised instead of stored -
 # an audit row should describe a change, not duplicate a document.
 _MAX_VALUE_CHARS = 2000
+
+DEFAULT_PO_DUAL_APPROVAL_AMOUNT = Decimal("25000.00")
+DEFAULT_ADJUSTMENT_APPROVAL_THRESHOLD = Decimal("25000.00")
+DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD = Decimal("25000.00")
+DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT = Decimal("0.00")
 
 
 def _serialise(value: Any) -> Any:
@@ -207,4 +215,113 @@ def snapshot(instance: Any, fields: list[str]) -> dict[str, Any]:
     return {f: getattr(instance, f, None) for f in fields}
 
 
-__all__ = ["diff_values", "record_audit", "record_status_change", "snapshot"]
+async def get_company_approval_settings(session: AsyncSession, tenant: Any) -> ApprovalSettingsRead:
+    """Return the effective approval thresholds for this company."""
+    repo = CompanyApprovalSettingsRepository(session, tenant)
+    row = await repo.for_company()
+    if row is None:
+        return ApprovalSettingsRead(
+            po_dual_approval_amount=DEFAULT_PO_DUAL_APPROVAL_AMOUNT,
+            adjustment_approval_threshold=DEFAULT_ADJUSTMENT_APPROVAL_THRESHOLD,
+            internal_issue_approval_threshold=DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD,
+            requisition_auto_approve_limit=DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT,
+            is_default=True,
+        )
+    values = {
+        "po_dual_approval_amount": row.po_dual_approval_amount,
+        "adjustment_approval_threshold": row.adjustment_approval_threshold,
+        "internal_issue_approval_threshold": row.internal_issue_approval_threshold,
+        "requisition_auto_approve_limit": row.requisition_auto_approve_limit,
+    }
+    applied = {
+        field: value if value is not None else default
+        for field, value, default in (
+            (
+                "po_dual_approval_amount",
+                values["po_dual_approval_amount"],
+                DEFAULT_PO_DUAL_APPROVAL_AMOUNT,
+            ),
+            (
+                "adjustment_approval_threshold",
+                values["adjustment_approval_threshold"],
+                DEFAULT_ADJUSTMENT_APPROVAL_THRESHOLD,
+            ),
+            (
+                "internal_issue_approval_threshold",
+                values["internal_issue_approval_threshold"],
+                DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD,
+            ),
+            (
+                "requisition_auto_approve_limit",
+                values["requisition_auto_approve_limit"],
+                DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT,
+            ),
+        )
+    }
+    return ApprovalSettingsRead(
+        po_dual_approval_amount=applied["po_dual_approval_amount"],
+        adjustment_approval_threshold=applied["adjustment_approval_threshold"],
+        internal_issue_approval_threshold=applied["internal_issue_approval_threshold"],
+        requisition_auto_approve_limit=applied["requisition_auto_approve_limit"],
+        is_default=all(value is None for value in values.values()),
+    )
+
+
+async def update_company_approval_settings(
+    session: AsyncSession,
+    tenant: Any,
+    payload: ApprovalSettingsUpdate,
+) -> ApprovalSettingsRead:
+    repo = CompanyApprovalSettingsRepository(session, tenant)
+    sent = payload.model_dump(exclude_unset=True)
+    async with transaction(session):
+        row = await repo.for_company(lock=True)
+        before = {
+            "po_dual_approval_amount": None if row is None else row.po_dual_approval_amount,
+            "adjustment_approval_threshold": None
+            if row is None
+            else row.adjustment_approval_threshold,
+            "internal_issue_approval_threshold": None
+            if row is None
+            else row.internal_issue_approval_threshold,
+            "requisition_auto_approve_limit": None
+            if row is None
+            else row.requisition_auto_approve_limit,
+        }
+        if row is None:
+            row = repo.add(CompanyApprovalSettings())
+        for field, value in sent.items():
+            setattr(row, field, value)
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CONFIG_CHANGE,
+            entity_type="company_approval_settings",
+            entity_id=row.id,
+            entity_code="approval settings",
+            summary="Updated approval settings",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values={
+                "po_dual_approval_amount": row.po_dual_approval_amount,
+                "adjustment_approval_threshold": row.adjustment_approval_threshold,
+                "internal_issue_approval_threshold": row.internal_issue_approval_threshold,
+                "requisition_auto_approve_limit": row.requisition_auto_approve_limit,
+            },
+        )
+    return await get_company_approval_settings(session, tenant)
+
+
+__all__ = [
+    "DEFAULT_ADJUSTMENT_APPROVAL_THRESHOLD",
+    "DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD",
+    "DEFAULT_PO_DUAL_APPROVAL_AMOUNT",
+    "DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT",
+    "diff_values",
+    "get_company_approval_settings",
+    "record_audit",
+    "record_status_change",
+    "snapshot",
+    "update_company_approval_settings",
+]
