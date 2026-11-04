@@ -23,6 +23,16 @@ function settings(autoPlan: boolean, isDefault: boolean) {
   return ok({ auto_plan_on_confirm: autoPlan, is_default: isDefault })
 }
 
+function approvalSettings(isDefault: boolean) {
+  return ok({
+    po_dual_approval_amount: 25000,
+    adjustment_approval_threshold: 25000,
+    internal_issue_approval_threshold: 25000,
+    requisition_auto_approve_limit: 0,
+    is_default: isDefault,
+  })
+}
+
 function renderSettings(permissions: string[], routes: RouteTable = {}) {
   return renderScreen(
     <>
@@ -32,7 +42,11 @@ function renderSettings(permissions: string[], routes: RouteTable = {}) {
     {
       permissions,
       route: '/admin/settings',
-      routes: { 'GET /sales/settings': settings(true, true), ...routes },
+      routes: {
+        'GET /sales/settings': settings(true, true),
+        'GET /audit/approval-settings': approvalSettings(true),
+        ...routes,
+      },
     },
   )
 }
@@ -47,7 +61,7 @@ describe('settings', () => {
     expect(checkbox).toBeChecked()
     expect(checkbox).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
-    expect(screen.getByText(/No company override is stored/)).toBeVisible()
+    expect(screen.getAllByText(/No company override is stored/).length).toBeGreaterThan(0)
   })
 
   it('stores an explicit off, then restores the default with null', async () => {
@@ -77,5 +91,49 @@ describe('settings', () => {
     await waitFor(() => expect(writes()).toHaveLength(2))
     expect(writes().at(-1)!.body).toEqual({ auto_plan_on_confirm: null })
     expect(await screen.findByText('Built-in default restored')).toBeVisible()
+  })
+
+  it('shows the company approval thresholds and saves a custom override', async () => {
+    const { user, fetch } = renderSettings([P.SETTINGS_VIEW, P.SETTINGS_MANAGE], {
+      'PUT /audit/approval-settings': ({ body }) => {
+        const payload = body as {
+          po_dual_approval_amount: number | null
+          adjustment_approval_threshold: number | null
+          internal_issue_approval_threshold: number | null
+          requisition_auto_approve_limit: number | null
+        }
+
+        return ok({
+          po_dual_approval_amount: payload.po_dual_approval_amount ?? 25000,
+          adjustment_approval_threshold: payload.adjustment_approval_threshold ?? 25000,
+          internal_issue_approval_threshold: payload.internal_issue_approval_threshold ?? 25000,
+          requisition_auto_approve_limit: payload.requisition_auto_approve_limit ?? 0,
+          is_default: false,
+        })
+      },
+    })
+
+    const poInput = await screen.findByRole('spinbutton', {
+      name: /PO dual approval amount/i,
+    })
+    await user.clear(poInput)
+    await user.type(poInput, '35000')
+
+    const writeButton = screen.getByRole('button', { name: /Save approval thresholds/i })
+    await user.click(writeButton)
+
+    const writes = () =>
+      fetch.calls.filter(
+        (call) => call.method === 'PUT' && call.path === '/audit/approval-settings',
+      )
+
+    await waitFor(() => expect(writes()).toHaveLength(1))
+    expect(writes().at(-1)!.body).toEqual({
+      po_dual_approval_amount: 35000,
+      adjustment_approval_threshold: 25000,
+      internal_issue_approval_threshold: 25000,
+      requisition_auto_approve_limit: 0,
+    })
+    expect(await screen.findByText('Approval thresholds updated')).toBeVisible()
   })
 })

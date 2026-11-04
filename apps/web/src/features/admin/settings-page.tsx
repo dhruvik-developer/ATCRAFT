@@ -29,6 +29,7 @@ import {
   CardHeader,
   CardTitle,
   Checkbox,
+  Input,
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -39,15 +40,80 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
+type ApprovalSettings = {
+  po_dual_approval_amount: number
+  adjustment_approval_threshold: number
+  internal_issue_approval_threshold: number
+  requisition_auto_approve_limit: number
+  is_default: boolean
+}
+
+type ApprovalDraft = {
+  po_dual_approval_amount: string
+  adjustment_approval_threshold: string
+  internal_issue_approval_threshold: string
+  requisition_auto_approve_limit: string
+}
+
+const approvalDefaults: ApprovalDraft = {
+  po_dual_approval_amount: '25000',
+  adjustment_approval_threshold: '25000',
+  internal_issue_approval_threshold: '25000',
+  requisition_auto_approve_limit: '0',
+}
+
+function toApprovalDraft(settings?: ApprovalSettings | null): ApprovalDraft {
+  return {
+    po_dual_approval_amount:
+      settings?.po_dual_approval_amount?.toString() ?? approvalDefaults.po_dual_approval_amount,
+    adjustment_approval_threshold:
+      settings?.adjustment_approval_threshold?.toString() ??
+      approvalDefaults.adjustment_approval_threshold,
+    internal_issue_approval_threshold:
+      settings?.internal_issue_approval_threshold?.toString() ??
+      approvalDefaults.internal_issue_approval_threshold,
+    requisition_auto_approve_limit:
+      settings?.requisition_auto_approve_limit?.toString() ??
+      approvalDefaults.requisition_auto_approve_limit,
+  }
+}
+
+function approvalPayload(values: ApprovalDraft, restoreDefault: boolean) {
+  if (restoreDefault) {
+    return {
+      po_dual_approval_amount: null,
+      adjustment_approval_threshold: null,
+      internal_issue_approval_threshold: null,
+      requisition_auto_approve_limit: null,
+    }
+  }
+
+  const asNumber = (value: string) => (value.trim() === '' ? 0 : Number(value))
+
+  return {
+    po_dual_approval_amount: asNumber(values.po_dual_approval_amount),
+    adjustment_approval_threshold: asNumber(values.adjustment_approval_threshold),
+    internal_issue_approval_threshold: asNumber(values.internal_issue_approval_threshold),
+    requisition_auto_approve_limit: asNumber(values.requisition_auto_approve_limit),
+  }
+}
+
 export default function SettingsPage() {
   const { can } = useAuth()
   const queryClient = useQueryClient()
   const canManage = can(P.SETTINGS_MANAGE)
   const [draft, setDraft] = useState<boolean | null>(null)
+  const [approvalDraft, setApprovalDraft] = useState<ApprovalDraft | null>(null)
 
   const settings = useQuery({
     queryKey: queryKeys.sales.settings,
     queryFn: () => api.get<SalesSettings>('/sales/settings'),
+    staleTime: staleTimes.master,
+  })
+
+  const approvalSettings = useQuery({
+    queryKey: queryKeys.audit.approvalSettings,
+    queryFn: () => api.get<ApprovalSettings>('/audit/approval-settings'),
     staleTime: staleTimes.master,
   })
 
@@ -71,8 +137,34 @@ export default function SettingsPage() {
     onError: (error) => reportFieldErrors(error, 'Could not save the setting'),
   })
 
+  const saveApproval = useMutation({
+    mutationFn: ({ values, restoreDefault }: { values: ApprovalDraft; restoreDefault: boolean }) =>
+      api.put<ApprovalSettings>(
+        '/audit/approval-settings',
+        approvalPayload(values, restoreDefault),
+      ),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(queryKeys.audit.approvalSettings, saved)
+      setApprovalDraft(null)
+      toast.success(
+        saved.is_default ? 'Approval defaults restored' : 'Approval thresholds updated',
+        saved.is_default
+          ? 'This company no longer overrides the built-in approval thresholds.'
+          : 'The values apply to the next approval-gated action in this company.',
+      )
+    },
+    onError: (error) => reportFieldErrors(error, 'Could not save the approval thresholds'),
+  })
+
   const value = draft ?? settings.data?.auto_plan_on_confirm ?? true
   const dirty = draft !== null && draft !== settings.data?.auto_plan_on_confirm
+  const approvalValue = approvalDraft ?? toApprovalDraft(approvalSettings.data)
+  const approvalDirty =
+    approvalDraft !== null &&
+    Object.entries(approvalValue).some(
+      ([key, value]) =>
+        value !== toApprovalDraft(approvalSettings.data)[key as keyof ApprovalDraft],
+    )
 
   return (
     <>
@@ -155,6 +247,92 @@ export default function SettingsPage() {
                 >
                   <RotateCcw />
                   Restore default
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Approval thresholds</CardTitle>
+            <CardDescription>
+              Company overrides for approval-gated actions in procurement and stock control.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {approvalSettings.error && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not read approval thresholds</AlertTitle>
+                <AlertDescription>{describeError(approvalSettings.error)}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                ['po_dual_approval_amount', 'PO dual approval amount'],
+                ['adjustment_approval_threshold', 'Stock adjustment approval threshold'],
+                ['internal_issue_approval_threshold', 'Internal issue approval threshold'],
+                ['requisition_auto_approve_limit', 'Requisition auto-approve limit'],
+              ].map(([key, label]) => (
+                <div key={key} className="space-y-2">
+                  <Label htmlFor={key}>{label}</Label>
+                  <Input
+                    id={key}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={approvalValue[key as keyof ApprovalDraft]}
+                    disabled={!canManage || approvalSettings.isLoading}
+                    onChange={(event) => {
+                      const nextValue = event.target.value
+                      setApprovalDraft((current) => ({
+                        ...(current ?? toApprovalDraft(approvalSettings.data)),
+                        [key]: nextValue,
+                      }))
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {approvalSettings.data && (
+              <p className="text-xs text-muted-foreground">
+                {approvalSettings.data.is_default
+                  ? 'No company override is stored, so the built-in defaults are in force.'
+                  : `This company stores its own approval thresholds.`}
+              </p>
+            )}
+
+            {!canManage && (
+              <p className="text-sm text-muted-foreground">
+                Reading approval thresholds needs <code>settings.view</code>; changing them needs{' '}
+                <code>settings.manage</code>.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() =>
+                  saveApproval.mutate({ values: approvalValue, restoreDefault: false })
+                }
+                disabled={!canManage || !approvalDirty || saveApproval.isPending}
+                loading={saveApproval.isPending}
+              >
+                <Save />
+                Save approval thresholds
+              </Button>
+              {approvalSettings.data && !approvalSettings.data.is_default && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    saveApproval.mutate({ values: approvalValue, restoreDefault: true })
+                  }
+                  disabled={!canManage || saveApproval.isPending}
+                  loading={saveApproval.isPending}
+                >
+                  <RotateCcw />
+                  Restore defaults
                 </Button>
               )}
             </div>

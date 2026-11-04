@@ -316,6 +316,7 @@ export const queryKeys = {
   },
   audit: {
     approvalsAll: ['audit', 'approvals'] as const,
+    approvalSettings: ['audit', 'approval-settings'] as const,
     logsAll: ['audit', 'logs'] as const,
     logs: (params: unknown) => ['audit', 'logs', params] as const,
     entity: (type: string, id: string) => ['audit', 'entity', type, id] as const,
