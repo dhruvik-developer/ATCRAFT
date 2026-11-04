@@ -569,6 +569,19 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   every pass and wrote three real MRP runs into the database it was measuring.
   A sweep opens routes client-side after one sign-in and clicks only verbs
   that open a form.
+- **A push that fails after half an hour with no reason is the pre-push hook.**
+  VS Code's Git log keeps a command's stderr and pre-commit reports on stdout, so
+  a Vitest failure reached the screen as `failed to push some refs` and nothing
+  else - which reads as a login problem and was chased as one.
+  `git.commandsToLog` in the git-ignored `.vscode/settings.json` brings the stdout
+  back. The failure was two budgets sized for a quiet machine: Vitest's 5 s per
+  test and Testing Library's 1 s retry. The first test in a file to type pays a
+  cold start, 4.7 s on an ordinary day and up to 14 s under load, and a timed-out
+  test is not stopped, so it runs on into the next test and fails that one with
+  an assertion that never fails alone. One commit passed the hook and failed it
+  30 minutes later. `TEST_TIMEOUT_MS` in `vite.config.ts` and
+  `ASYNC_QUERY_TIMEOUT_MS` in `src/test/setup.ts` are the one place for each; a
+  per-test timeout below the suite's is now stricter than the default, not looser.
 
 ## Things not to do
 

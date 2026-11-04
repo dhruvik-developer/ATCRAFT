@@ -62,6 +62,21 @@ function vendorChunk(id: string): string | undefined {
   return undefined
 }
 
+/**
+ * How long one test or hook may run before it counts as hung.
+ *
+ * This ends a hang; it is not a speed assertion, so it is sized for the slowest
+ * machine on its worst minute. Vitest's 5 s default failed correct code in the
+ * pre-push hook on a four-core laptop beside Defender and Docker: the first test
+ * in a file to type pays a cold start, 4.7 s on an ordinary day and 7-12 s under
+ * load. A timed-out test is not stopped either, so it runs on into the next test
+ * and can fail that one too. Every false failure costs a 30-minute push.
+ *
+ * Keep `ASYNC_QUERY_TIMEOUT_MS` in src/test/setup.ts well below this, so a missing
+ * element reports what is missing rather than "Test timed out".
+ */
+const TEST_TIMEOUT_MS = 30_000
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '../..'), 'VITE_')
 
@@ -126,6 +141,8 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: ['./src/test/setup.ts'],
       css: false,
+      testTimeout: TEST_TIMEOUT_MS,
+      hookTimeout: TEST_TIMEOUT_MS,
     },
   }
 })

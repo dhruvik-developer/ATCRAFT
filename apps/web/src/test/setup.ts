@@ -1,6 +1,15 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
+
+// How long `findBy*` and `waitFor` retry. The library's one second failed a
+// correct screen in the pre-push hook: the page had rendered and the awaited text
+// was late because the machine was busy. A passing query returns the moment the
+// element appears, so this costs a passing test nothing; only a test that is
+// already failing waits it out. Keep it well below `TEST_TIMEOUT_MS` in
+// vite.config.ts, so a missing element reports what is missing.
+const ASYNC_QUERY_TIMEOUT_MS = 5_000
+configure({ asyncUtilTimeout: ASYNC_QUERY_TIMEOUT_MS })
 
 afterEach(() => cleanup())
 

@@ -76,7 +76,7 @@ describe('dealer account administration', () => {
       }),
     )
     expect(customerPath).toContain('/customers/dealers')
-  }, 15_000)
+  })
 
   it('filters dealer portal accounts by customer rather than filtering a downloaded user page', async () => {
     let filters: URLSearchParams | undefined
