@@ -101,7 +101,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -109,7 +109,8 @@ from typing import Any
 from sqlalchemy import select
 
 from src.core.clock import utcnow
-from src.core.demo_data import DEMO_PREFIX, DemoContext
+from src.core.demo_data import DEMO_PREFIX, DemoContext, DemoDataError
+from src.core.deps import Principal
 from src.core.errors import BusinessRuleError, ValidationError
 from src.modules.procurement import service as procurement
 from src.modules.procurement.models import (
@@ -141,6 +142,7 @@ from src.modules.procurement.schemas import (
     RfqCreate,
     RfqLineIn,
 )
+from src.modules.users.models import User
 
 STAGE = "procurement"
 
@@ -876,7 +878,7 @@ _ORDER_ROUTE: tuple[PurchaseOrderStatus, ...] = (
 
 _ORDER_REASON: dict[PurchaseOrderStatus, str] = {
     PurchaseOrderStatus.PENDING_APPROVAL: "Priced and checked against the enquiry; submitted",
-    PurchaseOrderStatus.APPROVED: "Within the purchase manager's delegated limit; approved",
+    PurchaseOrderStatus.APPROVED: "Required approval signatures recorded",
     PurchaseOrderStatus.SENT: "Order e-mailed to the vendor with the drawing pack",
     PurchaseOrderStatus.ACKNOWLEDGED: "Vendor confirmed the quantity and the delivery week",
 }
@@ -1458,7 +1460,7 @@ async def _close_answered_rfqs(ctx: DemoContext) -> None:
 # =============================================================================
 
 
-async def _seed_orders(ctx: DemoContext) -> None:
+async def _seed_orders(ctx: DemoContext, second_approver: Principal | None) -> None:
     """Raise the eight hand-typed orders and walk each to where it should rest."""
     existing = await _existing(ctx, PurchaseOrder)
 
@@ -1488,11 +1490,11 @@ async def _seed_orders(ctx: DemoContext) -> None:
         else:
             _seen(ctx, "purchase_order", marker, order.id, created=False)
 
-        await _walk_order(ctx, order, spec.stop_at)
+        await _walk_order(ctx, order, spec.stop_at, second_approver)
         await _record_shipment(ctx, spec, order.id)
 
 
-async def _seed_sourced_order(ctx: DemoContext) -> None:
+async def _seed_sourced_order(ctx: DemoContext, second_approver: Principal | None) -> None:
     """The order at the end of the quotation chain, priced from the offer that won.
 
     Its lines are read off the selected quotation rather than restated here, so
@@ -1547,7 +1549,7 @@ async def _seed_sourced_order(ctx: DemoContext) -> None:
     else:
         _seen(ctx, "purchase_order", marker, order.id, created=False)
 
-    await _walk_order(ctx, order, SOURCED_ORDER.stop_at)
+    await _walk_order(ctx, order, SOURCED_ORDER.stop_at, second_approver)
     await _record_shipment(ctx, SOURCED_ORDER, order.id)
 
 
@@ -1600,7 +1602,12 @@ async def _create_order(
     return order
 
 
-async def _walk_order(ctx: DemoContext, order: PurchaseOrder, stop: PurchaseOrderStatus) -> None:
+async def _walk_order(
+    ctx: DemoContext,
+    order: PurchaseOrder,
+    stop: PurchaseOrderStatus,
+    second_approver: Principal | None,
+) -> None:
     """Submit, approve, send and acknowledge, one audited transition at a time.
 
     Re-entrant, and one-way: an order that a previous run already received
@@ -1612,15 +1619,78 @@ async def _walk_order(ctx: DemoContext, order: PurchaseOrder, stop: PurchaseOrde
         return
     start, end = _ORDER_ROUTE.index(current), _ORDER_ROUTE.index(stop)
     for target in _ORDER_ROUTE[start + 1 : end + 1]:
+        approver = ctx.principal
+        if (
+            target is PurchaseOrderStatus.APPROVED
+            and order.first_approved_by_id == ctx.principal.user_id
+        ):
+            if second_approver is None:
+                raise DemoDataError(
+                    f"{order.code} has a first approval but no distinct demo approver is available"
+                )
+            approver = second_approver
+
         await procurement.transition_purchase_order(
             ctx.session,
             ctx.tenant,
-            ctx.principal,
+            approver,
             order.id,
             target,
             reason=_ORDER_REASON[target],
             confirm_duplicate=bool(order.duplicate_acknowledged),
         )
+        if (
+            target is PurchaseOrderStatus.APPROVED
+            and PurchaseOrderStatus(order.status) is PurchaseOrderStatus.PENDING_APPROVAL
+        ):
+            if second_approver is None:
+                raise DemoDataError(
+                    f"{order.code} requires a second approval but no demo approver is available"
+                )
+            if second_approver.user_id == approver.user_id:
+                raise DemoDataError(f"{order.code} requires two distinct demo approvers")
+            await procurement.transition_purchase_order(
+                ctx.session,
+                ctx.tenant,
+                second_approver,
+                order.id,
+                target,
+                reason=_ORDER_REASON[target],
+                confirm_duplicate=bool(order.duplicate_acknowledged),
+            )
+            if PurchaseOrderStatus(order.status) is not PurchaseOrderStatus.APPROVED:
+                raise DemoDataError(f"{order.code} remained pending after its second approval")
+
+
+async def _load_second_approver(ctx: DemoContext) -> Principal | None:
+    """Resolve a real, distinct staff identity for dual-approval demo orders."""
+    candidate_ids: list[uuid.UUID] = []
+    for code in ("BUYER", "SALES"):
+        user_id = ctx.maybe_id("user", ctx.code("USER", code))
+        if user_id is not None and user_id != ctx.principal.user_id:
+            candidate_ids.append(user_id)
+    if not candidate_ids:
+        return None
+
+    users = (
+        await ctx.session.execute(
+            select(User).where(
+                User.company_id == ctx.company_id,
+                User.id.in_(candidate_ids),
+            )
+        )
+    ).scalars()
+    users_by_id = {user.id: user for user in users}
+    for user_id in candidate_ids:
+        user = users_by_id.get(user_id)
+        if user is not None:
+            return replace(
+                ctx.principal,
+                user_id=user.id,
+                email=user.email,
+                full_name=user.full_name,
+            )
+    return None
 
 
 async def _record_shipment(ctx: DemoContext, spec: _Order, order_id: uuid.UUID) -> None:
@@ -1886,8 +1956,9 @@ async def seed(ctx: DemoContext) -> None:
 
     # The quotation-sourced order first, so the requisition it converts is
     # marked ORDERED before anything else looks at the demand.
-    await _seed_sourced_order(ctx)
-    await _seed_orders(ctx)
+    second_approver = await _load_second_approver(ctx)
+    await _seed_sourced_order(ctx, second_approver)
+    await _seed_orders(ctx, second_approver)
 
     await _seed_receipts(ctx)
     await _short_close_cylinder_order(ctx)
