@@ -37,7 +37,7 @@ from src.common.repository import BaseRepository
 from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
-from src.modules.customers.models import Customer, CustomerAddress
+from src.modules.customers.models import CustomerAddress
 from src.modules.inventory.models import InventoryBalance
 from src.modules.organization.models import Company
 from src.modules.products.models import Item, ItemPrice, ItemVariant, PriceType
@@ -411,16 +411,6 @@ class OrderPartyRepository(BaseRepository[CustomerAddress]):
             Branch.deleted_at.is_(None),
         )
         return (await self.session.execute(stmt.limit(1))).first() is not None
-
-    async def customer_price_type(self, customer_id: uuid.UUID) -> PriceType | None:
-        """Which price list this account is charged on."""
-        stmt = select(Customer.price_list_type).where(
-            Customer.company_id == self.tenant.company_id,
-            Customer.id == customer_id,
-            Customer.deleted_at.is_(None),
-        )
-        value = (await self.session.execute(stmt)).scalar_one_or_none()
-        return PriceType(value) if value is not None else None
 
 
 class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):

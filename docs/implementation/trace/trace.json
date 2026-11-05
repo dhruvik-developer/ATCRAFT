@@ -317,20 +317,20 @@
    {
     "id": "P01.1",
     "item": "Review existing API & frontend code",
-    "status": "PARTIAL",
-    "evidence": "The legacy code is not in the repository; the ERP is a rewrite (apps/api FastAPI, apps/web React). The current API surface is documented and contract-checked: openapi.json, docs/api.md ('494 requests in 27 folders'), scripts.export_openapi --check and contract:check in the pre-push hooks (.pre-commit-config.yaml:128-157).",
-    "gap": "No document records the review of the legacy API/frontend or the disposition of each legacy module (S02.1-S02.15) and legacy finding.",
+    "status": "PRESENT",
+    "evidence": "docs/security-issue-resolution-report.md records the legacy source limitation, maps S02.1-S02.15 to current modules, routes and screens, and lists remaining partial scope. The current OpenAPI artifact contains 782 operations across 596 paths.",
+    "gap": "None for the review deliverable. The unavailable legacy source prevents source-to-source parity certification.",
     "planned_wp": "",
-    "recommendation": "Small, doc-only: add a 'Legacy system review' section to the P01.D5 report mapping each legacy module/API group to its replacement (module, route, screen), 'dropped', or the planned WP, and listing the legacy findings the proposal names."
+    "recommendation": "None."
    },
    {
     "id": "P01.2",
     "item": "Remove unused / dead code",
-    "status": "PARTIAL",
-    "evidence": "Static guards: ruff selects F (pyflakes unused imports/variables) and S, mypy warn_unused_ignores (apps/api/pyproject.toml:90-110,142); tsc noUnusedLocals/noUnusedParameters (apps/web/tsconfig.app.json:16-17); eslint @typescript-eslint/no-unused-vars with --max-warnings 0 (apps/web/eslint.config.js:40, .pre-commit-config.yaml:96-98). The legacy code was replaced wholesale.",
-    "gap": "Unwired code still ships: the approval inbox (approval_requests table, GET /audit/approvals and approve/reject, dashboard 'Needs your attention' panel) has no writer anywhere in API, so it can never show a row; OrderPartyRepository.customer_price_type (API/modules/sales/repository.py:340) is never called; routing_operations.qc_required (routing/models.py:390-394) is persisted but never read.",
+    "status": "PRESENT",
+    "evidence": "The approval request workflow has a writer in audit/query_service.py; routing_operations.qc_required is read by production services; can_be_spare is enforced by allocation; unused OrderPartyRepository.customer_price_type was removed after an API source/test caller search; and the unused balance-level allocated_quantity was retired. Historical audit documents retain their original findings.",
+    "gap": "None for the listed findings.",
     "planned_wp": "",
-    "recommendation": "Small: wire each item (see P02.U3, S03.10) or delete it; optionally add a dead-code report (vulture / knip) as a non-blocking CI step, justified in the PR."
+    "recommendation": "None."
    },
    {
     "id": "P01.3",
@@ -354,7 +354,7 @@
     "id": "P01.5",
     "item": "Remove hardcoded bypass token",
     "status": "PRESENT",
-    "evidence": "No bypass/master/static token in API or WEB (grep finds only the redaction lists in API/core/logging.py:82 and audit/service.py:40). AST scan of all 494 route decorators: 480 carry require_permission/require_any_permission/require_superuser, 9 auth self-service routes need an authenticated CurrentUser, and only 5 are public (/auth/login, /auth/refresh, /auth/mfa/verify, /auth/password-reset/request, /auth/password-reset/confirm).",
+    "evidence": "No bypass/master/static token in API or WEB (source search finds only redaction lists). The current AST scan classifies 782 route operations: 763 permission-gated, 13 authenticated self-service, 5 public authentication and 1 provider-signature-authenticated webhook; see docs/security-issue-resolution-report.md.",
     "gap": "None.",
     "planned_wp": "",
     "recommendation": "None."
@@ -390,7 +390,7 @@
     "id": "P01.9",
     "item": "Secure unauthenticated APIs",
     "status": "PRESENT",
-    "evidence": "Route scan as in P01.5 (5 public auth endpoints, each rate limited). /docs, /redoc, /openapi.json disabled when deployed (API/main.py:222-224); /health/* and /metrics answer 404 on the public host (docs/deployment.md:100-104; host nginx); TrustedHostMiddleware when deployed (main.py); downloads go through authenticated /api/v1/documents (infrastructure/nginx/conf.d/atcraft.conf:155-160).",
+    "evidence": "The current route scan has 5 public authentication operations, each rate limited, and one courier callback authenticated by provider signature; see docs/security-issue-resolution-report.md. /docs, /redoc and /openapi.json are disabled when deployed; /health/* and /metrics are blocked at the public host; downloads use authenticated document routes.",
     "gap": "None.",
     "planned_wp": "",
     "recommendation": "None."
@@ -399,7 +399,7 @@
     "id": "P01.10",
     "item": "Add role-based access control basics",
     "status": "PRESENT",
-    "evidence": "Permission catalogue (API/core/permissions.py:16-205; PERMISSION_GROUPS :210-242), ROLE_PRESETS (:460-677), require_permission (core/deps.py:280) on 480/494 routes; roles CRUD /roles, POST /users/{id}/roles (PERMISSION_ASSIGN), per-user extra/denied permissions (deps._resolve_permissions :148); UI /admin/users Roles + Permission matrix tabs; tests/unit/test_frontend_permission_gates.py and test_frontend_permission_catalogue.py.",
+    "evidence": "Permission catalogue and ROLE_PRESETS, require_permission dependencies on 763/782 operations (including inherited router dependencies), roles CRUD and assignment, per-user grants/denials, and the admin permission matrix. Verification: test_users_permissions.py, test_role_presets_reach_roles.py, test_frontend_permission_gates.py and test_frontend_permission_catalogue.py.",
     "gap": "None for RBAC basics (vendor data isolation is tracked under S03.14 / C1a).",
     "planned_wp": "",
     "recommendation": "None."
@@ -470,17 +470,17 @@
    {
     "id": "P01.D5",
     "item": "Deliverable: security issue resolution report (document)",
-    "status": "PARTIAL",
-    "evidence": "docs/security.md (sections 1-12 + 'Pre-production checklist') is a control catalogue that 'records what is implemented, where it lives, and what is deliberately still open'; nothing else in docs/, README.md, ONE-BOX-RUNBOOK.md or docs/handbook is a security report.",
-    "gap": "No issue-to-resolution report: no document maps the Phase-01 findings (hardcoded bypass token, MD5, plain-text passwords, unauthenticated APIs, no JWT expiry, secrets in code, missing RBAC/audit) to fix, evidence, status and residual risk; section 4 currently overstates vendor isolation (S03.14).",
+    "status": "PRESENT",
+    "evidence": "docs/security-issue-resolution-report.md maps P01.3-P01.13 to resolutions, tests, current route-permission counts and residual risks; it also records additional resolved findings, the S02.1-S02.15 legacy mapping and read-only dependency audit results. docs/security.md now links to the report.",
+    "gap": "None for the report deliverable. Malware scanning and DSC/PAdES signing remain explicit residual risks.",
     "planned_wp": "",
-    "recommendation": "Small: add docs/security-issue-resolution-report.md (exportable to PDF with the handbook tooling): one row per P01.3-P01.13 issue with finding, legacy behaviour, resolution (file/function), verification (test names; route scan 494/480/5), status, residual risk; open items: vendor isolation (C1a), malware scanning (security.md section 6 known gap), pip-audit/npm audit results; include the P01.1 legacy-review section; date and sign-off."
+    "recommendation": "None."
    },
    {
     "id": "P01.D6",
     "item": "Deliverable: production deployment checklist (document)",
     "status": "PRESENT",
-    "evidence": "docs/security.md 'Pre-production checklist' (:369-390); docs/deployment.md 'Go-live gate' (:107-135); ONE-BOX-RUNBOOK.md 'Production setup, from a bare host' (:261-489) and 'Handover checklist' (:1021+).",
+    "evidence": "docs/deployment.md contains the canonical ordered commissioning checklist and the complete programme permission-grant matrix by role preset. ONE-BOX-RUNBOOK.md supplies operational commands and links to the canonical checklist.",
     "gap": "None.",
     "planned_wp": "",
     "recommendation": "None."

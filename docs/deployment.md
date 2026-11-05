@@ -159,40 +159,118 @@ Commissioning has not started: no production host/domain or client environment
 has been supplied. Keep the system in pre-production until each step has named
 owners and retained evidence.
 
-1. **Provision the target.** Record the client-approved host/domain, DNS owner,
-   environment owner, firewall/network boundaries, support contact and
+Use this as the single ordered commissioning checklist; the
+[one-box runbook](../ONE-BOX-RUNBOOK.md) contains the detailed commands. Retain
+an owner and evidence for every checked step.
+
+1. [ ] **Provision the target.** Record the client-approved host/domain, DNS
+   owner, environment owner, firewall/network boundaries, support contact and
    maintenance window. Confirm the selected host meets the documented storage
    and resource budget.
-2. **Configure secrets and transport security.** Generate independent
-   production secrets outside Git; configure the private env file, DNS, TLS
-   certificates and renewal, HTTPS redirect, HSTS, firewall and unknown-host
-   rejection. Run `doctor` and the installed host-Nginx check.
-3. **Install the release.** Deploy the exact verified `main` revision with the
-   guarded script. Verify migrations, required seed/setup, health checks, Celery
-   queues and beat. Complete first-admin login, password change, MFA policy and
-   client-owned role grants.
-4. **Prove off-box recovery.** Configure encrypted database and storage backups
-   to a separate failure domain with client-approved retention. Restore both
-   into an isolated target; verify schema, row counts, document hashes and file
-   permissions, then retain the drill report and operator sign-off.
-5. **Measure load and concurrency.** Agree workload and acceptance thresholds
-   with the client, then exercise representative concurrent reads and writes
-   across purchasing, allocation, stock posting, QC, dispatch and invoicing.
-   Record latency, error rate, database/worker saturation and any fixes; do not
-   invent a capacity sign-off threshold.
-6. **Run restricted-role UAT.** Use real staff, vendor and dealer principals
+2. [ ] **Configure secrets, HTTPS and providers.** Generate independent
+   production secrets outside Git; set the private env file, DNS, TLS and
+   renewal, HTTPS redirect, HSTS, firewall and unknown-host rejection. Run
+   `doctor` and the installed host-Nginx check. Keep Web Push, WhatsApp/SMS and
+   courier tracking disabled until their approved accounts, allow-lists,
+   consent/templates and delivery tests are ready. The optional public catalogue
+   is not implemented in this revision and must remain unavailable.
+3. [ ] **Deploy, migrate and seed.** Deploy the exact verified `main` revision
+   with the guarded script; verify Alembic reaches head before the baseline-only
+   production seed/setup. Do not load demo data into the client database.
+4. [ ] **Configure company schedules and automation.** In
+   **Administration > Settings**, review sales `auto_plan_on_confirm` and the
+   PO/requisition approval thresholds. The per-company MRP schedule
+   (`mrp_scheduled_enabled`, scope and horizon) is currently API-only, with no
+   staff settings screen: read it through `GET /api/v1/mrp/schedule-settings`
+   (`mrp.view`) and set the approved values through
+   `PUT /api/v1/mrp/schedule-settings` (`mrp.run`). Record the resulting
+   configuration. Configure the deployment's `MRP_SCHEDULE_CRON` (default
+   02:00 Asia/Kolkata) and smart-alert cadence. Do not enable an unapproved
+   provider or the absent public catalogue.
+5. [ ] **Verify workers, beat and health.** Confirm the batch worker consumes
+   `default,mrp,reports`, the notification worker consumes `notifications`,
+   and exactly one Celery beat runs for the deployment. Run the deployment
+   health check and confirm `/health/ready` checks PostgreSQL and Redis.
+6. [ ] **Complete first-admin and role setup.** Change the one-time seeded
+   administrator password immediately, enroll MFA according to client policy,
+   verify password reset delivery, create named users and assign least-privilege
+   roles. Review the
+   [new-permission grant matrix](#programme-permissions-by-role-preset) before
+   granting client-owned roles.
+7. [ ] **Prove off-box recovery.** Configure encrypted database and storage
+   backups to a separate failure domain with client-approved retention. Restore
+   both into an isolated target; verify schema, row counts, document hashes and
+   file permissions, then retain the drill report and operator sign-off.
+8. [ ] **Measure load and concurrency.** Agree workload and acceptance
+   thresholds with the client, then exercise representative concurrent reads
+   and writes across purchasing, allocation, stock posting, QC, dispatch and
+   invoicing. Record latency, error rate, database/worker saturation and fixes;
+   do not invent a capacity sign-off threshold.
+9. [ ] **Run restricted-role UAT.** Use real staff, vendor and dealer principals
    with least-privilege roles. Verify permitted and refused actions, tenant
    isolation, approvals, stock traceability, finance totals and recovery from
    expected errors. Retain the signed scenario results.
-7. **Complete browser and handbook verification.** Run the full browser
-   journeys, accessibility sweeps and read-only route sweep against the release
-   candidate. Recapture and visually review every handbook screen using its
-   bound staff/vendor/dealer principal. Confirm all expected routes, pages and
-   captures have zero failures.
-8. **Authorize go-live.** Re-run the release checks against the final revision,
-   close or formally accept every open assumption and external-provider gate,
-   verify monitoring/on-call ownership, and obtain client and operator sign-off.
-   Retain the revision, CI runs, restore report, UAT evidence and final checklist.
+10. [ ] **Complete browser and handbook verification.** Run full browser
+    journeys, accessibility checks and the read-only route sweep against the
+    release candidate. Recapture and visually review handbook screens using
+    their bound staff/vendor/dealer principals. Confirm expected routes, pages
+    and captures have zero failures.
+11. [ ] **Authorize go-live.** Re-run release checks against the final revision,
+    close or formally accept open assumptions and external-provider gates,
+    verify monitoring/on-call ownership, and obtain client and operator
+    sign-off. Retain the revision, CI runs, restore report, UAT evidence and
+    completed checklist.
+
+### Programme permissions by role preset
+
+The table lists every permission added since the original permission review
+baseline (`cdac4e0`) and the built-in preset that receives it. `ADMIN` and
+`SUPER_ADMIN` receive all 35 additions. System vendor/dealer roles receive the
+portal rights shown below. New companies receive current presets; existing
+client-owned non-system roles are not silently expanded. An administrator must
+grant only the listed rights needed by each existing role in **Settings →
+Roles**.
+
+The 35 added permission strings are: `brand.manage`, `brand.view`,
+`collection.manage`, `collection.view`, `cost_centre.manage`,
+`cost_centre.view`, `credit_note.cancel`, `credit_note.create`,
+`credit_note.view`, `dealer_portal.account`, `dealer_portal.browse`,
+`dealer_portal.order`, `dealer_portal.return`, `internal_issue.approve`,
+`internal_issue.create`, `inventory.batch_manage`, `inventory.scrap_dispose`,
+`manufacturer.manage`, `manufacturer.view`, `promotion.manage`,
+`promotion.view`, `sales_invoice.cancel`, `sales_order.discount_override`,
+`sales_return.create`, `sales_return.view`, `shift.manage`, `shift.view`,
+`shift_roster.manage`, `shift_roster.view`, `vendor_portal.access`,
+`vendor_portal.invoice`, `vendor_portal.job_work`, `vendor_portal.quality`,
+`vendor_portal.respond` and `vendor_portal.ship`.
+
+| Preset | New permissions in the preset |
+|---|---|
+| `SUPER_ADMIN`, `ADMIN` | All 35 strings listed above |
+| `PLANT_MANAGER` | `cost_centre.view`, `internal_issue.approve`, `inventory.batch_manage`, `sales_return.create`, `sales_return.view`, `shift.manage`, `shift.view`, `shift_roster.manage`, `shift_roster.view` |
+| `STORE_KEEPER` | `internal_issue.create`, `inventory.batch_manage`, `inventory.scrap_dispose`, `sales_return.create`, `sales_return.view` |
+| `PURCHASE_MANAGER` | `brand.view`, `cost_centre.view`, `manufacturer.view`, `sales_return.create`, `sales_return.view` |
+| `PURCHASE_EXECUTIVE` | `brand.view`, `cost_centre.view`, `manufacturer.view`, `sales_return.create`, `sales_return.view` |
+| `PRODUCTION_SUPERVISOR` | `cost_centre.view`, `inventory.batch_manage`, `sales_return.create`, `sales_return.view`, `shift.view`, `shift_roster.manage`, `shift_roster.view` |
+| `QC_INSPECTOR` | `inventory.batch_manage` |
+| `DISPATCH_MANAGER` | None |
+| `SALES_EXECUTIVE` | `brand.view`, `collection.manage`, `collection.view`, `credit_note.view`, `promotion.manage`, `promotion.view`, `sales_return.create`, `sales_return.view` |
+| `ACCOUNTS` | `collection.manage`, `collection.view`, `cost_centre.manage`, `cost_centre.view`, `credit_note.cancel`, `credit_note.create`, `credit_note.view`, `sales_invoice.cancel` |
+| `PLANNER` | `brand.view`, `cost_centre.view`, `shift.view`, `shift_roster.view` |
+| `DESIGN_ENGINEER` | `brand.manage`, `brand.view`, `manufacturer.manage`, `manufacturer.view` |
+| `AUDITOR` | `brand.view`, `collection.view`, `cost_centre.view`, `credit_note.view`, `manufacturer.view`, `promotion.view`, `sales_return.view`, `shift.view`, `shift_roster.view` |
+| `VENDOR_OWNER` | `vendor_portal.access`, `vendor_portal.invoice`, `vendor_portal.job_work`, `vendor_portal.quality`, `vendor_portal.respond`, `vendor_portal.ship` |
+| `VENDOR_MANAGER` | `vendor_portal.access`, `vendor_portal.job_work`, `vendor_portal.respond`, `vendor_portal.ship` |
+| `VENDOR_DISPATCH_MANAGER` | `vendor_portal.access`, `vendor_portal.ship` |
+| `VENDOR_QC_CONTACT` | `vendor_portal.access`, `vendor_portal.quality` |
+| `VENDOR_ACCOUNT_MANAGER` | `vendor_portal.access`, `vendor_portal.invoice` |
+| `DEALER_OWNER` | `dealer_portal.account`, `dealer_portal.browse`, `dealer_portal.order`, `dealer_portal.return` |
+| `DEALER_BUYER` | `dealer_portal.browse`, `dealer_portal.order`, `dealer_portal.return` |
+| `DEALER_ACCOUNTS` | `dealer_portal.account`, `dealer_portal.browse` |
+
+`sales_order.discount_override` is intentionally not present in any
+client-owned preset. Grant it only after the customer's discount authority and
+approval policy are documented.
 
 ## Scaling order
 

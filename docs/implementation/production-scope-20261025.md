@@ -3,7 +3,7 @@
 This is a source review of the current working tree, including the changes now
 being verified. It is not a deployment approval or a claim that the authorized
 full proposal is complete. The user confirmed the full scope. Package status
-below was reconciled on 3 November 2026; earlier audits retain their original
+below was reconciled on 5 November 2026; earlier audits retain their original
 meaning and dates, and their findings must be checked against current code.
 
 On 26 October the user kept the DSC/PAdES signing setup decision pending and
@@ -53,28 +53,25 @@ domain has been supplied, so live-host verification remains separate.
 | [E3b planning outputs/scheduling](specs/E3b-mrp-outputs-scheduling.md) | Implemented: transfer, reallocation, assembly and reorder suggestions; configurable per-company nightly [`mrp.scheduled_run`](../../apps/api/src/workers/tasks/mrp.py); and packing-material demand from [item packing specifications](../../apps/api/src/modules/packing/models.py). The [MRP engine](../../apps/api/src/modules/mrp/engine.py) retains level-by-level netting. |
 | [E10b finance and reports](specs/E10b-finance-reports-dashboard.md) | Implemented, including invoice revenue net of credits and FIFO dispatch costs net of customer returns for actual profitability. Finance/report integrations, exports, permissions and management reporting were verified in the E10b completion checkpoint. |
 | [A4 collections and dealer performance](specs/A4-collections-dealer-performance.md) | Implemented with tenant-scoped overdue follow-ups, notes, promises, escalation, reminders and the dealer-performance report/UI. A4 service/report, customer/dashboard UI, type-check and fresh-seed rerun checks passed; the seed regression also verifies idempotence. |
-| [B4 smart alerts and approval inbox](specs/B4-smart-alerts-events.md) | Alert rules/state, scheduled scanning and notifications, approval-request writers, the approval inbox and dashboard integration are implemented. The configurable approval-threshold block in the B4 specification is still outstanding: company settings, `GET/PUT /audit/approval-settings`, administration UI, and replacing the hard-coded inventory adjustment threshold. |
+| [B4 smart alerts and approval inbox](specs/B4-smart-alerts-events.md) | Alert rules/state, scheduled scanning and notifications, approval-request writers, the approval inbox and dashboard integration are implemented. Company approval settings and the administration UI are implemented; procurement consumes requisition auto-approval and purchase-order dual-approval thresholds, and inventory adjustments/internal issues consume their configured thresholds. Integration coverage includes current thresholds on pending orders, inclusive limits and distinct approvers. |
+| [B5 procurement and inbound reports](specs/B5-procurement-reports-ops-e2e.md) | The eight reports and all six specified API-driven operations journeys are implemented. The [operations-flows suite](../../tests/e2e/specs/operations-flows.spec.ts) also contains the purchase-summary report journey; run-scoped IDs isolate repeated runs. A complete browser run remains a release-verification gate. |
+| [A5 dealer notifications](specs/A5-dealer-notifications-commercial-e2e.md) | Customer-scoped recipient resolution, dealer commercial event writers and the reminder sweep are implemented. Commercial API journeys and the invoice UI journey are present; the full browser/accessibility verification remains a release gate. |
+| [E12 security, legacy, deployment and dead-code closeout](specs/E12-phase1-documents-cleanup.md) | The [security resolution report](../security-issue-resolution-report.md) records current route counts, P01.3-P01.13 resolutions, S02.1-S02.15 mappings, audit results and residual risks. The [deployment checklist](../deployment.md) covers commissioning and role grants; verified dead-code findings are recorded in the report. |
 | Vendor job-work / rejected-stock reissue | Implemented in this delivery: vendor/category-scoped orders and audited progress events, overdue reminders, and source-linked rework from physically returned `RETURN_TO_STOCK` output. The current focused and full-suite verification is recorded by the delivery checks. |
 
-## Remaining software packages and delivery order
+## Remaining software verification and production gates
 
-The following scoped packages are **not implemented** and must not be treated
-as delivered. A4 and B4 have now been delivered; their focused checks are
-recorded in the package rows above. Synchronize and obtain green CI on both
-existing branches before beginning the next package.
+B4 approval settings, B5 reports and operations journeys, A5 dealer
+notifications, and the E12 documentation/dead-code closeout are implemented.
+The six B5 operations journeys and the commercial acceptance journeys are
+present in the browser suite, but the full browser/accessibility verification
+must still run against the release candidate. E12's audit and commissioning
+evidence is recorded in the [security resolution report](../security-issue-resolution-report.md)
+and [deployment checklist](../deployment.md).
 
-| Sequence | Package | Required dependency and sequencing |
-|---|---|---|
-| 1 | [B5 procurement and inbound reports](specs/B5-procurement-reports-ops-e2e.md) | B4 alert behavior and C1a, D1, vendor job-work/invoice foundations are present. A5 and B5 are otherwise independent; this order keeps the shared handbook/e2e updates reviewable. |
-| 2 | [B4 configurable approval thresholds](specs/B4-smart-alerts-events.md) | Close the threshold-settings section left outstanding by the otherwise implemented B4 package. |
-| 3 | [A5 dealer notifications](specs/A5-dealer-notifications-commercial-e2e.md) | A4 collections and B4 alert foundations are present; C3/C4 dealer identity and screens are already present. |
-| 4 | [E12 security, legacy, deployment and dead-code closeout](specs/E12-phase1-documents-cleanup.md) | Final evidence pass after A4/B4/A5/B5 and their end-to-end integrations. The unmaintained balance-level `allocated_quantity` was retired because no generic pick/commit workflow exists; keep it distinct from the sales-order-line field. Include the remaining `can_be_spare` reservation enforcement and unused `customer_price_type` findings, verifying each against current behavior. |
-
-Use one focused delivery checkpoint per package: tests with implementation,
-reviewed migrations and generated contracts where applicable, the package's
-documented end-to-end evidence, then push and obtain green CI on both existing
-branches before moving to the next package. A calendar estimate is deliberately
-not asserted without a committed owner and capacity plan.
+Do not treat a focused test or a code-complete package as release approval.
+Run the combined quality gate, verify the browser journeys, then synchronize
+the verified revision to both existing branches and retain the CI evidence.
 
 The eight unresolved client policy questions remain listed in
 [`assumptions.md`](../assumptions.md#open-questions-for-atcraft). Record answers
@@ -123,9 +120,10 @@ serial trace, without registering the unit again.
 
 ## Remaining production gates
 
-The scoped software packages D2, D3, E3b, E10b, A4 and B4 are implemented as
-recorded above. B5, A5 and E12 remain open in the order above. D4 is not
-implemented: it remains gated on the signing authority and retention model
+The scoped software packages D2, D3, E3b, E10b, A4, B4, B5, A5 and E12 are
+implemented as recorded above; the complete browser/accessibility run remains
+open as release verification. D4 is not implemented: it remains gated on the
+signing authority and retention model
 receiving legal/compliance confirmation and on procuring the certificate,
 timestamp and token services described in the
 [D4 decision memo](d4-dsc-pades-compliance-20261019.md). D2 and D3 have passed

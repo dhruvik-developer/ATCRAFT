@@ -3,6 +3,9 @@
 Master rules sections 8, 38–41, 44, 51–55. This document records what is
 implemented, where it lives, and what is deliberately still open.
 
+The issue-by-issue Phase-01 resolution and residual-risk record is in the
+[security issue resolution report](security-issue-resolution-report.md).
+
 ---
 
 ## 1. Authentication

@@ -598,6 +598,7 @@ two deployments.
 | `WEB_PUSH_ALLOWED_HOSTS`                        | Google FCM, Mozilla, Windows, Apple | Dot-boundary suffixes: fcm.googleapis.com, updates.push.services.mozilla.com, push.services.mozilla.com, notify.windows.com, web.push.apple.com, push.apple.com. |
 | `ALERTS_ENABLED`                                | `true`                              | Enables the scheduled smart-alert scan. Per-company rules are managed in Administration → Smart alerts.                                                            |
 | `ALERTS_SCAN_INTERVAL_SECONDS`                  | `900`                               | Celery smart-alert scan cadence; minimum 60 seconds. Rule thresholds and reminder intervals are company settings.                                                     |
+| `MRP_SCHEDULE_CRON`                             | `30 20 * * *`                       | Nightly MRP beat schedule; default is 02:00 Asia/Kolkata. Each company also controls whether its schedule is enabled and its scope/horizon.                            |
 | `COURIER_TRACKING_ENABLED`                      | `false`                             | Enable only after migration and provider setup; the API/webhook/polling remain disabled otherwise.                                                                  |
 | `COURIER_POLL_INTERVAL_SECONDS`                 | `1800`                              | Shiprocket polling cadence; minimum 60 seconds.                                                                                                                   |
 | `COURIER_ALLOWED_HOSTS`                         | `apiv2.shiprocket.in`               | HTTPS hostname allow-list for the Shiprocket client; retain only provider hosts the deployment uses.                                                              |
@@ -1147,6 +1148,11 @@ a running container — which includes a stopped deployment's entire database.
 ---
 
 ## Handover checklist
+
+Complete the ordered commissioning checklist in
+[docs/deployment.md](docs/deployment.md#production-commissioning-sequence)
+first. This list records final handover evidence and does not replace that
+sequence.
 
 Before the client takes over:
 

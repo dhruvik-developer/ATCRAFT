@@ -32,8 +32,8 @@ S03.11	PARTIAL		No packing material planning
 S03.12	PRESENT		No production costing
 S03.13	PRESENT	E1b (delivered).	No sales-order-to-dispatch traceability
 S03.14	PLANNED_FULL	C1a-vendor-portal-backend (P0: route allow-list for vendor principals with 403 on /dispatch, /finance, /documents, /job-work, /quality, /procurement; vendor roles reduced to vendor_portal.*; security.md section 4 rewrite; HTTP tests)	Security and technical improvements required before production-ready
-P01.1	PARTIAL		Review existing API & frontend code
-P01.2	PARTIAL		Remove unused / dead code
+P01.1	PRESENT	docs/security-issue-resolution-report.md maps S02.1-S02.15 to current modules, routes and screens; legacy source was unavailable for parity certification.	Review existing API & frontend code
+P01.2	PRESENT	Approval requests, qc_required and can_be_spare are wired; unused OrderPartyRepository.customer_price_type was removed after an API source/test caller search. The unused balance-level allocated_quantity was retired.	Remove unused / dead code
 P01.3	PRESENT		Secure API authentication
 P01.4	PRESENT		Add JWT expiry
 P01.5	PRESENT		Remove hardcoded bypass token
@@ -49,8 +49,8 @@ P01.D1	PRESENT		Deliverable: secure login flow
 P01.D2	PRESENT		Deliverable: updated API authentication
 P01.D3	PRESENT		Deliverable: cleaned configuration
 P01.D4	PRESENT		Deliverable: role / permission base structure
-P01.D5	PARTIAL		Deliverable: security issue resolution report (document)
-P01.D6	PRESENT		Deliverable: production deployment checklist (document)
+P01.D5	PRESENT	docs/security-issue-resolution-report.md records P01.3-P01.13 resolutions, current route counts, tests, risks, audits and legacy mapping.	Deliverable: security issue resolution report (document)
+P01.D6	PRESENT	docs/deployment.md has the ordered commissioning checklist and permission grant matrix by preset; ONE-BOX-RUNBOOK.md links to it.	Deliverable: production deployment checklist (document)
 P02.O1	PRESENT		Company master
 P02.O2	PRESENT		Branch master
 P02.O3	PRESENT		Plant master
