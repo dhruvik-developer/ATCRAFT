@@ -10,6 +10,7 @@ import pytest
 import src.main as main_module
 from src.core.config import AppEnv
 from src.core.middleware import TrustedHostMiddleware
+from src.core.queue_monitoring import QueueMonitoringUnavailableError, QueueSnapshot
 
 pytestmark = pytest.mark.unit
 
@@ -133,3 +134,46 @@ async def test_cross_origin_preflight_admits_the_csrf_header_and_exposes_rate_li
     assert {"Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining"} <= set(
         main_module.CORS_EXPOSED_RESPONSE_HEADERS
     )
+
+
+async def test_metrics_include_live_queue_depth_and_worker_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def snapshot() -> QueueSnapshot:
+        return QueueSnapshot(
+            queue_depths={"default": 1, "mrp": 2, "reports": 0, "notifications": 3},
+            workers_online=2,
+        )
+
+    monkeypatch.setattr(main_module.settings, "prometheus_metrics_enabled", True)
+    monkeypatch.setattr(main_module, "get_queue_snapshot", snapshot)
+    application = main_module.create_app()
+    transport = httpx.ASGITransport(app=application)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    assert 'atcraft_celery_queue_depth{queue="notifications"} 3.0' in response.text
+    assert "atcraft_celery_workers_online 2.0" in response.text
+    assert "atcraft_queue_monitoring_up 1.0" in response.text
+
+
+async def test_metrics_remain_available_and_mark_queue_probe_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unavailable() -> QueueSnapshot:
+        raise QueueMonitoringUnavailableError("queue probe failed")
+
+    monkeypatch.setattr(main_module.settings, "prometheus_metrics_enabled", True)
+    monkeypatch.setattr(main_module, "get_queue_snapshot", unavailable)
+    monkeypatch.setattr(main_module.log, "warning", lambda *args, **kwargs: None)
+    application = main_module.create_app()
+    transport = httpx.ASGITransport(app=application)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "atcraft_queue_monitoring_up 0.0" in response.text
+    assert 'atcraft_celery_queue_depth{queue="default"} NaN' in response.text

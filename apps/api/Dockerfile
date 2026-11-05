@@ -16,7 +16,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    PROMETHEUS_MULTIPROC_DIR=/tmp/atcraft-prometheus
 
 WORKDIR /app
 
@@ -25,6 +26,9 @@ WORKDIR /app
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends apt=3.0.4 ca-certificates=20250419+deb13u1 \
  && rm -rf /var/lib/apt/lists/*
+
+COPY docker-entrypoint.sh /usr/local/bin/atcraft-entrypoint
+RUN chmod 755 /usr/local/bin/atcraft-entrypoint
 
 # Non-root runtime user. /storage is a mounted volume, owned by this user.
 RUN groupadd --gid 10001 atcraft \
@@ -59,7 +63,8 @@ COPY --from=development-builder /opt/venv /opt/venv
 COPY --chown=atcraft:atcraft . /app
 
 USER atcraft
-EXPOSE 8000
+EXPOSE 8000 9100
+ENTRYPOINT ["/usr/local/bin/atcraft-entrypoint"]
 
 # Overridden by docker-compose.dev.yml; kept so the target runs standalone.
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
@@ -84,10 +89,12 @@ COPY --chown=atcraft:atcraft migrations/ /app/migrations/
 COPY --chown=atcraft:atcraft alembic.ini pyproject.toml /app/
 
 USER atcraft
-EXPOSE 8000
+EXPOSE 8000 9100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).status == 200 else 1)" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/atcraft-entrypoint"]
 
 CMD ["gunicorn", "src.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \

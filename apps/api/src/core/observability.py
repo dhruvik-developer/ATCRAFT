@@ -11,13 +11,18 @@ route *template*.
 
 from __future__ import annotations
 
+import math
+import os
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from prometheus_client import (
     CollectorRegistry,
     Counter,
+    Gauge,
     Histogram,
     generate_latest,
+    multiprocess,
 )
 from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST
 
@@ -101,10 +106,55 @@ mrp_run_duration = Histogram(
     registry=registry,
 )
 
+celery_queue_depth = Gauge(
+    "atcraft_celery_queue_depth",
+    "Ready tasks waiting in each Celery Redis queue",
+    ["queue"],
+    multiprocess_mode="mostrecent",
+    registry=registry,
+)
+
+celery_workers_online = Gauge(
+    "atcraft_celery_workers_online",
+    "Celery workers responding to broker control pings",
+    multiprocess_mode="mostrecent",
+    registry=registry,
+)
+
+queue_monitoring_up = Gauge(
+    "atcraft_queue_monitoring_up",
+    "Whether the broker queue and worker status probes succeeded",
+    multiprocess_mode="mostrecent",
+    registry=registry,
+)
+
+
+def metrics_registry() -> CollectorRegistry:
+    """Return a registry that aggregates the processes in this container."""
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        aggregated = CollectorRegistry()
+        multiprocess.MultiProcessCollector(aggregated)
+        return aggregated
+    return registry
+
+
+def update_queue_metrics(
+    queues: Sequence[str],
+    queue_depths: Mapping[str, int] | None,
+    workers_online: int | None,
+) -> None:
+    """Publish the latest broker snapshot, marking unavailable values as NaN."""
+    available = queue_depths is not None and workers_online is not None
+    queue_monitoring_up.set(1 if available else 0)
+    celery_workers_online.set(float(workers_online) if workers_online is not None else math.nan)
+    for queue in queues:
+        depth = queue_depths.get(queue) if queue_depths is not None else None
+        celery_queue_depth.labels(queue=queue).set(float(depth) if depth is not None else math.nan)
+
 
 def render_metrics() -> tuple[bytes, str]:
     """Payload for ``GET /metrics``."""
-    return generate_latest(registry), CONTENT_TYPE_LATEST
+    return generate_latest(metrics_registry()), CONTENT_TYPE_LATEST
 
 
 def setup_tracing(app: Any) -> None:
@@ -213,16 +263,21 @@ def setup_sentry() -> None:
 
 
 __all__ = [
+    "celery_queue_depth",
     "celery_task_duration",
     "celery_tasks_total",
+    "celery_workers_online",
     "http_request_duration",
     "http_requests_total",
     "insufficient_stock_events",
     "inventory_conflicts",
+    "metrics_registry",
     "mrp_run_duration",
     "mrp_runs_total",
+    "queue_monitoring_up",
     "registry",
     "render_metrics",
     "setup_sentry",
     "setup_tracing",
+    "update_queue_metrics",
 ]

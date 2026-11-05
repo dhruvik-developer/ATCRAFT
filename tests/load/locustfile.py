@@ -4,139 +4,143 @@ Purpose: replace the *engineering targets* in docs/performance.md with numbers
 measured against realistic data. Targets that have never been load-tested are
 aspirations.
 
-Run against a populated database — an empty one measures nothing useful, because
-every index lookup hits a table with no rows and every query looks fast::
+Run against a populated, isolated load environment. Every simulated user needs
+its own account in ``LOAD_ACCOUNTS_FILE``; the file must stay outside the
+repository. See docs/performance.md for setup and write-fixture requirements::
 
-    locust -f locustfile.py --host http://localhost \\
+    locust -f tests/load/locustfile.py --host http://localhost \\
            --users 50 --spawn-rate 5 --run-time 10m
 
 Headless smoke::
 
-    locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost
+    locust -f tests/load/locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost
 
 The task weights approximate a real working day: people read stock and orders far
 more than they write them, and the writes that do happen are concentrated in
-receipts and issues.
+receipts and issues. Set ``LOAD_WRITE_ENABLED=true`` to include the isolated
+write workflow; it requires dedicated, one-use fixtures per account.
 """
 
 from __future__ import annotations
 
 import os
 import random
-import threading
-from datetime import date, timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from queue import Empty, Queue
+from uuid import uuid4
 
-import gevent
+from load_support import LoadAccount, read_accounts, validate_account_count
 from locust import HttpUser, between, events, task
+from locust.runners import MasterRunner, WorkerRunner
 
 API = "/api/v1"
-
-# The same E2E_ADMIN_* variables the Playwright suite and the sweeps read
-# (tests/e2e/.env.example documents them), so one credential serves every
-# harness; LOAD_* is honoured for older invocations.
-#
-# Must match src.core.seed.DEFAULT_ADMIN_EMAIL. Not a .local address: Pydantic's
-# EmailStr refuses special-use TLDs, so an account seeded at admin@atcraft.local
-# is created and can then never log in - the login route rejects it at
-# validation. Every run against that default failed at authentication.
-ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL") or os.getenv("LOAD_EMAIL") or "admin@atcraft.example"
-ADMIN_PASSWORD = (
-    os.getenv("E2E_ADMIN_PASSWORD") or os.getenv("LOAD_PASSWORD") or "ChangeMe!Atcraft2026"
-)
+_random = random.Random()  # noqa: S311 - request sampling does not need cryptographic randomness
 
 
-# --- one session, shared -----------------------------------------------------
-# Every simulated user signing in separately does not model a working day: it
-# models a brute-force attempt, and the API is right to refuse it.
-# `LOGIN_PER_EMAIL` in src/core/ratelimit.py allows five attempts per email per
-# five minutes, so from the sixth user onward every login returned 429 and every
-# request after it 401 - and the reported p95 was the rate limiter's own response
-# time, not the latency of any ERP endpoint.
-#
-# In production fifty users are fifty accounts whose sessions are already
-# established. What this test measures is the steady state after that: read and
-# write latency under concurrency. So the token is obtained once and shared.
-# Login throughput is a separate question and needs distinct accounts to ask it.
-_token_lock = threading.Lock()
-_shared_token: str | None = None
-
-#: How many times to wait out a 429 on the shared login before giving up.
-LOGIN_RETRIES = 4
-#: The per-email window is 300 s; a quarter of it per attempt covers a window
-#: left open by a run that finished moments ago.
-LOGIN_BACKOFF_SECONDS = 75
+_accounts: Queue[LoadAccount] = Queue()
 
 
-def _shared_login(client) -> str | None:
-    """The session every simulated user works through. Fetched once.
+def _write_profile_enabled() -> bool:
+    value = os.getenv("LOAD_WRITE_ENABLED", "false").strip().lower()
+    if value not in {"true", "false"}:
+        raise ValueError("LOAD_WRITE_ENABLED must be true or false")
+    return value == "true"
 
-    The lock is held across the retry deliberately. Without it a 429 - which is
-    what a previous run inside the same five-minute window leaves behind - would
-    let every waiting user attempt its own login, and thirty users would turn one
-    rate-limited request into thirty, keeping the window open indefinitely. One
-    caller waits; the rest queue behind it and get the token it obtains.
-    """
-    global _shared_token
-    with _token_lock:
-        if _shared_token is not None:
-            return _shared_token
 
-        for attempt in range(LOGIN_RETRIES):
-            response = client.post(
-                f"{API}/auth/login",
-                json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
-                name="POST /auth/login",
-            )
-            if response.status_code == 200:
-                data = response.json()["data"]
-                if data.get("user", {}).get("must_change_password"):
-                    # As seeded, the administrator may call nothing but
-                    # /auth/me and /auth/change-password: every request the
-                    # profile makes would answer 403 and be counted against
-                    # the API. Say so instead of measuring a refusal.
-                    response.failure("account is on a temporary password")
-                    print(  # noqa: T201 - Locust reports through stdout
-                        f"\n  {ADMIN_EMAIL} still has a temporary password, so the API"
-                        " refuses every business route.\n"
-                        "  Run the Playwright setup once (it completes the change), or"
-                        " change the password by hand, then run again.\n"
-                    )
-                    return None
-                _shared_token = data["access_token"]
-                return _shared_token
-            if response.status_code != 429:
-                response.failure(f"login failed: {response.status_code}")
-                return None
-            # Rate limited. The per-email window is five minutes wide, so this
-            # backs off rather than hammering; it is reported as a success
-            # because a 429 here is the API defending itself correctly and
-            # counting it as a failure would misreport the run.
-            response.success()
-            if attempt < LOGIN_RETRIES - 1:
-                gevent.sleep(LOGIN_BACKOFF_SECONDS)
+WRITE_ENABLED = _write_profile_enabled()
 
-        print(  # noqa: T201 - Locust reports through stdout
-            "\n  Login is rate limited (LOGIN_PER_EMAIL: 5 attempts per 5 minutes)"
-            " and did not clear within the backoff.\n"
-            "  Wait for the window to close and run again, or point LOAD_EMAIL at"
-            " an account this machine has not just used.\n"
-        )
-        return None
+
+def _target_user_count(environment) -> int:
+    target = getattr(environment.runner, "target_user_count", 0)
+    if target:
+        return int(target)
+    options = getattr(environment, "parsed_options", None)
+    return int(getattr(options, "num_users", 0) or 0)
 
 
 @events.test_start.add_listener
-def _reset_shared_token(environment, **_kwargs):
-    """A fresh run must not reuse the previous run's token."""
-    global _shared_token
-    _shared_token = None
+def _prepare_accounts(environment, **_kwargs):
+    """Give every simulated user a different account in this Locust process."""
+    global _accounts
+    _accounts = Queue()
+    if isinstance(environment.runner, MasterRunner):
+        return
+    try:
+        account_path = os.getenv("LOAD_ACCOUNTS_FILE")
+        if not account_path:
+            raise ValueError("Set LOAD_ACCOUNTS_FILE to a JSON array of dedicated test accounts")
+        accounts = read_accounts(Path(account_path), require_write_fixtures=WRITE_ENABLED)
+        if not isinstance(environment.runner, WorkerRunner):
+            target = _target_user_count(environment)
+            if target:
+                validate_account_count(accounts, target)
+    except (OSError, ValueError) as exc:
+        print(f"\nLoad profile setup failed: {exc}\n")  # noqa: T201
+        environment.process_exit_code = 1
+        environment.runner.quit()
+        return
+
+    _accounts = Queue()
+    for account in accounts:
+        _accounts.put(account)
+
+
+def _claim_account(environment) -> LoadAccount:
+    try:
+        return _accounts.get_nowait()
+    except Empty as exc:
+        message = (
+            "This Locust process ran out of unique accounts. Increase its account pool "
+            "or reduce the users assigned to this worker."
+        )
+        environment.process_exit_code = 1
+        environment.runner.quit()
+        raise RuntimeError(message) from exc
+
+
+def _login(client, account: LoadAccount) -> str | None:
+    with client.post(
+        f"{API}/auth/login",
+        json={"email": account.email, "password": account.password},
+        name="POST /auth/login",
+        catch_response=True,
+    ) as response:
+        if response.status_code != 200:
+            response.failure(f"login failed: {response.status_code}")
+            return None
+        try:
+            data = response.json()["data"]
+        except (KeyError, TypeError, ValueError):
+            response.failure("login response did not contain a valid access token")
+            return None
+        if not isinstance(data, dict):
+            response.failure("login response did not contain a valid access token")
+            return None
+        user = data.get("user")
+        token = data.get("access_token")
+        if not isinstance(user, dict):
+            response.failure("login response did not contain a valid user")
+            return None
+        if user.get("must_change_password"):
+            response.failure("account is on a temporary password")
+            return None
+        if not isinstance(token, str) or not token:
+            response.failure("login response did not contain a valid access token")
+            return None
+        response.success()
+        return token
 
 
 @events.test_start.add_listener
 def _announce(environment, **_kwargs):
+    mode = "write-enabled" if WRITE_ENABLED else "read-only"
     print(  # noqa: T201 - Locust reports through stdout
-        "\nAtcraft ERP load test\n"
-        "  Reminder: run this against a database with realistic row counts.\n"
-        "  An empty database will report latencies you cannot reproduce in production.\n"
+        "\nAtcraft ERP load test "
+        f"({mode})\n"
+        "  Every simulated user needs a dedicated account from LOAD_ACCOUNTS_FILE.\n"
+        "  Use a populated, isolated load environment; never target the shared "
+        "development database.\n"
     )
 
 
@@ -153,8 +157,10 @@ class ErpUser(HttpUser):
         self.warehouse_ids: list[str] = []
         self.order_ids: list[str] = []
 
-        self.token = _shared_login(self.client)
+        self.account = _claim_account(self.environment)
+        self.token = _login(self.client, self.account)
         if self.token is None:
+            self.environment.process_exit_code = 1
             self.environment.runner.quit()
             return
 
@@ -171,13 +177,19 @@ class ErpUser(HttpUser):
         and measure the cache rather than the query.
         """
         items = self.client.get(
-            f"{API}/products/items", params={"limit": 100}, headers=self.auth, name="GET /items [prime]"
+            f"{API}/products/items",
+            params={"limit": 100},
+            headers=self.auth,
+            name="GET /items [prime]",
         )
         if items.status_code == 200:
             self.item_ids = [row["id"] for row in items.json().get("data", [])]
 
         warehouses = self.client.get(
-            f"{API}/warehouses", params={"limit": 50}, headers=self.auth, name="GET /warehouses [prime]"
+            f"{API}/warehouses",
+            params={"limit": 50},
+            headers=self.auth,
+            name="GET /warehouses [prime]",
         )
         if warehouses.status_code == 200:
             self.warehouse_ids = [row["id"] for row in warehouses.json().get("data", [])]
@@ -187,9 +199,9 @@ class ErpUser(HttpUser):
     @task(30)
     def stock_balances(self) -> None:
         """The single most-opened screen in the system."""
-        params: dict[str, object] = {"limit": 50, "page": random.randint(1, 5)}
+        params: dict[str, object] = {"limit": 50, "page": _random.randint(1, 5)}
         if self.warehouse_ids:
-            params["warehouse_id"] = random.choice(self.warehouse_ids)
+            params["warehouse_id"] = _random.choice(self.warehouse_ids)
         self.client.get(
             f"{API}/inventory/balances",
             params=params,
@@ -200,7 +212,7 @@ class ErpUser(HttpUser):
     @task(15)
     def item_search(self) -> None:
         """Search-as-you-type: short, unselective terms are the expensive case."""
-        term = random.choice(["lock", "handle", "screw", "rose", "cyl", "kit", "pvd"])
+        term = _random.choice(["lock", "handle", "screw", "rose", "cyl", "kit", "pvd"])
         self.client.get(
             f"{API}/products/items",
             params={"search": term, "limit": 25, "with_total": "false"},
@@ -212,7 +224,7 @@ class ErpUser(HttpUser):
     def sales_orders(self) -> None:
         response = self.client.get(
             f"{API}/sales",
-            params={"limit": 50, "status": random.choice(["CONFIRMED", "ALLOCATED", "DRAFT"])},
+            params={"limit": 50, "status": _random.choice(["CONFIRMED", "ALLOCATED", "DRAFT"])},
             headers=self.auth,
             name="GET /sales",
         )
@@ -232,23 +244,28 @@ class ErpUser(HttpUser):
     @task(8)
     def dashboard(self) -> None:
         """Served from summary tables — should be well inside 500 ms."""
-        self.client.get(f"{API}/reports/dashboard", headers=self.auth, name="GET /reports/dashboard")
+        self.client.get(
+            f"{API}/reports/dashboard", headers=self.auth, name="GET /reports/dashboard"
+        )
 
     @task(8)
     def inventory_ledger(self) -> None:
         """Keyset-paginated. Depth must not change the cost."""
         params: dict[str, object] = {"limit": 50}
         if self.item_ids:
-            params["item_id"] = random.choice(self.item_ids)
+            params["item_id"] = _random.choice(self.item_ids)
         self.client.get(
-            f"{API}/inventory/ledger", params=params, headers=self.auth, name="GET /inventory/ledger"
+            f"{API}/inventory/ledger",
+            params=params,
+            headers=self.auth,
+            name="GET /inventory/ledger",
         )
 
     @task(6)
     def order_detail(self) -> None:
         if not self.order_ids:
             return
-        order_id = random.choice(self.order_ids)
+        order_id = _random.choice(self.order_ids)
         self.client.get(f"{API}/sales/{order_id}", headers=self.auth, name="GET /sales/{id}")
         self.client.get(
             f"{API}/sales/{order_id}/allocation-status",
@@ -263,7 +280,7 @@ class ErpUser(HttpUser):
             return
         self.client.get(
             f"{API}/bom",
-            params={"item_id": random.choice(self.item_ids), "limit": 5},
+            params={"item_id": _random.choice(self.item_ids), "limit": 5},
             headers=self.auth,
             name="GET /bom?item_id",
         )
@@ -291,12 +308,15 @@ class ErpUser(HttpUser):
     def dispatch_tracking(self) -> None:
         """A wide join across dispatch, PO, vendor and QC — watch this one."""
         self.client.get(
-            f"{API}/dispatch/tracking", params={"limit": 50}, headers=self.auth, name="GET /dispatch/tracking"
+            f"{API}/dispatch/tracking",
+            params={"limit": 50},
+            headers=self.auth,
+            name="GET /dispatch/tracking",
         )
 
     @task(2)
     def audit_log(self) -> None:
-        since = (date.today() - timedelta(days=7)).isoformat()
+        since = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
         self.client.get(
             f"{API}/audit/logs",
             params={"limit": 50, "date_from": since},
@@ -307,7 +327,158 @@ class ErpUser(HttpUser):
     @task(2)
     def notifications(self) -> None:
         self.client.get(
-            f"{API}/notifications/unread-count", headers=self.auth, name="GET /notifications/unread-count"
+            f"{API}/notifications/unread-count",
+            headers=self.auth,
+            name="GET /notifications/unread-count",
+        )
+
+
+class WriteUser(HttpUser):
+    """Run one isolated write cycle through inventory, allocation, QC and sales."""
+
+    weight = 1 if WRITE_ENABLED else 0
+    wait_time = between(1, 3)
+
+    def on_start(self) -> None:
+        self.account = _claim_account(self.environment)
+        self.token = _login(self.client, self.account)
+        self.completed = False
+        if self.token is None:
+            self.environment.process_exit_code = 1
+            self.environment.runner.quit()
+            return
+
+    @property
+    def auth(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def _post(
+        self,
+        path: str,
+        body: dict[str, object] | None,
+        name: str,
+        *,
+        expected_statuses: tuple[int, ...] = (200, 201),
+    ) -> dict[str, object] | None:
+        with self.client.post(
+            f"{API}{path}",
+            json=body,
+            headers=self.auth,
+            name=name,
+            catch_response=True,
+        ) as response:
+            if response.status_code not in expected_statuses:
+                response.failure(f"unexpected status {response.status_code}")
+                self.environment.process_exit_code = 1
+                return None
+            try:
+                envelope = response.json()
+                data = envelope["data"]
+            except (KeyError, TypeError, ValueError):
+                response.failure("response did not contain a valid data envelope")
+                self.environment.process_exit_code = 1
+                return None
+            if not isinstance(data, dict):
+                response.failure("response data was not an object")
+                self.environment.process_exit_code = 1
+                return None
+            response.success()
+            return data
+
+    def _required_id(self, data: dict[str, object], resource: str) -> str | None:
+        resource_id = data.get("id")
+        if isinstance(resource_id, str) and resource_id:
+            return resource_id
+        message = f"{resource} response did not contain an id"
+        print(f"\nWrite profile failed: {message}\n")  # noqa: T201
+        self.environment.process_exit_code = 1
+        self.environment.runner.quit()
+        return None
+
+    @task
+    def concurrent_write_cycle(self) -> None:
+        if self.completed:
+            return
+        self.completed = True
+        fixtures = self.account.write_fixtures
+        if fixtures is None:
+            self.environment.runner.quit()
+            raise RuntimeError("WriteUser requires write_fixtures for its account")
+
+        adjustment_id = fixtures["inventory_adjustment_id"]
+        adjustment = self._post(
+            f"/inventory/adjustments/{adjustment_id}/post",
+            None,
+            "POST /inventory/adjustments/{id}/post",
+        )
+        if adjustment is None:
+            return
+
+        reservation_payload = dict(fixtures["reservation"])
+        reservation_payload["demand_id"] = str(uuid4())
+        reservation = self._post(
+            "/allocation/reservations",
+            reservation_payload,
+            "POST /allocation/reservations",
+        )
+        if reservation is None:
+            return
+        reservation_id = self._required_id(reservation, "Reservation")
+        if reservation_id is None:
+            return
+        released = self._post(
+            f"/allocation/reservations/{reservation_id}/release",
+            {"reason": "Load profile releases its reserved quantity."},
+            "POST /allocation/reservations/{id}/release",
+        )
+        if released is None:
+            return
+
+        inspection_payload = dict(fixtures["inspection"])
+        inspection_payload.update({"reference_type": "load_test", "reference_id": str(uuid4())})
+        inspection = self._post(
+            "/quality/inspections",
+            inspection_payload,
+            "POST /quality/inspections",
+        )
+        if inspection is None:
+            return
+        inspection_id = self._required_id(inspection, "Inspection")
+        if inspection_id is None:
+            return
+        decision = self._post(
+            f"/quality/inspections/{inspection_id}/decide",
+            dict(fixtures["inspection_decision"]),
+            "POST /quality/inspections/{id}/decide",
+        )
+        if decision is None:
+            return
+
+        dispatch = self._post(
+            "/dispatch",
+            dict(fixtures["dispatch"]),
+            "POST /dispatch",
+        )
+        if dispatch is None:
+            return
+        dispatch_id = self._required_id(dispatch, "Dispatch")
+        if dispatch_id is None:
+            return
+        sent = self._post(
+            f"/dispatch/{dispatch_id}/dispatch",
+            dict(fixtures["dispatch_request"]),
+            "POST /dispatch/{id}/dispatch",
+        )
+        if sent is None:
+            return
+
+        invoice_payload = dict(fixtures["invoice"])
+        invoice_payload["dispatch_id"] = dispatch_id
+        self._post(
+            "/finance/sales-invoices",
+            invoice_payload,
+            "POST /finance/sales-invoices",
+            expected_statuses=(201,),
         )
 
 
@@ -318,11 +489,13 @@ class PlannerUser(HttpUser):
     weight = 1
 
     def on_start(self) -> None:
-        self.token: str | None = _shared_login(self.client)
+        self.account = _claim_account(self.environment)
+        self.token: str | None = _login(self.client, self.account)
         # As ErpUser does. Without this, a rate-limited login left every planner
         # request carrying "Bearer None", and the 401s it collected were
         # reported as the API's failure rate rather than the harness's.
         if self.token is None:
+            self.environment.process_exit_code = 1
             self.environment.runner.quit()
             return
 
@@ -332,7 +505,9 @@ class PlannerUser(HttpUser):
 
     @task(3)
     def mrp_history(self) -> None:
-        self.client.get(f"{API}/mrp/runs", params={"limit": 20}, headers=self.auth, name="GET /mrp/runs")
+        self.client.get(
+            f"{API}/mrp/runs", params={"limit": 20}, headers=self.auth, name="GET /mrp/runs"
+        )
 
     @task(1)
     def start_mrp_run(self) -> None:
@@ -341,6 +516,8 @@ class PlannerUser(HttpUser):
         A 200 here is fine for a small dataset; what would be a defect is this
         call blocking for minutes, so the assertion is on latency, not status.
         """
+        if not WRITE_ENABLED:
+            return
         with self.client.post(
             f"{API}/mrp/runs",
             json={"horizon_days": 60},
@@ -373,7 +550,10 @@ class PlannerUser(HttpUser):
     @task(2)
     def shortage_report(self) -> None:
         self.client.get(
-            f"{API}/mrp/shortage-report", params={"limit": 100}, headers=self.auth, name="GET /mrp/shortage-report"
+            f"{API}/mrp/shortage-report",
+            params={"limit": 100},
+            headers=self.auth,
+            name="GET /mrp/shortage-report",
         )
 
 
@@ -397,10 +577,13 @@ def _report(environment, **_kwargs):
     if stats.median_response_time > 200:
         problems.append(f"median {stats.median_response_time} ms exceeds the 200 ms target")
     if stats.get_response_time_percentile(0.95) > 1000:
-        problems.append("95th percentile above 1 s — find the slow endpoint before tuning anything else")
+        problems.append(
+            "95th percentile above 1 s — find the slow endpoint before tuning anything else"
+        )
 
     print("=" * 68)  # noqa: T201
     if problems:
+        environment.process_exit_code = 1
         print("NEEDS ATTENTION:")  # noqa: T201
         for problem in problems:
             print(f"  - {problem}")  # noqa: T201

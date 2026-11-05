@@ -40,6 +40,13 @@ from src.core.observability import (
     render_metrics,
     setup_sentry,
     setup_tracing,
+    update_queue_metrics,
+)
+from src.core.queue_monitoring import (
+    QueueMonitoringUnavailableError,
+    close_queue_monitoring,
+    get_queue_snapshot,
+    queue_names,
 )
 from src.core.registry import import_all_models
 
@@ -174,6 +181,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     log.info("app.shutdown")
+    await close_queue_monitoring()
     await dispose_engine()
     await close_redis()
 
@@ -280,6 +288,20 @@ def create_app() -> FastAPI:
     async def metrics() -> Response:
         if not settings.prometheus_metrics_enabled:
             return Response(status_code=404)
+        try:
+            snapshot = await get_queue_snapshot()
+        except QueueMonitoringUnavailableError as exc:
+            update_queue_metrics(queue_names(), None, None)
+            log.warning(
+                "metrics.queue_monitoring_failed",
+                error_type=type(exc.__cause__ or exc).__name__,
+            )
+        else:
+            update_queue_metrics(
+                queue_names(),
+                snapshot.queue_depths,
+                snapshot.workers_online,
+            )
         payload, content_type = render_metrics()
         return Response(content=payload, media_type=content_type)
 

@@ -19,7 +19,15 @@ from typing import Any, TypeVar
 
 from celery import Celery, Task
 from celery.schedules import crontab
-from celery.signals import beat_init, setup_logging, task_failure, task_postrun, task_prerun
+from celery.signals import (
+    beat_init,
+    setup_logging,
+    task_failure,
+    task_postrun,
+    task_prerun,
+    worker_ready,
+)
+from prometheus_client import start_http_server
 
 from src.core.config import settings
 from src.core.logging import (
@@ -28,7 +36,11 @@ from src.core.logging import (
     configure_logging,
     get_logger,
 )
-from src.core.observability import celery_task_duration, celery_tasks_total
+from src.core.observability import (
+    celery_task_duration,
+    celery_tasks_total,
+    metrics_registry,
+)
 
 log = get_logger("worker")
 
@@ -38,6 +50,7 @@ RECONCILE_QUALITY_OWNERS_TASK = "maintenance.reconcile_quality_owners"
 RECONCILE_QUALITY_OWNERS_ENTRY = "reconcile-quality-owners"
 MRP_SCHEDULED_RUN_TASK = "mrp.scheduled_run"
 MRP_SCHEDULED_RUN_ENTRY = "mrp-scheduled-run"
+WORKER_METRICS_PORT = 9100
 
 
 def _mrp_schedule() -> crontab:
@@ -250,6 +263,32 @@ def async_task(*task_args: Any, **task_kwargs: Any) -> Callable[..., Any]:
 def _configure_worker_logging(**_: Any) -> None:
     """Use the application's structured logging, not Celery's own format."""
     configure_logging()
+
+
+_worker_metrics_started = False
+
+
+@worker_ready.connect
+def _start_worker_metrics_exporter(**_: Any) -> None:
+    """Expose the container's aggregated task metrics on its private network."""
+    global _worker_metrics_started
+    if _worker_metrics_started or not settings.prometheus_metrics_enabled:
+        return
+    try:
+        start_http_server(
+            WORKER_METRICS_PORT,
+            addr=settings.prometheus_worker_metrics_address,
+            registry=metrics_registry(),
+        )
+    except OSError as exc:
+        log.error(
+            "worker.metrics_start_failed",
+            port=WORKER_METRICS_PORT,
+            error_type=type(exc).__name__,
+        )
+        raise
+    _worker_metrics_started = True
+    log.info("worker.metrics_started", port=WORKER_METRICS_PORT)
 
 
 @beat_init.connect

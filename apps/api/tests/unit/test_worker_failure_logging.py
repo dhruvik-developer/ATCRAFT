@@ -85,6 +85,31 @@ def test_every_other_task_keeps_the_full_detail(recorder: _Recorder) -> None:
     assert fields["error_type"] == "RuntimeError"
 
 
+def test_worker_ready_starts_the_aggregated_metrics_exporter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    monkeypatch.setattr(worker, "_worker_metrics_started", False)
+    monkeypatch.setattr(worker.settings, "prometheus_metrics_enabled", True)
+    monkeypatch.setattr(worker.settings, "prometheus_worker_metrics_address", "0.0.0.0")
+    monkeypatch.setattr(worker, "metrics_registry", lambda: "registry")
+    monkeypatch.setattr(
+        worker,
+        "start_http_server",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    worker._start_worker_metrics_exporter()
+
+    assert calls == [
+        (
+            (worker.WORKER_METRICS_PORT,),
+            {"addr": "0.0.0.0", "registry": "registry"},
+        )
+    ]
+    assert worker._worker_metrics_started
+
+
 def test_the_mail_task_set_names_every_registered_mail_task() -> None:
     from src.workers.tasks import notifications
 

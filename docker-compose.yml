@@ -134,6 +134,10 @@ x-api-env: &api-env
   # Optional server-side exception reporting. The runtime image contains the
   # SDK; an empty DSN keeps it completely disabled.
   SENTRY_DSN: ${SENTRY_DSN:-}
+  PROMETHEUS_METRICS_ENABLED: ${PROMETHEUS_METRICS_ENABLED:-true}
+  # Workers expose their Prometheus endpoint only on the private Compose
+  # network; no host port is published.
+  PROMETHEUS_WORKER_METRICS_ADDRESS: 0.0.0.0
   STORAGE_PATH: /storage
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
@@ -281,6 +285,7 @@ services:
     image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
     command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}", "-Q", "default,mrp,reports"]
     environment: *api-env
+    expose: ["9100"]
     volumes:
       - storage-data:/storage
     depends_on:
@@ -320,6 +325,7 @@ services:
     image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
     command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${NOTIFY_CONCURRENCY:-2}", "--max-tasks-per-child=200", "-n", "notify@%h", "-Q", "notifications"]
     environment: *api-env
+    expose: ["9100"]
     volumes:
       - storage-data:/storage
     depends_on:

@@ -289,6 +289,7 @@ class Settings(BaseSettings):
     otel_service_name: str = "atcraft-erp-api"
     otel_exporter_otlp_endpoint: str = ""
     prometheus_metrics_enabled: bool = True
+    prometheus_worker_metrics_address: str = "127.0.0.1"
     sentry_dsn: str = ""
 
     # ------------------------------------------------------------ derived --

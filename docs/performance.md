@@ -29,6 +29,61 @@ which is worse than a right answer slowly.
 
 ---
 
+## Load testing
+
+`tests/load/locustfile.py` models read-heavy internal users with a distinct
+login account per virtual user. The default profile is non-mutating: the MRP
+kickoff task is disabled unless writes are explicitly enabled. Account files
+contain test credentials and must be kept outside the repository:
+
+```json
+[
+  { "email": "load-001@example.test", "password": "use-a-dedicated-test-password" },
+  { "email": "load-002@example.test", "password": "use-another-test-password" }
+]
+```
+
+For a single-process run, provide at least one account per virtual user. The
+harness rejects duplicate email addresses and fails the run if the account pool
+is too small or an account cannot log in. In distributed Locust, each worker
+needs its own account file with a disjoint set of identities sized for the
+users assigned to it; workers do not share or partition one account pool.
+
+Run only against a populated, isolated load environment, never the shared
+development database. For example, from PowerShell:
+
+```powershell
+$env:LOAD_ACCOUNTS_FILE = 'C:\secure\atcraft-load-accounts.json'
+$env:LOAD_WRITE_ENABLED = 'false'
+locust -f tests/load/locustfile.py --headless -u 20 -r 2 -t 10m --host http://127.0.0.1:8000
+```
+
+The optional `LOAD_WRITE_ENABLED=true` adds one write cycle per `WriteUser`
+account: post a prepared stock adjustment, create and release a reservation,
+raise and decide a stock-holding QC inspection, dispatch a prepared sales order,
+and issue its invoice. This is intentionally opt-in and mutates stock and
+commercial records. Every account in this mode needs a `write_fixtures` object
+with:
+
+- a unique, draft `inventory_adjustment_id` that is valid to post;
+- a complete reservation-create payload except `demand_id`, which the harness
+  generates; seed sufficient stock and set a reason;
+- a complete inspection-create payload, including `qc_stage`,
+  `inspected_quantity` and reason; set `hold_stock` to `true`. The harness
+  supplies unique `reference_type` and `reference_id`;
+- a valid inspection decision whose quantities total the inspected quantity;
+- a complete dispatch-create payload for a unique confirmed/allocated
+  `sales_order_id`, with dispatch lines and dates that can still be dispatched;
+- a valid dispatch request body; and
+- a sales-invoice-create payload (the harness supplies the `dispatch_id`).
+
+Use separate, one-use fixture records for every account. These operations are
+not rolled back after the run. The Locust process exits nonzero when the
+documented failure-rate or latency targets are exceeded, or when setup or a
+write step fails; preserve the report and investigate before increasing load.
+
+---
+
 ## Where ERP performance actually goes wrong
 
 In rough order of how often it happens:
@@ -278,18 +333,40 @@ The UI must feel immediate even when the backend is doing real work.
 
 **Application.** `core/observability.py` registers HTTP request counts and
 latency by route template, Celery task counts/duration, inventory lock conflicts,
-insufficient-stock refusals and MRP counts/duration. `/metrics` exposes the API
-process registry. Worker metrics are process-local: no shared multiprocess
-collector or separate worker scrape endpoint is configured, so the API scrape
-does not aggregate Celery child metrics or every Gunicorn worker. Do not treat a
-zero on one process as proof that no worker encountered a business refusal.
+insufficient-stock refusals, MRP counts/duration, queue depth and responding
+worker count. The container entrypoint prepares a private multiprocess metrics
+directory before starting the process. `/metrics` aggregates all Gunicorn
+workers in the backend container; each Celery worker container exposes its
+aggregated task metrics on port `9100`.
 
-Database query duration, cache hit ratio, queue depth and a dedicated
-negative-balance counter are not currently exported by this registry. Add
-instrumentation and collection together before building alerts on them.
-Optional OpenTelemetry instruments FastAPI, SQLAlchemy and Redis when the
-`otel` dependency extra and collector are configured; this is separate from
-Prometheus collection.
+Scrape these targets from a monitor attached to the deployment's private
+Compose network:
+
+| Target | Metrics |
+| --- | --- |
+| `backend:8000/metrics` | API request/business metrics and broker-backed queue status |
+| `celery-worker:9100/metrics` | Batch worker task counts and durations |
+| `celery-notify:9100/metrics` | Notification worker task counts and durations |
+
+Worker exporter ports are internal only; Compose publishes no additional host
+ports. Give each target a distinct Prometheus `job` label. Queue gauges are
+updated by the backend target; `atcraft_queue_monitoring_up` is `0` when the
+broker or worker probe cannot complete, `atcraft_celery_workers_online` is `0`
+when no worker answers, and `atcraft_celery_queue_depth` reports ready tasks
+waiting in each queue. Redis list depth excludes tasks already reserved or
+running and ETA-scheduled tasks, so alert on sustained backlog together with
+worker availability rather than interpreting it as total outstanding work.
+
+The multiprocess collector aggregates counters and histograms written by API
+and Celery child processes within each container. The entrypoint clears only
+that container's temporary metrics files on container start; process restarts
+within a running container remain part of its cumulative counters.
+
+Database query duration, cache hit ratio and a dedicated negative-balance
+counter are not currently exported. Add instrumentation and collection together
+before building alerts on them. Optional OpenTelemetry instruments FastAPI,
+SQLAlchemy and Redis when the `otel` dependency extra and collector are
+configured; this is separate from Prometheus collection.
 
 Labels use the route _template_ (`/items/{item_id}`), never the concrete path.
 Raw paths create one time series per record and will eventually take Prometheus
