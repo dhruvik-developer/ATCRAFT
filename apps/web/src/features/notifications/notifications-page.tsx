@@ -508,7 +508,7 @@ function PreferencesTab() {
   const dirty = draft !== null && Object.keys(draft).length > 0
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           In-app controls the bell in the header. Email goes to your profile address. Push goes to
@@ -538,7 +538,7 @@ function PreferencesTab() {
         </Alert>
       )}
 
-      <div className="min-w-0 max-w-full overflow-x-auto rounded-lg border">
+      <div className="w-full min-w-0 max-w-full overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[36rem] text-sm">
           <caption className="sr-only">Notification channels per event type</caption>
           <thead className="bg-muted/50">
@@ -657,13 +657,13 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div>
+    <div className="w-full min-w-0">
       <PageHeader
         title="Notifications"
         description="Approvals waiting on you, receipts posted, quality decisions taken and jobs that failed."
       />
 
-      <Tabs value={tab} onValueChange={selectTab}>
+      <Tabs value={tab} onValueChange={selectTab} className="w-full min-w-0">
         <TabsList>
           <TabsTrigger value="inbox">
             <Inbox className="h-4 w-4" aria-hidden />
@@ -679,7 +679,7 @@ export default function NotificationsPage() {
           <InboxTab />
         </TabsContent>
 
-        <TabsContent value="preferences" className="space-y-4">
+        <TabsContent value="preferences" className="min-w-0 space-y-4">
           <Suspense fallback={<PanelLoader />}>
             <PushDeviceCard />
           </Suspense>

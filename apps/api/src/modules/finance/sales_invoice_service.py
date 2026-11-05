@@ -549,6 +549,24 @@ async def issue_sales_invoice(
             user_id=tenant.user_id,
             new_values={"dispatch_id": invoice.dispatch_id, "total_amount": invoice.total_amount},
         )
+        from src.modules.notifications.models import NotificationType
+        from src.modules.notifications.service import notify_customer
+
+        await notify_customer(
+            session,
+            company_id=tenant.company_id,
+            customer_id=invoice.customer_id,
+            permission=Permission.DEALER_PORTAL_ACCOUNT,
+            notification_type=NotificationType.DEALER_INVOICE_ISSUED,
+            title=f"Invoice issued: {invoice.code}",
+            body=(
+                f"Invoice {invoice.code} was issued for {invoice.currency} {invoice.total_amount}."
+            ),
+            action_url=f"/dealer/invoices/{invoice.id}",
+            entity_type="sales_invoice",
+            entity_id=invoice.id,
+            actor_id=tenant.user_id,
+        )
     try:
         await queue_sales_invoice_pdf(session, tenant, invoice.id)
     except AppError:

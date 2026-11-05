@@ -595,6 +595,22 @@ class NotificationRepository(BaseRepository[Notification]):
             stmt = stmt.where(or_(User.is_superuser.is_(True), self._holds(permission)))
         return await self._bounded_user_ids(stmt.order_by(User.id), purpose="vendor")
 
+    async def user_ids_for_customer(
+        self, customer_id: uuid.UUID, *, permission: str | None = None
+    ) -> list[uuid.UUID]:
+        """Active dealer users of one customer, optionally holding ``permission``."""
+        from src.modules.users.models import User
+
+        stmt = select(User.id).where(
+            User.company_id == self.tenant.company_id,
+            User.customer_id == customer_id,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+        if permission is not None:
+            stmt = stmt.where(or_(User.is_superuser.is_(True), self._holds(permission)))
+        return await self._bounded_user_ids(stmt.order_by(User.id), purpose="customer")
+
     async def user_ids_by_vendor(
         self, vendor_ids: Sequence[uuid.UUID], *, permission: str
     ) -> dict[uuid.UUID, list[uuid.UUID]]:
@@ -628,6 +644,68 @@ class NotificationRepository(BaseRepository[Notification]):
             if vendor_id is not None:
                 recipients.setdefault(vendor_id, []).append(user_id)
         return recipients
+
+    async def user_ids_by_customer(
+        self, customer_ids: Sequence[uuid.UUID], *, permission: str
+    ) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Resolve active dealer users for many customers in one bounded query."""
+        from src.modules.users.models import User
+
+        if not customer_ids:
+            return {}
+        stmt = (
+            select(User.customer_id, User.id)
+            .where(
+                User.company_id == self.tenant.company_id,
+                User.customer_id.in_(customer_ids),
+                User.is_active.is_(True),
+                User.deleted_at.is_(None),
+                or_(User.is_superuser.is_(True), self._holds(permission)),
+            )
+            .order_by(User.customer_id, User.id)
+        )
+        found = list((await self.session.execute(stmt.limit(MAX_ROLE_RECIPIENTS + 1))).all())
+        if len(found) > MAX_ROLE_RECIPIENTS:
+            log.warning(
+                "notifications.permission_fanout_truncated",
+                company_id=str(self.tenant.company_id),
+                purpose="customer",
+                limit=MAX_ROLE_RECIPIENTS,
+            )
+            found = found[:MAX_ROLE_RECIPIENTS]
+        recipients: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for customer_id, user_id in found:
+            if customer_id is not None:
+                recipients.setdefault(customer_id, []).append(user_id)
+        return recipients
+
+    async def recent_group_recipients(
+        self,
+        group_keys: Sequence[str],
+        user_ids: Sequence[uuid.UUID],
+        *,
+        notification_type: NotificationType,
+        since: datetime,
+    ) -> set[tuple[str, uuid.UUID]]:
+        """Return recipient/group pairs notified since the supplied timestamp."""
+        if not group_keys or not user_ids:
+            return set()
+        stmt = (
+            select(Notification.group_key, Notification.user_id)
+            .where(
+                Notification.company_id == self.tenant.company_id,
+                Notification.notification_type == notification_type,
+                Notification.group_key.in_(group_keys),
+                Notification.user_id.in_(user_ids),
+                Notification.created_at >= since,
+            )
+            .distinct()
+        )
+        return {
+            (group_key, user_id)
+            for group_key, user_id in (await self.session.execute(stmt)).all()
+            if group_key is not None
+        }
 
     async def active_assigned_vendor_users(
         self, assignments: Sequence[tuple[uuid.UUID, uuid.UUID]]

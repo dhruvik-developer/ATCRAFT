@@ -49,6 +49,30 @@ async function apiSearch(request: APIRequestContext, path: string): Promise<unkn
   return Array.isArray(body.data) ? body.data : [body.data]
 }
 
+function authHeaders(): Record<string, string> {
+  return {
+    Authorization: ['Bearer', token].join(' '),
+    'Content-Type': 'application/json',
+  }
+}
+
+async function apiCreate<T>(
+  request: APIRequestContext,
+  path: string,
+  payload: unknown,
+): Promise<T> {
+  const response = await request.post(`${API_URL}${path}`, {
+    headers: authHeaders(),
+    data: payload,
+  })
+  const body = await response.json()
+  expect(
+    response.ok(),
+    `POST ${path} -> ${response.status()}: ${JSON.stringify(body)}`,
+  ).toBeTruthy()
+  return body.data as T
+}
+
 /**
  * Fill a labelled field.
  *
@@ -223,7 +247,10 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
   const [unit] = await apiSearch(request, '/products/uoms?limit=1')
   const code = `E2E-ADJ-${RUN}`
   const created = await request.post(`${API_URL}/products/items`, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
     data: {
       code,
       name: `E2E Adjustment Item ${RUN}`,
@@ -292,6 +319,127 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
   expect(Number(available ?? 0), 'the balance did not move by the posted quantity').toBe(5)
 })
 
+test('a dispatch invoice can be issued from its row and found in the invoice register', async ({
+  request,
+}) => {
+  interface IdRecord {
+    id: string
+  }
+  interface OrderRecord extends IdRecord {
+    code: string
+    lines: Array<{ id: string }>
+  }
+  interface DispatchRecord extends IdRecord {
+    code: string
+  }
+  interface InvoiceRecord extends IdRecord {
+    code: string
+    status: string
+    dispatch_id: string
+  }
+
+  const page = shared
+  const [unit] = await apiSearch(request, '/products/uoms?limit=1')
+  const [warehouse] = await apiSearch(request, '/warehouses?limit=1&warehouse_type=FINISHED_GOODS')
+  expect(unit, 'the seeded UOM is missing').toBeTruthy()
+  expect(warehouse, 'the seeded finished-goods warehouse is missing').toBeTruthy()
+
+  const code = `E2E-INV-${RUN}`
+  const item = await apiCreate<IdRecord>(request, '/products/items', {
+    code: `ITEM-${code}`,
+    name: `Invoice UI item ${RUN}`,
+    item_group: 'FINISHED_GOOD',
+    base_uom_id: (unit as { id: string }).id,
+    production_type: 'MAKE',
+    can_sell: true,
+    sale_price: '100.00',
+    gst_rate: '0',
+  })
+  const customer = await apiCreate<IdRecord>(request, '/customers', {
+    code: `CUST-${code}`,
+    name: `Invoice UI customer ${RUN}`,
+    customer_type: 'DEALER',
+  })
+
+  const adjustment = await apiCreate<IdRecord>(request, '/inventory/adjustments', {
+    warehouse_id: (warehouse as { id: string }).id,
+    reason_code: 'OPENING',
+    reason: `Initial stock for invoice UI journey ${RUN}`,
+    lines: [{ item_id: item.id, quantity: '1', unit_cost: '10.00' }],
+  })
+  const adjustmentPosted = await request.post(
+    `${API_URL}/inventory/adjustments/${adjustment.id}/post`,
+    { headers: authHeaders() },
+  )
+  expect(adjustmentPosted.ok(), 'could not seed dispatchable stock').toBeTruthy()
+
+  const requiredDate = new Date()
+  requiredDate.setDate(requiredDate.getDate() + 14)
+  const order = await apiCreate<OrderRecord>(request, '/sales', {
+    customer_id: customer.id,
+    warehouse_id: (warehouse as { id: string }).id,
+    required_date: requiredDate.toISOString().slice(0, 10),
+    lines: [{ line_number: 1, item_id: item.id, quantity: '1', unit_price: '100.00' }],
+  })
+  await apiCreate(request, `/sales/${order.id}/confirm`, {
+    reason: `Confirm invoice UI journey ${RUN}`,
+  })
+  const dispatch = await apiCreate<DispatchRecord>(request, '/dispatch', {
+    dispatch_type: 'SALES',
+    warehouse_id: (warehouse as { id: string }).id,
+    dispatch_date: new Date().toISOString().slice(0, 10),
+    customer_id: customer.id,
+    sales_order_id: order.id,
+    lines: [
+      {
+        item_id: item.id,
+        quantity: '1',
+        sales_order_line_id: order.lines[0].id,
+      },
+    ],
+  })
+  await apiCreate(request, `/dispatch/${dispatch.id}/ready`, {
+    reason: `Ready invoice UI journey ${RUN}`,
+  })
+  const dispatched = await request.post(`${API_URL}/dispatch/${dispatch.id}/dispatch`, {
+    headers: authHeaders(),
+    data: { reason: `Dispatch invoice UI journey ${RUN}` },
+  })
+  expect(dispatched.ok(), 'could not dispatch the prepared sales order').toBeTruthy()
+
+  await page.goto('/dispatch')
+  await page.getByPlaceholder('Search dispatch code or tracking id...').fill(dispatch.code)
+  const row = page.getByRole('row').filter({ hasText: dispatch.code })
+  await expect(row).toBeVisible({ timeout: 15_000 })
+  await row.getByRole('button', { name: `Actions for ${dispatch.code}` }).click()
+  await page.getByRole('menuitem', { name: 'Raise invoice' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Raise sales invoice' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Invoice UI customer', { exact: false })).toBeVisible({
+    timeout: 15_000,
+  })
+  await dialog.getByRole('button', { name: 'Confirm and issue' }).click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  const invoices = await apiSearch(
+    request,
+    `/finance/sales-invoices?dispatch_id=${dispatch.id}&limit=5`,
+  )
+  const invoice = invoices.find(
+    (candidate) =>
+      (candidate as InvoiceRecord).dispatch_id === dispatch.id &&
+      (candidate as InvoiceRecord).status === 'ISSUED',
+  ) as InvoiceRecord | undefined
+  expect(invoice, 'the UI did not issue an invoice for the dispatch').toBeTruthy()
+
+  await page.goto('/finance/sales-invoices')
+  await page.getByPlaceholder('Search invoice number or customer').fill(invoice!.code)
+  await expect(page.getByRole('row').filter({ hasText: invoice!.code })).toBeVisible({
+    timeout: 15_000,
+  })
+})
+
 // ------------------------------------------------------------ permissions ---
 
 test('a control the user has no right to is not on the page', async ({ request }) => {
@@ -303,7 +451,10 @@ test('a control the user has no right to is not on the page', async ({ request }
   const password = 'ReadOnly!Atcraft2026'
 
   const created = await request.post(`${API_URL}/users`, {
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
     data: {
       email,
       full_name: `E2E Read Only ${RUN}`,
@@ -323,14 +474,20 @@ test('a control the user has no right to is not on the page', async ({ request }
   })
   await page.context().clearCookies()
   await page.goto(`/login`)
-  await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible({
+    timeout: 15_000,
+  })
   await page.getByRole('textbox', { name: /email/i }).fill(email)
   await page.getByRole('textbox', { name: /password/i }).fill(password)
   await page.getByRole('button', { name: /sign in|log ?in/i }).click()
-  await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20_000 })
+  await page.waitForURL((u) => !u.pathname.includes('/login'), {
+    timeout: 20_000,
+  })
 
   await page.goto(`/customers`)
-  await expect(page.getByRole('table').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('table').first()).toBeVisible({
+    timeout: 15_000,
+  })
 
   // customer.view without customer.create: the list is readable and the create
   // control must not be offered. Offering it produces a form whose only possible

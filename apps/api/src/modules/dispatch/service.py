@@ -149,7 +149,7 @@ from src.modules.inventory.models import SerialStatus, StockState, TransactionTy
 from src.modules.inventory.service import MovementRequest, post_movements
 from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationSeverity, NotificationType
-from src.modules.notifications.service import notify_role
+from src.modules.notifications.service import notify_customer, notify_role
 from src.modules.packing import service as packing
 from src.modules.packing.models import PackingOrder, PackingOrderStatus
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
@@ -2232,6 +2232,39 @@ async def dispatch_consignment(
                 "reason": payload.reason,
             },
         )
+        if dispatch.customer_id is not None:
+            carrier_name = dispatch.courier_name or dispatch.transport_name
+            if carrier_name is None and dispatch.transporter_id is not None:
+                transporter = await TransporterLookupRepository(session, tenant).get_facts(
+                    dispatch.transporter_id
+                )
+                carrier_name = transporter[1] if transporter is not None else None
+            carrier = carrier_name or "not recorded"
+            tracking_id = dispatch.tracking_id or "not recorded"
+            lr_number = dispatch.lr_number or "not recorded"
+            expected_date = (
+                dispatch.expected_delivery_date.isoformat()
+                if dispatch.expected_delivery_date is not None
+                else "not specified"
+            )
+            await notify_customer(
+                session,
+                company_id=tenant.company_id,
+                customer_id=dispatch.customer_id,
+                permission=Permission.DEALER_PORTAL_ORDER,
+                notification_type=NotificationType.DEALER_ORDER_DISPATCHED,
+                title=f"Order dispatched: {dispatch.code}",
+                body=(
+                    f"Courier: {carrier}. Tracking ID: {tracking_id}. "
+                    f"LR: {lr_number}. Expected delivery: {expected_date}."
+                ),
+                action_url=f"/dealer/orders/{dispatch.sales_order_id}"
+                if dispatch.sales_order_id is not None
+                else "/dealer/orders",
+                entity_type=AUDIT_DISPATCH,
+                entity_id=dispatch.id,
+                actor_id=tenant.user_id,
+            )
 
     return DispatchResult(
         dispatch=dispatch_detail(dispatch, lines),
@@ -2407,6 +2440,22 @@ async def confirm_delivery(
                 "delay_days": delay_days(dispatch.expected_delivery_date, arrival),
             },
         )
+        if dispatch.customer_id is not None:
+            await notify_customer(
+                session,
+                company_id=tenant.company_id,
+                customer_id=dispatch.customer_id,
+                permission=Permission.DEALER_PORTAL_ORDER,
+                notification_type=NotificationType.DEALER_ORDER_DELIVERED,
+                title=f"Order delivered: {dispatch.code}",
+                body=f"Delivery of {dispatch.code} was confirmed on {arrival.isoformat()}.",
+                action_url=f"/dealer/orders/{dispatch.sales_order_id}"
+                if dispatch.sales_order_id is not None
+                else "/dealer/orders",
+                entity_type=AUDIT_DISPATCH,
+                entity_id=dispatch.id,
+                actor_id=tenant.user_id,
+            )
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
 
     return dispatch_detail(dispatch, lines)
@@ -2436,6 +2485,7 @@ async def add_tracking_event(
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
         current = DispatchStatus(dispatch.status)
+        was_in_flight = current in IN_FLIGHT_STATUSES
         target = payload.event_status
         event_time = payload.event_time or utcnow()
 
@@ -2482,6 +2532,24 @@ async def add_tracking_event(
             remark=payload.remark,
             source=payload.source,
         )
+        if was_in_flight and dispatch.customer_id is not None:
+            detail = payload.remark or payload.location or str(target).replace("_", " ").title()
+            await notify_customer(
+                session,
+                company_id=tenant.company_id,
+                customer_id=dispatch.customer_id,
+                permission=Permission.DEALER_PORTAL_ORDER,
+                notification_type=NotificationType.COURIER_TRACKING_UPDATED,
+                title=f"Tracking updated: {dispatch.code}",
+                body=f"{dispatch.code}: {detail}.",
+                action_url=f"/dealer/orders/{dispatch.sales_order_id}"
+                if dispatch.sales_order_id is not None
+                else "/dealer/orders",
+                entity_type=AUDIT_DISPATCH,
+                entity_id=dispatch.id,
+                actor_id=tenant.user_id,
+                group_key=f"dealer-tracking:{dispatch.id}",
+            )
 
     return TrackingEventRead.model_validate(event)
 

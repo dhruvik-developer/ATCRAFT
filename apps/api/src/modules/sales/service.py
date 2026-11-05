@@ -2960,6 +2960,23 @@ async def confirm_order(
             context={"warehouse_id": order.warehouse_id, "reason": reason},
         )
 
+        from src.modules.notifications.models import NotificationType
+        from src.modules.notifications.service import notify_customer
+
+        await notify_customer(
+            session,
+            company_id=tenant.company_id,
+            customer_id=order.customer_id,
+            permission=Permission.DEALER_PORTAL_ORDER,
+            notification_type=NotificationType.DEALER_ORDER_CONFIRMED,
+            title=f"Order confirmed: {order.code}",
+            body=f"Your order {order.code} has been confirmed.",
+            action_url=f"/dealer/orders/{order.id}",
+            entity_type=AUDIT_SALES_ORDER,
+            entity_id=order.id,
+            actor_id=tenant.user_id,
+        )
+
         if shortfalls:
             log.info(
                 "sales.confirm.partial_allocation",

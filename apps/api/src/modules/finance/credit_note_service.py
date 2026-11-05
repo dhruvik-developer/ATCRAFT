@@ -531,6 +531,23 @@ async def issue_credit_note(
                 "cost_pending_line_ids": pending_cost_lines,
             },
         )
+        from src.core.permissions import Permission
+        from src.modules.notifications.models import NotificationType
+        from src.modules.notifications.service import notify_customer
+
+        await notify_customer(
+            session,
+            company_id=tenant.company_id,
+            customer_id=row.customer_id,
+            permission=Permission.DEALER_PORTAL_ACCOUNT,
+            notification_type=NotificationType.DEALER_CREDIT_NOTE_ISSUED,
+            title=f"Credit note issued: {row.code}",
+            body=f"Credit note {row.code} was issued for {row.currency} {row.total_amount}.",
+            action_url="/dealer/account",
+            entity_type="credit_note",
+            entity_id=row.id,
+            actor_id=tenant.user_id,
+        )
         await session.flush()
     return await get_credit_note(session, tenant, row.id)
 

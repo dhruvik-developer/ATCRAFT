@@ -4408,3 +4408,22 @@ keeps the synchronous PDF response bounded.
 **Impact if wrong.** If the warehouse uses another stock size or grid, change
 the renderer's page geometry and update this assumption; do not alter the
 serial identity or tenant checks.
+
+## §A5-1. Dealer payment reminders are per user, customer and currency
+
+**Assumed.** A dealer user with `dealer_portal.account` receives at most one
+reminder for a customer and currency in any rolling seven-day period. The
+reminder carries the current overdue total and oldest due date. Muted users have
+no notification row and therefore do not suppress reminders to other users of
+the same customer.
+
+**Why.** Dealers may have separate order and accounts users, and the reminder
+contains account information. Cadence must follow each recipient's preference
+and right rather than a company-wide timer.
+
+**Where.** `src/modules/collections/service.py` -
+`DEALER_PAYMENT_REMINDER_DAYS`; `src/modules/notifications/repository.py` -
+customer-scoped recipient and recent-group queries.
+
+**Impact if wrong.** Change the cadence constant or notification grouping
+policy; do not send account reminders to users lacking the account right.

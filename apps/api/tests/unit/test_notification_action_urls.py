@@ -12,7 +12,13 @@ pytestmark = pytest.mark.unit
 API_ROOT = Path(__file__).resolve().parents[2]
 MODULES = API_ROOT / "src" / "modules"
 ROUTE_LOADERS = API_ROOT.parent / "web" / "src" / "app" / "route-loaders.ts"
-NOTIFICATION_CALLS = {"notify", "NotificationDraft", "AlertCandidate"}
+NOTIFICATION_CALLS = {
+    "notify",
+    "notify_customer",
+    "notify_vendor",
+    "NotificationDraft",
+    "AlertCandidate",
+}
 
 
 def _function_name(node: ast.Call) -> str:

@@ -66,6 +66,7 @@ from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate, SalesI
 from src.modules.finance.schemas import AllocationRequest, PaymentAllocationIn, PaymentCreate
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import InventoryTransaction, TransactionType
+from src.modules.notifications.models import Notification, NotificationType
 from src.modules.quality import service as quality
 from src.modules.quality.schemas import DecideRequest
 from src.modules.reports.repository import ReportQueryRepository
@@ -75,6 +76,7 @@ from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatu
 from src.modules.sales_returns import service as returns
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
 from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
+from src.modules.users.models import User
 from tests.seed_support import seed_customer, seed_item, seed_uom, seed_warehouse
 
 pytestmark = pytest.mark.integration
@@ -243,6 +245,126 @@ async def make_dispatch(b, quantity="200", *, leave=True):
 async def issue(b, dispatch):
     return await invoices.issue_sales_invoice(
         b.session, b.tenant, SalesInvoiceCreate(dispatch_id=dispatch.id)
+    )
+
+
+async def dealer_accounts(b):
+    b.customer.customer_type = CustomerType.DEALER
+    other_customer = await seed_customer(
+        b.session,
+        company_id=b.tenant.company_id,
+        code=f"OTHER{uuid.uuid4().hex[:6]}",
+        customer_type=CustomerType.DEALER,
+    )
+    permissions = ["dealer_portal.account", "dealer_portal.return", "dealer_portal.order"]
+    dealer = User(
+        company_id=b.tenant.company_id,
+        email=f"dealer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Dealer account user",
+        password_hash="x",
+        customer_id=b.customer.id,
+        extra_permissions=permissions,
+        is_active=True,
+    )
+    other = User(
+        company_id=b.tenant.company_id,
+        email=f"dealer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Other dealer account user",
+        password_hash="x",
+        customer_id=other_customer.id,
+        extra_permissions=permissions,
+        is_active=True,
+    )
+    b.session.add_all([dealer, other])
+    await b.session.flush()
+    return dealer, other
+
+
+async def test_dealer_invoice_return_and_credit_note_notifications(bench):
+    b = bench
+    dealer, other = await dealer_accounts(b)
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    return_row = await _return_for_invoice(b, dispatch, requires_qc=False, receive=True)
+    credit_note = await b.session.scalar(
+        select(CreditNote).where(CreditNote.sales_return_id == return_row.id)
+    )
+
+    notices = list(
+        (
+            await b.session.scalars(
+                select(Notification).where(
+                    Notification.company_id == b.tenant.company_id,
+                    Notification.user_id == dealer.id,
+                )
+            )
+        ).all()
+    )
+    by_type = {notice.notification_type: notice for notice in notices}
+    assert by_type[NotificationType.DEALER_INVOICE_ISSUED].action_url == (
+        f"/dealer/invoices/{invoice.id}"
+    )
+    assert by_type[NotificationType.DEALER_RETURN_RECEIVED].action_url == "/dealer/returns"
+    assert by_type[NotificationType.DEALER_CREDIT_NOTE_ISSUED].action_url == "/dealer/account"
+    assert credit_note is not None
+    assert credit_note.code in by_type[NotificationType.DEALER_CREDIT_NOTE_ISSUED].body
+    assert (
+        await b.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
+
+
+async def test_dealer_payment_reminder_is_scoped_and_limited_to_seven_days(bench):
+    b = bench
+    dealer, other = await dealer_accounts(b)
+    dispatch = await make_dispatch(b)
+    invoice = await issue(b, dispatch)
+    as_of = invoice.due_date + timedelta(days=1)
+
+    first = await collections_service.scan_overdue_receivables(b.session, b.tenant, as_of=as_of)
+
+    assert first.reminded == 1
+    reminder = await b.session.scalar(
+        select(Notification).where(
+            Notification.company_id == b.tenant.company_id,
+            Notification.user_id == dealer.id,
+            Notification.notification_type == NotificationType.DEALER_PAYMENT_REMINDER,
+        )
+    )
+    assert reminder is not None
+    assert reminder.action_url == "/dealer/account"
+    assert invoice.due_date.isoformat() in reminder.body
+    assert str(invoice.total_amount) in reminder.body
+    assert (
+        await b.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
+
+    follow_up = await b.session.scalar(
+        select(PaymentFollowUp).where(
+            PaymentFollowUp.company_id == b.tenant.company_id,
+            PaymentFollowUp.customer_id == b.customer.id,
+        )
+    )
+    assert follow_up is not None
+    follow_up.last_reminded_at = utcnow() - timedelta(days=8)
+    await b.session.flush()
+    await collections_service.scan_overdue_receivables(
+        b.session, b.tenant, as_of=as_of + timedelta(days=1)
+    )
+    assert (
+        await b.session.scalar(
+            select(func.count()).where(
+                Notification.company_id == b.tenant.company_id,
+                Notification.user_id == dealer.id,
+                Notification.notification_type == NotificationType.DEALER_PAYMENT_REMINDER,
+            )
+        )
+        == 1
     )
 
 

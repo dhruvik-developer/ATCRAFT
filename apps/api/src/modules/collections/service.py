@@ -73,7 +73,8 @@ from src.modules.collections.schemas import (
 from src.modules.customers.models import Customer
 from src.modules.customers.service import CustomerService
 from src.modules.notifications.models import NotificationSeverity, NotificationType
-from src.modules.notifications.service import notify, notify_role
+from src.modules.notifications.repository import NotificationRepository
+from src.modules.notifications.service import NotificationDraft, notify, notify_many, notify_role
 from src.modules.users.models import User
 
 AUDIT_FOLLOW_UP = "payment_follow_up"
@@ -82,6 +83,7 @@ AUDIT_FOLLOW_UP_NOTE = "payment_follow_up_note"
 #: The collections screen, filtered to one customer. The sweep sends this in the
 #: notification body so the recipient lands on the row, not on a list to search.
 COLLECTIONS_PATH = "/finance/collections"
+DEALER_PAYMENT_REMINDER_DAYS = 7
 
 FOLLOW_UP_LIFECYCLE: StateMachine[FollowUpStatus] = StateMachine(
     entity="Receivables follow up",
@@ -900,17 +902,66 @@ async def scan_overdue_receivables(
         result.opened += 1
 
     # --- (e) reminders ------------------------------------------------------
-    for key, follow in live_map.items():
-        if follow.status not in LIVE_FOLLOW_UP_STATUSES:
-            continue
-        if follow.current_overdue_amount <= ZERO:
-            continue
-        if not reminder_due(follow.last_reminded_at, moment):
-            continue
+    reminders_due = [
+        (key, follow)
+        for key, follow in live_map.items()
+        if follow.status in LIVE_FOLLOW_UP_STATUSES
+        and follow.current_overdue_amount > ZERO
+        and reminder_due(follow.last_reminded_at, moment)
+    ]
+    dealer_drafts: list[NotificationDraft] = []
+    notification_repo = NotificationRepository.for_company(session, tenant.company_id)
+    reminder_customer_ids = sorted({key[0] for key, _ in reminders_due})
+    dealer_users = await notification_repo.user_ids_by_customer(
+        reminder_customer_ids, permission=Permission.DEALER_PORTAL_ACCOUNT
+    )
+    group_keys = [
+        f"dealer-payment-reminder:{follow.customer_id}:{follow.currency}"
+        for _, follow in reminders_due
+    ]
+    dealer_user_ids = sorted(
+        {user_id for recipients in dealer_users.values() for user_id in recipients}
+    )
+    recently_reminded = await notification_repo.recent_group_recipients(
+        group_keys,
+        dealer_user_ids,
+        notification_type=NotificationType.DEALER_PAYMENT_REMINDER,
+        since=moment - timedelta(days=DEALER_PAYMENT_REMINDER_DAYS),
+    )
+    for key, follow in reminders_due:
         name = briefs.get(key[0], ("", "", None))[1] or "the customer"
         await _remind(session, tenant, follow, name)
+        group_key = f"dealer-payment-reminder:{follow.customer_id}:{follow.currency}"
+        recipients = [
+            user_id
+            for user_id in dealer_users.get(follow.customer_id, [])
+            if (group_key, user_id) not in recently_reminded
+        ]
+        if recipients:
+            dealer_drafts.append(
+                NotificationDraft(
+                    user_ids=recipients,
+                    title=f"Payment reminder: {name}",
+                    body=(
+                        f"{follow.currency} {to_money(follow.current_overdue_amount)} is overdue. "
+                        f"Oldest due date: {follow.oldest_due_date.isoformat()}."
+                    ),
+                    severity=NotificationSeverity.INFO,
+                    entity_type=AUDIT_FOLLOW_UP,
+                    entity_id=follow.id,
+                    action_url="/dealer/account",
+                    group_key=group_key,
+                )
+            )
         follow.last_reminded_at = moment
         result.reminded += 1
+    await notify_many(
+        session,
+        company_id=tenant.company_id,
+        notification_type=NotificationType.DEALER_PAYMENT_REMINDER,
+        drafts=dealer_drafts,
+        write_audit=False,
+    )
 
     result.changed = bool(
         result.opened

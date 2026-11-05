@@ -47,6 +47,7 @@ from src.core.errors import (
 )
 from src.core.models import Base
 from src.core.pagination import CursorParams, PageParams, SortParams
+from src.core.permissions import Permission
 from src.modules.allocation import service as allocation
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
 from src.modules.audit.models import AuditLog
@@ -312,6 +313,34 @@ async def seed_customer(ctx: Ctx) -> Customer:
     return customer
 
 
+async def dealer_users(ctx: Ctx, customer: Customer) -> tuple[User, User]:
+    customer.customer_type = CustomerType.DEALER
+    other_customer = await seed_customer(ctx)
+    other_customer.customer_type = CustomerType.DEALER
+    permission = Permission.DEALER_PORTAL_ORDER.value
+    dealer = User(
+        company_id=ctx.company_id,
+        email=f"dealer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Dealer user",
+        password_hash="x",
+        customer_id=customer.id,
+        extra_permissions=[permission],
+        is_active=True,
+    )
+    other = User(
+        company_id=ctx.company_id,
+        email=f"dealer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Other dealer user",
+        password_hash="x",
+        customer_id=other_customer.id,
+        extra_permissions=[permission],
+        is_active=True,
+    )
+    ctx.session.add_all([dealer, other])
+    await ctx.session.flush()
+    return dealer, other
+
+
 class Bench:
     """One warehouse, one customer, one saleable item, one allocated order."""
 
@@ -478,7 +507,12 @@ async def test_dispatch_draws_down_the_reservation_and_the_shelf_together(ctx: C
 
 async def test_gate_details_are_saved_with_dispatch_and_tracking_event(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
-    plan = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+    dealer, other = await dealer_users(ctx, bench.customer)
+    plan = await service.create_dispatch(
+        ctx.session,
+        ctx.tenant,
+        bench.payload("40", courier_name="Blue Dart"),
+    )
     await service.mark_ready(ctx.session, ctx.tenant, plan.id, reason="Loaded")
 
     result = await service.dispatch_consignment(
@@ -512,6 +546,25 @@ async def test_gate_details_are_saved_with_dispatch_and_tracking_event(ctx: Ctx)
         )
     ).scalar_one()
     assert event.location == "Pune plant gate"
+    notice = await ctx.session.scalar(
+        select(Notification).where(
+            Notification.company_id == ctx.company_id,
+            Notification.user_id == dealer.id,
+            Notification.notification_type == NotificationType.DEALER_ORDER_DISPATCHED,
+        )
+    )
+    assert notice is not None
+    assert notice.action_url == f"/dealer/orders/{bench.order.id}"
+    assert "Blue Dart" in notice.body
+    assert "TRACK-204" in notice.body
+    assert "LR-204" in notice.body
+    assert (TODAY + timedelta(days=6)).isoformat() in notice.body
+    assert (
+        await ctx.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
 
 
 async def test_dispatch_writes_one_negative_ledger_row_pointing_at_the_consignment(
@@ -1198,6 +1251,7 @@ async def courier_account(ctx: Ctx, *, auto_confirm_delivery: bool):
 
 async def test_confirming_delivery_records_the_date_and_a_tracking_event(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
+    dealer, other = await dealer_users(ctx, bench.customer)
     result = await send(ctx, bench, "10")
 
     arrived = TODAY + timedelta(days=3)
@@ -1219,6 +1273,22 @@ async def test_confirming_delivery_records_the_date_and_a_tracking_event(ctx: Ct
     )
     assert next(event.event_status for event in events) is DispatchStatus.DELIVERED
     assert any(event.event_status is DispatchStatus.DISPATCHED for event in events)
+    notice = await ctx.session.scalar(
+        select(Notification).where(
+            Notification.company_id == ctx.company_id,
+            Notification.user_id == dealer.id,
+            Notification.notification_type == NotificationType.DEALER_ORDER_DELIVERED,
+        )
+    )
+    assert notice is not None
+    assert notice.action_url == f"/dealer/orders/{bench.order.id}"
+    assert arrived.isoformat() in notice.body
+    assert (
+        await ctx.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
 
 
 @pytest.mark.parametrize(
@@ -1326,6 +1396,7 @@ async def test_an_arrival_before_the_lorry_left_is_refused(ctx: Ctx) -> None:
 
 async def test_a_tracking_event_moves_the_consignment_through_the_machine(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
+    dealer, other = await dealer_users(ctx, bench.customer)
     result = await send(ctx, bench, "10")
 
     event = await service.add_tracking_event(
@@ -1338,6 +1409,29 @@ async def test_a_tracking_event_moves_the_consignment_through_the_machine(ctx: C
 
     detail = await service.get_dispatch_detail(ctx.session, ctx.tenant, result.dispatch.id)
     assert detail.status is DispatchStatus.IN_TRANSIT
+    await service.add_tracking_event(
+        ctx.session,
+        ctx.tenant,
+        result.dispatch.id,
+        TrackingEventIn(event_status=DispatchStatus.IN_TRANSIT, location="Mumbai hub"),
+    )
+    notice = await ctx.session.scalar(
+        select(Notification).where(
+            Notification.company_id == ctx.company_id,
+            Notification.user_id == dealer.id,
+            Notification.notification_type == NotificationType.COURIER_TRACKING_UPDATED,
+        )
+    )
+    assert notice is not None
+    assert notice.action_url == f"/dealer/orders/{bench.order.id}"
+    assert notice.occurrence_count == 2
+    assert "Mumbai hub" in notice.body
+    assert (
+        await ctx.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
 
 
 async def test_a_courier_cannot_walk_a_consignment_into_an_illegal_status(ctx: Ctx) -> None:

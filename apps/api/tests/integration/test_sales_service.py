@@ -61,6 +61,7 @@ from src.modules.audit.schemas import ApprovalStatus
 from src.modules.customers.models import AddressType, Customer, CustomerAddress, CustomerType
 from src.modules.dealer_portal.models import DealerOffer
 from src.modules.inventory.models import InventoryBalance
+from src.modules.notifications.models import Notification, NotificationType
 from src.modules.organization.models import Company
 from src.modules.products.models import (
     Item,
@@ -737,6 +738,65 @@ async def test_confirm_with_full_stock_moves_the_order_to_allocated(ctx: Ctx):
 
     assert result.order.status is SalesOrderStatus.ALLOCATED
     assert result.allocation.fully_allocated is True
+
+
+async def test_order_confirmation_notifies_only_its_dealer_users(ctx: Ctx):
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    customer.customer_type = CustomerType.DEALER
+    other_customer, _ = await seed_customer(ctx)
+    other_customer.customer_type = CustomerType.DEALER
+    permission = Permission.DEALER_PORTAL_ORDER.value
+    dealer = User(
+        company_id=ctx.tenant.company_id,
+        email=f"dealer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Dealer user",
+        password_hash="x",
+        customer_id=customer.id,
+        extra_permissions=[permission],
+        is_active=True,
+    )
+    other = User(
+        company_id=ctx.tenant.company_id,
+        email=f"dealer-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Other dealer user",
+        password_hash="x",
+        customer_id=other_customer.id,
+        extra_permissions=[permission],
+        is_active=True,
+    )
+    ctx.session.add_all([dealer, other])
+    await ctx.session.flush()
+    item = await seed_item(ctx, uom)
+    await seed_stock(ctx, item, warehouse, "100")
+    order = await make_draft(ctx, customer, warehouse, [line(item, "10")])
+
+    await service.confirm_order(
+        ctx.session,
+        ctx.tenant,
+        ctx.principal,
+        order.id,
+        reason="Dealer order accepted",
+        allocation=ctx.allocation,
+    )
+
+    notice = await ctx.session.scalar(
+        select(Notification).where(
+            Notification.company_id == ctx.tenant.company_id,
+            Notification.user_id == dealer.id,
+            Notification.notification_type == NotificationType.DEALER_ORDER_CONFIRMED,
+        )
+    )
+    assert notice is not None
+    assert notice.action_url == f"/dealer/orders/{order.id}"
+    assert order.code in notice.body
+    assert (
+        await ctx.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
 
 
 async def test_two_lines_for_the_same_item_share_one_pool(ctx: Ctx):

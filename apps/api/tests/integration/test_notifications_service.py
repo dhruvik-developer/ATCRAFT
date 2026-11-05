@@ -65,6 +65,9 @@ async def _make_user(
     *,
     is_active: bool = True,
     roles: tuple = (),
+    customer_id: uuid.UUID | None = None,
+    extra_permissions: list[str] | None = None,
+    denied_permissions: list[str] | None = None,
 ):
     from src.core.security import hash_password
     from src.modules.users.models import User
@@ -75,6 +78,9 @@ async def _make_user(
         full_name="Notified Person",
         password_hash=hash_password("TestPassword!2026"),
         is_active=is_active,
+        customer_id=customer_id,
+        extra_permissions=extra_permissions,
+        denied_permissions=denied_permissions,
     )
     # Roles are attached before the object is persisted: appending to the
     # collection of an already-flushed instance would trigger a lazy load from a
@@ -84,6 +90,22 @@ async def _make_user(
     session.add(record)
     await session.flush()
     return record
+
+
+async def _make_customer(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
+    from src.modules.customers.models import Customer, CustomerType
+    from src.modules.products.models import PriceType
+
+    record = Customer(
+        company_id=company_id,
+        code=f"DL-{uuid.uuid4().hex[:8].upper()}",
+        name="Dealer",
+        customer_type=CustomerType.DEALER,
+        price_list_type=PriceType.SALE,
+    )
+    session.add(record)
+    await session.flush()
+    return record.id
 
 
 async def _make_role(session: AsyncSession, company_id: uuid.UUID, code: str, *, active=True):
@@ -796,3 +818,51 @@ class TestRetentionOfHistory:
         assert [i.id for i in items] == [written[0].id]
         assert items[0].read_at is not None
         assert items[0].read_at <= utcnow() + timedelta(seconds=1)
+
+
+class TestDealerRecipientResolution:
+    async def test_resolves_only_active_customer_users_with_the_requested_permission(
+        self, session: AsyncSession, company, other_company
+    ) -> None:
+        customer_id = await _make_customer(session, company.id)
+        other_customer_id = await _make_customer(session, other_company.id)
+        permission = "dealer_portal.account"
+        allowed = await _make_user(
+            session,
+            company.id,
+            customer_id=customer_id,
+            extra_permissions=[permission],
+        )
+        await _make_user(
+            session,
+            company.id,
+            customer_id=customer_id,
+            extra_permissions=[permission],
+            denied_permissions=[permission],
+        )
+        await _make_user(
+            session,
+            company.id,
+            is_active=False,
+            customer_id=customer_id,
+            extra_permissions=[permission],
+        )
+        await _make_user(
+            session,
+            company.id,
+            customer_id=other_customer_id,
+            extra_permissions=[permission],
+        )
+        await _make_user(
+            session,
+            other_company.id,
+            customer_id=other_customer_id,
+            extra_permissions=[permission],
+        )
+        repo = NotificationRepository(
+            session, TenantContext(company_id=company.id, user_id=allowed.id)
+        )
+
+        found = await repo.user_ids_for_customer(customer_id, permission=permission)
+
+        assert found == [allowed.id]

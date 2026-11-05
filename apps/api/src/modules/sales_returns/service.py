@@ -534,6 +534,23 @@ async def transition_return(
         )
         await session.flush()
         if target == SalesReturnStatus.RECEIVED:
+            from src.core.permissions import Permission
+            from src.modules.notifications.models import NotificationType
+            from src.modules.notifications.service import notify_customer
+
+            await notify_customer(
+                session,
+                company_id=tenant.company_id,
+                customer_id=row.customer_id,
+                permission=Permission.DEALER_PORTAL_RETURN,
+                notification_type=NotificationType.DEALER_RETURN_RECEIVED,
+                title=f"Return received: {row.code}",
+                body=f"Your return {row.code} has been received and is awaiting quality review.",
+                action_url="/dealer/returns",
+                entity_type="sales_return",
+                entity_id=row.id,
+                actor_id=tenant.user_id,
+            )
             await _issue_return_credit_note(session, tenant, row.id, lines)
             await session.flush()
     return await get_return(session, tenant, row.id)

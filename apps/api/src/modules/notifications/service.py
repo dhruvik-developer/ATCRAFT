@@ -1266,3 +1266,37 @@ async def notify_vendor(
         severity=severity,
         group_key=group_key,
     )
+
+
+async def notify_customer(
+    session: AsyncSession,
+    customer_id: uuid.UUID,
+    *,
+    company_id: uuid.UUID,
+    notification_type: NotificationType,
+    title: str,
+    body: str,
+    permission: str,
+    action_url: str,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    actor_id: uuid.UUID | None = None,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    group_key: str | None = None,
+) -> list[Notification]:
+    repo = NotificationRepository.for_company(session, company_id, actor_id)
+    recipients = await repo.user_ids_for_customer(customer_id, permission=permission)
+    return await notify(
+        session,
+        company_id=company_id,
+        user_ids=recipients,
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        action_url=action_url,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        actor_id=actor_id,
+        severity=severity,
+        group_key=group_key,
+    )
