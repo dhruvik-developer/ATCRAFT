@@ -214,6 +214,9 @@ test("the form shows the server's validation message rather than swallowing it",
 
   await dialog.getByRole('button', { name: 'Close' }).click()
   await expect(dialog).toBeHidden()
+  const duplicateToast = page.getByRole('alert')
+  await duplicateToast.getByRole('button', { name: 'Dismiss' }).click()
+  await expect(duplicateToast).toBeHidden()
 })
 
 test('a required field is refused before anything reaches the network', async () => {
