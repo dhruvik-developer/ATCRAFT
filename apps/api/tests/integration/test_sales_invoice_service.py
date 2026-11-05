@@ -8,7 +8,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from src.core.clock import today, utcnow
 from src.core.errors import (
@@ -316,7 +316,7 @@ async def test_dealer_invoice_return_and_credit_note_notifications(bench):
     )
 
 
-async def test_dealer_payment_reminder_is_scoped_and_limited_to_seven_days(bench):
+async def test_dealer_payment_reminder_uses_latest_grouped_occurrence(bench):
     b = bench
     dealer, other = await dealer_accounts(b)
     dispatch = await make_dispatch(b)
@@ -337,6 +337,7 @@ async def test_dealer_payment_reminder_is_scoped_and_limited_to_seven_days(bench
     assert reminder.action_url == "/dealer/account"
     assert invoice.due_date.isoformat() in reminder.body
     assert str(invoice.total_amount) in reminder.body
+    assert reminder.occurrence_count == 1
     assert (
         await b.session.scalar(
             select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
@@ -351,11 +352,27 @@ async def test_dealer_payment_reminder_is_scoped_and_limited_to_seven_days(bench
         )
     )
     assert follow_up is not None
+    aged = utcnow() - timedelta(days=8)
+    await b.session.execute(
+        update(Notification)
+        .where(Notification.id == reminder.id)
+        .values(created_at=aged, updated_at=aged)
+    )
+    follow_up.last_reminded_at = aged
+    await b.session.flush()
+    await collections_service.scan_overdue_receivables(
+        b.session, b.tenant, as_of=as_of + timedelta(days=8)
+    )
+    await b.session.refresh(reminder)
+    assert reminder.occurrence_count == 2
+    assert reminder.created_at == aged
+
     follow_up.last_reminded_at = utcnow() - timedelta(days=8)
     await b.session.flush()
     await collections_service.scan_overdue_receivables(
-        b.session, b.tenant, as_of=as_of + timedelta(days=1)
+        b.session, b.tenant, as_of=as_of + timedelta(days=9)
     )
+    await b.session.refresh(reminder)
     assert (
         await b.session.scalar(
             select(func.count()).where(
@@ -366,6 +383,7 @@ async def test_dealer_payment_reminder_is_scoped_and_limited_to_seven_days(bench
         )
         == 1
     )
+    assert reminder.occurrence_count == 2
 
 
 async def test_partial_dispatch_topup_and_invoice_discount_reconcile(bench):

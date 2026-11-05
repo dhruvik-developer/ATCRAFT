@@ -2,7 +2,8 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 
 import type { SchemaOf } from '../../../apps/web/src/types/api'
 import { API_URL, BASE_URL } from '../lib/env.mjs'
-import { readyAdminToken } from '../lib/session.mjs'
+import { createNavigator } from '../lib/navigation.mjs'
+import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 /**
  * The critical journey from master rules section 66, as far as material
@@ -29,7 +30,6 @@ import { readyAdminToken } from '../lib/session.mjs'
  */
 
 const RUN = Date.now().toString(36).toUpperCase().slice(-6)
-const AUTH_FILE = './.auth/admin.json'
 
 interface Ids {
   finishedGoodId: string
@@ -48,17 +48,11 @@ let token: string
 let buyerToken = ''
 
 /**
- * One signed-in page, shared by every test in this file.
- *
- * `auth.setup.ts` saves a storage state whose only credential is the refresh
- * cookie, and refresh tokens rotate: the first context to present it gets a new
- * one and the file's copy is spent. Restoring the file into a fresh context per
- * test - which is what the `page` fixture does - makes the second test a
- * replay, the API revokes the whole family (correctly: that is how a stolen
- * token is contained), and the test silently lands on /login. So the file is
- * restored once, here, and the page is reused in order.
+ * One signed-in page, shared by every test in this file. Keep its access token
+ * in memory and change screens through the SPA router rather than reloading it.
  */
 let shared: Page
+let navigate: (route: string) => Promise<void>
 
 async function apiJson(
   request: APIRequestContext,
@@ -105,7 +99,7 @@ test.beforeAll(async ({ browser, playwright }) => {
       full_name: `E2E Buyer ${RUN}`,
       password: buyerPassword,
       must_change_password: false,
-      extra_permissions: ['vendor.create', 'vendor.view'],
+      extra_permissions: ['vendor.create', 'vendor.view', 'purchase_order.approve'],
     },
   })
   expect(
@@ -121,8 +115,15 @@ test.beforeAll(async ({ browser, playwright }) => {
 
   await request.dispose()
 
-  const context = await browser.newContext({ baseURL: BASE_URL, storageState: AUTH_FILE })
+  const context = await browser.newContext({
+    baseURL: BASE_URL,
+    storageState: { cookies: [], origins: [] },
+  })
   shared = await context.newPage()
+  const navigator = createNavigator(shared)
+  await signInThroughForm(shared)
+  await navigator.settle()
+  navigate = navigator.navigate
 })
 
 test.afterAll(async () => {
@@ -273,7 +274,7 @@ test('02 — BOM is created and approved', async ({ request }) => {
 
   // The explosion result is what MRP and production will consume, so verify it
   // in the UI where a planner would actually read it.
-  await page.goto(`/bom/${bom.id}`)
+  await navigate(`/bom/${bom.id}`)
   // The heading is the BOM's own document number, not the item's - this is a
   // document page, and `BOM/00008` is what a planner quotes on the phone. The
   // item it belongs to is on the page, which is what actually needs proving:
@@ -301,7 +302,7 @@ test('03 — sales order confirms and reserves what stock exists', async ({ requ
 
   // The page identifies itself by the order's document number. A redirect to
   // /login also renders a level-1 heading, so the name is the assertion.
-  await page.goto(`/sales-orders/${order.id}`)
+  await navigate(`/sales-orders/${order.id}`)
   await expect(page.getByRole('heading', { level: 1, name: order.code })).toBeVisible()
 
   // With no finished-goods stock, a shortfall is the CORRECT outcome — partial
@@ -338,7 +339,7 @@ test('04 — MRP consolidates demand and proposes purchases', async ({ request }
   )
   expect(screwSuggestions.length, 'common parts must be consolidated into one requirement').toBe(1)
 
-  await page.goto(`/mrp/runs/${runId}`)
+  await navigate(`/mrp/runs/${runId}`)
   await expect(page.getByRole('heading', { level: 1, name: completed.code })).toBeVisible()
 })
 
@@ -365,8 +366,15 @@ test('05 — purchase order, receipt, and stock actually moves', async ({ reques
     reason: 'Priced and sent for buying approval',
   })
   await apiJson(request, 'post', `/procurement/purchase-orders/${po.id}/approve`, {
-    reason: 'Within the buyer authority limit',
+    reason: 'First approval of the above-threshold purchase order',
   })
+  await apiJson(
+    request,
+    'post',
+    `/procurement/purchase-orders/${po.id}/approve`,
+    { reason: 'Second distinct approval of the purchase order' },
+    buyerToken,
+  )
   await apiJson(request, 'post', `/procurement/purchase-orders/${po.id}/send`, {
     reason: 'Order released to the vendor',
   })
@@ -410,7 +418,7 @@ test('06 — the audit trail reconstructs what happened', async ({ request }) =>
   const entries = Array.isArray(history) ? history : history.data
   expect(entries.length, 'a confirmed sales order must leave an audit trail').toBeGreaterThan(0)
 
-  await page.goto('/audit')
+  await navigate('/audit')
   await expect(page.getByRole('heading', { level: 1, name: 'Audit trail' })).toBeVisible()
 })
 

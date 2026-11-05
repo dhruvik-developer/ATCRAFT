@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
@@ -1470,6 +1470,53 @@ async def test_a_position_update_appends_history_without_moving_the_status(ctx: 
         ctx.session, ctx.tenant, result.dispatch.id, params=CursorParams(limit=50)
     )
     assert [e.location for e in events if e.location][:2] == ["Nashik hub", "Pune hub"]
+
+
+async def test_tracking_event_delivery_sends_the_dealer_delivery_notification(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    dealer, other = await dealer_users(ctx, bench.customer)
+    result = await send(ctx, bench, "10")
+
+    await service.add_tracking_event(
+        ctx.session,
+        ctx.tenant,
+        result.dispatch.id,
+        TrackingEventIn(
+            event_status=DispatchStatus.IN_TRANSIT,
+            event_time=datetime.combine(TODAY + timedelta(days=4), time(10), tzinfo=UTC),
+        ),
+    )
+    await service.add_tracking_event(
+        ctx.session,
+        ctx.tenant,
+        result.dispatch.id,
+        TrackingEventIn(
+            event_status=DispatchStatus.DELIVERED,
+            event_time=datetime.combine(TODAY + timedelta(days=5), time(10), tzinfo=UTC),
+            remark="Received by the store keeper",
+        ),
+    )
+
+    notices = (
+        await ctx.session.scalars(
+            select(Notification).where(
+                Notification.company_id == ctx.company_id,
+                Notification.user_id == dealer.id,
+            )
+        )
+    ).all()
+    by_type = {notice.notification_type: notice for notice in notices}
+    delivery = by_type[NotificationType.DEALER_ORDER_DELIVERED]
+    tracking = by_type[NotificationType.COURIER_TRACKING_UPDATED]
+    assert delivery.action_url == f"/dealer/orders/{bench.order.id}"
+    assert (TODAY + timedelta(days=5)).isoformat() in delivery.body
+    assert tracking.occurrence_count == 2
+    assert (
+        await ctx.session.scalar(
+            select(func.count()).select_from(Notification).where(Notification.user_id == other.id)
+        )
+        == 0
+    )
 
 
 # -----------------------------------------------------------------------------

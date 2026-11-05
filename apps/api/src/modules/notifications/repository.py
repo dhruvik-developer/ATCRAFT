@@ -697,7 +697,7 @@ class NotificationRepository(BaseRepository[Notification]):
                 Notification.notification_type == notification_type,
                 Notification.group_key.in_(group_keys),
                 Notification.user_id.in_(user_ids),
-                Notification.created_at >= since,
+                Notification.updated_at >= since,
             )
             .distinct()
         )

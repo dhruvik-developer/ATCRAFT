@@ -2550,6 +2550,30 @@ async def add_tracking_event(
                 actor_id=tenant.user_id,
                 group_key=f"dealer-tracking:{dispatch.id}",
             )
+            if target is DispatchStatus.DELIVERED:
+                delivery_date = dispatch.actual_delivery_date
+                if delivery_date is None:
+                    raise BusinessRuleError(
+                        f"Delivery date is required before {dispatch.code} can be reported "
+                        "as delivered."
+                    )
+                await notify_customer(
+                    session,
+                    company_id=tenant.company_id,
+                    customer_id=dispatch.customer_id,
+                    permission=Permission.DEALER_PORTAL_ORDER,
+                    notification_type=NotificationType.DEALER_ORDER_DELIVERED,
+                    title=f"Order delivered: {dispatch.code}",
+                    body=(
+                        f"Delivery of {dispatch.code} was confirmed on {delivery_date.isoformat()}."
+                    ),
+                    action_url=f"/dealer/orders/{dispatch.sales_order_id}"
+                    if dispatch.sales_order_id is not None
+                    else "/dealer/orders",
+                    entity_type=AUDIT_DISPATCH,
+                    entity_id=dispatch.id,
+                    actor_id=tenant.user_id,
+                )
 
     return TrackingEventRead.model_validate(event)
 
