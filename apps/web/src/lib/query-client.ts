@@ -234,6 +234,7 @@ export const queryKeys = {
   },
   mrp: {
     all: ['mrp'] as const,
+    scheduleSettings: ['mrp', 'schedule-settings'] as const,
     runs: (params: unknown) => ['mrp', 'runs', params] as const,
     run: (id: string) => ['mrp', 'run', id] as const,
     suggestions: (runId: string, params: unknown) => ['mrp', 'suggestions', runId, params] as const,

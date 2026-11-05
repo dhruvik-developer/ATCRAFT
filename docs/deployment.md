@@ -179,14 +179,12 @@ an owner and evidence for every checked step.
    production seed/setup. Do not load demo data into the client database.
 4. [ ] **Configure company schedules and automation.** In
    **Administration > Settings**, review sales `auto_plan_on_confirm` and the
-   PO/requisition approval thresholds. The per-company MRP schedule
-   (`mrp_scheduled_enabled`, scope and horizon) is currently API-only, with no
-   staff settings screen: read it through `GET /api/v1/mrp/schedule-settings`
-   (`mrp.view`) and set the approved values through
-   `PUT /api/v1/mrp/schedule-settings` (`mrp.run`). Record the resulting
-   configuration. Configure the deployment's `MRP_SCHEDULE_CRON` (default
-   02:00 Asia/Kolkata) and smart-alert cadence. Do not enable an unapproved
-   provider or the absent public catalogue.
+   PO/requisition approval thresholds. In **Planning > MRP**, review the
+   per-company nightly schedule (enablement, active warehouse scope, horizon
+   and safety-stock treatment); changing it requires `mrp.run`. Record the
+   resulting configuration. Configure the deployment's `MRP_SCHEDULE_CRON`
+   (default 02:00 Asia/Kolkata) and smart-alert cadence. Do not enable an
+   unapproved provider or the absent public catalogue.
 5. [ ] **Verify workers, beat and health.** Confirm the batch worker consumes
    `default,mrp,reports`, the notification worker consumes `notifications`,
    and exactly one Celery beat runs for the deployment. Run the deployment

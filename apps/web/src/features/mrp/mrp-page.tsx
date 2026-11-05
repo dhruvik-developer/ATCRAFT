@@ -17,15 +17,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import {
-  Check,
-  ChevronsUpDown,
-  Play,
-  Timer,
-  TriangleAlert,
-  Warehouse as WarehouseIcon,
-  X,
-} from 'lucide-react'
+import { Play, Timer, TriangleAlert, Warehouse as WarehouseIcon, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -35,9 +27,6 @@ import { DataTable } from '@/components/data-table'
 import { FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -59,17 +48,15 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { WAREHOUSE_LOOKUP_PARAMS } from '@/features/inventory/types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { success } from '@/lib/messages'
 import { formatDateTime, formatNumber, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { cn } from '@/lib/utils'
 
 import {
   MRP_RUN_STATUSES,
@@ -81,8 +68,9 @@ import {
   type MrpRunCreated,
   type MrpRunDetail,
   type MrpRunRow,
-  type WarehouseOption,
 } from './mrp-types'
+import { MrpScheduleSettingsCard } from './mrp-schedule-settings-card'
+import { WarehouseMultiSelect } from './warehouse-multi-select'
 
 /** docs/api.md: poll the status URL, do not hold a connection open. */
 const POLL_INTERVAL_MS = 3000
@@ -92,152 +80,6 @@ const MAX_HORIZON_DAYS = 1095
 
 /** `MAX_RUN_WAREHOUSES` in `apps/api/src/modules/mrp/schemas.py`. */
 const MAX_RUN_WAREHOUSES = 50
-
-// ------------------------------------------------- warehouse multi-select ---
-
-/**
- * Restricting a run to a few warehouses is normal (a plant planner does not
- * want the other plant's shortages), so the control is multi-select. Choosing
- * nothing means every warehouse, which is what the API does with an omitted
- * `warehouse_ids`.
- *
- * `GET /warehouses` is behind `warehouse.view`, which the MRP route does not
- * demand. A planner without it is told so instead of the lookup being fired
- * into a 403 they cannot act on; their run simply plans across every warehouse.
- */
-function WarehouseMultiSelect({
-  id,
-  value,
-  onChange,
-  disabled = false,
-}: {
-  id: string
-  value: string[]
-  onChange: (next: string[]) => void
-  disabled?: boolean
-}) {
-  const { can } = useAuth()
-  const canReadWarehouses = can(P.WAREHOUSE_VIEW)
-
-  // The one spelling of the lookup, so this and `WarehouseSelect` share a
-  // cache entry rather than fetching the same bounded list twice.
-  const params = WAREHOUSE_LOOKUP_PARAMS
-  const warehouses = useQuery({
-    queryKey: queryKeys.warehouses.list(params),
-    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params }),
-    enabled: canReadWarehouses,
-    staleTime: staleTimes.master,
-  })
-
-  const rows = useMemo(() => warehouses.data?.data ?? [], [warehouses.data])
-  const chosen = useMemo(() => new Set(value), [value])
-
-  const label = useMemo(() => {
-    if (value.length === 0) return 'All warehouses'
-    if (value.length === 1) {
-      const match = rows.find((warehouse) => warehouse.id === value[0])
-      return match ? `${match.code} - ${match.name}` : '1 warehouse'
-    }
-    return `${value.length} warehouses`
-  }, [rows, value])
-
-  const toggle = (warehouseId: string) => {
-    onChange(
-      chosen.has(warehouseId)
-        ? value.filter((existing) => existing !== warehouseId)
-        : [...value, warehouseId],
-    )
-  }
-
-  if (!canReadWarehouses) {
-    return (
-      <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-        Your role cannot read the warehouse list; the run plans across all warehouses.
-      </p>
-    )
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            id={id}
-            type="button"
-            variant="outline"
-            role="combobox"
-            disabled={disabled}
-            className={cn(
-              'h-9 w-full justify-between font-normal',
-              value.length === 0 && 'text-muted-foreground',
-            )}
-          >
-            <span className="truncate">{warehouses.isLoading ? 'Loading...' : label}</span>
-            <ChevronsUpDown className="opacity-50" aria-hidden />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] p-0">
-          <p className="border-b px-3 py-2 text-xs text-muted-foreground">
-            Leave everything unticked to plan across all warehouses.
-          </p>
-          <div className="max-h-64 overflow-y-auto p-1">
-            {warehouses.isLoading && (
-              <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                Loading warehouses...
-              </p>
-            )}
-            {!warehouses.isLoading && warehouses.error && (
-              <p className="px-2 py-6 text-center text-sm text-destructive">
-                {describeError(warehouses.error)}
-              </p>
-            )}
-            {!warehouses.isLoading && !warehouses.error && rows.length === 0 && (
-              <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                No warehouses are configured yet.
-              </p>
-            )}
-            {rows.map((warehouse) => (
-              <button
-                key={warehouse.id}
-                type="button"
-                role="checkbox"
-                aria-checked={chosen.has(warehouse.id)}
-                onClick={() => toggle(warehouse.id)}
-                className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              >
-                <Check
-                  className={cn(
-                    'mt-0.5 h-4 w-4 shrink-0',
-                    !chosen.has(warehouse.id) && 'invisible',
-                  )}
-                  aria-hidden
-                />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{warehouse.code}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {warehouse.name}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {value.length > 0 && !disabled && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Clear warehouse selection"
-          onClick={() => onChange([])}
-        >
-          <X />
-        </Button>
-      )}
-    </div>
-  )
-}
 
 // -------------------------------------------------------------- run form ----
 
@@ -473,6 +315,8 @@ export default function MrpPage() {
         description="Net confirmed demand against stock, incoming purchase orders and work in progress, then propose what to buy, make and send out for job work."
       />
 
+      <MrpScheduleSettingsCard />
+
       {can(P.MRP_RUN) && (
         <Card className="mb-6">
           <CardHeader>
@@ -518,6 +362,7 @@ export default function MrpPage() {
                       value={field.value}
                       onChange={field.onChange}
                       disabled={isCalculating}
+                      unavailableMessage="Your role cannot read the warehouse list; the run plans across all warehouses."
                     />
                   )}
                 />
