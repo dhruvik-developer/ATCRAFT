@@ -27,6 +27,7 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
 import { API_URL, BASE_URL } from '../lib/env.mjs'
+import { createNavigator } from '../lib/navigation.mjs'
 import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 const RUN = process.env.E2E_RUN_ID ?? Date.now().toString(36).toUpperCase().slice(-5)
@@ -119,13 +120,16 @@ test.describe.configure({ mode: 'serial' })
 test.use({ storageState: { cookies: [], origins: [] } })
 
 let shared: Page
+let navigate: (route: string) => Promise<void>
 
 test.beforeAll(async ({ browser }) => {
-  // `baseURL` is passed explicitly: it is the same constant the config reads,
-  // so every `page.goto('/route')` below resolves against one server.
+  // `baseURL` is passed explicitly: it is the same constant the config reads.
   const context = await browser.newContext({ baseURL: BASE_URL })
   shared = await context.newPage()
+  const navigator = createNavigator(shared)
   await signInThroughForm(shared)
+  await navigator.settle()
+  navigate = navigator.navigate
 })
 
 test.afterAll(async () => {
@@ -138,7 +142,7 @@ test('a customer is created through the form and exists in the API', async ({ re
   const page = shared
   const code = `E2E-CUST-${RUN}`
 
-  await page.goto(`/customers`)
+  await navigate(`/customers`)
   await page
     .getByRole('button', { name: /new customer|add customer|create/i })
     .first()
@@ -175,7 +179,7 @@ test("the form shows the server's validation message rather than swallowing it",
   // nothing - which is the failure mode this asserts against.
   const code = `E2E-CUST-${RUN}`
 
-  await page.goto(`/customers`)
+  await navigate(`/customers`)
   await page
     .getByRole('button', { name: /new customer|add customer|create/i })
     .first()
@@ -211,7 +215,7 @@ test("the form shows the server's validation message rather than swallowing it",
 
 test('a required field is refused before anything reaches the network', async () => {
   const page = shared
-  await page.goto(`/customers`)
+  await navigate(`/customers`)
   await page
     .getByRole('button', { name: /new customer|add customer|create/i })
     .first()
@@ -272,7 +276,7 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
     'a freshly created item already has ledger history',
   ).toHaveLength(0)
 
-  await page.goto('/inventory/movements?tab=adjustments')
+  await navigate('/inventory/movements?tab=adjustments')
 
   // Not a skip. An administrator holds inventory.adjust, so a missing control
   // is a defect on the screen, and a skip would report it as nothing at all.
@@ -407,7 +411,7 @@ test('a dispatch invoice can be issued from its row and found in the invoice reg
   })
   expect(dispatched.ok(), 'could not dispatch the prepared sales order').toBeTruthy()
 
-  await page.goto('/dispatch')
+  await navigate('/dispatch')
   await page.getByPlaceholder('Search dispatch code or tracking id...').fill(dispatch.code)
   const row = page.getByRole('row').filter({ hasText: dispatch.code })
   await expect(row).toBeVisible({ timeout: 15_000 })
@@ -433,7 +437,7 @@ test('a dispatch invoice can be issued from its row and found in the invoice reg
   ) as InvoiceRecord | undefined
   expect(invoice, 'the UI did not issue an invoice for the dispatch').toBeTruthy()
 
-  await page.goto('/finance/sales-invoices')
+  await navigate('/finance/sales-invoices')
   await page.getByPlaceholder('Search invoice number or customer').fill(invoice!.code)
   await expect(page.getByRole('row').filter({ hasText: invoice!.code })).toBeVisible({
     timeout: 15_000,
@@ -484,7 +488,7 @@ test('a control the user has no right to is not on the page', async ({ request }
     timeout: 20_000,
   })
 
-  await page.goto(`/customers`)
+  await navigate(`/customers`)
   await expect(page.getByRole('table').first()).toBeVisible({
     timeout: 15_000,
   })
