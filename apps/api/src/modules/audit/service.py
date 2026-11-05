@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.actors import SYSTEM_ACTOR_LABEL, actor_id, is_system_actor
-from src.core.database import transaction
+from src.core.database import advisory_xact_lock, transaction
 from src.core.logging import (
     get_request_id,
     ip_address_ctx,
@@ -274,8 +274,27 @@ async def update_company_approval_settings(
 ) -> ApprovalSettingsRead:
     repo = CompanyApprovalSettingsRepository(session, tenant)
     sent = payload.model_dump(exclude_unset=True)
+
+    # An empty body is not a settings change. Creating an all-NULL row for it
+    # would turn "nothing was asked" into a stored company override whose four
+    # values are exactly the defaults - which reads differently in an audit.
+    if not sent:
+        return await get_company_approval_settings(session, tenant)
+
     async with transaction(session):
+        # The row is sparse and may not exist yet, so there is nothing for
+        # FOR UPDATE to lock on a first save. Two administrators clicking Save
+        # together would both see no row and both INSERT; this transaction-scoped
+        # advisory lock serialises that check, and the unique constraint remains
+        # the second line of defence. The key is scoped to this company so saves
+        # for different companies still run in parallel.
+        await advisory_xact_lock(session, "company_approval_settings", tenant.company_id)
         row = await repo.for_company(lock=True)
+        if row is None and all(value is None for value in sent.values()):
+            # "Restore defaults" on a company that never stored an override:
+            # what was asked for is already true.
+            return await get_company_approval_settings(session, tenant)
+
         before = {
             "po_dual_approval_amount": None if row is None else row.po_dual_approval_amount,
             "adjustment_approval_threshold": None
@@ -288,9 +307,15 @@ async def update_company_approval_settings(
             if row is None
             else row.requisition_auto_approve_limit,
         }
+        changes = {field: value for field, value in sent.items() if before[field] != value}
+        if not changes:
+            # Saving the values that are already in force is not a change, and
+            # an audit row claiming one would be misleading.
+            return await get_company_approval_settings(session, tenant)
+
         if row is None:
             row = repo.add(CompanyApprovalSettings())
-        for field, value in sent.items():
+        for field, value in changes.items():
             setattr(row, field, value)
         await session.flush()
         await record_audit(

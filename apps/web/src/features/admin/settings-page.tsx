@@ -41,10 +41,12 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 type ApprovalSettings = {
-  po_dual_approval_amount: number
-  adjustment_approval_threshold: number
-  internal_issue_approval_threshold: number
-  requisition_auto_approve_limit: number
+  // The API serialises Decimal as a JSON string; converting through Number
+  // would round amounts a company may legitimately have typed to four places.
+  po_dual_approval_amount: string
+  adjustment_approval_threshold: string
+  internal_issue_approval_threshold: string
+  requisition_auto_approve_limit: string
   is_default: boolean
 }
 
@@ -55,27 +57,55 @@ type ApprovalDraft = {
   requisition_auto_approve_limit: string
 }
 
+const approvalFields = [
+  ['po_dual_approval_amount', 'PO dual approval amount'],
+  ['adjustment_approval_threshold', 'Stock adjustment approval threshold'],
+  ['internal_issue_approval_threshold', 'Internal issue approval threshold'],
+  ['requisition_auto_approve_limit', 'Requisition auto-approve limit'],
+] as const
+
 const approvalDefaults: ApprovalDraft = {
-  po_dual_approval_amount: '25000',
-  adjustment_approval_threshold: '25000',
-  internal_issue_approval_threshold: '25000',
-  requisition_auto_approve_limit: '0',
+  po_dual_approval_amount: '25000.00',
+  adjustment_approval_threshold: '25000.00',
+  internal_issue_approval_threshold: '25000.00',
+  requisition_auto_approve_limit: '0.00',
+}
+
+/** Trim numeric trailing zeros without ever passing the value through Number. */
+function decimalText(value: string): string {
+  if (!value.includes('.')) return value
+  return value.replace(/0+$/, '').replace(/\.$/, '')
 }
 
 function toApprovalDraft(settings?: ApprovalSettings | null): ApprovalDraft {
   return {
-    po_dual_approval_amount:
-      settings?.po_dual_approval_amount?.toString() ?? approvalDefaults.po_dual_approval_amount,
-    adjustment_approval_threshold:
-      settings?.adjustment_approval_threshold?.toString() ??
-      approvalDefaults.adjustment_approval_threshold,
-    internal_issue_approval_threshold:
-      settings?.internal_issue_approval_threshold?.toString() ??
-      approvalDefaults.internal_issue_approval_threshold,
-    requisition_auto_approve_limit:
-      settings?.requisition_auto_approve_limit?.toString() ??
-      approvalDefaults.requisition_auto_approve_limit,
+    po_dual_approval_amount: decimalText(
+      settings?.po_dual_approval_amount ?? approvalDefaults.po_dual_approval_amount,
+    ),
+    adjustment_approval_threshold: decimalText(
+      settings?.adjustment_approval_threshold ?? approvalDefaults.adjustment_approval_threshold,
+    ),
+    internal_issue_approval_threshold: decimalText(
+      settings?.internal_issue_approval_threshold ??
+        approvalDefaults.internal_issue_approval_threshold,
+    ),
+    requisition_auto_approve_limit: decimalText(
+      settings?.requisition_auto_approve_limit ?? approvalDefaults.requisition_auto_approve_limit,
+    ),
   }
+}
+
+//: The database stores NUMERIC(18,4): at most four decimal places. The bound is
+//: repeated here so an obvious typo is caught before a round trip; the API is
+//: still the authority for the digit count and for the non-negative rule.
+const approvalAmountPattern = /^\d+(?:\.\d{1,4})?$/
+
+function invalidApprovalField(values: ApprovalDraft): string | null {
+  for (const [key, label] of approvalFields) {
+    const trimmed = values[key].trim()
+    if (trimmed !== '' && !approvalAmountPattern.test(trimmed)) return label
+  }
+  return null
 }
 
 function approvalPayload(values: ApprovalDraft, restoreDefault: boolean) {
@@ -88,13 +118,19 @@ function approvalPayload(values: ApprovalDraft, restoreDefault: boolean) {
     }
   }
 
-  const asNumber = (value: string) => (value.trim() === '' ? 0 : Number(value))
+  // A blank field is "use the built-in default for this one", which is what the
+  // API's explicit null means. Zero is a real threshold the administrator may
+  // choose, so an empty box must never be turned into one.
+  const asDecimal = (value: string) => {
+    const trimmed = value.trim()
+    return trimmed === '' ? null : trimmed
+  }
 
   return {
-    po_dual_approval_amount: asNumber(values.po_dual_approval_amount),
-    adjustment_approval_threshold: asNumber(values.adjustment_approval_threshold),
-    internal_issue_approval_threshold: asNumber(values.internal_issue_approval_threshold),
-    requisition_auto_approve_limit: asNumber(values.requisition_auto_approve_limit),
+    po_dual_approval_amount: asDecimal(values.po_dual_approval_amount),
+    adjustment_approval_threshold: asDecimal(values.adjustment_approval_threshold),
+    internal_issue_approval_threshold: asDecimal(values.internal_issue_approval_threshold),
+    requisition_auto_approve_limit: asDecimal(values.requisition_auto_approve_limit),
   }
 }
 
@@ -159,6 +195,7 @@ export default function SettingsPage() {
   const value = draft ?? settings.data?.auto_plan_on_confirm ?? true
   const dirty = draft !== null && draft !== settings.data?.auto_plan_on_confirm
   const approvalValue = approvalDraft ?? toApprovalDraft(approvalSettings.data)
+  const approvalError = invalidApprovalField(approvalValue)
   const approvalDirty =
     approvalDraft !== null &&
     Object.entries(approvalValue).some(
@@ -269,12 +306,7 @@ export default function SettingsPage() {
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              {[
-                ['po_dual_approval_amount', 'PO dual approval amount'],
-                ['adjustment_approval_threshold', 'Stock adjustment approval threshold'],
-                ['internal_issue_approval_threshold', 'Internal issue approval threshold'],
-                ['requisition_auto_approve_limit', 'Requisition auto-approve limit'],
-              ].map(([key, label]) => {
+              {approvalFields.map(([key, label]) => {
                 const fieldKey = key as keyof ApprovalDraft
 
                 return (
@@ -282,11 +314,12 @@ export default function SettingsPage() {
                     <Label htmlFor={key}>{label}</Label>
                     <Input
                       id={key}
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputMode="decimal"
+                      autoComplete="off"
                       value={approvalValue[fieldKey]}
                       disabled={!canManage || approvalSettings.isLoading}
+                      aria-invalid={approvalError === label}
                       onChange={(event) => {
                         const nextValue = event.target.value
                         setApprovalDraft((current) => ({
@@ -299,6 +332,20 @@ export default function SettingsPage() {
                 )
               })}
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              Amounts may have up to four decimal places. Leave a field blank to restore the
+              built-in default for that one; a stored zero is a real threshold.
+            </p>
+
+            {approvalError && (
+              <Alert variant="destructive">
+                <AlertTitle>Check the amount</AlertTitle>
+                <AlertDescription>
+                  {approvalError} must be a non-negative number with at most four decimal places.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {approvalSettings.data && (
               <p className="text-xs text-muted-foreground">
@@ -320,7 +367,7 @@ export default function SettingsPage() {
                 onClick={() =>
                   saveApproval.mutate({ values: approvalValue, restoreDefault: false })
                 }
-                disabled={!canManage || !approvalDirty || saveApproval.isPending}
+                disabled={!canManage || !approvalDirty || saveApproval.isPending || !!approvalError}
                 loading={saveApproval.isPending}
               >
                 <Save />

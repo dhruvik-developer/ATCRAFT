@@ -7892,10 +7892,11 @@
           "adjustment_approval_threshold": {
             "anyOf": [
               {
+                "minimum": 0.0,
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
                 "type": "string"
               },
               {
@@ -7907,10 +7908,11 @@
           "internal_issue_approval_threshold": {
             "anyOf": [
               {
+                "minimum": 0.0,
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
                 "type": "string"
               },
               {
@@ -7922,10 +7924,11 @@
           "po_dual_approval_amount": {
             "anyOf": [
               {
+                "minimum": 0.0,
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
                 "type": "string"
               },
               {
@@ -7937,10 +7940,11 @@
           "requisition_auto_approve_limit": {
             "anyOf": [
               {
+                "minimum": 0.0,
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
                 "type": "string"
               },
               {

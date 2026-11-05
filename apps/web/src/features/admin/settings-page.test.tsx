@@ -25,10 +25,10 @@ function settings(autoPlan: boolean, isDefault: boolean) {
 
 function approvalSettings(isDefault: boolean) {
   return ok({
-    po_dual_approval_amount: 25000,
-    adjustment_approval_threshold: 25000,
-    internal_issue_approval_threshold: 25000,
-    requisition_auto_approve_limit: 0,
+    po_dual_approval_amount: '25000.0000',
+    adjustment_approval_threshold: '25000.0000',
+    internal_issue_approval_threshold: '25000.0000',
+    requisition_auto_approve_limit: '0.0000',
     is_default: isDefault,
   })
 }
@@ -97,23 +97,24 @@ describe('settings', () => {
     const { user, fetch } = renderSettings([P.SETTINGS_VIEW, P.SETTINGS_MANAGE], {
       'PUT /audit/approval-settings': ({ body }) => {
         const payload = body as {
-          po_dual_approval_amount: number | null
-          adjustment_approval_threshold: number | null
-          internal_issue_approval_threshold: number | null
-          requisition_auto_approve_limit: number | null
+          po_dual_approval_amount: string | null
+          adjustment_approval_threshold: string | null
+          internal_issue_approval_threshold: string | null
+          requisition_auto_approve_limit: string | null
         }
 
         return ok({
-          po_dual_approval_amount: payload.po_dual_approval_amount ?? 25000,
-          adjustment_approval_threshold: payload.adjustment_approval_threshold ?? 25000,
-          internal_issue_approval_threshold: payload.internal_issue_approval_threshold ?? 25000,
-          requisition_auto_approve_limit: payload.requisition_auto_approve_limit ?? 0,
+          po_dual_approval_amount: payload.po_dual_approval_amount ?? '25000.0000',
+          adjustment_approval_threshold: payload.adjustment_approval_threshold ?? '25000.0000',
+          internal_issue_approval_threshold:
+            payload.internal_issue_approval_threshold ?? '25000.0000',
+          requisition_auto_approve_limit: payload.requisition_auto_approve_limit ?? '0.0000',
           is_default: false,
         })
       },
     })
 
-    const poInput = await screen.findByRole('spinbutton', {
+    const poInput = await screen.findByRole('textbox', {
       name: /PO dual approval amount/i,
     })
     await user.clear(poInput)
@@ -129,11 +130,66 @@ describe('settings', () => {
 
     await waitFor(() => expect(writes()).toHaveLength(1))
     expect(writes().at(-1)!.body).toEqual({
-      po_dual_approval_amount: 35000,
-      adjustment_approval_threshold: 25000,
-      internal_issue_approval_threshold: 25000,
-      requisition_auto_approve_limit: 0,
+      po_dual_approval_amount: '35000',
+      adjustment_approval_threshold: '25000',
+      internal_issue_approval_threshold: '25000',
+      requisition_auto_approve_limit: '0',
     })
     expect(await screen.findByText('Approval thresholds updated')).toBeVisible()
+  })
+
+  it('keeps decimal precision and sends a blank field as null', async () => {
+    const { user, fetch } = renderSettings([P.SETTINGS_VIEW, P.SETTINGS_MANAGE], {
+      'PUT /audit/approval-settings': ({ body }) => {
+        const payload = body as Record<string, string | null>
+        return ok({
+          po_dual_approval_amount: payload.po_dual_approval_amount ?? '25000.0000',
+          adjustment_approval_threshold: payload.adjustment_approval_threshold ?? '25000.0000',
+          internal_issue_approval_threshold:
+            payload.internal_issue_approval_threshold ?? '25000.0000',
+          requisition_auto_approve_limit: payload.requisition_auto_approve_limit ?? '0.0000',
+          is_default: false,
+        })
+      },
+    })
+
+    const poInput = await screen.findByRole('textbox', {
+      name: /PO dual approval amount/i,
+    })
+    await user.clear(poInput)
+    await user.type(poInput, '0.0001')
+
+    const adjustmentInput = screen.getByRole('textbox', {
+      name: /Stock adjustment approval threshold/i,
+    })
+    await user.clear(adjustmentInput)
+
+    await user.click(screen.getByRole('button', { name: /Save approval thresholds/i }))
+
+    const writes = () =>
+      fetch.calls.filter(
+        (call) => call.method === 'PUT' && call.path === '/audit/approval-settings',
+      )
+
+    await waitFor(() => expect(writes()).toHaveLength(1))
+    expect(writes().at(-1)!.body).toEqual({
+      po_dual_approval_amount: '0.0001',
+      adjustment_approval_threshold: null,
+      internal_issue_approval_threshold: '25000',
+      requisition_auto_approve_limit: '0',
+    })
+  })
+
+  it('refuses an amount with more than four decimal places', async () => {
+    const { user } = renderSettings([P.SETTINGS_VIEW, P.SETTINGS_MANAGE])
+
+    const poInput = await screen.findByRole('textbox', {
+      name: /PO dual approval amount/i,
+    })
+    await user.clear(poInput)
+    await user.type(poInput, '1.23456')
+
+    expect(screen.getByRole('button', { name: /Save approval thresholds/i })).toBeDisabled()
+    expect(await screen.findByText(/at most four decimal places/)).toBeVisible()
   })
 })

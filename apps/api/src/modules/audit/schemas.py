@@ -250,6 +250,16 @@ class ApprovalDecisionRequest(BaseModel):
         return cleaned or None
 
 
+#: One threshold, with the bounds the database column enforces (``NUMERIC(18,4)``)
+#: applied at the API edge as well. Without them a negative value reads as
+#: "everything needs approval" while an oversized one fails inside PostgreSQL,
+#: and either arrives as a 500 rather than a field error the form can show.
+ApprovalThreshold = Annotated[
+    Decimal,
+    Field(ge=0, max_digits=18, decimal_places=4, allow_inf_nan=False),
+]
+
+
 class ApprovalSettingsRead(BaseModel):
     """Effective approval thresholds for the current company."""
 
@@ -265,10 +275,10 @@ class ApprovalSettingsUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    po_dual_approval_amount: Decimal | None = None
-    adjustment_approval_threshold: Decimal | None = None
-    internal_issue_approval_threshold: Decimal | None = None
-    requisition_auto_approve_limit: Decimal | None = None
+    po_dual_approval_amount: ApprovalThreshold | None = None
+    adjustment_approval_threshold: ApprovalThreshold | None = None
+    internal_issue_approval_threshold: ApprovalThreshold | None = None
+    requisition_auto_approve_limit: ApprovalThreshold | None = None
 
 
 __all__ = [
