@@ -1,5 +1,5 @@
 /** Real browser coverage uses a bound principal for each external portal. */
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { accountForAudience, portalIdentityPath } from '../lib/audiences.mjs'
 import { API_URL, BASE_URL } from '../lib/env.mjs'
@@ -33,6 +33,93 @@ const screens = {
   ],
 } as const
 
+async function expectPreferencesToFit(page: Page) {
+  const table = page.getByRole('table', {
+    name: 'Notification channels per event type',
+    exact: true,
+  })
+  await expect(table).toBeVisible()
+  const layout = await table.evaluate((element) => {
+    const container = element.parentElement
+    const main = element.closest('main')
+    const lastColumn = element.querySelector('thead th:last-child')
+    if (!container || !main || !lastColumn)
+      throw new Error('Preferences table structure is missing')
+
+    const measure = (node: Element) => {
+      const box = node.getBoundingClientRect()
+      const style = getComputedStyle(node)
+      return {
+        tag: node.tagName.toLowerCase(),
+        id: node.id,
+        classes: node.className,
+        left: box.left,
+        right: box.right,
+        width: box.width,
+        clientWidth: node.clientWidth,
+        scrollWidth: node.scrollWidth,
+        display: style.display,
+        minWidth: style.minWidth,
+        overflowX: style.overflowX,
+      }
+    }
+    const ancestors = []
+    for (let node: Element | null = container; node; node = node.parentElement) {
+      ancestors.push(measure(node))
+    }
+    const frame = measure(container)
+    const previousScroll = container.scrollLeft
+    // Prove the final channel stays reachable without clipping the table or page.
+    container.scrollLeft = container.scrollWidth
+    const reachedScroll = container.scrollLeft
+    const lastColumnBox = lastColumn.getBoundingClientRect()
+    const lastColumnPosition = {
+      left: lastColumnBox.left,
+      right: lastColumnBox.right,
+    }
+    container.scrollLeft = previousScroll
+
+    return {
+      pageOverflow: document.documentElement.scrollWidth - innerWidth,
+      viewportWidth: innerWidth,
+      frame,
+      main: measure(main),
+      table: measure(element),
+      ancestors,
+      reachedScroll,
+      lastColumn: lastColumnPosition,
+    }
+  })
+  const diagnostic = `Notification preferences layout: ${JSON.stringify(layout)}`
+  expect(layout.pageOverflow, diagnostic).toBeLessThanOrEqual(1)
+  expect(layout.frame.left, diagnostic).toBeGreaterThanOrEqual(Math.max(0, layout.main.left) - 1)
+  expect(layout.frame.right, diagnostic).toBeLessThanOrEqual(
+    Math.min(layout.viewportWidth, layout.main.right) + 1,
+  )
+  if (layout.frame.scrollWidth > layout.frame.clientWidth + 1) {
+    expect(['auto', 'scroll'], diagnostic).toContain(layout.frame.overflowX)
+    expect(layout.reachedScroll, diagnostic).toBeGreaterThan(0)
+    const scrollRegion = page.getByRole('region', {
+      name: 'Notification channel preferences',
+      exact: true,
+    })
+    await scrollRegion.evaluate((element) => {
+      element.scrollLeft = 0
+    })
+    await scrollRegion.focus()
+    await expect(scrollRegion).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await expect
+      .poll(() => scrollRegion.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0)
+    await scrollRegion.evaluate((element) => {
+      element.scrollLeft = 0
+    })
+  }
+  expect(layout.lastColumn.left, diagnostic).toBeGreaterThanOrEqual(layout.frame.left - 1)
+  expect(layout.lastColumn.right, diagnostic).toBeLessThanOrEqual(layout.frame.right + 1)
+}
+
 for (const audience of ['vendor', 'dealer'] as const) {
   for (const width of [375, 768, 1440]) {
     test(`${audience} screens preserve scope and fit ${width}px`, async ({ page }) => {
@@ -65,10 +152,14 @@ for (const audience of ['vendor', 'dealer'] as const) {
         await navigate(route)
         await expect(page).toHaveURL(`${BASE_URL}${route}`)
         await expect(page.locator('main').getByRole('heading').first()).toBeVisible()
-        expect(
-          await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
-          `${route} overflows`,
-        ).toBeLessThanOrEqual(1)
+        if (route === '/notifications?tab=preferences') {
+          await expectPreferencesToFit(page)
+        } else {
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+            `${route} overflows`,
+          ).toBeLessThanOrEqual(1)
+        }
         expect(await errorToastFailures(page), route).toEqual([])
       }
       // A hard reload loses the memory-only access token. Prove the cookie is

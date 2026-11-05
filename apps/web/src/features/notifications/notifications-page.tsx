@@ -538,7 +538,13 @@ function PreferencesTab() {
         </Alert>
       )}
 
-      <div className="w-full min-w-0 max-w-full overflow-x-auto rounded-lg border">
+      {/* Keep absolute screen-reader labels inside the scrolling table's bounds. */}
+      <div
+        className="relative w-full min-w-0 max-w-full overflow-x-auto rounded-lg border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        role="region"
+        aria-label="Notification channel preferences"
+        tabIndex={0}
+      >
         <table className="w-full min-w-[36rem] text-sm">
           <caption className="sr-only">Notification channels per event type</caption>
           <thead className="bg-muted/50">
