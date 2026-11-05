@@ -211,6 +211,9 @@ test("the form shows the server's validation message rather than swallowing it",
   // one edit rather than a re-type.
   await expect(dialog).toBeVisible()
   await expect(page.getByRole('textbox', { name: /^code$/i })).toHaveValue(code)
+
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toBeHidden()
 })
 
 test('a required field is refused before anything reaches the network', async () => {

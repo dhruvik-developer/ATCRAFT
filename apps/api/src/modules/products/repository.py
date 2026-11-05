@@ -68,7 +68,6 @@ from src.modules.warehouses.models import StorageLocation, Warehouse
 _ITEM_BALANCE_COLUMNS = (
     "on_hand_quantity",
     "reserved_quantity",
-    "allocated_quantity",
     "in_transit_quantity",
     "qc_hold_quantity",
     "damaged_quantity",
