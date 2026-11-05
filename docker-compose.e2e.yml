@@ -1,0 +1,7 @@
+# Browser journeys share the seeded administrator and issue synthetic bursts.
+# Rate limiting is not the subject of these functional journeys; throttling the
+# suite makes test order, rather than application behavior, decide whether it passes.
+services:
+  backend:
+    environment:
+      RATE_LIMIT_ENABLED: "false"

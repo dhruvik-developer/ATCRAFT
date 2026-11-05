@@ -160,25 +160,25 @@ jobs:
       # dev server, so what is tested is what is shipped.
       - name: Start the database services
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait postgres redis
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.e2e.yml build backend
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.e2e.yml up -d --wait postgres redis
 
       - name: Apply the schema before starting workers
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps backend \
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.e2e.yml run --rm --no-deps backend \
             python -m alembic upgrade head
 
       - name: Start the application stack
-        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.e2e.yml up -d --build --wait
 
       - name: Apply the baseline data
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.e2e.yml exec -T backend \
             python -m src.core.seed --admin-password "$E2E_BOOTSTRAP_PASSWORD"
 
       - name: Populate real portal and operational fixtures
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.e2e.yml exec -T backend \
             python -m src.core.demo_data --admin-email "$E2E_ADMIN_EMAIL"
 
       - name: Install the browser

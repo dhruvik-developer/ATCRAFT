@@ -121,6 +121,7 @@ interface SalesReturnRecord extends IdRecord {
 }
 
 interface CreditNoteRecord extends IdRecord {
+  sales_return_id: string | null
   status: string
   taxable_amount: string
   tax_amount: string
@@ -297,19 +298,28 @@ async function receiveAndAllocateInvoice(
   request: APIRequestContext,
   invoice: InvoiceRecord,
 ): Promise<void> {
+  const currentInvoice = await apiData<InvoiceRecord>(
+    request,
+    'get',
+    `/finance/sales-invoices/${invoice.id}`,
+  )
+  const amount = currentInvoice.balance_amount
+  if (minorUnits(amount) <= 0n) {
+    throw new Error(`Invoice ${invoice.code} has no outstanding balance to allocate`)
+  }
   const payment = await apiData<IdRecord>(request, 'post', '/finance/payments', {
     payment_type: 'RECEIPT',
     party_type: 'CUSTOMER',
     party_id: invoice.customer_id,
     payment_date: dateOffset(0),
-    amount: invoice.total_amount,
+    amount,
     payment_method: 'CASH',
   })
   await apiData(request, 'post', `/finance/payments/${payment.id}/approve`, {
     reason: `Approve commercial receipt ${RUN}`,
   })
   await apiData(request, 'post', `/finance/payments/${payment.id}/allocate`, {
-    allocations: [{ sales_invoice_id: invoice.id, amount: invoice.total_amount }],
+    allocations: [{ sales_invoice_id: invoice.id, amount }],
   })
 }
 
@@ -472,7 +482,7 @@ test('a returned dispatch is inspected, credited and netted from GST', async ({ 
   const { invoice } = await previewAndIssueInvoice(request, scenario, invoiceDate)
   const reportQuery = new URLSearchParams({
     date_from: invoice.invoice_date,
-    date_to: invoice.invoice_date,
+    date_to: dateOffset(0),
   })
   const gstBefore = await apiData<{ output: { taxable_amount: string; total_tax: string } }>(
     request,
@@ -518,17 +528,25 @@ test('a returned dispatch is inspected, credited and netted from GST', async ({ 
   expect(minorUnits(released.qc_hold_quantity)).toBe(0n)
   expect(minorUnits(released.available_quantity)).toBe(100n)
 
-  await receiveAndAllocateInvoice(request, invoice)
-  const credit = await apiData<CreditNoteRecord>(request, 'post', '/finance/credit-notes', {
-    sales_invoice_id: invoice.id,
-    sales_return_id: returned.id,
-    note_date: invoice.invoice_date,
-    reason_type: 'RETURN',
-    lines: [{ sales_invoice_line_id: invoice.lines[0].id, quantity: '1' }],
-  })
+  const creditNotes = await apiData<CreditNoteRecord[]>(
+    request,
+    'get',
+    '/finance/credit-notes?limit=100',
+  )
+  const credit = creditNotes.find((note) => note.sales_return_id === returned.id)
+  if (!credit) throw new Error(`Return ${returned.id} did not create its linked credit note`)
   expect(credit.status).toBe('ISSUED')
   expect(minorUnits(credit.total_amount)).toBe(minorUnits(invoice.total_amount) / 2n)
 
+  const invoiceAfterCredit = await apiData<InvoiceRecord>(
+    request,
+    'get',
+    `/finance/sales-invoices/${invoice.id}`,
+  )
+  expect(minorUnits(invoiceAfterCredit.balance_amount)).toBe(
+    minorUnits(invoice.total_amount) - minorUnits(credit.total_amount),
+  )
+  await receiveAndAllocateInvoice(request, invoice)
   const paidInvoice = await apiData<InvoiceRecord>(
     request,
     'get',
