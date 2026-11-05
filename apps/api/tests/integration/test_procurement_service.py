@@ -47,7 +47,8 @@ from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
-from src.modules.audit.schemas import ApprovalStatus
+from src.modules.audit.schemas import ApprovalSettingsUpdate, ApprovalStatus
+from src.modules.audit.service import update_company_approval_settings
 from src.modules.courier_tracking import service as courier_service
 from src.modules.courier_tracking.models import CourierProvider
 from src.modules.courier_tracking.schemas import CourierAccountCreate
@@ -471,6 +472,65 @@ async def reload_line(db: AsyncSession, line_id) -> PurchaseOrderLine:
     return (
         await db.execute(select(PurchaseOrderLine).where(PurchaseOrderLine.id == line_id))
     ).scalar_one()
+
+
+async def _set_approval_thresholds(db: AsyncSession, tenant: TenantContext, **values: str) -> None:
+    await update_company_approval_settings(
+        db, tenant, ApprovalSettingsUpdate.model_validate(values)
+    )
+
+
+async def _new_user(db: AsyncSession, tenant: TenantContext, handle: str) -> Principal:
+    """A live user row, because approval evidence carries a foreign key to one."""
+    user = User(
+        company_id=tenant.company_id,
+        email=f"{handle}-{uuid.uuid4().hex[:8]}@atcraft.test",
+        full_name="Second Approver",
+        password_hash="x",
+        is_active=True,
+    )
+    db.add(user)
+    await db.flush()
+    return _principal(tenant.company_id, user.id)
+
+
+async def make_requisition(
+    db: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    masters,
+    *,
+    quantity: str = "10",
+    unit_price: str | None = None,
+):
+    payload = RequisitionCreate(
+        required_date=today() + timedelta(days=14),
+        warehouse_id=masters["warehouse"].id,
+        lines=[
+            RequisitionLineIn(
+                line_number=1,
+                item_id=masters["item"].id,
+                quantity=Decimal(quantity),
+                estimated_unit_price=None if unit_price is None else Decimal(unit_price),
+            )
+        ],
+    )
+    return await service.create_requisition(db, tenant, principal, payload)
+
+
+async def _audit_rows_for(db: AsyncSession, tenant: TenantContext, entity_id) -> list[AuditLog]:
+    return list(
+        (
+            await db.scalars(
+                select(AuditLog)
+                .where(
+                    AuditLog.company_id == tenant.company_id,
+                    AuditLog.entity_id == entity_id,
+                )
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        ).all()
+    )
 
 
 # =============================================================================
@@ -1612,6 +1672,338 @@ async def test_totals_are_stored_on_the_header(db, tenant, buyer, masters):
     assert order.subtotal == Decimal("1000.0000")
     assert order.tax_amount == Decimal("180.0000")
     assert order.total_amount == Decimal("1180.0000")
+
+
+# =============================================================================
+# Configurable approval rules
+# =============================================================================
+
+
+async def test_an_order_above_the_dual_approval_limit_needs_two_distinct_approvers(
+    db, tenant, buyer, approver, masters
+):
+    """The first signature is evidence, not approval: the order stays pending."""
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="5000")
+    order, _, _ = await make_order(db, tenant, buyer, masters)  # 5,900 with tax
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    with pytest.raises(AuthorizationError):
+        await service.transition_purchase_order(
+            db, tenant, buyer, order.id, PurchaseOrderStatus.APPROVED, reason="maker approval"
+        )
+
+    first = await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="first check"
+    )
+
+    assert PurchaseOrderStatus(first.status) is PurchaseOrderStatus.PENDING_APPROVAL
+    assert first.first_approved_by_id == approver.user_id
+    assert first.first_approved_at is not None
+    assert first.approved_by_id is None
+    assert first.approved_at is None
+
+    with pytest.raises(AuthorizationError):
+        await service.transition_purchase_order(
+            db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="same person"
+        )
+
+    second_approver = await _new_user(db, tenant, "second")
+    completed = await service.transition_purchase_order(
+        db, tenant, second_approver, order.id, PurchaseOrderStatus.APPROVED, reason="second check"
+    )
+
+    assert completed.status is PurchaseOrderStatus.APPROVED
+    assert completed.approved_by_id == second_approver.user_id
+    assert completed.first_approved_by_id == approver.user_id
+    approval = await db.scalar(
+        select(ApprovalRequest).where(
+            ApprovalRequest.company_id == tenant.company_id,
+            ApprovalRequest.entity_type == "purchase_order",
+            ApprovalRequest.entity_id == order.id,
+        )
+    )
+    assert approval is not None
+    assert approval.status == ApprovalStatus.APPROVED.value
+    assert approval.decided_by_id == second_approver.user_id
+
+
+async def test_the_dual_approval_limit_is_inclusive(db, tenant, buyer, approver, masters):
+    """At exactly the limit one approval is enough; only above it is two."""
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="5900")
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    approved = await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="approve"
+    )
+
+    assert approved.status is PurchaseOrderStatus.APPROVED
+    assert approved.first_approved_by_id is None
+    assert approved.approved_by_id == approver.user_id
+
+
+async def test_a_zero_dual_approval_limit_disables_the_rule(db, tenant, buyer, approver, masters):
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="0")
+    order, _, _ = await make_order(db, tenant, buyer, masters)  # above the default
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    approved = await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="approve"
+    )
+
+    assert approved.status is PurchaseOrderStatus.APPROVED
+    assert approved.first_approved_by_id is None
+
+
+async def test_a_draft_order_cannot_record_a_first_approval(db, tenant, buyer, approver, masters):
+    """The first-signature path returns early, so it must check the edge first."""
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="5000")
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+
+    with pytest.raises(InvalidStateTransitionError):
+        await service.transition_purchase_order(
+            db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="premature"
+        )
+
+    await db.refresh(order)
+    assert order.first_approved_by_id is None
+    assert order.first_approved_at is None
+
+
+async def test_the_first_approval_is_audited_with_the_amount_and_the_limit(
+    db, tenant, buyer, approver, masters
+):
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="5000")
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+    await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="first check"
+    )
+
+    rows = [
+        row
+        for row in await _audit_rows_for(db, tenant, order.id)
+        if row.action == AuditAction.APPROVE.value
+    ]
+    assert len(rows) == 1
+    assert rows[0].created_by_id == approver.user_id
+    assert rows[0].context["event"] == "purchase_order_dual_approval_first_signature"
+    assert rows[0].context["amount"] == "5900.0000"
+    assert rows[0].context["threshold"] == "5000.0000"
+    assert rows[0].new_values["first_approved_by_id"] == str(approver.user_id)
+
+
+async def test_editing_a_pending_order_clears_the_first_approval(
+    db, tenant, buyer, approver, masters
+):
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="5000")
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+    await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="first check"
+    )
+
+    edited, _ = await service.update_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderUpdate(notes="Delivery instructions changed")
+    )
+
+    assert edited.first_approved_by_id is None
+    assert edited.first_approved_at is None
+    # The same approver may sign the revised document as the first approval
+    # again; what they may no longer do is complete an approval they began.
+    first_again = await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="first check again"
+    )
+    assert PurchaseOrderStatus(first_again.status) is PurchaseOrderStatus.PENDING_APPROVAL
+    assert first_again.first_approved_by_id == approver.user_id
+
+
+async def test_a_pending_order_uses_the_current_limit_and_keeps_a_started_dual_approval(
+    db, tenant, buyer, approver, masters
+):
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="10000")
+    order, _, _ = await make_order(db, tenant, buyer, masters)
+    await service.transition_purchase_order(
+        db, tenant, buyer, order.id, PurchaseOrderStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="5000")
+    first = await service.transition_purchase_order(
+        db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="first check"
+    )
+    assert PurchaseOrderStatus(first.status) is PurchaseOrderStatus.PENDING_APPROVAL
+    assert first.first_approved_by_id == approver.user_id
+
+    await _set_approval_thresholds(db, tenant, po_dual_approval_amount="10000")
+    with pytest.raises(AuthorizationError):
+        await service.transition_purchase_order(
+            db, tenant, approver, order.id, PurchaseOrderStatus.APPROVED, reason="same person"
+        )
+
+    second_approver = await _new_user(db, tenant, "threshold-second")
+    completed = await service.transition_purchase_order(
+        db,
+        tenant,
+        second_approver,
+        order.id,
+        PurchaseOrderStatus.APPROVED,
+        reason="second check",
+    )
+    assert completed.status is PurchaseOrderStatus.APPROVED
+    assert completed.first_approved_by_id == approver.user_id
+    assert completed.approved_by_id == second_approver.user_id
+
+
+async def test_a_draft_requisition_cannot_be_approved_through_the_ordinary_route(
+    db, tenant, buyer, approver, masters
+):
+    requisition, _ = await make_requisition(db, tenant, buyer, masters, unit_price="50")
+
+    with pytest.raises(BusinessRuleError):
+        await service.transition_requisition(
+            db, tenant, approver, requisition.id, RequisitionStatus.APPROVED, reason="approve"
+        )
+
+
+async def test_a_requisition_requester_cannot_approve_its_manual_queue_entry(
+    db, tenant, buyer, masters
+):
+    requisition, _ = await make_requisition(
+        db, tenant, buyer, masters, quantity="1", unit_price="50"
+    )
+    await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    with pytest.raises(AuthorizationError):
+        await service.transition_requisition(
+            db, tenant, buyer, requisition.id, RequisitionStatus.APPROVED, reason="maker approval"
+        )
+
+    await db.refresh(requisition)
+    assert RequisitionStatus(requisition.status) is RequisitionStatus.PENDING_APPROVAL
+    assert requisition.approved_by_id is None
+
+
+async def test_a_requisition_within_the_auto_approve_limit_is_approved_on_submission(
+    db, tenant, buyer, masters
+):
+    await _set_approval_thresholds(db, tenant, requisition_auto_approve_limit="1000")
+    requisition, _ = await make_requisition(
+        db, tenant, buyer, masters, quantity="10", unit_price="50"
+    )
+
+    submitted = await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    assert submitted.status is RequisitionStatus.APPROVED
+    # Nobody signed it: the setting did. Approval evidence stays empty.
+    assert submitted.approved_by_id is None
+    assert submitted.approved_at is None
+
+    rows = [
+        row
+        for row in await _audit_rows_for(db, tenant, requisition.id)
+        if row.action == AuditAction.APPROVE.value
+    ]
+    assert len(rows) == 1
+    assert rows[0].context["event"] == "requisition_auto_approval"
+    assert rows[0].context["estimated_value"] == "500.00"
+    assert rows[0].context["limit"] == "1000.0000"
+    assert rows[0].context["line_count"] == 1
+    assert (
+        await db.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.company_id == tenant.company_id,
+                ApprovalRequest.entity_type == "purchase_requisition",
+                ApprovalRequest.entity_id == requisition.id,
+            )
+        )
+        is None
+    )
+
+
+async def test_a_draft_requisition_uses_the_current_limit_when_submitted(
+    db, tenant, buyer, masters
+):
+    requisition, _ = await make_requisition(
+        db, tenant, buyer, masters, quantity="10", unit_price="50"
+    )
+    await _set_approval_thresholds(db, tenant, requisition_auto_approve_limit="500")
+
+    submitted = await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    assert submitted.status is RequisitionStatus.APPROVED
+
+
+async def test_a_later_limit_change_does_not_auto_approve_an_existing_queue_entry(
+    db, tenant, buyer, masters
+):
+    requisition, _ = await make_requisition(
+        db, tenant, buyer, masters, quantity="10", unit_price="50"
+    )
+    submitted = await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+    assert submitted.status is RequisitionStatus.PENDING_APPROVAL
+
+    await _set_approval_thresholds(db, tenant, requisition_auto_approve_limit="500")
+    await db.refresh(requisition)
+
+    assert RequisitionStatus(requisition.status) is RequisitionStatus.PENDING_APPROVAL
+
+
+async def test_an_unpriced_requisition_stays_in_the_approval_queue(db, tenant, buyer, masters):
+    await _set_approval_thresholds(db, tenant, requisition_auto_approve_limit="100000")
+    requisition, _ = await make_requisition(db, tenant, buyer, masters, quantity="1")
+
+    submitted = await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    assert submitted.status is RequisitionStatus.PENDING_APPROVAL
+    assert submitted.approved_by_id is None
+
+
+async def test_a_requisition_above_the_auto_approve_limit_stays_in_the_queue(
+    db, tenant, buyer, masters
+):
+    await _set_approval_thresholds(db, tenant, requisition_auto_approve_limit="1000")
+    requisition, _ = await make_requisition(
+        db, tenant, buyer, masters, quantity="10", unit_price="200"
+    )
+
+    submitted = await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    assert submitted.status is RequisitionStatus.PENDING_APPROVAL
+
+
+async def test_the_auto_approve_limit_is_inclusive(db, tenant, buyer, masters):
+    await _set_approval_thresholds(db, tenant, requisition_auto_approve_limit="500")
+    requisition, _ = await make_requisition(
+        db, tenant, buyer, masters, quantity="10", unit_price="50"
+    )
+
+    submitted = await service.transition_requisition(
+        db, tenant, buyer, requisition.id, RequisitionStatus.PENDING_APPROVAL, reason="submit"
+    )
+
+    assert submitted.status is RequisitionStatus.APPROVED
 
 
 # =============================================================================

@@ -147,7 +147,7 @@ const COMMANDS: Record<
   submit: {
     title: (code) => `Submit ${code} for approval?`,
     description:
-      'The requisition joins the approval queue. It can no longer be edited or deleted once it is there - only withdrawn.',
+      'The requisition stops being editable - only withdrawal remains. It joins the approval queue, or is approved automatically when the company limit covers its fully priced total.',
     confirmLabel: 'Submit for approval',
     destructive: false,
     reasonRequired: false,
@@ -296,7 +296,7 @@ export default function RequisitionsPage() {
       requisition,
       kind,
       reason: text,
-    }: Command & { reason: string }): Promise<void> => {
+    }: Command & { reason: string }): Promise<RequisitionSummary | null> => {
       // Each path is written out rather than assembled from a `base` and the
       // command name. `test_frontend_permission_gates` recovers the route shape
       // from the literal it can see, and a path built out of two variables
@@ -307,38 +307,48 @@ export default function RequisitionsPage() {
         // The reason is a query parameter on this endpoint, not a body. A DELETE
         // body would simply never arrive and the call would be a 422.
         await api.delete(`/procurement/purchase-requisitions/${id}`, { params: { reason: text } })
-        return
+        return null
       }
       if (kind === 'submit') {
         // `ApproveRequest` tolerates a null reason and the API writes its own
-        // "Submitted for approval" in its place.
-        await api.post<RequisitionSummary>(`/procurement/purchase-requisitions/${id}/submit`, {
-          reason: text === '' ? null : text,
-        })
-        return
+        // "Submitted for approval" in its place. The response is returned
+        // because submission may auto-approve a requisition inside the
+        // company's limit, and the toast has to say so.
+        return await api.post<RequisitionSummary>(
+          `/procurement/purchase-requisitions/${id}/submit`,
+          { reason: text === '' ? null : text },
+        )
       }
       if (kind === 'close') {
         // `ReasonRequest`, recorded on the APPROVED/CONVERTED -> CLOSED change.
         await api.post<RequisitionSummary>(`/procurement/purchase-requisitions/${id}/close`, {
           reason: text,
         })
-        return
+        return null
       }
       // `ReasonRequest` - refused without a reason, and what is written to the
       // document as its cancellation reason.
       await api.post<RequisitionSummary>(`/procurement/purchase-requisitions/${id}/cancel`, {
         reason: text,
       })
+      return null
     },
-    onSuccess: (_result, variables) => {
+    onSuccess: (result, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
       // A deleted draft has no detail left to serve; dropping its cached entry
       // stops a stale copy answering if the id is opened again.
       if (variables.kind === 'delete') {
         queryClient.removeQueries({ queryKey: requisitionKeys.detail(variables.requisition.id) })
       }
-      const copy = COMMANDS[variables.kind]
-      toast.success(copy.toastTitle, copy.toastBody(variables.requisition.code))
+      if (variables.kind === 'submit' && result?.status === 'APPROVED') {
+        toast.success(
+          success.approved('Requisition'),
+          `${variables.requisition.code} was auto-approved within the company limit.`,
+        )
+      } else {
+        const copy = COMMANDS[variables.kind]
+        toast.success(copy.toastTitle, copy.toastBody(variables.requisition.code))
+      }
       closeCommand()
     },
     onError: (error) => setCommandServerReason(serverFieldMessage(error, 'reason')),

@@ -834,6 +834,11 @@ class PurchaseOrderSummary(BaseModel):
 class PurchaseOrderDetail(PurchaseOrderSummary):
     branch_id: uuid.UUID | None
     approved_by_id: uuid.UUID | None
+    #: The first of two signatures for an order above the dual-approval limit.
+    #: While set, the order is still PENDING_APPROVAL and the person named here
+    #: cannot be the one who completes it.
+    first_approved_by_id: uuid.UUID | None = None
+    first_approved_at: datetime | None = None
     delivery_address: str | None
     terms: str | None
     notes: str | None

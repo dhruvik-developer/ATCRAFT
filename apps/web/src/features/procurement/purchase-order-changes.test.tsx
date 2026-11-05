@@ -544,6 +544,46 @@ describe('duplicate confirmation and revision visibility', () => {
     )
   })
 
+  it('does not offer the first approver a second signature', async () => {
+    const current = order({
+      status: 'PENDING_APPROVAL',
+      approved_at: null,
+      first_approved_by_id: '01a00000-0000-7000-8000-000000000001',
+      first_approved_at: '2026-10-27T10:00:00Z',
+    })
+    renderScreen(<PurchaseOrderDetailPage />, {
+      route: BASE,
+      path: '/procurement/purchase-orders/:poId',
+      permissions: [P.PURCHASE_ORDER_VIEW, P.PURCHASE_ORDER_APPROVE],
+      routes: detailRoutes(current),
+    })
+
+    await screen.findByRole('heading', { name: 'PO-0001' })
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    expect(
+      screen.getByText('You recorded the first approval. A different approver must complete it.'),
+    ).toBeVisible()
+    expect(screen.getByText(/First approval .* awaiting a second/)).toBeVisible()
+  })
+
+  it('offers a different approver the completing signature', async () => {
+    const current = order({
+      status: 'PENDING_APPROVAL',
+      approved_at: null,
+      first_approved_by_id: '01a00000-0000-7000-8000-0000000000ff',
+      first_approved_at: '2026-10-27T10:00:00Z',
+    })
+    renderScreen(<PurchaseOrderDetailPage />, {
+      route: BASE,
+      path: '/procurement/purchase-orders/:poId',
+      permissions: [P.PURCHASE_ORDER_VIEW, P.PURCHASE_ORDER_APPROVE],
+      routes: detailRoutes(current),
+    })
+
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible()
+    expect(screen.getByText(/A second,\s+different approver must complete it/)).toBeVisible()
+  })
+
   it('hides amendment once receipt history exists even when received quantity is zero', async () => {
     renderScreen(<PurchaseOrderDetailPage />, {
       route: BASE,

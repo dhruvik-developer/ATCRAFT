@@ -4227,12 +4227,22 @@ module is used in production:
    (section 31). Is weighted average or standard cost required for any item
    class or for statutory reporting? If so, `items.valuation_method` returns
    together with the costing dispatch that honours it.
-2. **Approval thresholds.** At what value does a purchase order, a stock
-   adjustment or a price override require a second approval? The
-   stock-adjustment and internal-issue thresholds default to 25 000 in company
-   currency and accept per-company overrides through `PUT /audit/approval-settings`.
-   The administration UI and procurement approval-rule integration remain pending;
-   confirm the approved values and policies before production use.
+2. **Approval thresholds.** Which values and policies should Atcraft use in
+   production? Implementation is complete and the defaults are assumptions, not
+   confirmed limits: purchase orders above 25 000 need two distinct approvers,
+   stock adjustments and internal issues above 25 000 need a separate approver,
+   and requisitions never auto-approve until a positive
+   `requisition_auto_approve_limit` is set. All four thresholds accept
+   per-company overrides through `PUT /audit/approval-settings` and the
+   administration UI. Negative or zero disables the rule. A first PO signature
+   cannot be completed by the same user, and an auto-approved requisition leaves
+   no human approval evidence - confirm that is the intended control before
+   production use. Draft requisitions use the current limit when submitted;
+   changing a limit never auto-approves an item already in the manual queue.
+   Pending purchase orders use the current limit when approval is attempted,
+   but once a first signature exists it remains required if the limit rises,
+   until an amendment clears that evidence. Price-override approval is still
+   not a threshold.
 3. **Multi-currency.** Companies have a configurable currency; customer orders,
    invoices and credit flows use that company currency. Vendor documents can
    carry other currencies, and reports keep denominations separate. Which FX

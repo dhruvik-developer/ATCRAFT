@@ -1011,7 +1011,9 @@ Credit note       ISSUED -> CANCELLED (irreversible; within 24 hours)
 
 Purchase          DRAFT -> PENDING_APPROVAL -> APPROVED -> CONVERTED -> CLOSED
 requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING_APPROVAL,
-                  APPROVED; CLOSED from APPROVED or CONVERTED via POST .../close)
+                  APPROVED; CLOSED from APPROVED or CONVERTED via POST .../close;
+                  DRAFT -> APPROVED only inside submit, when every line is priced and
+                  the rounded total is within a positive requisition auto-approve limit)
 
 Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
                         -> PARTIALLY_RECEIVED -> RECEIVED -> QC_PENDING -> QC_COMPLETED
@@ -1256,6 +1258,26 @@ except for the existing explicit platform-superuser/SUPER_ADMIN exemption.
 Even a free line change forces a header version update. The ordinary Submit
 operation remains draft-only. The content-changed seam is a no-op until the
 deferred D4 signer setup is decided.
+
+**Configurable approval rules (B4).** `company_approval_settings` supplies
+`po_dual_approval_amount` and `requisition_auto_approve_limit`; a value at or
+below zero disables the corresponding rule. Above the dual-approval limit a
+purchase order needs two different approvers. The first signature is written to
+`purchase_orders.first_approved_by_id` / `first_approved_at` (revision
+`20261125_0100`, CHECK `first_approval_evidence_complete`), audited as
+`purchase_order_dual_approval_first_signature` with the amount and limit, and
+leaves the order in `PENDING_APPROVAL`. The same user cannot complete it - the
+superuser exemption does not apply to this distinctness rule. Editing a pending
+order or amending an approved one clears the first signature together with the
+older approval evidence.
+
+A requisition is auto-approved on submission when the limit is positive, it has
+at least one line, every line carries an estimate, and the money-rounded
+estimated total is at or below the limit. That is the only path to
+`DRAFT -> APPROVED`: the ordinary approve route refuses a draft. Auto-approval
+leaves `approved_by_id` / `approved_at` empty (nobody signed) and records
+`requisition_auto_approval` audit context with the event, estimated value, limit
+and line count. Unpriced or empty requisitions stay in the manual queue.
 
 Duplicate resolution rechecks candidates inside the transaction. Merge/increase
 requires the current candidate version, compatible header/line commercial

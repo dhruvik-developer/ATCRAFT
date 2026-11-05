@@ -777,8 +777,16 @@ export default function PurchaseOrderDetailPage() {
   const copy = command ? COMMAND_COPY[command] : null
   const isShortClose = command === 'close' && order.status === 'PARTIALLY_RECEIVED'
   const duplicateApproval = command === 'approve' && order.duplicate_acknowledged
-  const needsAnotherApprover =
+  // Two separate reasons this principal cannot be the one who approves:
+  // they amended the revision they would be approving, or they already
+  // recorded the first of the two signatures a large order needs. The API
+  // enforces both; hiding the button is the courtesy, not the control.
+  const amendedByCurrentUser =
     !user?.is_superuser && order.last_amended_by_id != null && order.last_amended_by_id === user?.id
+  const firstApprovalRecorded = order.first_approved_by_id != null
+  const currentUserSignedFirst =
+    order.first_approved_by_id != null && order.first_approved_by_id === user?.id
+  const needsAnotherApprover = amendedByCurrentUser || currentUserSignedFirst
   const reasonRequired = Boolean(copy?.reasonRequired) || duplicateApproval
   const maxReasonLength = command === 'approve' ? MAX_DUPLICATE_REASON_LENGTH : REASON_MAX_LENGTH
   const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
@@ -874,9 +882,20 @@ export default function PurchaseOrderDetailPage() {
         <Card>
           <CardContent className="p-4">
             <StatusStepper status={order.status} />
-            {isPoDecidable(order.status) && needsAnotherApprover && (
+            {isPoDecidable(order.status) && currentUserSignedFirst && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                You recorded the first approval. A different approver must complete it.
+              </p>
+            )}
+            {isPoDecidable(order.status) && amendedByCurrentUser && !currentUserSignedFirst && (
               <p className="mt-3 text-sm text-muted-foreground">
                 Another approver must approve this revision.
+              </p>
+            )}
+            {isPoDecidable(order.status) && firstApprovalRecorded && !currentUserSignedFirst && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                First approval recorded {formatDateTime(order.first_approved_at)}. A second,
+                different approver must complete it.
               </p>
             )}
             {(PO_TERMINAL_BAD as readonly string[]).includes(order.status) && (
@@ -988,7 +1007,9 @@ export default function PurchaseOrderDetailPage() {
                     label: 'Approved',
                     value: order.approved_at
                       ? formatDateTime(order.approved_at)
-                      : 'Not approved yet',
+                      : order.first_approved_at
+                        ? `First approval ${formatDateTime(order.first_approved_at)}; awaiting a second`
+                        : 'Not approved yet',
                   },
                   { label: 'Sent to vendor', value: formatDateTime(order.sent_at) },
                   { label: 'Created', value: formatDateTime(order.created_at) },

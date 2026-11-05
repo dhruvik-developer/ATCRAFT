@@ -57,6 +57,17 @@ REQUISITION_LIFECYCLE: StateMachine[RequisitionStatus] = StateMachine(
             permission=Permission.PURCHASE_REQUISITION_CREATE,
             label="Submit for approval",
         ),
+        # Taken only by the submit path, and only when the company's
+        # requisition_auto_approve_limit is positive and every line is priced
+        # within it (service_rules.requisition_auto_approval). It is deliberately
+        # not reachable from the ordinary approve route: an approver cannot
+        # approve a draft that was never submitted.
+        Transition(
+            RequisitionStatus.DRAFT,
+            RequisitionStatus.APPROVED,
+            permission=Permission.PURCHASE_REQUISITION_CREATE,
+            label="Auto-approved within the company limit",
+        ),
         Transition(
             RequisitionStatus.DRAFT,
             RequisitionStatus.CANCELLED,
@@ -696,6 +707,45 @@ def requisition_line_status_for(
     if Decimal(ordered_quantity) > 0:
         return RequisitionLineStatus.PARTIALLY_ORDERED
     return RequisitionLineStatus.PENDING
+
+
+@dataclass(frozen=True, slots=True)
+class RequisitionAutoApproval:
+    """The evidence a requisition may skip the approval queue on.
+
+    ``estimated_value`` is what the lines come to at the requester's indicative
+    prices; it is not a committed price and never becomes one.
+    """
+
+    estimated_value: Decimal
+    line_count: int
+
+
+def requisition_auto_approval(
+    lines: Sequence[tuple[Decimal, Decimal | None]], *, limit: Decimal
+) -> RequisitionAutoApproval | None:
+    """Whether a requisition may be approved on submission.
+
+    Three conditions, all necessary. The limit must be positive - zero is the
+    default and means the company has not switched the rule on. There must be at
+    least one line, because auto-approving an empty document would create an
+    approved requisition with nothing to buy. And every line must carry a price:
+    an unpriced line cannot be compared with the limit, and approving it would
+    commit the company to an amount nobody has estimated.
+
+    ``lines`` is ``(quantity, estimated_unit_price)``.
+    """
+    if limit <= ZERO or not lines:
+        return None
+    total = ZERO
+    for quantity, unit_price in lines:
+        if unit_price is None:
+            return None
+        total += Decimal(quantity) * Decimal(unit_price)
+    total = to_money(total)
+    if total > limit:
+        return None
+    return RequisitionAutoApproval(estimated_value=total, line_count=len(lines))
 
 
 class LineReceiptState(Protocol):

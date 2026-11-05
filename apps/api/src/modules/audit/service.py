@@ -187,13 +187,19 @@ async def record_status_change(
     user_id: uuid.UUID | None,
     action: AuditAction = AuditAction.STATUS_CHANGE,
     reason: str | None = None,
+    context: dict[str, Any] | None = None,
     flush: bool = True,
 ) -> AuditLog:
     """Record a state-machine transition (sections 17/73).
 
     Called by every document status change so the full lifecycle of a purchase
     order or production order can be reconstructed from the audit table alone.
+    ``context`` carries the evidence a particular rule needs beside the move
+    itself - the limit a requisition was auto-approved under, for instance.
     """
+    audit_context = dict(context or {})
+    if reason:
+        audit_context["reason"] = reason
     return await record_audit(
         session,
         company_id=company_id,
@@ -205,7 +211,7 @@ async def record_status_change(
         user_id=user_id,
         old_values={"status": from_status},
         new_values={"status": to_status},
-        context={"reason": reason} if reason else None,
+        context=audit_context or None,
         flush=flush,
     )
 

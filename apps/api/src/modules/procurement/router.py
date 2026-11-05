@@ -523,9 +523,14 @@ async def submit_requisition(
         RequisitionStatus.PENDING_APPROVAL,
         reason=payload.reason or "Submitted for approval",
     )
+    message = (
+        f"Requisition {requisition.code} was auto-approved within the company limit"
+        if requisition.status == RequisitionStatus.APPROVED
+        else f"Requisition {requisition.code} submitted for approval"
+    )
     return ApiResponse[RequisitionSummary].ok(
         RequisitionSummary.model_validate(requisition),
-        f"Requisition {requisition.code} submitted for approval",
+        message,
     )
 
 
@@ -1243,9 +1248,14 @@ async def approve_purchase_order(
         reason=payload.reason or "Approved",
         confirm_duplicate=getattr(payload, "confirm_duplicate", False),
     )
+    message = (
+        f"First approval of {order.code} recorded; a second approver must confirm it"
+        if order.status == PurchaseOrderStatus.PENDING_APPROVAL
+        else success_message(f"Purchase order {order.code}", "approved")
+    )
     return ApiResponse[PurchaseOrderSummary].ok(
         PurchaseOrderSummary.model_validate(order),
-        success_message(f"Purchase order {order.code}", "approved"),
+        message,
     )
 
 

@@ -296,6 +296,8 @@ async def _revise_locked(
         order.vendor_committed_date = None
         order.approved_at = None
         order.approved_by_id = None
+        order.first_approved_at = None
+        order.first_approved_by_id = None
         order.duplicate_confirmed_at = None
         order.duplicate_confirmed_by_id = None
         order.duplicate_confirmation_reason = None

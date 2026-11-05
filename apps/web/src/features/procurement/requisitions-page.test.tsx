@@ -219,9 +219,11 @@ describe('who is offered what', () => {
 
 describe('the state machine decides which commands exist', () => {
   it('offers Submit on a draft and never Approve, however many rights are held', async () => {
-    // `REQUISITION_LIFECYCLE` has no DRAFT -> APPROVED edge. A menu that offered
-    // one would put an approver through a confirmation that ends in a 422 and
-    // leave the draft exactly where it was.
+    // `REQUISITION_LIFECYCLE` reaches APPROVED from DRAFT only inside submit,
+    // and only when the company's auto-approve limit covers a fully priced
+    // document. A menu that offered a direct approve would put an approver
+    // through a confirmation that ends in a 422 and leave the draft exactly
+    // where it was.
     const { user, fetch } = renderScreen(screenUnderTest, {
       permissions: [
         P.PURCHASE_REQUISITION_VIEW,

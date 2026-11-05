@@ -68,7 +68,12 @@ from src.core.types import ZERO, to_money, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
-from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.audit.service import (
+    get_company_approval_settings,
+    record_audit,
+    record_status_change,
+    snapshot,
+)
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import MovementRequest, TraceabilityService, post_movements
@@ -224,6 +229,7 @@ from src.modules.procurement.service_rules import (
     OfferInput,
     PlannedConversionLine,
     ProposedLine,
+    RequisitionAutoApproval,
     ReturnPoolFacts,
     ScoreWeights,
     VendorAssigneeReason,
@@ -245,6 +251,7 @@ from src.modules.procurement.service_rules import (
     receipt_line_qc_status,
     receipt_unit_cost,
     recommendation_reason,
+    requisition_auto_approval,
     requisition_line_status_for,
     resolve_line_price,
     resolve_line_vendor,
@@ -298,6 +305,8 @@ ORDER_AUDITED_FIELDS = [
     "assigned_vendor_user_id",
     "item_category_id",
     "duplicate_acknowledged",
+    "first_approved_by_id",
+    "first_approved_at",
     "notes",
 ]
 
@@ -491,6 +500,7 @@ async def _transition(
     status_enum: Any,
     action: AuditAction = AuditAction.STATUS_CHANGE,
     actor_user_id: uuid.UUID | None = None,
+    audit_context: dict[str, Any] | None = None,
 ) -> None:
     """Move a document's status and record it.
 
@@ -519,6 +529,7 @@ async def _transition(
         user_id=actor_user_id,
         action=action,
         reason=reason,
+        context=audit_context,
     )
 
     approval_actions = {
@@ -1301,13 +1312,50 @@ async def transition_requisition(
 ) -> PurchaseRequisition:
     """Submit, approve, reject, cancel or close a requisition."""
     repo = RequisitionRepository(session, tenant)
+    line_repo = RequisitionLineRepository(session, tenant)
 
     async with transaction(session):
         requisition = await repo.lock_for_update(requisition_id)
         if requisition is None:
             raise NotFoundError("Purchase requisition", requisition_id)
 
-        if target is RequisitionStatus.APPROVED:
+        current = RequisitionStatus(requisition.status)
+        if target is RequisitionStatus.APPROVED and current is RequisitionStatus.DRAFT:
+            # A draft has not been through the queue. Reaching APPROVED from DRAFT
+            # is reserved for the guarded auto-approval below, which runs as part
+            # of submission and under the company's limit.
+            raise BusinessRuleError(
+                f"Requisition {requisition.code} is still a draft; submit it for approval."
+            )
+
+        auto: RequisitionAutoApproval | None = None
+        transition_target = target
+        transition_reason = reason
+        audit_context: dict[str, Any] | None = None
+        if target is RequisitionStatus.PENDING_APPROVAL and current is RequisitionStatus.DRAFT:
+            # ASSUMPTION: a draft is evaluated against the current setting when
+            # submitted; changing the limit never silently approves a document
+            # that is already waiting in the manual queue.
+            settings = await get_company_approval_settings(session, tenant)
+            lines = await line_repo.list_for_requisition(requisition.id)
+            auto = requisition_auto_approval(
+                [(line.quantity, line.estimated_unit_price) for line in lines],
+                limit=settings.requisition_auto_approve_limit,
+            )
+            if auto is not None:
+                transition_target = RequisitionStatus.APPROVED
+                transition_reason = (
+                    f"Auto-approved on submission: estimated value {auto.estimated_value} "
+                    f"is within the company limit {settings.requisition_auto_approve_limit}."
+                )
+                audit_context = {
+                    "event": "requisition_auto_approval",
+                    "estimated_value": auto.estimated_value,
+                    "limit": settings.requisition_auto_approve_limit,
+                    "line_count": auto.line_count,
+                }
+
+        if auto is None and target is RequisitionStatus.APPROVED:
             _assert_separate_approver(principal, requisition.created_by_id)
             requisition.approved_by_id = principal.user_id
             requisition.approved_at = utcnow()
@@ -1317,11 +1365,14 @@ async def transition_requisition(
         elif target is RequisitionStatus.CANCELLED:
             requisition.cancellation_reason = reason
 
-        action = {
-            RequisitionStatus.APPROVED: AuditAction.APPROVE,
-            RequisitionStatus.REJECTED: AuditAction.REJECT,
-            RequisitionStatus.CANCELLED: AuditAction.CANCEL,
-        }.get(target, AuditAction.STATUS_CHANGE)
+        if auto is not None:
+            action = AuditAction.APPROVE
+        else:
+            action = {
+                RequisitionStatus.APPROVED: AuditAction.APPROVE,
+                RequisitionStatus.REJECTED: AuditAction.REJECT,
+                RequisitionStatus.CANCELLED: AuditAction.CANCEL,
+            }.get(target, AuditAction.STATUS_CHANGE)
 
         await _transition(
             session,
@@ -1330,11 +1381,12 @@ async def transition_requisition(
             entity=requisition,
             entity_type=AUDIT_REQUISITION,
             entity_code=requisition.code,
-            target=target,
-            reason=reason,
+            target=transition_target,
+            reason=transition_reason,
             status_enum=RequisitionStatus,
             action=action,
             actor_user_id=principal.user_id,
+            audit_context=audit_context,
         )
 
     return requisition
@@ -2902,6 +2954,13 @@ async def update_purchase_order(
 
         before = snapshot(order, ORDER_AUDITED_FIELDS)
 
+        # A first signature is evidence about the document as it stood. Editing
+        # a pending order rewrites the lines or the terms, so the signature it
+        # carried no longer describes what a second approver would be signing.
+        if PurchaseOrderStatus(order.status) is PurchaseOrderStatus.PENDING_APPROVAL:
+            order.first_approved_by_id = None
+            order.first_approved_at = None
+
         if payload.warehouse_id is not None:
             await _assert_warehouse(session, tenant, payload.warehouse_id)
             order.warehouse_id = payload.warehouse_id
@@ -3159,8 +3218,62 @@ async def transition_purchase_order(
             vendor = await _load_vendor(session, tenant, order.vendor_id)
             _assert_orderable(vendor)
         elif target is PurchaseOrderStatus.APPROVED:
+            # The edge first, before any evidence is written. The first-signature
+            # path returns early, so without this check an approve call on a
+            # draft (or an already-approved order) could record a signature
+            # without ever attempting the transition.
+            PURCHASE_ORDER_LIFECYCLE.assert_transition(PurchaseOrderStatus(order.status), target)
             _assert_separate_approver(principal, order.created_by_id)
             _assert_separate_approver(principal, order.last_amended_by_id)
+
+            # ASSUMPTION: apply the current limit at the approval decision. If a
+            # first signature is already recorded, keep the second signature
+            # mandatory even if a later settings change raises the limit; only a
+            # revision clears evidence and starts the decision again.
+            # Dual approval: above the company limit one signature is not
+            # enough. The first is recorded on the order, the status stays
+            # PENDING_APPROVAL, and a different user must complete it. Once a
+            # first signature exists the second is required regardless of what
+            # the setting says now - an approval cannot be half-withdrawn by a
+            # threshold change, and re-approving the same person would defeat
+            # the control.
+            settings = await get_company_approval_settings(session, tenant)
+            threshold = settings.po_dual_approval_amount
+            dual_required = threshold > 0 and Decimal(order.total_amount) > threshold
+
+            if order.first_approved_by_id is not None:
+                if principal.user_id == order.first_approved_by_id:
+                    raise AuthorizationError(
+                        "Two different approvers must sign this purchase order; "
+                        "you recorded the first approval."
+                    )
+            elif dual_required:
+                first_approved_at = utcnow()
+                order.first_approved_by_id = principal.user_id
+                order.first_approved_at = first_approved_at
+                await session.flush()
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.APPROVE,
+                    entity_type=AUDIT_PURCHASE_ORDER,
+                    entity_id=order.id,
+                    entity_code=order.code,
+                    summary=(f"First approval of {order.code}; a second approver must confirm it"),
+                    user_id=principal.user_id,
+                    old_values={"first_approved_by_id": None, "first_approved_at": None},
+                    new_values={
+                        "first_approved_by_id": principal.user_id,
+                        "first_approved_at": first_approved_at,
+                    },
+                    context={
+                        "event": "purchase_order_dual_approval_first_signature",
+                        "amount": order.total_amount,
+                        "threshold": threshold,
+                    },
+                )
+                return order
+
             if order.duplicate_acknowledged:
                 if not confirm_duplicate or len(reason.strip()) < 3:
                     raise BusinessRuleError(

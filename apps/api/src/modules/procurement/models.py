@@ -915,6 +915,16 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
         GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: The first of two approvals an order above the company's dual-approval
+    #: threshold needs. The order stays PENDING_APPROVAL until a second, different
+    #: user signs it; the first signature is kept so that second approval cannot
+    #: be given by the same person. Both columns move together - see the CHECK.
+    first_approved_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    first_approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -1047,6 +1057,13 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
         ),
         CheckConstraint(
             "(approved_by_id IS NULL) = (approved_at IS NULL)", name="approval_evidence_complete"
+        ),
+        # A first approval is evidence too: the user and the moment it happened
+        # are written together or not at all, because the second approver's
+        # distinctness is checked against that user id.
+        CheckConstraint(
+            "(first_approved_by_id IS NULL) = (first_approved_at IS NULL)",
+            name="first_approval_evidence_complete",
         ),
         CheckConstraint(
             "status <> 'REJECTED' OR rejection_reason IS NOT NULL",

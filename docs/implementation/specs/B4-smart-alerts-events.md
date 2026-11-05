@@ -136,10 +136,10 @@ Close these IDs: A01.A7, A01.A13, A01.A14 (outbound), A01.M10, A08.6, A08.8, A10
 - Add a guard test: every route whose permission ends in `.approve` either opens/closes approvals or is listed in an explicit, justified exemption list.
 
 **Configurable approval thresholds** (P02.U3 rules): `company_approval_settings`, a sparse per-company table with code defaults, for:
-- PO value above which a second approver role is required (`po_dual_approval_amount`);
+- PO value above which a second, distinct approver is required (`po_dual_approval_amount`; delivered in revision `20261125_0100` - the first signature stays on the order, the same user cannot complete it, and editing or amending clears it);
 - the adjustment value threshold (replacing the hard-coded 25 000 constant via the setting, keeping the same default);
 - the internal-issue threshold;
-- auto-approve below a limit for requisitions.
+- auto-approve below a limit for requisitions (delivered: submission auto-approves only a non-empty, fully priced document at or under a positive limit; the ordinary approve route refuses a draft).
 
 Routes are `GET/PUT /audit/approval-settings` (`settings.view` / `settings.manage`). Add a tab on `/admin/alerts` or its own admin tab. The services read the settings through one cached-per-request helper; there is no cache across requests.
 

@@ -144,7 +144,9 @@ export const isRequisitionDecidable = (status: string): boolean => status === 'P
 
 /**
  * Submitting for approval is the DRAFT -> PENDING_APPROVAL edge of
- * `REQUISITION_LIFECYCLE`, and there is no other way into the approval queue.
+ * `REQUISITION_LIFECYCLE`. The API may auto-approve the document inside the
+ * same call when the company's limit covers a fully priced total, so the
+ * response can already be APPROVED; there is no separate approve action.
  */
 export const isRequisitionSubmittable = (status: string): boolean => status === 'DRAFT'
 

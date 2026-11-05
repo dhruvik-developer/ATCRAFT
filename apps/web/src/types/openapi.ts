@@ -32255,6 +32255,10 @@ export interface components {
             duplicate_confirmed_by_id?: string | null;
             /** Expected Delivery Date */
             expected_delivery_date: string | null;
+            /** First Approved At */
+            first_approved_at?: string | null;
+            /** First Approved By Id */
+            first_approved_by_id?: string | null;
             /** Freight Amount */
             freight_amount: string;
             /**
