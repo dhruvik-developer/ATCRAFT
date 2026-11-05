@@ -30,6 +30,7 @@ from src.modules.inventory.models import (
     BinMoveLine,
     InternalIssue,
     InternalIssueLine,
+    InventoryBalance,
     PhysicalCountLine,
     ScrapDisposal,
     ScrapDisposalLine,
@@ -228,6 +229,12 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     assert column_names(dsn, "purchase_return_debit_allocations") == {
         column.name for column in PurchaseReturnDebitAllocation.__table__.columns
     }
+    balance_columns = column_names(dsn, "inventory_balances")
+    assert "allocated_quantity" not in balance_columns
+    assert balance_columns == {column.name for column in InventoryBalance.__table__.columns}
+    balance_checks = table_constraints(dsn, "inventory_balances", "c")
+    assert "ck_inventory_balances_allocated_non_negative" not in balance_checks
+    assert "ck_inventory_balances_allocated_within_reserved" not in balance_checks
     # The E3a revision's columns are part of the head schema: migratable in a
     # fresh database before the application reads them.
     assert {"low_level_code", "expected_available_date"} <= column_names(dsn, "mrp_requirements")

@@ -79,6 +79,7 @@ class TestBalanceCostVisibility:
         # The quantities are what they came for and must survive the narrowing.
         assert "on_hand_quantity" in row
         assert "available_quantity" in row
+        assert "allocated_quantity" not in row
 
     async def test_a_caller_holding_item_cost_view_still_gets_it(
         self, api_client, session: AsyncSession, principal: Principal, seeded_balance

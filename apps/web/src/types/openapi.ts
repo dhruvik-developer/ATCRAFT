@@ -16009,8 +16009,6 @@ export interface components {
          *     has no cost field at all, so no later refactor can put it back by accident.
          */
         BalanceRead: {
-            /** Allocated Quantity */
-            allocated_quantity: string;
             /** Available Quantity */
             available_quantity: string;
             /** Batch Id */
@@ -16070,8 +16068,6 @@ export interface components {
          *     Served only to a caller holding ``item.cost_view``.
          */
         BalanceReadWithCost: {
-            /** Allocated Quantity */
-            allocated_quantity: string;
             /** Available Quantity */
             available_quantity: string;
             /** Average Cost */

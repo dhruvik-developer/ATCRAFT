@@ -137,7 +137,6 @@ class BalanceRead(BaseModel):
 
     on_hand_quantity: Decimal
     reserved_quantity: Decimal
-    allocated_quantity: Decimal
     in_transit_quantity: Decimal
     qc_hold_quantity: Decimal
     damaged_quantity: Decimal

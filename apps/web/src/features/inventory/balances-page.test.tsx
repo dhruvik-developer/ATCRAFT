@@ -43,7 +43,6 @@ function balance(overrides: Partial<InventoryBalanceRow> = {}): InventoryBalance
     batch_number: null,
     on_hand_quantity: '120.0000',
     reserved_quantity: '20.0000',
-    allocated_quantity: '0.0000',
     in_transit_quantity: '0.0000',
     qc_hold_quantity: '0.0000',
     damaged_quantity: '0.0000',
@@ -83,6 +82,7 @@ describe('the balance grid', () => {
     expect(cells.map((cell) => cell.textContent)).toEqual(
       expect.arrayContaining(['120', '20', '100']),
     )
+    expect(screen.queryByRole('columnheader', { name: 'Allocated' })).not.toBeInTheDocument()
   })
 
   it('marks a position with nothing free in a way a screen reader reaches', async () => {

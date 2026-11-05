@@ -9672,11 +9672,6 @@
       "BalanceRead": {
         "description": "One stock position, with the labels a screen needs to render it.\n\nCarries no cost. ``average_cost`` and ``stock_value`` are what a competitor\nwould want and what ``item.cost_view`` / ``inventory.valuation_view`` exist\nto gate, and a store keeper reading stock levels holds neither. They live on\n:class:`BalanceReadWithCost` instead, chosen per request.\n\nA subclass rather than a field deleted after the fact, following\n``products.service.item_response``: without the right, the response model\nhas no cost field at all, so no later refactor can put it back by accident.",
         "properties": {
-          "allocated_quantity": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Allocated Quantity",
-            "type": "string"
-          },
           "available_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Available Quantity",
@@ -9854,7 +9849,6 @@
           "warehouse_id",
           "on_hand_quantity",
           "reserved_quantity",
-          "allocated_quantity",
           "in_transit_quantity",
           "qc_hold_quantity",
           "damaged_quantity",
@@ -9868,11 +9862,6 @@
       "BalanceReadWithCost": {
         "description": "A stock position including what it is worth.\n\nServed only to a caller holding ``item.cost_view``.",
         "properties": {
-          "allocated_quantity": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Allocated Quantity",
-            "type": "string"
-          },
           "available_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Available Quantity",
@@ -10060,7 +10049,6 @@
           "warehouse_id",
           "on_hand_quantity",
           "reserved_quantity",
-          "allocated_quantity",
           "in_transit_quantity",
           "qc_hold_quantity",
           "damaged_quantity",

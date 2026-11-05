@@ -487,7 +487,6 @@ form the movement engine's upsert conflict target.
 |---|---|
 | `on_hand_quantity` | physically present |
 | `reserved_quantity` | promised to a specific demand, still physically present |
-| `allocated_quantity` | reserved **and** picked/committed to a document |
 | `in_transit_quantity` | dispatched from a source, not yet received |
 | `qc_hold_quantity` | present but not usable pending inspection |
 | `damaged_quantity` | |
@@ -499,12 +498,16 @@ form the movement engine's upsert conflict target.
 It cannot drift from its inputs, and it can be indexed for "what can I promise?"
 queries. Application code never writes it.
 
+There is no separate allocated balance: the application has no generic,
+per-position pick/commit step to maintain one. Do not confuse this with
+`sales_order_lines.allocated_quantity`, which records the order line's reserved
+quantity.
+
 Check constraints — these are the correctness floor, not decoration:
 
 ```sql
 CHECK (on_hand_quantity   >= 0)
 CHECK (reserved_quantity  >= 0)
-CHECK (allocated_quantity >= 0)
 CHECK (qc_hold_quantity   >= 0)
 CHECK (damaged_quantity   >= 0)
 CHECK (in_transit_quantity >= 0)
@@ -513,7 +516,6 @@ CHECK (scrap_quantity     >= 0)
 CHECK (average_cost       >= 0)
 CHECK (stock_value        >= 0)
 CHECK (reserved_quantity  <= on_hand_quantity)      -- cannot promise what is not there
-CHECK (allocated_quantity <= reserved_quantity)     -- allocation is a subset of reservation
 ```
 
 ### 4.4 Concurrency — mandatory pattern

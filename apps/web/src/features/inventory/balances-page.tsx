@@ -161,12 +161,6 @@ export default function InventoryBalancesPage() {
         cell: ({ row }) => formatQuantity(row.original.reserved_quantity),
       },
       {
-        id: 'allocated_quantity',
-        header: 'Allocated',
-        meta: { align: 'right' },
-        cell: ({ row }) => formatQuantity(row.original.allocated_quantity),
-      },
-      {
         id: 'qc_hold_quantity',
         header: 'QC hold',
         meta: { align: 'right' },

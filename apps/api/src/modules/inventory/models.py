@@ -630,9 +630,6 @@ class InventoryBalance(TenantEntity):
     reserved_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
-    allocated_quantity: Mapped[Decimal] = mapped_column(
-        Quantity, nullable=False, default=Decimal("0"), server_default="0"
-    )
     in_transit_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -733,12 +730,8 @@ class InventoryBalance(TenantEntity):
         # --- the correctness floor (database contract section 4.3) ----------
         CheckConstraint("on_hand_quantity >= 0", name="on_hand_non_negative"),
         CheckConstraint("reserved_quantity >= 0", name="reserved_non_negative"),
-        CheckConstraint("allocated_quantity >= 0", name="allocated_non_negative"),
         CheckConstraint("qc_hold_quantity >= 0", name="qc_hold_non_negative"),
         CheckConstraint("reserved_quantity <= on_hand_quantity", name="reserved_within_on_hand"),
-        CheckConstraint(
-            "allocated_quantity <= reserved_quantity", name="allocated_within_reserved"
-        ),
         # The remaining pools get the same floor. A negative "damaged" or
         # "in transit" is meaningless and would silently inflate availability or
         # company-owned totals.

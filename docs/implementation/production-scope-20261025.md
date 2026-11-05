@@ -68,7 +68,7 @@ existing branches before beginning the next package.
 | 1 | [B5 procurement and inbound reports](specs/B5-procurement-reports-ops-e2e.md) | B4 alert behavior and C1a, D1, vendor job-work/invoice foundations are present. A5 and B5 are otherwise independent; this order keeps the shared handbook/e2e updates reviewable. |
 | 2 | [B4 configurable approval thresholds](specs/B4-smart-alerts-events.md) | Close the threshold-settings section left outstanding by the otherwise implemented B4 package. |
 | 3 | [A5 dealer notifications](specs/A5-dealer-notifications-commercial-e2e.md) | A4 collections and B4 alert foundations are present; C3/C4 dealer identity and screens are already present. |
-| 4 | [E12 security, legacy, deployment and dead-code closeout](specs/E12-phase1-documents-cleanup.md) | Final evidence pass after A4/B4/A5/B5 and their end-to-end integrations. Include the reported `allocated_quantity`, `can_be_spare` reservation enforcement and unused `customer_price_type` findings; verify each against current behavior before deleting or changing it. |
+| 4 | [E12 security, legacy, deployment and dead-code closeout](specs/E12-phase1-documents-cleanup.md) | Final evidence pass after A4/B4/A5/B5 and their end-to-end integrations. The unmaintained balance-level `allocated_quantity` was retired because no generic pick/commit workflow exists; keep it distinct from the sales-order-line field. Include the remaining `can_be_spare` reservation enforcement and unused `customer_price_type` findings, verifying each against current behavior. |
 
 Use one focused delivery checkpoint per package: tests with implementation,
 reviewed migrations and generated contracts where applicable, the package's

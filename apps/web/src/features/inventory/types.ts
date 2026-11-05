@@ -72,7 +72,6 @@ export interface InventoryBalanceRow {
 
   on_hand_quantity: DecimalString
   reserved_quantity: DecimalString
-  allocated_quantity: DecimalString
   in_transit_quantity: DecimalString
   qc_hold_quantity: DecimalString
   damaged_quantity: DecimalString
