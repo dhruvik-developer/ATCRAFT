@@ -199,7 +199,6 @@ class TestBalanceProbeColumns:
         assert set(_BALANCE_COLUMNS) == {
             "on_hand_quantity",
             "reserved_quantity",
-            "allocated_quantity",
             "in_transit_quantity",
             "qc_hold_quantity",
             "damaged_quantity",
