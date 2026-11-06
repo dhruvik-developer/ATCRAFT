@@ -590,6 +590,12 @@ two deployments.
 | `SMTP_USERNAME`                                 | _(empty)_                           | Only if the relay authenticates. Set both or neither.                                                                                                            |
 | `SMTP_PASSWORD`                                 | _(empty)_                           | Paired with `SMTP_USERNAME`.                                                                                                                                     |
 | `SMTP_TIMEOUT_SECONDS`                          | `15`                                |                                                                                                                                                                  |
+| `MALWARE_SCANNER`                               | `clamav` in deployed Compose       | `clamav` scans every upload; `none` leaves content checks only. `deploy.sh` activates the pinned, private ClamAV service profile and waits for its image healthcheck. |
+| `MALWARE_SCAN_FAILURE_POLICY`                   | `closed`                            | `closed` refuses an upload the scanner could not check; `open` accepts and logs.                                                                                 |
+| `CLAMAV_HOST` / `CLAMAV_PORT`                   | `clamav` / `3310` in deployed Compose | TCP address of the daemon. It is not published on the host; API access is limited to the deployment's private network.                                        |
+| `CLAMAV_SOCKET_PATH`                            | _(empty)_                           | Unix socket; takes precedence over host/port when set.                                                                                                           |
+| `CLAMAV_TIMEOUT_SECONDS`                        | `10`                                | Per-scan ceiling, 1..120 seconds.                                                                                                                                |
+| `MFA_REQUIRED_ROLES`                            | _(empty)_                           | Comma-separated role codes that must enrol TOTP before using the API; matching is case-insensitive. Empty leaves MFA optional until a policy is approved.         |
 | `WEB_PUSH_ENABLED`                              | `false`                             | Device channel; true for container-run API/workers in the local dev overlay. Host-run processes use `.env`.                                                      |
 | `WEB_PUSH_VAPID_PRIVATE_KEY`                    | _(empty)_                           | Optional base64url P-256 scalar; default derives from credential root.                                                                                           |
 | `WEB_PUSH_SUBJECT`                              | _(empty)_                           | mailto: or https: contact; falls back to EMAIL_FROM_ADDRESS; required deployed/enabled.                                                                          |
@@ -626,13 +632,16 @@ two deployments.
 | `BACKEND_MEM_LIMIT`                             | `2G`                                |                                                                                                                                                                  |
 | `CELERY_CONCURRENCY`                            | `4`                                 |                                                                                                                                                                  |
 | `WORKER_MEM_LIMIT`                              | `2G`                                |                                                                                                                                                                  |
+| `CLAMAV_MEM_LIMIT`                              | `2G`                                | Per deployment ClamAV sidecar; allow up to 4G for both deployments together.                                                                                     |
+| `CLAMAV_CPU_LIMIT`                              | `1`                                 | Per deployment signature update and scan ceiling.                                                                                                                |
 | `NOTIFY_CONCURRENCY`                            | `2`                                 | Dedicated notification worker; dev uses `1`.                                                                                                                     |
 | `NOTIFY_DB_POOL_SIZE`, `NOTIFY_DB_MAX_OVERFLOW` | `2`, `2`                            | Per notification child.                                                                                                                                          |
 | `NOTIFY_MEM_LIMIT`                              | `512M`                              | Dev uses `256M`.                                                                                                                                                 |
 
 Both Postgres clusters share one box's RAM. Size them together: the sum of the
-two `PG_MEM_LIMIT`s plus both backends and both workers must fit, with room for
-the page cache.
+two `PG_MEM_LIMIT`s, both backends, both workers and both ClamAV sidecars must
+fit, with room for the page cache. Each ClamAV sidecar is capped at 2G by
+default; lower neither limit without measuring its database and scan workload.
 
 ### Connections and memory
 

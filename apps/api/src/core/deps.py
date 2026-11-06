@@ -35,6 +35,7 @@ from src.core.errors import (
     AuthenticationError,
     AuthorizationError,
     ErrorCode,
+    MfaRequiredError,
     PasswordChangeRequiredError,
     PermissionDeniedError,
 )
@@ -62,6 +63,29 @@ def password_change_route_allowed(path: str) -> bool:
         f"{prefix}/auth/logout-all",
     }
     return path.rstrip("/") in allowed
+
+
+def mfa_enrolment_route_allowed(path: str) -> bool:
+    """Whether an MFA-required principal may call ``path`` before enrolling.
+
+    Enrolment needs the profile itself, the two setup steps, the session list
+    (so a person can review and revoke a device) and the ordinary sign-out and
+    password routes. Nothing that reads business data is on this list, which is
+    the point: the restriction cannot be waved through by a screen that happens
+    to load a lookup.
+    """
+    prefix = settings.api_v1_prefix.rstrip("/")
+    path = path.rstrip("/")
+    allowed = {
+        f"{prefix}/auth/me",
+        f"{prefix}/auth/change-password",
+        f"{prefix}/auth/logout",
+        f"{prefix}/auth/logout-all",
+        f"{prefix}/auth/mfa/setup",
+        f"{prefix}/auth/mfa/confirm",
+    }
+    sessions = f"{prefix}/auth/sessions"
+    return path in allowed or path == sessions or path.startswith(f"{sessions}/")
 
 
 def vendor_route_allowed(path: str) -> bool:
@@ -126,6 +150,7 @@ class Principal:
     is_superuser: bool
     permissions: frozenset[str]
     must_change_password: bool = False
+    mfa_enabled: bool = False
     session_id: str | None = None
     role_codes: tuple[str, ...] = ()
     vendor_id: uuid.UUID | None = None
@@ -248,6 +273,7 @@ async def _load_principal(session: AsyncSession, payload: TokenPayload) -> Princ
         is_superuser=user.is_superuser,
         permissions=permissions,
         must_change_password=user.must_change_password,
+        mfa_enabled=user.mfa_enabled,
         session_id=payload.session_id,
         role_codes=role_codes,
         vendor_id=user.vendor_id,
@@ -313,6 +339,20 @@ async def get_current_principal(
     # cannot accidentally forget the restriction.
     if principal.must_change_password and not password_change_route_allowed(request.url.path):
         raise PasswordChangeRequiredError()
+
+    # A role the deployment marks as MFA-required may reach the enrolment
+    # surface and nothing else until it has enrolled. Read from configuration
+    # rather than hard-coded roles so the client chooses the population without
+    # a code change; an empty list leaves MFA optional for everybody.
+    if (
+        not principal.mfa_enabled
+        and principal.role_codes
+        and not settings.mfa_required_role_set.isdisjoint(
+            role_code.casefold() for role_code in principal.role_codes
+        )
+        and not mfa_enrolment_route_allowed(request.url.path)
+    ):
+        raise MfaRequiredError()
 
     if principal.is_vendor_user and not vendor_route_allowed(request.url.path):
         raise AuthorizationError(

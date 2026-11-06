@@ -173,7 +173,12 @@ an owner and evidence for every checked step.
    `doctor` and the installed host-Nginx check. Keep Web Push, WhatsApp/SMS and
    courier tracking disabled until their approved accounts, allow-lists,
    consent/templates and delivery tests are ready. The optional public catalogue
-   is not implemented in this revision and must remain unavailable.
+   is not implemented in this revision and must remain unavailable. Retain the
+   deployed defaults `MALWARE_SCANNER=clamav` and
+   `MALWARE_SCAN_FAILURE_POLICY=closed`; the guarded deploy starts the
+   digest-pinned ClamAV sidecar on the private network. Assign an owner to
+   monitor scanner health and signature freshness; do not disable scanning or
+   switch to fail-open without an approved security exception.
 3. [ ] **Deploy, migrate and seed.** Deploy the exact verified `main` revision
    with the guarded script; verify Alembic reaches head before the baseline-only
    production seed/setup. Do not load demo data into the client database.
@@ -187,8 +192,9 @@ an owner and evidence for every checked step.
    unapproved provider or the absent public catalogue.
 5. [ ] **Verify workers, beat and health.** Confirm the batch worker consumes
    `default,mrp,reports`, the notification worker consumes `notifications`,
-   and exactly one Celery beat runs for the deployment. Run the deployment
-   health check and confirm `/health/ready` checks PostgreSQL and Redis.
+   and exactly one Celery beat runs for the deployment. Confirm ClamAV is
+   healthy, run the deployment health check and confirm `/health/ready` checks
+   PostgreSQL and Redis.
 6. [ ] **Complete first-admin and role setup.** Change the one-time seeded
    administrator password immediately, enroll MFA according to client policy,
    verify password reset delivery, create named users and assign least-privilege

@@ -1,3 +1,15 @@
+> **Post-audit update - 06 November 2026 (E12).** P01.1, P01.2 and P01.D5
+> are PRESENT in `docs/implementation/trace/status.tsv` and
+> `docs/implementation/trace/trace.json`. The current
+> `docs/security-issue-resolution-report.md` contains the legacy-module review,
+> current route counts, resolution evidence and residual risks. The listed
+> approval, `qc_required` and spare rules are wired; the confirmed unused
+> `customer_price_type` method was removed and the unused balance-level
+> `allocated_quantity` was retired. The P01 entries below are preserved as
+> pre-E12 audit text, not current findings. Vendor/dealer isolation is also
+> resolved; S03.14 is now PARTIAL for production commissioning and capacity
+> evidence, ClamAV signature monitoring and the client-gated DSC/PAdES feature.
+>
 > **Post-audit update - 22 October 2026 (E8b).** The entries below are the
 > pre-E8b audit text and are left as written. P03.F3, P03.F4, P03.F6, P08.M11
 > and P09.M6 are now PRESENT. `/inventory/tracking` registers lots and units,

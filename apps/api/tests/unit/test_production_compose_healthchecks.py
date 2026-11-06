@@ -18,3 +18,17 @@ def test_production_batch_worker_healthcheck_targets_its_node_name() -> None:
     assert node_name == "batch@%h"
     assert healthcheck["test"][0] == "CMD-SHELL"
     assert f"-d {node_name.replace('%h', '$$HOSTNAME')}" in healthcheck["test"][1]
+
+
+def test_production_backend_waits_for_private_clamav() -> None:
+    prod = yaml.safe_load((REPO_ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8"))
+    base = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    dependency = prod["services"]["backend"]["depends_on"]["clamav"]
+
+    assert dependency["condition"] == "service_healthy"
+    assert prod["services"]["backend"]["environment"]["MALWARE_SCANNER"] == (
+        "${MALWARE_SCANNER:-clamav}"
+    )
+    assert base["services"]["clamav"]["profiles"] == ["malware"]
+    assert "ports" not in base["services"]["clamav"]
+    assert base["services"]["clamav"]["image"].startswith("clamav/clamav:1.4@sha256:")

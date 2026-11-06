@@ -76,8 +76,25 @@ claim that the feature is already available.
 | S02.11 Courier and transport management | `courier_tracking`, dispatch; provider tracking and webhook routes | Dispatch and transport reports | Present; external courier account/configuration is deployment-owned |
 | S02.12 Banner and offer management | `dealer_portal`, promotions; `/promotions`, dealer banners/offers | `/sales/promotions`, dealer portal home/catalogue | Present |
 | S02.13 Notifications | `notifications`, smart alerts and portal event writers; `/notifications/*` | Notification centre and Smart alerts administration | Present; live SMS/WhatsApp requires approved provider setup |
-| S02.14 Reports and dashboards | `reports`, finance, procurement and operations | Dashboard and `/reports` | Partial: small-result exports and the cost-view gate remain open |
+| S02.14 Reports and dashboards | `reports`, finance, procurement and operations | Dashboard and `/reports` | Present. Catalogue exports run as XLSX or PDF through `POST /reports/export` (`report.view` plus `report.export`); results above 5,000 rows switch to the same background path, and the 200,000-row export ceiling is stated in the artefact. Cost and value columns are gated by `item.cost_view`, `inventory_valuation.view` and their report-level permissions. |
 | S02.15 Mobile API | `dealer_portal`; `/dealer-portal/*` | Mobile-first dealer PWA at `/dealer/*` | Present. The separate optional public catalogue is not shipped in this revision. |
+
+### Superseded S02.14 trace notes
+
+The original read-only trace in `docs/implementation/trace/notes.md` records
+that small report results could not be exported, PDF exports were absent, and
+`PRODUCT_PROFITABILITY` exposed cost without a cost permission. Those statements
+describe the earlier audited baseline, not the current implementation; the
+trace is retained unchanged as historical evidence. The current report catalogue
+queues XLSX or PDF exports through `POST /reports/export` independently of the
+5,000-row inline threshold, and the report-level permission is checked before
+queuing. Cost reports require their owning cost permission, valuation fields
+are removed from catalogue descriptors and export snapshots for callers without
+valuation permission, and HTTP/service regressions cover these boundaries:
+`tests/api/test_reports_permissions_http.py`,
+`tests/unit/test_reports_catalogue.py` and
+`tests/api/test_report_jobs_for_documents.py`. This closes the cited residual;
+it does not assert parity with the unavailable legacy application.
 
 The original legacy application source is unavailable in this repository.
 Accordingly, mappings identify the delivered replacement and known remaining
@@ -97,24 +114,45 @@ scope; they do not certify parity with unprovided legacy behavior.
   advisory. `npm audit fix --force` proposes a breaking parser downgrade; it
   was not applied. Revisit when an in-range upstream fix is available or after
   a separately reviewed toolchain migration.
-- **Malware scanning:** still open. Upload MIME/magic-byte checks, size limits,
-  tenant-scoped private storage and SHA-256 integrity do not detect malware.
-  Production uploads remain a known security risk until a scanner and its
-  fail-open/fail-closed behavior are selected, deployed and tested.
+- **Malware scanning:** configurable and implemented in
+  `src/core/malware_scan.py`. `MALWARE_SCANNER=clamav` streams each stored
+  upload to ClamAV (`zINSTREAM`) before the metadata row commits; a signature
+  is refused (`400 FILE_INFECTED`) and the file deleted, and an unreachable
+  daemon is refused (`503 FILE_SCAN_UNAVAILABLE`) under the default
+  `MALWARE_SCAN_FAILURE_POLICY=closed`. Local development defaults to
+  `MALWARE_SCANNER=none`; the deployed overlay defaults to `clamav`, starts a
+  digest-pinned ClamAV service on the private Compose network, persists its
+  signature database and waits for the image healthcheck. The deployment
+  wrapper enables that service profile. An explicit `MALWARE_SCANNER=none`
+  override still emits `app.malware_scanning_disabled`. Tests cover the
+  protocol against a fake daemon, reply parsing, both failure policies,
+  file/row cleanup and production Compose wiring. Signature freshness and
+  capacity remain deployment monitoring responsibilities.
+- **MFA enforcement:** optional per role. `MFA_REQUIRED_ROLES` names the role
+  codes that must enrol TOTP before using the API; the shared authentication
+  dependency blocks them with `403 MFA_REQUIRED` everywhere except enrolment,
+  `/auth/me`, session management, password change and sign-out. Empty (the
+  default) leaves MFA optional, so no existing account is locked out by an
+  upgrade. The client decides which roles to list; that is a policy choice, not
+  a code change.
 - **DSC/PAdES signatures:** not implemented. Certificate procurement,
   signing authority, provider integration and retention are client decisions.
-- **Public catalogue:** the optional C3b/C4b public catalogue is not present in
-  this revision: there is no `/public/catalog` API or
-  `PUBLIC_CATALOG_COMPANY_CODE` setting. Do not treat it as an enabled
-  deployment feature.
-- **Capacity run:** not performed against the shared development database.
-  It requires an isolated target, distinct test users and one-use write
-  fixtures; see `docs/performance.md`.
+- **Public catalogue:** deliberately not built. The optional C3b/C4b public
+  catalogue is not present in this revision: there is no `/public/catalog` API
+  or `PUBLIC_CATALOG_COMPANY_CODE` setting. It remains out of scope unless the
+  client asks for it.
+- **Capacity run:** an indicative read-only run was made against a throwaway,
+  fully migrated database on the development workstation (two 3-minute runs,
+  0.30% and 0% failures, median 54-60 ms, p95 710-1 300 ms, 1.5-1.8 req/s);
+  see `docs/performance.md`. That is a trend from a shared host with one API
+  worker, not capacity evidence. Production sign-off still requires the
+  client-agreed target, workload mix, thresholds and one-use write fixtures.
 
 Vendor and dealer isolation, listed above, are resolved in code and are not
-open items. Production commissioning, real provider accounts, the malware
-scanner decision, signature decisions and capacity evidence remain release
-gates.
+open items. Production commissioning, real provider accounts and
+representative capacity evidence remain release gates. MFA remains optional
+until the client names required roles; ClamAV signature freshness must be
+monitored operationally.
 
 ## PDF build note
 

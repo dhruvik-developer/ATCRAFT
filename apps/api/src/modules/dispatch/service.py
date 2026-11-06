@@ -2550,13 +2550,12 @@ async def add_tracking_event(
                 actor_id=tenant.user_id,
                 group_key=f"dealer-tracking:{dispatch.id}",
             )
-            if target is DispatchStatus.DELIVERED:
+            if target is DispatchStatus.DELIVERED and dispatch.actual_delivery_date is not None:
+                # The transition above stamps an arrival date when the row has
+                # none, so this notification never needs to invent one - and
+                # never raises after the earlier tracking notification has been
+                # queued in the same transaction.
                 delivery_date = dispatch.actual_delivery_date
-                if delivery_date is None:
-                    raise BusinessRuleError(
-                        f"Delivery date is required before {dispatch.code} can be reported "
-                        "as delivered."
-                    )
                 await notify_customer(
                     session,
                     company_id=tenant.company_id,

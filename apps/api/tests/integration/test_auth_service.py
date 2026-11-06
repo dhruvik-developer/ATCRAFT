@@ -30,6 +30,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.clock import utcnow
+from src.core.config import settings
 from src.core.deps import Principal, get_current_principal
 from src.core.errors import (
     AccountLockedError,
@@ -37,6 +38,7 @@ from src.core.errors import (
     BusinessRuleError,
     ErrorCode,
     InvalidCredentialsError,
+    MfaRequiredError,
     NotFoundError,
     PasswordChangeRequiredError,
     ValidationError,
@@ -70,7 +72,7 @@ from src.modules.auth.service import (
     REVOKE_REASON_ROTATED,
     AuthService,
 )
-from src.modules.users.models import LoginAttempt, PasswordResetToken, User, UserSession
+from src.modules.users.models import LoginAttempt, PasswordResetToken, User, UserSession, user_roles
 from tests import seed_support
 
 pytestmark = pytest.mark.integration
@@ -336,6 +338,52 @@ async def test_temporary_password_is_enforced_by_shared_principal_dependency(
     )
     principal = await get_current_principal(allowed_request, session, credentials)
     assert principal.must_change_password is True
+
+
+async def test_mfa_required_role_is_blocked_until_it_enrols(
+    session: AsyncSession, company, admin_role, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "mfa_required_roles", "TEST_ADMIN")
+    account = await make_account(session, company)
+    # ``User.roles`` is lazy="raise", so the grant is written through the
+    # association table and read back by the principal dependency's own query.
+    await session.execute(user_roles.insert().values(user_id=account.id, role_id=admin_role.id))
+    await session.flush()
+    issued = await sign_in(session, account)
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=issued.access_token)
+
+    def request_for(path: str) -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": path,
+                "headers": [],
+                "query_string": b"",
+                "scheme": "https",
+                "server": ("test", 443),
+                "client": ("127.0.0.1", 1),
+            }
+        )
+
+    with pytest.raises(MfaRequiredError) as excinfo:
+        await get_current_principal(request_for("/api/v1/products/items"), session, credentials)
+    assert excinfo.value.code == ErrorCode.MFA_REQUIRED
+
+    # Enrolment itself stays reachable, and the principal reports the truth.
+    principal = await get_current_principal(
+        request_for("/api/v1/auth/mfa/setup"), session, credentials
+    )
+    assert principal.mfa_enabled is False
+    assert principal.role_codes == ("TEST_ADMIN",)
+
+    # Once enrolled the same business route opens.
+    account.mfa_enabled = True
+    await session.flush()
+    principal = await get_current_principal(
+        request_for("/api/v1/products/items"), session, credentials
+    )
+    assert principal.mfa_enabled is True
 
 
 async def test_unknown_address_answers_exactly_like_a_wrong_password(

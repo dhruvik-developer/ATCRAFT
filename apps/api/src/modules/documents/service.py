@@ -71,6 +71,7 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import ErrorCode, FileValidationError, NotFoundError
 from src.core.ids import new_id
 from src.core.logging import get_logger
+from src.core.malware_scan import scan_upload
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -614,6 +615,15 @@ class DocumentService:
             upload_file, destination, first_chunk=header
         )
 
+        # Malware scanning sits between "the bytes are on disk" and "a row
+        # points at them". A rejected or unscannable file is removed here: the
+        # caller gets an error and the storage tree does not keep the payload.
+        try:
+            scan = await scan_upload(destination)
+        except BaseException:
+            await _discard(destination)
+            raise
+
         try:
             async with transaction(self.session):
                 document = Document(
@@ -667,6 +677,7 @@ class DocumentService:
             category=str(payload.category),
             size_bytes=size_bytes,
             mime_type=mime_type,
+            malware_scanner=scan.engine,
         )
         return DocumentRead.model_validate(document)
 

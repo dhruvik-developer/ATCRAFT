@@ -308,11 +308,11 @@
    {
     "id": "S03.14",
     "item": "Security and technical improvements required before production-ready",
-    "status": "PLANNED_FULL",
-    "evidence": "All P01 controls are present (see P01.*). On main, vendor-portal principals are not data-isolated: every vendor role holds DISPATCH_VIEW and DOCUMENT_VIEW (_VENDOR_BASE, API/core/permissions.py:451-458), and owner/account roles add VENDOR_INVOICE_VIEW, PAYMENT_VIEW, LEDGER_VIEW, JOB_WORK_VIEW, QC_VIEW (:612-675), while dispatch, finance, job_work, quality and documents repositories apply no tenant.vendor_id predicate (vendor scoping exists only in procurement/repository.py:675,908,1216,1320, users and products) and API/core/deps.py has no global vendor gate (forbid_vendor_users is used on 2 procurement routes). docs/security.md section 4 claims vendor users 'are scoped to their own vendor's records'; tests/api/test_vendor_portal_scope_http.py covers purchase orders only.",
-    "gap": "A vendor user can list the company's dispatches, documents, other vendors' invoices/payments, the ledger, job-work orders and QC inspections (by code reading).",
-    "planned_wp": "C1a-vendor-portal-backend (P0: route allow-list for vendor principals with 403 on /dispatch, /finance, /documents, /job-work, /quality, /procurement; vendor roles reduced to vendor_portal.*; security.md section 4 rewrite; HTTP tests)",
-    "recommendation": "Land C1a P0 before any vendor account is issued in production. The written security report is tracked under P01.D5."
+    "status": "PARTIAL",
+    "evidence": "The Phase-01 controls, tenant-bound vendor/dealer principals and route allow-lists are implemented; vendor scope regressions cover non-portal routes and cross-vendor access (apps/api/src/core/deps.py; apps/api/tests/api/test_vendor_portal_scope_http.py; apps/api/tests/api/test_dealer_portal_scope_http.py). Deployed Compose now enables private ClamAV upload scanning with a fail-closed policy. See docs/security-issue-resolution-report.md for the current route inventory, audit results and control evidence.",
+    "gap": "No remaining vendor/dealer route-isolation defect is identified. Production readiness still needs operational evidence for off-box backup/restore, host TLS, restricted-role UAT, monitoring/on-call ownership and representative capacity; ClamAV signature freshness must be monitored. DSC/PAdES remains a client-gated feature.",
+    "planned_wp": "",
+    "recommendation": "Complete the external commissioning gates and obtain client sign-off; do not treat the historical vendor-isolation finding below as current."
    },
    {
     "id": "P01.1",
@@ -400,7 +400,7 @@
     "item": "Add role-based access control basics",
     "status": "PRESENT",
     "evidence": "Permission catalogue and ROLE_PRESETS, require_permission dependencies on 763/782 operations (including inherited router dependencies), roles CRUD and assignment, per-user grants/denials, and the admin permission matrix. Verification: test_users_permissions.py, test_role_presets_reach_roles.py, test_frontend_permission_gates.py and test_frontend_permission_catalogue.py.",
-    "gap": "None for RBAC basics (vendor data isolation is tracked under S03.14 / C1a).",
+    "gap": "None for RBAC basics. Vendor/dealer isolation is separately enforced by the shared principal route allow-lists and covered by portal scope tests.",
     "planned_wp": "",
     "recommendation": "None."
    },
@@ -472,7 +472,7 @@
     "item": "Deliverable: security issue resolution report (document)",
     "status": "PRESENT",
     "evidence": "docs/security-issue-resolution-report.md maps P01.3-P01.13 to resolutions, tests, current route-permission counts and residual risks; it also records additional resolved findings, the S02.1-S02.15 legacy mapping and read-only dependency audit results. docs/security.md now links to the report.",
-    "gap": "None for the report deliverable. Malware scanning and DSC/PAdES signing remain explicit residual risks.",
+    "gap": "None for the report deliverable. Upload malware scanning is implemented and fail-closed in deployed Compose; signature freshness is operational. DSC/PAdES remains unimplemented pending client legal, certificate and retention decisions.",
     "planned_wp": "",
     "recommendation": "None."
    },

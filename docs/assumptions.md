@@ -4263,6 +4263,21 @@ module is used in production:
 
 8. **Staffing policy.** Do operators need employee records without logins? Are helpers on one machine allowed? What holidays, weekly offs and minimum rest apply? Is a weekly publish/lock step required?
 
+9. **Two-factor policy.** Which roles must use TOTP? `MFA_REQUIRED_ROLES`
+   accepts a comma-separated list of role codes; empty (the shipped default)
+   leaves MFA optional. The client should name the population - typically
+   platform administrators, company administrators and finance approvers -
+   before production. Enabling it locks any listed role out of business screens
+   until that person enrols at Profile, Security.
+
+10. **Malware scanning service.** Local development defaults to content
+    verification without an antivirus daemon. Deployed Compose starts the
+    digest-pinned, private ClamAV service and defaults to
+    `MALWARE_SCAN_FAILURE_POLICY=closed`, so an unavailable scanner refuses the
+    upload. `MALWARE_SCANNER=none` or the `open` failure policy must be an
+    explicit operator override. ClamAV signature freshness and capacity require
+    operational monitoring.
+
 ## Warehouse assignment policy for A02/A03
 
 An empty warehouse assignment denotes unrestricted access within the company;

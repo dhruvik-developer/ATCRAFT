@@ -37,6 +37,8 @@ def main() -> int:
         [
             docker,
             "compose",
+            "--profile",
+            "malware",
             "-f",
             "docker-compose.yml",
             "-f",

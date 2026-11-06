@@ -6,6 +6,17 @@ Lane A, round 7, step 2. Assumption placeholders use the prefix `§E12-n`.
 
 Read each ID in `trace/trace.json` first. Several need a document, not code.
 
+## Completion record
+
+P01.1, P01.2, P01.D5 and P01.D6 are PRESENT in
+`docs/implementation/trace/status.tsv` and `docs/implementation/trace/trace.json`.
+The security report maps the legacy modules, records the
+current route inventory and read-only dependency audits, and documents the
+remaining decisions. The confirmed dead-code findings were wired or removed.
+Deployed Compose now enables private ClamAV scanning with fail-closed behavior;
+signature freshness remains operational monitoring. DSC/PAdES and production
+commissioning remain gated on client/legal and infrastructure decisions.
+
 ## Decisions (binding)
 
 ### 1. Security issue resolution report: `docs/security-issue-resolution-report.md`
@@ -24,7 +35,7 @@ Read each ID in `trace/trace.json` first. Several need a document, not code.
   - cross-tenant attribute ids on item create
   - the A1 race
   - Smart App Control hooks
-- Include open items: malware scanning of uploads (known gap), `pip-audit` / `npm audit` results (run them **read-only** and record the output summary), DSC signatures.
+- Include residual items: ClamAV signature-freshness monitoring, `pip-audit` / `npm audit` results (run them **read-only** and record the output summary), DSC/PAdES decisions.
 - Add a **"Legacy system review"** section (P01.1) mapping each legacy module (S02.1–S02.15) to its replacement here (module, route, screen), or to "planned" / "dropped".
 - Format it to export cleanly with the handbook tooling. Add a short PDF build note.
 

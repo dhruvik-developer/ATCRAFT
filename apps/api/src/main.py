@@ -170,6 +170,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         debug=settings.app_debug,
     )
 
+    if settings.is_deployed and settings.malware_scanner == "none":
+        log.warning(
+            "app.malware_scanning_disabled",
+            hint="uploads are content-checked but not anti-virus scanned; set "
+            "MALWARE_SCANNER=clamav",
+        )
+
     db_ok, redis_ok = await _dependency_readiness()
     if not db_ok:
         log.warning(

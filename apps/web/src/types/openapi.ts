@@ -8499,7 +8499,7 @@ export interface paths {
         put?: never;
         /**
          * Export any report as XLSX or PDF
-         * @description Queue a catalogue report as a file at any size. The same period and filter parameters as the report's own route are accepted, plus `format`. Export waits for the job: once it completes, `GET /reports/jobs/{id}` carries the download link, and no row ceiling applies.
+         * @description Queue a catalogue report as a file. The same period and filter parameters as the report's own route are accepted, plus `format`. The 5,000-row inline ceiling does not apply to an export; the background job stops at 200,000 rows and records the truncation in the artefact. Once the job completes, `GET /reports/jobs/{id}` carries the download link.
          */
         post: operations["export_report_api_v1_reports_export_post"];
         delete?: never;

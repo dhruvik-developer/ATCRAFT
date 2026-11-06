@@ -109,6 +109,7 @@ x-api-env: &api-env
   # Independent from JWT signing so rotating login keys does not make every
   # encrypted TOTP seed unreadable.
   CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+  MFA_REQUIRED_ROLES: ${MFA_REQUIRED_ROLES:-}
   JWT_ISSUER: ${JWT_ISSUER:-atcraft-erp}
   JWT_AUDIENCE: ${JWT_AUDIENCE:-atcraft-erp-api}
   CORS_ORIGINS: ${CORS_ORIGINS:-}
@@ -139,6 +140,12 @@ x-api-env: &api-env
   # network; no host port is published.
   PROMETHEUS_WORKER_METRICS_ADDRESS: 0.0.0.0
   STORAGE_PATH: /storage
+  MALWARE_SCANNER: ${MALWARE_SCANNER:-none}
+  MALWARE_SCAN_FAILURE_POLICY: ${MALWARE_SCAN_FAILURE_POLICY:-closed}
+  CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
+  CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+  CLAMAV_SOCKET_PATH: ${CLAMAV_SOCKET_PATH:-}
+  CLAMAV_TIMEOUT_SECONDS: ${CLAMAV_TIMEOUT_SECONDS:-10}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
 services:
@@ -247,6 +254,19 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    networks: [internal]
+    restart: unless-stopped
+
+  # --------------------------------------------------------------- clamav
+  # Enabled by the deployed overlay only. The official image refreshes its
+  # signatures; this volume preserves them across container recreation. The
+  # daemon is reachable only from this project's private network.
+  clamav:
+    image: clamav/clamav:1.4@sha256:8ad6197396974726c35d017e50aaaaf4b91745726a04faec8480c203edd98052
+    profiles: ["malware"]
+    expose: ["3310"]
+    volumes:
+      - clamav-data:/var/lib/clamav
     networks: [internal]
     restart: unless-stopped
 
@@ -463,3 +483,4 @@ volumes:
   postgres-data:
   redis-data:
   storage-data:
+  clamav-data:

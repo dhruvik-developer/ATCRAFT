@@ -1899,6 +1899,11 @@
               "note": "Left on, the buffer is held back from the arithmetic and the plan will not propose running it down to zero. Untick it deliberately when you intend to draw the buffer down."
             },
             {
+              "action": "Configure nightly planning",
+              "how": "Nightly MRP schedule card above the run form. Enable or disable the company run, set its horizon, warehouse scope and safety-stock rule, then Save schedule.",
+              "note": "The card controls this company's planning inputs. The deployment controls the scheduled time; the setting is effective only when nightly planning is enabled."
+            },
+            {
               "action": "Start the run",
               "how": "Run MRP.",
               "note": "Only appears for someone with the right to run planning."
@@ -1917,10 +1922,11 @@
             }
           ],
           "flow": [
+            "If this company should be planned every night, configure the Nightly MRP schedule card; otherwise leave nightly planning disabled.",
             "Set the horizon \u2014 how far into the future the plan should look.",
             "Pick the warehouses, or leave it on all of them.",
             "Decide about safety stock; leave it protected unless you mean otherwise.",
-            "Press Run MRP.",
+            "Press Run MRP for an immediate plan, or let the enabled nightly schedule start it at the deployment's configured time.",
             "A small run comes back in a moment and the screen opens it. A large one is queued and calculated in the background, with the elapsed time on screen; you can carry on working and it opens when it is done.",
             "Read the run."
           ],
@@ -1929,12 +1935,13 @@
             "What is planned for each line is what was ordered, less what has been despatched, less what is already reserved for it. Stock already held for an order is neither counted as free nor planned for a second time.",
             "The demand is photographed at the instant the run starts, and the run plans against that photograph \u2014 not against whatever the sales desk enters while it is calculating. That is what makes the plan defensible a week later when the orders behind it have been amended.",
             "The system decides whether a run is calculated immediately or in the background, based on how much demand it has to chew through. It is not a choice on the form, because no screen should sit holding a connection open through a four-minute calculation.",
+            "The Nightly MRP schedule card saves a separate company-wide enabled flag, horizon, optional warehouse scope and safety-stock rule. The deployment's UTC cron setting determines when the task runs; a disabled company is skipped. Editing these settings does not start a run immediately.",
             "Only one run at a time per company. A second is refused while one is still going \u2014 two plans running at once would each propose orders for shortages the other had already covered. And there is a budget on top of that: five starts per company in any five minutes, so a run cannot be restarted the instant the last one ends.",
             "A run that would cover more than twenty thousand demand lines is refused outright. That is almost always an unintentionally huge horizon rather than a real order book \u2014 narrow the horizon or the warehouses.",
             "A run whose calculation dies is closed off automatically after two hours, so planning is never blocked forever by a process that no longer exists."
           ],
           "permission": "Seeing this screen and the run history needs the right to view planning. The Run MRP card only appears for someone with the right to start a run \u2014 the Production Planner and the Purchase Manager have it; a purchase executive can read runs and act on them but not start one.",
-          "notes": "The system will accept extra demand lines typed in by hand alongside the order book (\"plan for 200 of this as well\"), but this screen has no field for them \u2014 a run here plans the order book only. There is also no way to cancel a run in progress from this screen, and no way to schedule runs to happen automatically. For the screenshot, catch the amber \"Calculating\" panel if possible; otherwise a history table with a mix of Immediate and Background runs shows the two modes well."
+          "notes": "The system will accept extra demand lines typed in by hand alongside the order book (\"plan for 200 of this as well\"), but this screen has no field for them \u2014 a run here plans the order book only. There is also no way to cancel a run in progress from this screen. For the screenshot, show the Nightly MRP schedule card and a history table with a mix of Immediate and Background runs; catch the amber \"Calculating\" panel if possible."
         },
         {
           "route": "/mrp/runs/:id",

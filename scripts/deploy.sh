@@ -274,9 +274,11 @@ dc() {
   # -p on every call, explicitly. The env file also sets COMPOSE_PROJECT_NAME,
   # and this is the belt to that braces: the project name is visible in every
   # command that runs, so there is no way to read the log afterwards and be
-  # unsure which deployment it acted on.
+  # unsure which deployment it acted on. The malware profile is explicit here:
+  # production Compose depends on its healthy ClamAV service, while local
+  # development does not start the scanner unless requested.
   SOURCE_REVISION="$SOURCE_REVISION" IMAGE_TAG="$RELEASE_TAG" \
-    docker compose -p "$PROJECT" --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"
+    docker compose -p "$PROJECT" --profile malware --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" "$@"
 }
 
 confirm() {

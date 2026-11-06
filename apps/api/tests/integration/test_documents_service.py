@@ -28,9 +28,16 @@ from starlette.datastructures import Headers, UploadFile
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.deps import TenantContext
-from src.core.errors import ErrorCode, FileValidationError, NotFoundError
+from src.core.errors import (
+    ErrorCode,
+    FileValidationError,
+    MalwareDetectedError,
+    MalwareScanUnavailableError,
+    NotFoundError,
+)
 from src.core.pagination import PageParams, SortParams
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.documents import service as documents_service
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.schemas import DocumentFilters, DocumentUploadRequest
 from src.modules.documents.service import DocumentService, stream_file
@@ -125,6 +132,46 @@ class TestUpload:
         entries = await audit_rows(session, document.id)
         assert [e.action for e in entries] == [AuditAction.DOCUMENT_UPLOAD]
         assert entries[0].new_values["checksum_sha256"] == document.checksum_sha256
+
+    async def test_a_detected_payload_leaves_no_file_and_no_row(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def infected(path):
+            raise MalwareDetectedError("Eicar-Test-Signature")
+
+        monkeypatch.setattr(documents_service, "scan_upload", infected)
+
+        with pytest.raises(MalwareDetectedError):
+            await DocumentService(session, tenant).upload(
+                upload_file(PDF), DocumentUploadRequest(category=DocumentCategory.DOCUMENT)
+            )
+
+        assert stored_files(storage_root) == []
+        assert await document_count(session, tenant.company_id) == 0
+
+    async def test_an_unscannable_upload_is_refused_under_fail_closed(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def unavailable(path):
+            raise MalwareScanUnavailableError()
+
+        monkeypatch.setattr(documents_service, "scan_upload", unavailable)
+
+        with pytest.raises(MalwareScanUnavailableError):
+            await DocumentService(session, tenant).upload(
+                upload_file(PDF), DocumentUploadRequest(category=DocumentCategory.DOCUMENT)
+            )
+
+        assert stored_files(storage_root) == []
+        assert await document_count(session, tenant.company_id) == 0
 
     async def test_a_traversal_filename_is_stored_for_display_only(
         self, session: AsyncSession, tenant: TenantContext, storage_root

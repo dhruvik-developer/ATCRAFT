@@ -8,7 +8,8 @@ from datetime import UTC, datetime
 import pyotp
 import pytest
 
-from src.core.deps import password_change_route_allowed
+from src.core.config import settings
+from src.core.deps import mfa_enrolment_route_allowed, password_change_route_allowed
 from src.core.security import (
     create_mfa_challenge_token,
     decode_token,
@@ -22,6 +23,14 @@ from src.core.security import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def test_required_role_configuration_is_trimmed_and_case_insensitive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "mfa_required_roles", " SUPER_ADMIN, finance_manager , ")
+
+    assert settings.mfa_required_role_set == frozenset({"super_admin", "finance_manager"})
 
 
 def test_totp_secret_is_encrypted_at_rest_and_round_trips() -> None:
@@ -112,3 +121,34 @@ def test_temporary_password_allows_only_remediation_routes(path: str) -> None:
 )
 def test_temporary_password_blocks_every_other_route(path: str) -> None:
     assert not password_change_route_allowed(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/auth/me",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/logout-all",
+        "/api/v1/auth/change-password",
+        "/api/v1/auth/mfa/setup",
+        "/api/v1/auth/mfa/confirm",
+        "/api/v1/auth/sessions",
+        "/api/v1/auth/sessions/abc",
+    ],
+)
+def test_mfa_required_role_reaches_enrolment_and_self_service(path: str) -> None:
+    assert mfa_enrolment_route_allowed(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/products/items",
+        "/api/v1/reports/sales-summary",
+        "/api/v1/auth/mfa/disable",
+        "/api/v1/users",
+        "/metrics",
+    ],
+)
+def test_mfa_required_role_is_blocked_everywhere_else(path: str) -> None:
+    assert not mfa_enrolment_route_allowed(path)

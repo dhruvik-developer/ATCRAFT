@@ -108,6 +108,17 @@ restriction.
   an account whose authenticator was lost. The user enrols again afterwards.
 - `mfa_secret` is on the log-redaction list in `core/logging.py`.
 
+**Enforcement by role.** `MFA_REQUIRED_ROLES` (comma-separated role codes, empty
+by default) turns optional enrolment into a deployment policy. A principal whose
+roles intersect that list is refused every authenticated route with
+`403 MFA_REQUIRED` unless the account has MFA enrolled. The reachable surface is
+limited to `/auth/me`, `/auth/mfa/setup`, `/auth/mfa/confirm`, `/auth/sessions*`,
+`/auth/change-password` and the two logout routes; the check runs in the shared
+dependency before vendor/dealer scope, so a portal predicate cannot wave it
+through. The client chooses the population and changing it needs no code change.
+Enabling it for a role whose staff have no authenticator locks those people out
+of business screens until they enrol.
+
 **Password reset by email.** `POST /auth/password-reset/request` answers
 identically whether or not the address belongs to an account. The service
 stores only a SHA-256 digest of a 32-byte token in `password_reset_tokens`
@@ -329,14 +340,23 @@ into `ORDER BY`.
 The ASGI request-body limit counts received bytes even when `Content-Length`
 is absent or incorrect. Multipart resources and partially written files are
 closed or removed on validation failure, transaction failure and request
-cancellation. Upload verification covers allowed content types; it is not an
-antivirus scan.
+cancellation. Upload verification covers allowed content types; content
+verification alone is not an antivirus scan.
 
 Filesystem paths are never exposed. Nothing is served from a public directory.
 
-> **Known gap.** No malware scanning. Authorized vendor portal uploads use the
-> same validation and private storage, but file-content validation does not
-> provide malware detection.
+> **Malware scanning.** `MALWARE_SCANNER=clamav` streams every stored upload to
+> a ClamAV daemon (`zINSTREAM`, over `CLAMAV_HOST`/`CLAMAV_PORT` or
+> `CLAMAV_SOCKET_PATH`) before its metadata row is committed. A named signature
+> is refused with `400 FILE_INFECTED` and the file is deleted; a daemon that
+> cannot answer follows `MALWARE_SCAN_FAILURE_POLICY`, which defaults to
+> `closed` (`503 FILE_SCAN_UNAVAILABLE`, file deleted). `MALWARE_SCANNER=none`
+> is the local-development default. The deployed Compose overlay defaults to
+> `clamav`, starts the digest-pinned ClamAV service on the private deployment
+> network, persists its signature database and waits for the image healthcheck.
+> The deployment wrapper activates that service profile. An explicit
+> `MALWARE_SCANNER=none` override leaves content verification only and logs
+> `app.malware_scanning_disabled` at startup in staging or production.
 
 ---
 

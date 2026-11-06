@@ -55,8 +55,8 @@ DEV_USER="$(env_value dev POSTGRES_USER)";  : "${DEV_USER:=atcraft}"
 MAIN_PW="$(env_value main POSTGRES_PASSWORD)"
 DEV_PW="$(env_value dev POSTGRES_PASSWORD)"
 
-dc_main() { docker compose -p "$MAIN_PROJECT" --env-file deploy/main.env -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
-dc_dev()  { docker compose -p "$DEV_PROJECT"  --env-file deploy/dev.env  -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+dc_main() { docker compose --profile malware -p "$MAIN_PROJECT" --env-file deploy/main.env -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+dc_dev()  { docker compose --profile malware -p "$DEV_PROJECT"  --env-file deploy/dev.env  -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
 
 printf '%s\n' "${C_BOLD}Deployment isolation${C_RESET}"
 printf '  deployment 1: %s on 127.0.0.1:%s\n' "$MAIN_PROJECT" "$MAIN_PORT"

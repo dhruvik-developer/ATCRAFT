@@ -1,3 +1,13 @@
+> **Post-audit update - 06 November 2026 (E12).** The G2 counts and findings
+> below are a historical snapshot of `cdac4e0`; they are not current status.
+> P01.1, P01.2 and P01.D5 are PRESENT, and the vendor/dealer route-isolation
+> finding is resolved. The current evidence and remaining scope are in
+> `docs/security-issue-resolution-report.md`,
+> `docs/implementation/trace/status.tsv` and
+> `docs/implementation/trace/trace.json`. In particular, the
+> historical S02.14 export/cost-view claims are superseded by current exports,
+> permission checks and regression tests.
+>
 > **Post-audit update - 22 October 2026 (E8b).** The traceability findings below
 > are the pre-E8b audit text and are left as written. `P03.F3` (stock transfer),
 > `P03.F4` (stock adjustment), `P03.F6` (batch/serial where required), `P08.M11`

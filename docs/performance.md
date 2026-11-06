@@ -82,6 +82,39 @@ not rolled back after the run. The Locust process exits nonzero when the
 documented failure-rate or latency targets are exceeded, or when setup or a
 write step fails; preserve the report and investigate before increasing load.
 
+### Measured on this build (2026-11-06)
+
+Two read-only runs against a throwaway database - created empty, migrated to
+Alembic head, then populated with the demo dataset - served by a single Uvicorn
+worker on `127.0.0.1:8000`, with PostgreSQL and Redis from the development
+Compose stack and 30 dedicated load accounts:
+
+| Run | Users | Duration | Requests | Failures | Median | p95    | p99    | Throughput |
+| --- | ----- | -------- | -------- | -------- | ------ | ------ | ------ | ---------- |
+| 1   | 10    | 3 min    | 328      | 1 (0.30%) | 60 ms | 1 300 ms | 2 800 ms | 1.8 req/s |
+| 2   | 8     | 3 min    | 264      | 0        | 54 ms  | 710 ms   | 1 200 ms | 1.5 req/s |
+
+Slowest endpoints in run 2 by p95: `GET /mrp/runs` and `GET /inventory/ledger`
+(1 600 ms), `GET /sales/{id}/allocation-status` (1 200 ms),
+`GET /inventory/balances` and `GET /notifications/unread-count` (1 100 ms),
+`GET /reports/dashboard` (710 ms). Every other endpoint's p95 is under 700 ms,
+and every endpoint's median is under 150 ms except `POST /auth/login` (430 ms,
+one bcrypt verification per virtual user per run).
+
+**These are indicative numbers, not capacity evidence.** They were taken on a
+shared developer workstation - CPU at 88-91% from the IDE and an unrelated
+Next.js dev server - with a single API worker, the demo dataset rather than
+Atcraft's data volumes, and no write workload. The API logged 12
+`Timeout reading from 127.0.0.1:6380` warnings during run 1, and the single
+failure (a `RemoteDisconnected` on `GET /inventory/ledger`) falls inside that
+window; run 2 saw no failures. The long tails track Redis and CPU contention on
+the host, not a query that needs an index, so no tuning was attempted on this
+evidence.
+
+Production sign-off still requires the dedicated load target, the client's
+agreed workload mix and thresholds, and one-use write fixtures described above.
+Until then the engineering targets at the top of this document remain targets.
+
 ---
 
 ## Where ERP performance actually goes wrong

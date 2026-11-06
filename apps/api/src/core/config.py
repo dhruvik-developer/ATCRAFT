@@ -228,6 +228,14 @@ class Settings(BaseSettings):
     # constants. What this budget bounds is *spraying* many accounts from one
     # address, which it still caps at 20 distinct attempts a minute.
     rate_limit_auth_per_minute: Annotated[int, Field(ge=1)] = 20
+    # Roles that must enrol a second factor before the shared authentication
+    # dependency lets them reach anything but the enrolment routes. Empty means
+    # "no role is required to use MFA" - the product default, because a client
+    # that has not issued authenticators to its staff must not be locked out by
+    # an upgrade. The operator opts in with, for example,
+    # ``MFA_REQUIRED_ROLES=super_admin,company_admin,finance_manager``.
+    mfa_required_roles: str = ""
+
     # Comma-separated hostnames accepted by TrustedHostMiddleware.  Public
     # hostnames are normally listed explicitly by the deployment; CORS origins
     # are also folded in below so existing deployments fail closed rather than
@@ -245,6 +253,18 @@ class Settings(BaseSettings):
         "image/jpeg,image/png,image/webp,application/pdf,text/csv,"
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+    # ------------------------------------------------------ malware scanning --
+    # See src/core/malware_scan.py. "none" keeps a development checkout usable
+    # without a daemon; a deployment selects "clamav" and supplies a reachable
+    # address. A selected engine that cannot answer follows
+    # MALWARE_SCAN_FAILURE_POLICY, which defaults to refusing the upload.
+    malware_scanner: Literal["none", "clamav"] = "none"
+    malware_scan_failure_policy: Literal["open", "closed"] = "closed"
+    clamav_host: str = "localhost"
+    clamav_port: Annotated[int, Field(ge=1, le=65535)] = 3310
+    clamav_socket_path: str = ""
+    clamav_timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 10.0
 
     # --------------------------------------------------------------- email --
     # Mail is intentionally disabled for an unconfigured developer checkout.
@@ -333,6 +353,13 @@ class Settings(BaseSettings):
     def max_upload_size_bytes(self) -> int:
         return self.max_upload_size_mb * 1024 * 1024
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def mfa_required_role_set(self) -> frozenset[str]:
+        return frozenset(
+            role.strip().casefold() for role in self.mfa_required_roles.split(",") if role.strip()
+        )
+
     # --------------------------------------------------------- validation --
     @field_validator("database_url", "database_sync_url")
     @classmethod
@@ -345,6 +372,16 @@ class Settings(BaseSettings):
     @classmethod
     def _resolve_storage(cls, v: Path) -> Path:
         return v.expanduser().resolve()
+
+    @model_validator(mode="after")
+    def _validate_malware_scanner(self) -> Settings:
+        if self.malware_scanner == "clamav" and not (
+            self.clamav_socket_path.strip() or self.clamav_host.strip()
+        ):
+            raise ValueError(
+                "CLAMAV_HOST or CLAMAV_SOCKET_PATH is required when MALWARE_SCANNER=clamav"
+            )
+        return self
 
     @field_validator("email_from_name", "smtp_host", "smtp_username")
     @classmethod

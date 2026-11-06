@@ -73,6 +73,8 @@ class ErrorCode(StrEnum):
     FILE_TYPE_NOT_ALLOWED = "FILE_TYPE_NOT_ALLOWED"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    FILE_INFECTED = "FILE_INFECTED"
+    FILE_SCAN_UNAVAILABLE = "FILE_SCAN_UNAVAILABLE"
 
     # --- background jobs ----------------------------------------------------
     JOB_NOT_FOUND = "JOB_NOT_FOUND"
@@ -191,6 +193,16 @@ class PasswordChangeRequiredError(AuthorizationError):
     message = "You must change your temporary password before continuing."
 
 
+class MfaRequiredError(AuthorizationError):
+    """The account's role requires a second factor it has not enrolled yet."""
+
+    code = ErrorCode.MFA_REQUIRED
+    message = (
+        "Your role requires two-factor authentication. Enable it in Profile, Security "
+        "before continuing."
+    )
+
+
 class CsrfValidationError(AuthorizationError):
     code = ErrorCode.CSRF_VALIDATION_FAILED
     message = "The request could not be verified. Reload the page and try again."
@@ -287,6 +299,25 @@ class FileValidationError(AppError):
     message = "This file type is not allowed."
 
 
+class MalwareDetectedError(AppError):
+    """The engine named a signature; the upload is refused."""
+
+    status_code = 400
+    code = ErrorCode.FILE_INFECTED
+    message = "This file failed the malware scan and was rejected."
+
+    def __init__(self, signature: str | None = None) -> None:
+        super().__init__(details={"signature": signature} if signature else None)
+
+
+class MalwareScanUnavailableError(AppError):
+    """The scanner could not answer and the configured policy is fail-closed."""
+
+    status_code = 503
+    code = ErrorCode.FILE_SCAN_UNAVAILABLE
+    message = "The file could not be checked for malware. Try again shortly."
+
+
 __all__ = [
     "AccountLockedError",
     "AppError",
@@ -303,6 +334,9 @@ __all__ = [
     "InsufficientStockError",
     "InvalidCredentialsError",
     "InvalidStateTransitionError",
+    "MalwareDetectedError",
+    "MalwareScanUnavailableError",
+    "MfaRequiredError",
     "NotFoundError",
     "PasswordChangeRequiredError",
     "PermissionDeniedError",
