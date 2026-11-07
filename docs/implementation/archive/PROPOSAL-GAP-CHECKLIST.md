@@ -3,6 +3,17 @@
 > Historical snapshot: 13 October 2026. The statuses below describe that baseline.
 > See the [current standards verification](../development-standards-20261022.md)
 > and [local seed workflow](../../local-seed-data.md) for the latest verified work.
+>
+> **Superseded for current planning - 8 November 2026.** Do not treat this
+> checklist's PARTIAL, PLANNED or MISSING rows as open work without rechecking
+> current code. Among other changes, the reallocation approval inbox, variant
+> authoring, serial-tracked job work and internal issues, MRP transfer
+> suggestions, serial/carton labels, smart alerts, Web Push and notification
+> recovery are implemented. The [trace recheck](../trace/gaps.md) records
+> evidence for the historical findings; the
+> [production scope](../production-scope-20261025.md) is the current package and
+> release-gate summary. Client policy decisions and production commissioning
+> remain distinct from implementation gaps.
 
 Local-only audit. Source: `Atcraft Manufacturing ERP Development_compressed.pdf` (24 pages, Aug 2026 v1.0) vs `main` on this machine.
 Trace baseline: `docs/implementation/trace/status.tsv` (the per-requirement status sheet), `docs/implementation/trace/gaps.md`, backend `apps/api/src/modules/*`, frontend `apps/web/src/features/*`.

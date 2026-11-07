@@ -4,7 +4,42 @@
 > and status descriptions apply to that checkpoint. Consult the
 > [current guides](../../README.md) and source before following operational advice.
 
-## Verdict on the audit claims (verified in code)
+> **Current implementation recheck - 8 November 2026.** The verdicts and
+> implementation inventory below are a historical snapshot, not current findings.
+> Web Push, WhatsApp/SMS channel handling, configurable smart-alert episodes,
+> delivery recovery and notification retention have since been implemented.
+> Live provider delivery still depends on deployment configuration and the
+> customer's external accounts.
+>
+> - **Channels:** `IN_APP`, `EMAIL`, `PUSH`, `WHATSAPP` and `SMS` are supported.
+>   Web Push includes browser subscription management and a delivery worker;
+>   WhatsApp/SMS have tenant templates, consent/preference checks and delivery
+>   records. The code being present does not mean a production provider is
+>   configured or reachable.
+> - **Timed alerts:** `notifications.scan_smart_alerts` reconciles 13 configurable
+>   rules covering purchase-order acknowledgement/delivery/shipment/tracking,
+>   goods receipt, QC, vendor invoices/payments, job work, dispatch, production,
+>   sales-order risk and below-reorder stock. The interval and per-company rule
+>   thresholds/reminders are configured; these are not limited to the old
+>   dispatch-only sweep described below.
+> - **Recovery and retention:** `notifications.dispatch_pending_deliveries`
+>   recovers enabled, unmarked deliveries every 120 seconds. The daily
+>   `maintenance.purge_read_notifications` task removes read notifications after
+>   180 days and resolved alert state after 90 days.
+> - **Current evidence:** `apps/api/src/modules/notifications/alerts.py`,
+>   `apps/api/src/workers/tasks/notifications.py`,
+>   `apps/api/src/workers/tasks/maintenance.py`,
+>   `apps/web/src/features/notifications/push.ts`,
+>   `apps/api/tests/unit/test_notification_alerts.py`,
+>   `apps/api/tests/integration/test_push_delivery.py` and
+>   `apps/api/tests/integration/test_messaging_channels.py`.
+>
+> Recheck provider credentials, beat/worker health, alert routing and
+> signature-freshness monitoring in the actual deployment before operational
+> sign-off. The sections below preserve the original audit and must not be used
+> as a live backlog.
+
+## Historical verdict on the audit claims (original checkpoint)
 
 - **Push notifications are absent, as the audit says.** There is no `PUSH` channel, no subscription table, no VAPID setting, no service worker, no web manifest, and nothing in the frontend calls `Notification` or `PushManager`. WhatsApp and SMS are also absent. The only trace is `users.phone`, a `String(32)` with no validation.
 - **Timed alerts: one exists, the rest are missing.** One scheduled alert exists: `notifications.scan_dispatch_delays`. It runs hourly and covers our own outbound consignments that are past their promised date. Of the nine smart alerts in the proposal:
@@ -20,7 +55,7 @@
 
 ---
 
-## Exists today
+## Snapshot: what existed at the original checkpoint
 
 ### 1. Tables (`apps/api/src/modules/notifications/models.py`)
 

@@ -1,5 +1,12 @@
 # Full-scope implementation checkpoint — 25 October 2026
 
+> **Verification update - 8 November 2026.** Commit `7203c38` is synchronized
+> to `develop` and `main`; both CI runs (`42398677443` and `42398677456`)
+> passed, including backend integration, frontend, browser and accessibility
+> jobs. This closes the repository CI/browser-suite run for that revision; it
+> does not replace release-candidate restricted-role UAT or production
+> commissioning, backup/recovery, monitoring or client sign-off.
+
 This is a source review of the current working tree, including the changes now
 being verified. It is not a deployment approval or a claim that the authorized
 full proposal is complete. The user confirmed the full scope. Package status
@@ -31,7 +38,7 @@ also completed; the E3b row below records the full delivered scope.
 | FINAL packing QC | [Packing serial rules](../../apps/api/src/modules/packing/serial_tracking.py) persist selected identities, require accepted units before sealing and check carton membership. [Withdrawal](../../apps/api/src/modules/quality/withdrawal.py) preserves an untouched cancelled packing check as terminal WITHDRAWN with result PENDING, retaining history without inventing a verdict. Decided or measured checks retain their QC flow. Migration [31](../../apps/api/migrations/versions/20261031_0100_withdraw_pending_packing_qc.py) guards downgrade against existing withdrawal history. |
 | Staff inbound UI | [Inbound tracking](../../apps/web/src/features/procurement/inbound-tracking-page.tsx) uses server filters and paging. [PO controls](../../apps/web/src/features/procurement/purchase-order-inbound-panel.tsx) expose consignments, correction, confirmed gate arrival, typed documents, PDF jobs, vendor-decline guidance and explicit adoption of the vendor date. Shared forms preserve the vendor flows. Nine focused inbound tests and the 25 vendor screen tests passed. |
 | MRP schedule administration | [Planning > MRP](../../apps/web/src/features/mrp/mrp-page.tsx) exposes the per-company nightly enablement, warehouse scope, horizon and safety-stock settings. Reads require `mrp.view`, writes require `mrp.run`; the deployment still controls the global beat time with `MRP_SCHEDULE_CRON`. |
-| B5 procurement reports (in progress) | The eight purchase/inbound reports, tenant-scoped query builders, report-key migration, report-specific frontend filters, API contract, handbook text and recorded date/freight assumptions are implemented. The [PostgreSQL report integration test](../../apps/api/tests/integration/test_reports_procurement.py), catalogue/query tests, frontend report tests, generated contract checks and fresh-schema migration round-trip pass. The B5 operations-flows suite is not complete: this checkout currently adds the purchase-summary browser journey, but the specified cost-centre, shift, requisition-to-PO, vendor shipment/receipt, job-work invoice and alert journeys remain to be added. Browser execution was not attempted because only PostgreSQL and Redis are running. |
+| B5 procurement reports and operations flows | The eight purchase/inbound reports, tenant-scoped query builders, report-key migration, report-specific frontend filters, API contract, handbook text and recorded date/freight assumptions are implemented. All six specified operations journeys plus the purchase-summary report journey are in the [operations-flows suite](../../tests/e2e/specs/operations-flows.spec.ts). The full browser/accessibility jobs passed in CI for `7203c38` on 8 November 2026; release-candidate business UAT remains separate. |
 | Portal screens and content | [Vendor screens](../../apps/web/src/features/vendor-portal/vendor-pages.tsx), [dealer screens](../../apps/web/src/features/dealer-portal/) and [catalogue publishing](../../apps/web/src/features/portals/) are now present. Their existence supersedes the historical claim that only portal APIs exist. They still participate in final combined verification. |
 | Vendor job-work / rejected-stock reissue | Migration `20261115_0100` adds the vendor progress-event ledger, overdue marker and vendor-role grant. [Vendor portal](../../apps/api/src/modules/vendor_portal/service.py) exposes vendor/category-scoped orders and audited progress events; challan and overdue notices reach vendor users. [Rework issue](../../apps/api/src/modules/job_work/service.py) locks the source receipt line, nets prior issues, and permits only physically returned `RETURN_TO_STOCK` output from `DAMAGED`; serial rework is constrained to the source rejects. The vendor app includes list/detail/progress screens. Focused integration, API, role, frontend and migration verification is recorded by the current change. |
 | Browser sessions and push | [Authentication](../../apps/web/src/features/auth/auth-context.tsx) aborts old login, MFA and logout requests before replacement authentication can set cookies. Failed replacement credentials clear the previous account. Push setup/cleanup uses bounded foreground waits while keeping native device mutations serialized; the worker caches no application responses or tokens. [Focused session regressions](../../apps/web/src/features/auth/auth-logout-races.test.tsx) cover abort ordering and delayed cleanup. |
@@ -55,24 +62,25 @@ domain has been supplied, so live-host verification remains separate.
 | [E10b finance and reports](specs/E10b-finance-reports-dashboard.md) | Implemented, including invoice revenue net of credits and FIFO dispatch costs net of customer returns for actual profitability. Finance/report integrations, exports, permissions and management reporting were verified in the E10b completion checkpoint. |
 | [A4 collections and dealer performance](specs/A4-collections-dealer-performance.md) | Implemented with tenant-scoped overdue follow-ups, notes, promises, escalation, reminders and the dealer-performance report/UI. A4 service/report, customer/dashboard UI, type-check and fresh-seed rerun checks passed; the seed regression also verifies idempotence. |
 | [B4 smart alerts and approval inbox](specs/B4-smart-alerts-events.md) | Alert rules/state, scheduled scanning and notifications, approval-request writers, the approval inbox and dashboard integration are implemented. Company approval settings and the administration UI are implemented; procurement consumes requisition auto-approval and purchase-order dual-approval thresholds, and inventory adjustments/internal issues consume their configured thresholds. Integration coverage includes current thresholds on pending orders, inclusive limits and distinct approvers. |
-| [B5 procurement and inbound reports](specs/B5-procurement-reports-ops-e2e.md) | The eight reports and all six specified API-driven operations journeys are implemented. The [operations-flows suite](../../tests/e2e/specs/operations-flows.spec.ts) also contains the purchase-summary report journey; run-scoped IDs isolate repeated runs. A complete browser run remains a release-verification gate. |
-| [A5 dealer notifications](specs/A5-dealer-notifications-commercial-e2e.md) | Customer-scoped recipient resolution, dealer commercial event writers and the reminder sweep are implemented. Commercial API journeys and the invoice UI journey are present; the full browser/accessibility verification remains a release gate. |
+| [B5 procurement and inbound reports](specs/B5-procurement-reports-ops-e2e.md) | The eight reports and all six specified API-driven operations journeys are implemented. The [operations-flows suite](../../tests/e2e/specs/operations-flows.spec.ts) also contains the purchase-summary report journey; run-scoped IDs isolate repeated runs. Browser and accessibility CI passed for `7203c38`; restricted-role release-candidate UAT remains. |
+| [A5 dealer notifications](specs/A5-dealer-notifications-commercial-e2e.md) | Customer-scoped recipient resolution, dealer commercial event writers and the reminder sweep are implemented. Commercial API journeys and the invoice UI journey are present; browser and accessibility CI passed for `7203c38`. Live customer acceptance remains. |
 | [E12 security, legacy, deployment and dead-code closeout](specs/E12-phase1-documents-cleanup.md) | The [security resolution report](../security-issue-resolution-report.md) records current route counts, P01.3-P01.13 resolutions, S02.1-S02.15 mappings, audit results and residual risks. The [deployment checklist](../deployment.md) covers commissioning and role grants; verified dead-code findings are recorded in the report. |
 | Vendor job-work / rejected-stock reissue | Implemented in this delivery: vendor/category-scoped orders and audited progress events, overdue reminders, and source-linked rework from physically returned `RETURN_TO_STOCK` output. The current focused and full-suite verification is recorded by the delivery checks. |
 
 ## Remaining software verification and production gates
 
-B4 approval settings, B5 reports and operations journeys, A5 dealer
-notifications, and the E12 documentation/dead-code closeout are implemented.
-The six B5 operations journeys and the commercial acceptance journeys are
-present in the browser suite, but the full browser/accessibility verification
-must still run against the release candidate. E12's audit and commissioning
-evidence is recorded in the [security resolution report](../security-issue-resolution-report.md)
-and [deployment checklist](../deployment.md).
+The repository quality, backend integration, frontend, browser and
+accessibility CI jobs passed for `7203c38` on both branches. The B5 operations
+and commercial acceptance journeys are present in the browser suite. Remaining
+verification is release-candidate restricted-role/customer UAT and production
+commissioning, not an unrun repository browser suite. E12's audit and
+commissioning evidence is recorded in the
+[security resolution report](../security-issue-resolution-report.md) and
+[deployment checklist](../deployment.md).
 
-Do not treat a focused test or a code-complete package as release approval.
-Run the combined quality gate, verify the browser journeys, then synchronize
-the verified revision to both existing branches and retain the CI evidence.
+Do not treat passing CI as production approval. After any further code change,
+rerun the quality gate and synchronize the verified revision to both existing
+branches; retain the CI evidence.
 
 The eight unresolved client policy questions remain listed in
 [`assumptions.md`](../assumptions.md#open-questions-for-atcraft). Record answers
@@ -122,8 +130,8 @@ serial trace, without registering the unit again.
 ## Remaining production gates
 
 The scoped software packages D2, D3, E3b, E10b, A4, B4, B5, A5 and E12 are
-implemented as recorded above; the complete browser/accessibility run remains
-open as release verification. D4 is not implemented: it remains gated on the
+implemented as recorded above, and their repository browser/accessibility CI
+passed for `7203c38`. D4 is not implemented: it remains gated on the
 signing authority and retention model
 receiving legal/compliance confirmation and on procuring the certificate,
 timestamp and token services described in the

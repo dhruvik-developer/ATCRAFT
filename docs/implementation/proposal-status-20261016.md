@@ -11,6 +11,17 @@
 > for actual CI results, reproduced financial defects and remaining UI/API gaps.
 > That review supersedes this document's release-status assertions.
 
+> **Current status note - 8 November 2026.** This dated proposal audit is not a
+> live backlog. Its “Pending development”, “Current release state” and “Suggested
+> execution order” sections contain findings superseded by later implementation.
+> Use [production scope](production-scope-20261025.md) and the
+> [trace recheck](trace/gaps.md) for current implementation evidence, and
+> [deployment](../deployment.md) for commissioning gates. The 7 November
+> internal-issue approval fix is verified and pushed to both branches. The
+> `7203c38` CI runs passed on `develop` and `main` on 8 November; production
+> host/TLS, off-box recovery, restricted-role/customer UAT, capacity sign-off
+> and provider/legal decisions remain external gates.
+
 > **Implementation update — 7 November 2026:** Serial-tracked bin moves and
 > internal issues persist named unit IDs and post through the locked movement
 > engine; serial job work records named source units and receipt dispositions.
