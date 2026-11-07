@@ -11,11 +11,17 @@
 > for actual CI results, reproduced financial defects and remaining UI/API gaps.
 > That review supersedes this document's release-status assertions.
 
-> **Implementation update — 17 November 2026:** Serial-tracked bin moves and
-> internal issues now persist named unit IDs and post through the locked
-> movement engine. Scrap disposal remains quantity-only after the serial has
-> been retired; physical-count serial variance reconciliation, serial-tracked
-> job work and tracked SKU transformations remain separate open boundaries.
+> **Implementation update — 7 November 2026:** Serial-tracked bin moves and
+> internal issues persist named unit IDs and post through the locked movement
+> engine; serial job work records named source units and receipt dispositions.
+> These paths were verified by
+> `test_named_serial_bin_move_posts_both_legs_and_preserves_fifo_cost`,
+> `test_named_serial_internal_issue_posts_one_material_issue_per_unit`,
+> `test_serial_internal_issue_keeps_the_two_person_approval_control` and
+> `test_named_same_item_units_can_return_in_lots_with_vendor_rework`.
+> Scrap disposal remains quantity-only after the serial has been retired;
+> physical-count serial variance reconciliation and tracked SKU transformations
+> remain separate open boundaries.
 
 Baseline reviewed on 17 October 2026 against the `develop` branch, including
 the committed returns/credit-note work and the return-QC integration.

@@ -4234,7 +4234,10 @@ module is used in production:
    and requisitions never auto-approve until a positive
    `requisition_auto_approve_limit` is set. All four thresholds accept
    per-company overrides through `PUT /audit/approval-settings` and the
-   administration UI. Negative or zero disables the rule. A first PO signature
+   administration UI. Zero disables PO dual approval; for stock adjustments
+   and internal issues, the strict `value > threshold` comparison means zero
+   requires approval for every positive value. A zero requisition limit disables
+   auto-approval. Negative values are rejected. A first PO signature
    cannot be completed by the same user, and an auto-approved requisition leaves
    no human approval evidence - confirm that is the intended control before
    production use. Draft requisitions use the current limit when submitted;

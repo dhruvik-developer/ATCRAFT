@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import {
   Alert,
   AlertDescription,
-  AlertTitle,
   Card,
   CardContent,
   Checkbox,
@@ -161,14 +160,14 @@ export default function MessagingPage() {
 
       {loadError && (
         <Alert variant="warning" className="mb-5">
-          <AlertTitle>Messaging settings could not be loaded</AlertTitle>
+          <p className="mb-1 font-medium leading-none">Messaging settings could not be loaded</p>
           <AlertDescription>{describeError(loadError)}</AlertDescription>
         </Alert>
       )}
 
       {enabled && (
         <Alert className="mb-5">
-          <AlertTitle>Provider status</AlertTitle>
+          <p className="mb-1 font-medium leading-none">Provider status</p>
           <AlertDescription>
             WhatsApp: {enabled.whatsapp_enabled ? 'enabled' : 'disabled'} · SMS:{' '}
             {enabled.sms_enabled ? 'enabled' : 'disabled'}
@@ -368,7 +367,7 @@ export default function MessagingPage() {
         <h2 className="mb-3 text-lg font-semibold">Recent delivery attempts</h2>
         {deliveries.isError && (
           <Alert variant="warning">
-            <AlertTitle>Delivery history unavailable</AlertTitle>
+            <p className="mb-1 font-medium leading-none">Delivery history unavailable</p>
             <AlertDescription>{describeError(deliveries.error)}</AlertDescription>
           </Alert>
         )}

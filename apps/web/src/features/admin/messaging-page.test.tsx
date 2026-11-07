@@ -31,6 +31,21 @@ function routes() {
 }
 
 describe('messaging administration', () => {
+  it('keeps alert titles from skipping levels in the page heading hierarchy', async () => {
+    renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW],
+      routes: routes(),
+    })
+
+    expect(await screen.findByLabelText('Approved template name')).toBeVisible()
+    expect(await screen.findByText('Provider status')).toBeVisible()
+    expect(screen.getAllByRole('heading').map((heading) => heading.tagName)).toEqual([
+      'H1',
+      'H2',
+      'H2',
+    ])
+  })
+
   it('keeps template changes unavailable to settings viewers without manage permission', async () => {
     renderScreen(<MessagingPage />, {
       permissions: [P.SETTINGS_VIEW],

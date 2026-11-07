@@ -335,7 +335,9 @@ export default function SettingsPage() {
 
             <p className="text-xs text-muted-foreground">
               Amounts may have up to four decimal places. Leave a field blank to restore the
-              built-in default for that one; a stored zero is a real threshold.
+              built-in default for that one. A zero PO dual-approval amount disables that rule; a
+              zero stock-adjustment or internal-issue threshold requires approval for any positive
+              value. A zero requisition auto-approve limit disables auto-approval.
             </p>
 
             {approvalError && (

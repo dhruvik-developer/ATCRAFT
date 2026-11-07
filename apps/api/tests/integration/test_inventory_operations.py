@@ -38,6 +38,8 @@ from src.core.errors import (
 )
 from src.core.pagination import PageParams, SortParams
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.audit.schemas import ApprovalSettingsUpdate
+from src.modules.audit.service import update_company_approval_settings
 from src.modules.inventory.models import (
     BinMove,
     CostLayerPool,
@@ -800,6 +802,34 @@ class TestInternalIssues:
         assert approved.total_value == Decimal("30000.00")
         balance = await get_balance(session, tenant, item_id, warehouse_id)
         assert balance is not None and balance.on_hand_quantity == Decimal("5")
+
+    async def test_raising_the_threshold_reprices_an_existing_issue_before_posting(
+        self, session, tenant, unique_code
+    ) -> None:
+        item, warehouse = await _stock(session, tenant, unique_code, cost="2000")
+        department = await _department(session, tenant, unique_code)
+        service = InternalIssueService(session, tenant)
+        draft = await service.create(
+            _issue(warehouse, item, "15", department_id=str(department.id))
+        )
+        issue_id = draft.id
+        assert draft.total_value == Decimal("30000.00")
+        assert draft.requires_approval
+
+        await update_company_approval_settings(
+            session,
+            tenant,
+            ApprovalSettingsUpdate(internal_issue_approval_threshold=Decimal("40000")),
+        )
+
+        with pytest.raises(BusinessRuleError, match="below the approval value"):
+            await service.submit(issue_id)
+
+        posted = await service.post(issue_id)
+
+        assert posted.status == "POSTED"
+        assert not posted.requires_approval
+        assert posted.total_value == Decimal("30000.00")
 
     async def test_a_draft_that_costs_more_when_it_posts_is_refused_and_nothing_moves(
         self, session, tenant, unique_code

@@ -8139,6 +8139,7 @@ class InternalIssueService:
                 )
             threshold = await internal_issue_approval_threshold(self.session, self.tenant)
             assert_warehouse_scope(self.tenant, issue.warehouse_id)
+            await self._reprice(issue)
             if issue.requires_approval:
                 raise self._approval_required(issue, threshold)
             await self._post_lines(issue)

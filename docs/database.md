@@ -655,7 +655,11 @@ POSTED below the approval threshold, otherwise DRAFT to PENDING_APPROVAL to
 POSTED. Draft or pending issues may be cancelled; rejection ends CANCELLED
 with its reason. The company's internal-issue approval threshold defaults to
 25,000 in company currency; the actual FIFO posting rechecks it atomically. A
-separate approver is required, with the existing superuser exception. Rights are
+draft is repriced and its approval requirement recalculated on submission and
+posting, so a threshold change cannot strand a draft with a stale approval flag.
+A strict `total_value > threshold` comparison means a zero threshold requires
+approval for any positive-value issue, but not a zero-value issue.
+A separate approver is required, with the existing superuser exception. Rights are
 `internal_issue.create` and `internal_issue.approve`. CONSUMABLES is a warehouse classification, not an
 inventory permission or a posting restriction.
 

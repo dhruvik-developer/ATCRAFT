@@ -117,6 +117,9 @@ describe('settings', () => {
     const poInput = await screen.findByRole('textbox', {
       name: /PO dual approval amount/i,
     })
+    expect(
+      screen.getByText(/zero stock-adjustment or internal-issue threshold requires approval/i),
+    ).toBeVisible()
     await user.clear(poInput)
     await user.type(poInput, '35000')
 
