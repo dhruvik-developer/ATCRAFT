@@ -8,12 +8,9 @@
 > historical S02.14 export/cost-view claims are superseded by current exports,
 > permission checks and regression tests.
 >
-> **Evidence-date note - 7 November 2026.** The "Implementation update" dated
-> 17 November below is forward-dated relative to this record and is not
-> verification evidence. The current serial job-work implementation is
-> independently covered by `apps/api/src/modules/job_work/serial_tracking.py`
-> and `apps/api/tests/integration/test_serial_job_work.py`; do not use the
-> forward-dated note to infer other serial workflows are complete.
+> **Evidence update - 7 November 2026.** Serial bin moves, internal issues and
+> job-work serial dispositions were rechecked against focused integration tests
+> on this date; see the detailed evidence below and in `gaps.md`.
 >
 > **Post-audit update - 22 October 2026 (E8b).** The traceability findings below
 > are the pre-E8b audit text and are left as written. `P03.F3` (stock transfer),
@@ -35,12 +32,16 @@
 > structure and no purchase order, not because the application lacks a serial
 > inbound path. See `docs/implementation/specs/E8b-batch-serial-tracking.md`.
 >
-> **Unverified forward-dated note - 17 November 2026 (serial internal issues).**
+> **Post-audit update - 7 November 2026 (serial internal issues and job work).**
 > Internal issues now persist named serial IDs, display labels and post one
 > `MATERIAL_ISSUE` per unit through the locked movement engine. Posting still
 > revalidates the source position and preserves FIFO repricing and the existing
 > approval control. Physical-count serial variance reconciliation, serial
-> job-work and tracked SKU transformations remain open.
+> reconciliation remains open. Serial job work now records named source units,
+> receipt dispositions and traceability through the job-work movement flow.
+> Verification: `apps/api/tests/integration/test_serial_inventory_operation_boundaries.py::test_named_serial_internal_issue_posts_one_material_issue_per_unit`,
+> `::test_serial_internal_issue_keeps_the_two_person_approval_control`, and
+> `apps/api/tests/integration/test_serial_job_work.py::test_named_same_item_units_can_return_in_lots_with_vendor_rework`.
 >
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,

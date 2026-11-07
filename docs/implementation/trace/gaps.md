@@ -20,13 +20,14 @@
 > | S01.2 / K05: no reallocation approval inbox in the UI | `apps/web/src/features/inventory/reservations-page.tsx` includes `ReallocationInbox`; `apps/web/src/features/inventory/reservations-page.test.tsx` covers approval. The donor/request workflow has additional scope, so this does not make all of K05 PRESENT. |
 > | S02.3 / S02.5 / P04.M7: no variant authoring screen | `apps/web/src/features/items/variant-form-dialog.tsx` provides variant authoring; `apps/web/src/features/items/variant-form-dialog.test.tsx` covers it. This does not claim separately stocked variant inventory. |
 > | E8b: job work refuses serial-tracked items | `apps/api/src/modules/job_work/serial_tracking.py` and `apps/api/tests/integration/test_serial_job_work.py` cover serial issue, receipt dispositions and traceability; the job-work UI carries the serial selections. |
+> | Serial bin moves and internal issues are quantity-only | `apps/api/tests/integration/test_serial_inventory_operation_boundaries.py::test_named_serial_bin_move_posts_both_legs_and_preserves_fifo_cost` and `::test_named_serial_internal_issue_posts_one_material_issue_per_unit` verify the named-unit paths. Serial job work is separately covered by `apps/api/tests/integration/test_serial_job_work.py::test_named_same_item_units_can_return_in_lots_with_vendor_rework`. |
 > | P06.O4: MRP never generates or converts stock-transfer suggestions | `apps/api/src/modules/mrp/engine.py` generates TRANSFER suggestions; `apps/api/src/modules/mrp/service.py` supports stock-transfer conversion; `apps/web/src/features/mrp/mrp-run-detail-page.test.tsx` covers conversion. |
 > | P12.M3 / E8b: no printed labels or label endpoint | Serial-label PDF support is in `apps/api/src/modules/inventory/router.py` and `apps/web/src/features/inventory/tracking-dialogs.tsx`. Carton labels have an API payload, a print control and UI coverage in `apps/api/src/modules/packing/` and `apps/web/src/features/packing/`. This does not imply every barcode scanning or label-generation recommendation in P12.M3 is complete. |
 >
 > `status.tsv` and `trace.json` retain the audit's original grouped statuses;
 > consult the scope notes above before treating a PARTIAL status or its old
-> recommendation as an unimplemented feature. The 16 and 17 November notes
-> below are forward-dated relative to this recheck and are not evidence for it.
+> recommendation as an unimplemented feature. The serial-operation notes below
+> were rechecked against the named integration tests on 7 November 2026.
 
 > **Post-audit update - 22 October 2026 (E8b).** The entries below are the
 > pre-E8b audit text and are left as written. P03.F3, P03.F4, P03.F6, P08.M11
@@ -42,21 +43,22 @@
 > See `docs/implementation/specs/E8b-batch-serial-tracking.md` and
 > `docs/implementation/trace/notes.md`.
 >
-> **Unverified forward-dated note - 16 November 2026 (serial bin moves).** Serial-tracked bin moves now
+> **Post-audit update - 7 November 2026 (serial bin moves).** Serial-tracked bin moves now
 > name each unit, validate it at the exact source bin (including the unbinned
 > position), and post paired `TRANSFER_OUT` / `TRANSFER_IN` rows under the
 > movement engine's locks while carrying FIFO cost layers. Internal issues,
-> serial-tracked job work and tracked SKU transformations remain deliberately
-> refused; scrap disposal stays quantity-only because the serial is retired
-> when stock enters scrap.
+> serial-tracked job work and related receipt dispositions are also supported
+> and independently covered by focused integration tests. Scrap disposal stays
+> quantity-only because the serial is retired when stock enters scrap.
 >
-> **Unverified forward-dated note - 17 November 2026 (serial internal issues).** Internal
+> **Post-audit update - 7 November 2026 (serial internal issues).** Internal
 > issues now persist named serial IDs, display their labels and post one
 > `MATERIAL_ISSUE` per unit through the movement engine, which revalidates
 > warehouse, bin, batch and serial state under lock. FIFO repricing, the
 > approval threshold and separate-approver rule are unchanged. Named-unit
-> physical-count reconciliation and serial lifecycle handling at scrap disposal
-> remain open.
+> physical-count reconciliation remains open. Verification:
+> `apps/api/tests/integration/test_serial_inventory_operation_boundaries.py::test_named_serial_internal_issue_posts_one_material_issue_per_unit`
+> and `::test_serial_internal_issue_keeps_the_two_person_approval_control`.
 >
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,
