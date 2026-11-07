@@ -35,7 +35,7 @@ from locust import HttpUser, between, events, task
 from locust.runners import MasterRunner, WorkerRunner
 
 API = "/api/v1"
-_random = random.Random()  # noqa: S311 - request sampling does not need cryptographic randomness
+_random = random.Random()  # Request sampling does not need cryptographic randomness.
 
 
 _accounts: Queue[LoadAccount] = Queue()
@@ -463,6 +463,15 @@ class WriteUser(HttpUser):
             return
         dispatch_id = self._required_id(dispatch, "Dispatch")
         if dispatch_id is None:
+            return
+        # Loaded and checked; the lifecycle has no NOT_DISPATCHED -> DISPATCHED
+        # edge, so the plan must be marked ready before the lorry can leave.
+        ready = self._post(
+            f"/dispatch/{dispatch_id}/ready",
+            {"reason": "Load profile marks the prepared consignment ready."},
+            "POST /dispatch/{id}/ready",
+        )
+        if ready is None:
             return
         sent = self._post(
             f"/dispatch/{dispatch_id}/dispatch",

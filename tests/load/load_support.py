@@ -27,9 +27,19 @@ _WRITE_FIXTURE_KEYS = {
 
 def read_accounts(path: Path, *, require_write_fixtures: bool) -> list[LoadAccount]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        # Windows editors commonly save JSON with a BOM; utf-8-sig accepts both.
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ValueError("LOAD_ACCOUNTS_FILE is not valid JSON") from exc
+    return validate_account_payload(payload, require_write_fixtures=require_write_fixtures)
+
+
+def validate_account_payload(payload: object, *, require_write_fixtures: bool) -> list[LoadAccount]:
+    """Validate an already-parsed account array.
+
+    Split out from :func:`read_accounts` so the fixture generator can check the
+    rows it is about to rewrite without first writing them to a temporary file.
+    """
     if not isinstance(payload, list):
         raise ValueError("LOAD_ACCOUNTS_FILE must contain a JSON array")
 

@@ -60,27 +60,49 @@ locust -f tests/load/locustfile.py --headless -u 20 -r 2 -t 10m --host http://12
 
 The optional `LOAD_WRITE_ENABLED=true` adds one write cycle per `WriteUser`
 account: post a prepared stock adjustment, create and release a reservation,
-raise and decide a stock-holding QC inspection, dispatch a prepared sales order,
-and issue its invoice. This is intentionally opt-in and mutates stock and
-commercial records. Every account in this mode needs a `write_fixtures` object
-with:
+raise and decide a stock-holding QC inspection, raise a consignment from a
+prepared sales order, mark it ready, dispatch it, and issue its invoice. This is
+intentionally opt-in and mutates stock and commercial records. Every account in
+this mode needs a `write_fixtures` object; `tests/load/make_write_fixtures.py`
+builds that object and rewrites the account file:
 
-- a unique, draft `inventory_adjustment_id` that is valid to post;
-- a complete reservation-create payload except `demand_id`, which the harness
-  generates; seed sufficient stock and set a reason;
-- a complete inspection-create payload, including `qc_stage`,
-  `inspected_quantity` and reason; set `hold_stock` to `true`. The harness
-  supplies unique `reference_type` and `reference_id`;
-- a valid inspection decision whose quantities total the inspected quantity;
-- a complete dispatch-create payload for a unique confirmed/allocated
-  `sales_order_id`, with dispatch lines and dates that can still be dispatched;
-- a valid dispatch request body; and
-- a sales-invoice-create payload (the harness supplies the `dispatch_id`).
+```powershell
+$env:LOAD_ADMIN_EMAIL = 'admin@atcraft.test'       # may create masters and documents
+$env:LOAD_ADMIN_PASSWORD = '...'                   # or omit to be prompted
+python tests/load/make_write_fixtures.py `
+    --accounts C:\secure\atcraft-load-accounts.json --apply
+```
 
-Use separate, one-use fixture records for every account. These operations are
-not rolled back after the run. The Locust process exits nonzero when the
-documented failure-rate or latency targets are exceeded, or when setup or a
-write step fails; preserve the report and investigate before increasing load.
+The script is a dry run without `--apply`: it prints the warehouse, unit, item,
+customer and template codes it would create and makes no HTTP calls. With
+`--apply` it logs in once as the admin, reads the company's adjustment approval
+threshold, verifies every load account can log in, then creates, per account:
+
+- a dedicated item, customer and FINAL QC template;
+- posted opening stock and a draft write-down adjustment the load profile posts;
+- a confirmed, fully allocated sales order the load profile raises a
+  consignment against, marks ready and dispatches; and
+- the reservation, inspection, decision, dispatch and invoice payloads.
+
+A run tag (six random hex characters by default, `--run-tag` to choose one)
+prefixes every code, so a run's records are identifiable afterwards. The account
+file and the optional `--output` must stay outside the repository: they contain
+passwords. The script refuses a file that already has `write_fixtures`, because
+those documents are one-use. It also refuses an opening-stock or write-down value
+above the company's adjustment approval threshold, since the write profile posts
+directly and cannot run the approval workflow; lower the fixture quantities or
+raise the threshold on the isolated target. The load accounts themselves still
+need permission for the adjustment, reservation, quality, dispatch
+(`DISPATCH_UPDATE` to mark ready, `DISPATCH_CREATE` to send) and invoice steps -
+the admin only builds the fixtures.
+
+Generate fixtures only against the dedicated load target (or a throwaway
+database you will drop), never `atcraft_erp` or `atcraft_erp_test`. These
+operations are not rolled back after the run. The Locust process exits nonzero
+when the documented failure-rate or latency targets are exceeded, or when setup
+or a write step fails; preserve the report and investigate before increasing
+load. Once the accounts have run, generate a fresh fixture set (ideally from a
+fresh account file) before the next write run.
 
 ### Measured on this build (2026-11-06)
 
