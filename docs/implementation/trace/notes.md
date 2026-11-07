@@ -8,6 +8,13 @@
 > historical S02.14 export/cost-view claims are superseded by current exports,
 > permission checks and regression tests.
 >
+> **Evidence-date note - 7 November 2026.** The "Implementation update" dated
+> 17 November below is forward-dated relative to this record and is not
+> verification evidence. The current serial job-work implementation is
+> independently covered by `apps/api/src/modules/job_work/serial_tracking.py`
+> and `apps/api/tests/integration/test_serial_job_work.py`; do not use the
+> forward-dated note to infer other serial workflows are complete.
+>
 > **Post-audit update - 22 October 2026 (E8b).** The traceability findings below
 > are the pre-E8b audit text and are left as written. `P03.F3` (stock transfer),
 > `P03.F4` (stock adjustment), `P03.F6` (batch/serial where required), `P08.M11`
@@ -28,7 +35,7 @@
 > structure and no purchase order, not because the application lacks a serial
 > inbound path. See `docs/implementation/specs/E8b-batch-serial-tracking.md`.
 >
-> **Implementation update - 17 November 2026 (serial internal issues).**
+> **Unverified forward-dated note - 17 November 2026 (serial internal issues).**
 > Internal issues now persist named serial IDs, display labels and post one
 > `MATERIAL_ISSUE` per unit through the locked movement engine. Posting still
 > revalidates the source position and preserves FIFO repricing and the existing

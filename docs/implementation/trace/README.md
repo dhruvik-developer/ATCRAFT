@@ -16,5 +16,7 @@ statuses in the JSON and TSV when updating them.
 
 Use the [current documentation index](../../README.md),
 [development standards](../../development-standards.md) and
-[latest application verification record](../development-standards-20261022.md)
-for current implementation guidance and dated checks.
+[latest application verification record](../release-verification-20261106.md)
+for current implementation guidance and dated checks. The current recheck at
+the top of `gaps.md` supersedes selected historical findings; it does not
+rewrite the original audit statuses.
