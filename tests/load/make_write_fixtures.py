@@ -28,17 +28,20 @@ Typical isolated-target use::
     $env:LOAD_ADMIN_EMAIL = 'admin@atcraft.test'
     $env:LOAD_ADMIN_PASSWORD = '...'
     python tests/load/make_write_fixtures.py \
-        --accounts C:\\secure\\load-accounts.json --apply
+        --accounts C:\\secure\\load-accounts.json \
+        --base-url https://load-target.example \
+        --confirm-target load-target.example --apply
 
 Then, in the same shell::
 
     $env:LOAD_ACCOUNTS_FILE = 'C:\\secure\\load-accounts.json'
     $env:LOAD_WRITE_ENABLED = 'true'
-    locust -f tests/load/locustfile.py --host http://load-target
+    locust -f tests/load/locustfile.py --host https://load-target.example
 
 Never point this script at ``atcraft_erp`` or ``atcraft_erp_test``. It posts
 stock, confirms orders and raises QC holds; use a throwaway database or the
-client's isolated load target.
+client's isolated load target. Applying requires an explicitly confirmed,
+non-loopback HTTPS origin; the default loopback URL is dry-run only.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from __future__ import annotations
 # ruff: noqa: T201
 import argparse
 import getpass
+import ipaddress
 import json
 import os
 import re
@@ -61,6 +65,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from load_support import validate_account_payload
 
@@ -73,6 +78,46 @@ DEFAULT_LOGIN_DELAY_SECONDS = 0.1
 
 class FixtureError(Exception):
     """A fixture could not be built safely."""
+
+
+def validate_write_target(base_url: str, confirmed_host: str | None) -> str:
+    """Require an explicitly confirmed HTTPS origin before sending credentials or writes."""
+    try:
+        parsed = urlsplit(base_url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise FixtureError("The write target URL is invalid.") from exc
+
+    if (
+        parsed.scheme.casefold() != "https"
+        or host is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or port == 0
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise FixtureError(
+            "Applying fixtures requires an HTTPS API origin without credentials, path, query, "
+            "or fragment."
+        )
+
+    normalized_host = host.casefold().rstrip(".")
+    try:
+        is_loopback = ipaddress.ip_address(normalized_host).is_loopback
+    except ValueError:
+        is_loopback = normalized_host == "localhost" or normalized_host.endswith(".localhost")
+    if is_loopback:
+        raise FixtureError("The write target cannot be a loopback host.")
+
+    if (
+        not isinstance(confirmed_host, str)
+        or confirmed_host.casefold().rstrip(".") != normalized_host
+    ):
+        raise FixtureError(f"Pass --confirm-target {host} to confirm this isolated write target.")
+    return base_url.rstrip("/")
 
 
 class ApiError(FixtureError):
@@ -459,6 +504,19 @@ def build_invoice_fixture(*, invoice_date: str) -> dict[str, object]:
 # -----------------------------------------------------------------------------
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
 class ApiClient:
     """Small stdlib JSON client with 429 retry and no credential logging."""
 
@@ -472,6 +530,7 @@ class ApiClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_retries = max_retries
+        self._opener = urllib.request.build_opener(_NoRedirectHandler())
 
     def get(self, path: str, *, token: str) -> dict[str, Any]:
         return self._request("GET", path, token=token, expected=(200,))
@@ -533,12 +592,16 @@ class ApiClient:
         while True:
             request = urllib.request.Request(url, data=data, headers=headers, method=method)
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                with self._opener.open(request, timeout=self.timeout) as response:
                     status = response.status
                     request_id = response.headers.get("X-Request-ID")
                     raw = response.read()
             except urllib.error.HTTPError as exc:
                 status = exc.code
+                if 300 <= status < 400:
+                    raise FixtureError(
+                        "The API redirected a request; use its canonical HTTPS origin."
+                    ) from exc
                 request_id = exc.headers.get("X-Request-ID")
                 raw = exc.read()
                 if status == 429 and attempt < self.max_retries:
@@ -987,7 +1050,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--base-url",
         default=os.getenv("LOAD_BASE_URL", "http://127.0.0.1:8000"),
-        help="API origin, without the /api/v1 suffix.",
+        help="API origin, without the /api/v1 suffix (write mode requires HTTPS).",
+    )
+    parser.add_argument(
+        "--confirm-target",
+        help="Exact hostname confirmation required by --apply; must match --base-url.",
     )
     parser.add_argument(
         "--admin-email",
@@ -1039,7 +1106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _dry_run(rows, plan)
             return 0
         args.output = output_path
-        base_url = str(args.base_url).rstrip("/")
+        base_url = validate_write_target(str(args.base_url), args.confirm_target)
         _apply(args, rows, plan, base_url=base_url)
         return 0
     except (FixtureError, OSError, ValueError) as exc:

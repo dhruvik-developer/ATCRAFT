@@ -69,13 +69,18 @@ builds that object and rewrites the account file:
 ```powershell
 $env:LOAD_ADMIN_EMAIL = 'admin@atcraft.test'       # may create masters and documents
 $env:LOAD_ADMIN_PASSWORD = '...'                   # or omit to be prompted
+$env:LOAD_BASE_URL = 'https://load-target.example'
 python tests/load/make_write_fixtures.py `
-    --accounts C:\secure\atcraft-load-accounts.json --apply
+    --accounts C:\secure\atcraft-load-accounts.json `
+    --base-url $env:LOAD_BASE_URL `
+    --confirm-target load-target.example `
+    --apply
 ```
 
 The script is a dry run without `--apply`: it prints the warehouse, unit, item,
 customer and template codes it would create and makes no HTTP calls. With
-`--apply` it logs in once as the admin, reads the company's adjustment approval
+`--apply` it requires a confirmed, non-loopback HTTPS API origin, then logs in
+once as the admin, reads the company's adjustment approval
 threshold, verifies every load account can log in, then creates, per account:
 
 - a dedicated item, customer and FINAL QC template;

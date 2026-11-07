@@ -30,8 +30,10 @@ from make_write_fixtures import (
     ensure_below_threshold,
     format_decimal,
     load_account_rows,
+    main,
     normalise_run_tag,
     parse_decimal,
+    validate_write_target,
 )
 
 
@@ -100,6 +102,52 @@ def test_repository_paths_are_refused_for_credential_files(tmp_path: Path) -> No
 
     outside = assert_outside_repository(tmp_path / "accounts.json", label="account file")
     assert outside == (tmp_path / "accounts.json").resolve()
+
+
+def test_write_target_requires_confirmed_remote_https_origin() -> None:
+    assert (
+        validate_write_target("https://load-target.example/", "load-target.example")
+        == "https://load-target.example"
+    )
+
+
+@pytest.mark.parametrize(
+    ("base_url", "confirmed_host"),
+    [
+        ("http://load-target.example", "load-target.example"),
+        ("https://localhost", "localhost"),
+        ("https://api.localhost", "api.localhost"),
+        ("https://127.0.0.1", "127.0.0.1"),
+        ("https://[::1]", "::1"),
+        ("https://user:password@load-target.example", "load-target.example"),
+        ("https://load-target.example/api/v1", "load-target.example"),
+        ("https://load-target.example?redirect=elsewhere", "load-target.example"),
+        ("https://load-target.example", None),
+        ("https://load-target.example", "another-target.example"),
+    ],
+)
+def test_write_target_rejects_unsafe_or_unconfirmed_origins(
+    base_url: str, confirmed_host: str | None
+) -> None:
+    with pytest.raises(FixtureError):
+        validate_write_target(base_url, confirmed_host)
+
+
+def test_apply_rejects_the_default_loopback_target_before_api_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    accounts_path = tmp_path / "accounts.json"
+    accounts_path.write_text(
+        json.dumps([{"email": "load@example.test", "password": "test-password"}]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "make_write_fixtures._apply",
+        lambda *_args, **_kwargs: pytest.fail("unsafe target reached the API workflow"),
+    )
+
+    assert main(["--accounts", str(accounts_path), "--run-tag", "AB12", "--apply"]) == 1
+    assert "HTTPS" in capsys.readouterr().err
 
 
 def test_threshold_guard_allows_the_threshold_but_not_a_cent_above() -> None:
