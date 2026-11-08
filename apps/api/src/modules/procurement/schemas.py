@@ -32,7 +32,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.core.constants import DEFAULT_CURRENCY
+from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
 from src.core.demand_provenance import DemandReference
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
@@ -1218,7 +1218,7 @@ class PurchaseOrderAmendLineIn(BaseModel):
 class PurchaseOrderAmendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    expected_version: Annotated[int, Field(ge=1)]
+    expected_version: Annotated[int, Field(ge=1, le=MAX_INTEGER_COLUMN)]
     reason: Reason
     lines: list[PurchaseOrderAmendLineIn] = Field(min_length=1, max_length=MAX_LINES_PER_DOCUMENT)
     expected_delivery_date: date | None = None
@@ -1274,7 +1274,7 @@ class PurchaseOrderDuplicateResolutionRequest(BaseModel):
     action: Literal["MERGE", "INCREASE", "CREATE_WITH_APPROVAL", "CANCEL_REQUEST"]
     candidate_purchase_order_id: uuid.UUID | None = None
     candidate_line_id: uuid.UUID | None = None
-    expected_candidate_version: Annotated[int, Field(ge=1)] | None = None
+    expected_candidate_version: Annotated[int, Field(ge=1, le=MAX_INTEGER_COLUMN)] | None = None
     draft: Annotated[
         PurchaseOrderManualDuplicateDraft | PurchaseOrderRequisitionDuplicateDraft,
         Field(discriminator="kind"),

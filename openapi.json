@@ -11528,6 +11528,7 @@
           "operation_sequence": {
             "anyOf": [
               {
+                "maximum": 100000.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -20316,6 +20317,7 @@
             "title": "Billing Address Id"
           },
           "cart_version": {
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Cart Version",
             "type": "integer"
@@ -51989,6 +51991,7 @@
             "title": "Expected Delivery Date"
           },
           "expected_version": {
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Expected Version",
             "type": "integer"
@@ -53213,6 +53216,7 @@
           "expected_candidate_version": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },

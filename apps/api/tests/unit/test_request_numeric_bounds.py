@@ -9,19 +9,24 @@ whose database and principal are stubbed, and the service call behind it is
 replaced by a probe that records what reached it and answers 404. So a value
 the door refuses is a 422 naming the field, and a value it admits arrives at
 the service exactly as keyed - with no database involved.
+
+The last section is the guard that keeps it so: it reads every route's request
+inputs as pydantic-core compiles them and fails on any int, float or Decimal
+with no upper bound, unless :data:`UNBOUNDED_ALLOWED` names the reason. Its
+self-tests feed it the violations it exists to catch.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from decimal import Decimal
 from typing import Annotated, Any
 
 import httpx
 import pytest
-from fastapi import FastAPI
-from pydantic import BaseModel, TypeAdapter
+from fastapi import FastAPI, Query
+from pydantic import BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
 from src.core.constants import MAX_INTEGER_COLUMN
@@ -29,8 +34,10 @@ from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal
 from src.core.errors import NotFoundError
 from src.core.exception_handlers import register_exception_handlers
+from src.modules.bom.schemas import BomLineIn
 from src.modules.customers.router import router as customers_router
 from src.modules.customers.service import CustomerService
+from src.modules.dealer_portal.schemas import DealerCheckoutRequest
 from src.modules.notifications.alert_service import NotificationAlertService
 from src.modules.notifications.alerts import MAX_ALERT_WINDOW_MINUTES
 from src.modules.notifications.router import router as notifications_router
@@ -38,12 +45,17 @@ from src.modules.notifications.schemas import NotificationAlertRuleUpdate
 from src.modules.procurement import inbound_service
 from src.modules.procurement.inbound_schemas import InboundShipmentCreate
 from src.modules.procurement.router import router as procurement_router
+from src.modules.procurement.schemas import (
+    PurchaseOrderAmendRequest,
+    PurchaseOrderDuplicateResolutionRequest,
+)
 from src.modules.products import service as products_service
 from src.modules.products.router import router as products_router
 from src.modules.products.schemas import ItemCreate, ItemUpdate
 from src.modules.sales_returns import service as sales_returns_service
 from src.modules.sales_returns.router import router as sales_returns_router
 from src.modules.vendor_portal.schemas import VendorPortalReady
+from tests.route_support import assert_matches_contract, module_routes
 
 pytestmark = pytest.mark.unit
 
@@ -226,6 +238,16 @@ def _shipment(packages: int) -> dict[str, Any]:
         (ItemUpdate, "shelf_life_days", MAX_INTEGER_COLUMN),
         (NotificationAlertRuleUpdate, "threshold_minutes", MAX_ALERT_WINDOW_MINUTES),
         (NotificationAlertRuleUpdate, "remind_every_minutes", MAX_ALERT_WINDOW_MINUTES),
+        # A line names an operation its BOM defines, numbered as operations are.
+        (BomLineIn, "operation_sequence", 100_000),
+        # A version past the INTEGER column's range can never match the row.
+        (DealerCheckoutRequest, "cart_version", MAX_INTEGER_COLUMN),
+        (PurchaseOrderAmendRequest, "expected_version", MAX_INTEGER_COLUMN),
+        (
+            PurchaseOrderDuplicateResolutionRequest,
+            "expected_candidate_version",
+            MAX_INTEGER_COLUMN,
+        ),
     ],
 )
 def test_an_integer_input_stops_at_its_bound(
@@ -280,3 +302,171 @@ async def test_a_package_count_past_the_integer_column_is_a_field_error(
     assert (await client.post(url, json=_shipment(MAX_INTEGER_COLUMN))).status_code == 404
     (recorded,) = reached
     assert recorded.packages == MAX_INTEGER_COLUMN
+
+
+# -----------------------------------------------------------------------------
+# The guard: no request number without an upper bound
+# -----------------------------------------------------------------------------
+
+#: The keywords that cap each numeric core-schema type from above. A Decimal is
+#: also capped by ``max_digits``, which bounds its magnitude.
+_UPPER_BOUNDS: dict[str, frozenset[str]] = {
+    "decimal": frozenset({"le", "lt", "max_digits"}),
+    "int": frozenset({"le", "lt"}),
+    "float": frozenset({"le", "lt"}),
+}
+
+#: Core-schema keys that hold a nested schema, or a list or mapping of them.
+_CHILD_KEYS = (
+    "schema",
+    "items_schema",
+    "keys_schema",
+    "values_schema",
+    "lax_schema",
+    "strict_schema",
+    "json_schema",
+    "python_schema",
+    "steps",
+    "choices",
+)
+
+#: Request numbers bounded somewhere the schema cannot show, each with the reason.
+#: Keyed ``"METHOD path field"`` exactly as the guard reports an offender.
+UNBOUNDED_ALLOWED: dict[str, str] = {
+    "POST /notifications/push/subscriptions expiration_time": (
+        "a browser push subscription's epoch milliseconds, larger than any INTEGER; "
+        "the service refuses an instant the calendar cannot hold with a 422"
+    ),
+}
+
+
+def request_numbers(schema: Mapping[str, Any], prefix: str = "") -> list[tuple[str, bool]]:
+    """``(path, has an upper bound)`` for every int, float and Decimal in a core schema.
+
+    Walks what pydantic-core will actually validate - so a bound written as
+    ``Field(le=...)``, inside ``Annotated[...] | None``, on a list item or in a
+    ``Query(...)`` all count - and follows each definition reference once per
+    path, so a recursive model terminates.
+    """
+    found: list[tuple[str, bool]] = []
+    definitions: dict[str, Mapping[str, Any]] = {}
+
+    def walk(node: Any, where: str, entered: frozenset[str]) -> None:
+        if isinstance(node, list | tuple):
+            for child in node:
+                walk(child, where, entered)
+            return
+        if not isinstance(node, Mapping):
+            return
+        kind = node.get("type")
+        if kind == "definitions":
+            definitions.update({entry["ref"]: entry for entry in node["definitions"]})
+        elif kind == "definition-ref":
+            ref = node["schema_ref"]
+            if ref not in entered:
+                walk(definitions[ref], where, entered | {ref})
+            return
+        elif kind in _UPPER_BOUNDS:
+            found.append((where, any(key in node for key in _UPPER_BOUNDS[kind])))
+            return
+        elif kind in {"model-fields", "typed-dict"}:
+            for name, field in node["fields"].items():
+                walk(field["schema"], f"{where}.{name}" if where else name, entered)
+            return
+        for key in _CHILD_KEYS:
+            child = node.get(key)
+            if isinstance(child, Mapping) and key == "choices":
+                child = list(child.values())
+            if child is not None:
+                walk(child, f"{where}.[]" if key == "items_schema" else where, entered)
+
+    walk(schema, prefix, frozenset())
+    return found
+
+
+def _request_params(dependant: Any) -> Iterator[tuple[str, Any]]:
+    for source in ("path", "query", "header", "cookie", "body"):
+        for param in getattr(dependant, f"{source}_params"):
+            yield source, param
+    for dependency in dependant.dependencies:
+        yield from _request_params(dependency)
+
+
+def route_numbers() -> list[tuple[str, bool]]:
+    """Every numeric request input of every mounted route, as ``METHOD path field``.
+
+    Body fields are named as their field errors are (``lines.[].quantity``),
+    every other input with its transport (``query.quantity``).
+    """
+    found: set[tuple[str, bool]] = set()
+    for mounted in module_routes():
+        for source, param in _request_params(mounted.route.dependant):
+            info = param.field_info
+            # How FastAPI itself builds the validator for one parameter.
+            adapter: TypeAdapter[Any] = TypeAdapter(Annotated[info.annotation, info])
+            prefix = "" if source == "body" else f"{source}.{param.alias}"
+            for where, bounded in request_numbers(adapter.core_schema, prefix):
+                found.add((f"{mounted} {where}", bounded))
+    return sorted(found)
+
+
+def test_the_number_guard_reads_every_route_and_its_numbers() -> None:
+    assert_matches_contract(module_routes())
+    # Hundreds today; a walker that stopped descending would find a handful.
+    assert len(route_numbers()) > 300
+
+
+def test_every_request_number_has_an_upper_bound() -> None:
+    offenders = [
+        name for name, bounded in route_numbers() if not bounded and name not in UNBOUNDED_ALLOWED
+    ]
+    assert not offenders, (
+        "Bound these request numbers from above - le= for an int (MAX_INTEGER_COLUMN is "
+        "an INTEGER column's own limit), max_digits/decimal_places for a Decimal - or, "
+        f"if something else bounds one, add it to UNBOUNDED_ALLOWED with the reason: {offenders}"
+    )
+
+
+def test_every_number_allowance_is_still_needed() -> None:
+    unbounded = {name for name, bounded in route_numbers() if not bounded}
+    stale = sorted(set(UNBOUNDED_ALLOWED) - unbounded)
+    assert not stale, f"remove these UNBOUNDED_ALLOWED entries, they are bounded now: {stale}"
+
+
+class _Line(BaseModel):
+    quantity: Decimal = Field(gt=0)
+    sequence: int | None = Field(default=None, ge=1)
+    position: Annotated[int, Field(ge=0, le=9)] = 0
+    children: list[_Line] = []
+
+
+class _Payload(BaseModel):
+    lines: list[_Line]
+    total: Decimal = Field(max_digits=18, decimal_places=4)
+    ratio: float = Field(ge=0)
+    weights: dict[str, Annotated[int, Field(lt=10)]] = {}
+
+
+def test_the_number_guard_reports_what_has_no_upper_bound() -> None:
+    found = request_numbers(_Payload.__pydantic_core_schema__)
+
+    assert sorted(where for where, bounded in found if not bounded) == [
+        "lines.[].quantity",
+        "lines.[].sequence",
+        "ratio",
+    ]
+    assert {where for where, bounded in found if bounded} >= {"lines.[].position", "total"}
+
+
+@pytest.mark.parametrize(
+    ("query", "bounded"),
+    [
+        (Query(gt=0), False),
+        (Query(gt=0, le=Decimal("99999999999999")), True),
+        (Query(gt=0, max_digits=18, decimal_places=4), True),
+    ],
+)
+def test_the_number_guard_reads_query_parameter_bounds(query: Any, bounded: bool) -> None:
+    adapter: TypeAdapter[Any] = TypeAdapter(Annotated[Decimal, query])
+
+    assert request_numbers(adapter.core_schema, "query.quantity") == [("query.quantity", bounded)]

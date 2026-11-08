@@ -63,7 +63,8 @@ class BomLineIn(BaseModel):
     is_optional: bool = False
     #: ``line_number`` of the line this one may replace, not its id.
     substitute_for_line_number: Annotated[int | None, Field(default=None, ge=1, le=100_000)] = None
-    operation_sequence: Annotated[int | None, Field(default=None, ge=1)] = None
+    #: An operation this BOM defines, so within the operations' own range.
+    operation_sequence: Annotated[int | None, Field(default=None, ge=1, le=100_000)] = None
     notes: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")

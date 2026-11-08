@@ -12,6 +12,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.constants import MAX_INTEGER_COLUMN
 from src.modules.dealer_portal.models import AvailabilityBand, OfferScopeKind
 from src.modules.sales.models import SalesOrderLineStatus, SalesOrderStatus
 
@@ -239,7 +240,7 @@ class DealerWishlistRead(BaseModel):
 class DealerCheckoutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    cart_version: int = Field(ge=1)
+    cart_version: int = Field(ge=1, le=MAX_INTEGER_COLUMN)
     required_date: date
     shipping_address_id: uuid.UUID | None = None
     billing_address_id: uuid.UUID | None = None
