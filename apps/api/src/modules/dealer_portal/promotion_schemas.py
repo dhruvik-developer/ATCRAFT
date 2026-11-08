@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,14 +16,23 @@ from src.modules.dealer_portal.models import (
 )
 from src.modules.products.models import PriceType
 
+#: Each constrained field is defined once and used by the create *and* the edit,
+#: so an edit is refused when the request is parsed - naming its field - by
+#: exactly the rules a create is, and the contract states those rules for both.
+PromotionTitle = Annotated[str, Field(min_length=1, max_length=160)]
+PromotionText = Annotated[str, Field(max_length=2000)]
+SortOrder = Annotated[int, Field(ge=0, le=100000)]
+MinimumQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
+DiscountPercentage = Annotated[Decimal, Field(gt=0, le=100, max_digits=9, decimal_places=4)]
+
 
 class PromotionFields(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
     code: str = Field(min_length=1, max_length=32, pattern=r"^[A-Za-z0-9][A-Za-z0-9_/-]*$")
-    title: str = Field(min_length=1, max_length=160)
+    title: PromotionTitle
     audience_price_type: PriceType | None = None
-    sort_order: int = Field(default=0, ge=0, le=100000)
+    sort_order: SortOrder = 0
     valid_from: date | None = None
     valid_to: date | None = None
 
@@ -39,7 +49,7 @@ class PromotionFields(BaseModel):
 
 
 class DealerBannerCreate(PromotionFields):
-    subtitle: str | None = Field(default=None, max_length=2000)
+    subtitle: PromotionText | None = None
     image_document_id: uuid.UUID
     link_kind: DealerBannerLinkKind = DealerBannerLinkKind.NONE
     link_id: uuid.UUID | None = None
@@ -74,27 +84,27 @@ class DealerBannerRead(BaseModel):
 class DealerBannerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = None
-    subtitle: str | None = None
+    title: PromotionTitle | None = None
+    subtitle: PromotionText | None = None
     image_document_id: uuid.UUID | None = None
     link_kind: DealerBannerLinkKind | None = None
     link_id: uuid.UUID | None = None
     audience_price_type: PriceType | None = None
-    sort_order: int | None = None
+    sort_order: SortOrder | None = None
     valid_from: date | None = None
     valid_to: date | None = None
     status: DealerBannerStatus | None = None
 
 
 class DealerOfferCreate(PromotionFields):
-    description: str | None = Field(default=None, max_length=2000)
+    description: PromotionText | None = None
     scope_kind: OfferScopeKind
     category_id: uuid.UUID | None = None
     brand_id: uuid.UUID | None = None
     item_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None
-    min_quantity: Decimal = Field(default=Decimal("1"), gt=0, max_digits=18, decimal_places=4)
-    discount_percentage: Decimal = Field(gt=0, le=100, max_digits=9, decimal_places=4)
+    min_quantity: MinimumQuantity = Decimal("1")
+    discount_percentage: DiscountPercentage
     is_active: bool = False
 
     @model_validator(mode="after")
@@ -122,18 +132,18 @@ class DealerOfferRead(DealerOfferCreate):
 class DealerOfferUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str | None = None
-    description: str | None = None
+    title: PromotionTitle | None = None
+    description: PromotionText | None = None
     scope_kind: OfferScopeKind | None = None
     category_id: uuid.UUID | None = None
     brand_id: uuid.UUID | None = None
     item_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None
     audience_price_type: PriceType | None = None
-    min_quantity: Decimal | None = None
-    discount_percentage: Decimal | None = None
+    min_quantity: MinimumQuantity | None = None
+    discount_percentage: DiscountPercentage | None = None
     is_active: bool | None = None
-    sort_order: int | None = None
+    sort_order: SortOrder | None = None
     valid_from: date | None = None
     valid_to: date | None = None
 

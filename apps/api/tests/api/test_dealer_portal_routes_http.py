@@ -1710,18 +1710,25 @@ async def test_banner_payloads_and_edits_outside_the_rules_are_refused(
 
     edit = f"{url}/{banner_id}"
     refused(await api_client.patch(edit, json={"status": "ACTIVE"}), 422, "BUSINESS_RULE_VIOLATION")
-    refused(
+    # A rule across fields is checked on the merged banner, and still names a path.
+    assert "_root" in field_errors(
         await api_client.patch(
             edit,
             json={
                 "valid_from": today().isoformat(),
                 "valid_to": (today() - timedelta(days=1)).isoformat(),
             },
-        ),
-        422,
-        "VALIDATION_ERROR",
+        )
     )
     assert "code" in field_errors(await api_client.patch(edit, json={"code": "RENAMED"}))
+    # An edit is held to the create's limits when it is parsed.
+    for change, field in (
+        ({"title": "x" * 161}, "title"),
+        ({"title": None}, "title"),
+        ({"subtitle": "x" * 2001}, "subtitle"),
+        ({"sort_order": 100001}, "sort_order"),
+    ):
+        assert field in field_errors(await api_client.patch(edit, json=change)), change
     row = await session.scalar(select(DealerBanner).where(DealerBanner.id == uuid.UUID(banner_id)))
     assert row is not None
     assert (row.status, row.valid_to, row.code) == ("INACTIVE", None, base["code"])
@@ -1933,9 +1940,18 @@ async def test_offer_payloads_and_edits_outside_the_rules_are_refused(
 
     edit = f"{url}/{offer_id}"
     # ALL with the item still named is no longer a consistent scope.
-    refused(await api_client.patch(edit, json={"scope_kind": "ALL"}), 422, "VALIDATION_ERROR")
+    assert "_root" in field_errors(await api_client.patch(edit, json={"scope_kind": "ALL"}))
     refused(await api_client.patch(edit, json={"item_id": str(foreign_id)}), 404, "NOT_FOUND")
     assert "unknown" in field_errors(await api_client.patch(edit, json={"unknown": "1"}))
+    for change, field in (
+        ({"discount_percentage": "150"}, "discount_percentage"),
+        ({"discount_percentage": "0"}, "discount_percentage"),
+        ({"min_quantity": "1e25"}, "min_quantity"),
+        ({"title": "x" * 161}, "title"),
+        ({"description": "x" * 2001}, "description"),
+        ({"sort_order": -1}, "sort_order"),
+    ):
+        assert field in field_errors(await api_client.patch(edit, json=change)), change
     row = await session.scalar(select(DealerOffer).where(DealerOffer.id == uuid.UUID(offer_id)))
     assert row is not None and (row.scope_kind, row.item_id) == ("ITEM", item_id)
 

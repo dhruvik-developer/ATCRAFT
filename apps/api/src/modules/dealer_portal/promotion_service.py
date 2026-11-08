@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from pydantic import ValidationError as SchemaValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
@@ -15,6 +14,7 @@ from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
 from src.core.pagination import PageParams
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import bind_request_model
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit
 from src.modules.dealer_portal.models import DealerBanner, DealerBannerStatus, DealerOffer
@@ -140,12 +140,16 @@ class PromotionService:
             row = await self.repo.lock(model, identity)
             if row is None:
                 raise NotFoundError("Promotion", identity)
-            schema = DealerBannerCreate if resource == "banners" else DealerOfferCreate
+            schema: type[PromotionCreate] = (
+                DealerBannerCreate if resource == "banners" else DealerOfferCreate
+            )
             current = {name: getattr(row, name) for name in schema.model_fields}
-            try:
-                payload = schema.model_validate({**current, **patch.model_dump(exclude_unset=True)})
-            except SchemaValidationError as exc:
-                raise ValidationError("Check the promotion fields and validity window.") from exc
+            # The merged promotion is bound as request input, so a rule that
+            # spans fields (the validity window, a link or scope that no longer
+            # matches) is a 422 with field paths - ``_root`` - as on create.
+            payload = bind_request_model(
+                schema, {**current, **patch.model_dump(exclude_unset=True)}
+            )
             await self._validate(payload)
             previous = promotion_status(row)
             target = (

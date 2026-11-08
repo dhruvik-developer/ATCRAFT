@@ -19535,6 +19535,8 @@
           "sort_order": {
             "anyOf": [
               {
+                "maximum": 100000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -19556,6 +19558,7 @@
           "subtitle": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -19567,6 +19570,8 @@
           "title": {
             "anyOf": [
               {
+                "maxLength": 160,
+                "minLength": 1,
                 "type": "string"
               },
               {
@@ -21662,6 +21667,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -21673,10 +21679,12 @@
           "discount_percentage": {
             "anyOf": [
               {
+                "exclusiveMinimum": 0.0,
+                "maximum": 100.0,
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,5}|(?=[\\d.]{1,10}0*$)\\d{0,5}\\.\\d{0,4}0*$)",
                 "type": "string"
               },
               {
@@ -21711,10 +21719,11 @@
           "min_quantity": {
             "anyOf": [
               {
+                "exclusiveMinimum": 0.0,
                 "type": "number"
               },
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
                 "type": "string"
               },
               {
@@ -21736,6 +21745,8 @@
           "sort_order": {
             "anyOf": [
               {
+                "maximum": 100000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -21747,6 +21758,8 @@
           "title": {
             "anyOf": [
               {
+                "maxLength": 160,
+                "minLength": 1,
                 "type": "string"
               },
               {
