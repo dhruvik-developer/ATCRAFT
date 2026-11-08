@@ -1,17 +1,24 @@
 /**
  * Cross-feature building blocks: page header, status badge, stat tile,
- * confirmation dialog, description list, field error, date-range filter,
- * panel loader.
+ * confirmation and reason dialogs, description list, field error, date-range
+ * filter, panel loader.
  *
  * These exist so twenty screens present a status, a heading and a destructive
  * confirmation the same way. Divergence there is what makes an ERP feel
  * assembled by committee.
  */
 
-import { joinValidationMessages } from '@/lib/messages'
+import { describeError, errors, joinValidationMessages, prompts } from '@/lib/messages'
 
 import { AlertTriangle, ChevronRight, Loader2, type LucideIcon } from 'lucide-react'
-import { type ComponentPropsWithoutRef, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useState,
+  type ChangeEvent,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from 'react'
 import { Link } from 'react-router-dom'
 
 import { prefetchRoute } from '@/app/route-loaders'
@@ -24,7 +31,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Badge, Card, CardContent, Input, Label, Skeleton } from '@/components/ui/primitives'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Card,
+  CardContent,
+  Input,
+  Label,
+  Skeleton,
+  Textarea,
+} from '@/components/ui/primitives'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -402,6 +422,135 @@ export function ConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// --------------------------------------------------------- ReasonDialog -----
+
+/**
+ * A confirmation that records why: every audited transition, retirement and
+ * removal whose request carries a `reason`.
+ *
+ * The API bounds that reason at `REASON_MIN_LENGTH`..`REASON_MAX_LENGTH`, and
+ * the floor is held here, before the round trip. A shorter one comes back as a
+ * 422 keyed on `reason`, which the mutation cache stays quiet about on the
+ * understanding that a form shows it - and a confirmation has no form - so a
+ * blank or two-letter reason is refused in place and nothing is sent. The box
+ * always opens empty: a reason is collected from the person, never suggested,
+ * because a pre-filled sentence is what a hurried OK writes to the audit trail.
+ *
+ * Presentational on purpose: the caller owns the mutation, so the request and
+ * the permission that gates it stay visible in the feature file. A refusal the
+ * caller passes back as `error` is shown inside the dialog, beside what was
+ * typed, so it can be corrected rather than retyped.
+ */
+export function ReasonDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  confirmLabel,
+  destructive = false,
+  loading = false,
+  error,
+  errorHeadline,
+  inputId,
+  multiline = false,
+  onConfirm,
+  children,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  title: string
+  description?: ReactNode
+  confirmLabel: string
+  destructive?: boolean
+  loading?: boolean
+  /** The failed attempt, if any; the caller clears it when the dialog closes. */
+  error?: unknown
+  errorHeadline?: string
+  /** Defaults to a generated id; pass one where a page holds several boxes. */
+  inputId?: string
+  /** A two-line box for the commands whose reasons run longer. */
+  multiline?: boolean
+  /** Receives the trimmed reason, and only once it is long enough. */
+  onConfirm: (reason: string) => void
+  /** Shown above the reason box: a readiness check, a unit picker, an option. */
+  children?: ReactNode
+}) {
+  const generatedId = useId()
+  const id = inputId ?? generatedId
+  const hintId = `${id}-hint`
+  const [reason, setReason] = useState('')
+  const [touched, setTouched] = useState(false)
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
+  const complaint = touched && tooShort
+
+  // Reset on close rather than on open, so a refused attempt stays readable -
+  // and correctable - while the dialog is up. Watching `open` rather than
+  // wrapping `onOpenChange` also covers the caller closing it on success, which
+  // would otherwise greet the next opening with the last reason.
+  useEffect(() => {
+    if (!open) {
+      setReason('')
+      setTouched(false)
+    }
+  }, [open])
+
+  const field = {
+    id,
+    value: reason,
+    onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setReason(event.target.value),
+    maxLength: REASON_MAX_LENGTH,
+    autoComplete: 'off',
+    className: 'mt-1.5',
+    'aria-invalid': complaint,
+    'aria-describedby': complaint ? undefined : hintId,
+  }
+
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      confirmLabel={confirmLabel}
+      destructive={destructive}
+      loading={loading}
+      onConfirm={() => {
+        if (tooShort) {
+          setTouched(true)
+          return
+        }
+        onConfirm(reason.trim())
+      }}
+    >
+      <div className="space-y-3">
+        {children}
+        {error ? (
+          <Alert variant="destructive">
+            {errorHeadline && <AlertTitle>{errorHeadline}</AlertTitle>}
+            {/* The API's own sentence: a refused reason names the field, and a
+                refused action names what stood in the way. */}
+            <AlertDescription>{fieldErrorSummary(error) ?? describeError(error)}</AlertDescription>
+          </Alert>
+        ) : null}
+        <div>
+          <Label htmlFor={id} required>
+            Reason
+          </Label>
+          {multiline ? <Textarea rows={2} {...field} /> : <Input {...field} />}
+          {complaint ? (
+            <FieldError message={errors.reasonTooShort} />
+          ) : (
+            <p id={hintId} className="mt-1 text-xs text-muted-foreground">
+              {prompts.reasonRequired}
+            </p>
+          )}
+        </div>
+      </div>
+    </ConfirmDialog>
   )
 }
 

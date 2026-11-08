@@ -24,7 +24,7 @@ import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -53,7 +53,6 @@ import { toast } from '@/lib/toast'
 import { asId, asText } from '@/lib/utils'
 
 import { mastersKeys, type BrandRow } from './masters-model'
-import { RetireWithReasonDialog } from './masters-shared'
 
 /** `BrandCreate.sort_order` is bounded 0..9999 by the contract and a CHECK. */
 const MAX_POSITION = 9999
@@ -322,7 +321,7 @@ export function BrandRetireDialog({
   }, [open, clearResult])
 
   return (
-    <RetireWithReasonDialog
+    <ReasonDialog
       open={open}
       onOpenChange={onOpenChange}
       title={brand ? `Retire ${brand.code}?` : 'Retire brand?'}
@@ -333,8 +332,9 @@ export function BrandRetireDialog({
         </>
       }
       confirmLabel="Retire brand"
+      destructive
       inputId="brand-retire-reason"
-      pending={retire.isPending}
+      loading={retire.isPending}
       error={retire.error}
       errorHeadline="The brand was not retired"
       onConfirm={(reason) => {

@@ -8,9 +8,8 @@
  * hook beside them lives in `use-filter-writer.ts`.
  */
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 
-import { ConfirmDialog, FieldError } from '@/components/shared'
 import {
   Select,
   SelectContent,
@@ -18,16 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Badge,
-  Input,
-  Label,
-} from '@/components/ui/primitives'
-import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { describeError, messages } from '@/lib/messages'
+import { Badge } from '@/components/ui/primitives'
+import { SELECT_ALL } from '@/lib/constants'
 
 /** Active / inactive, the same three-way control on most of the tabs. */
 export function StatusFilter({
@@ -73,100 +64,5 @@ export function TabIntro({ children, actions }: { children: ReactNode; actions?:
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>
       )}
     </div>
-  )
-}
-
-/**
- * The confirmation for a retirement that must carry a reason.
- *
- * Presentational on purpose: the caller owns the mutation, so the DELETE it
- * sends - and the permission that gates it - stays visible in the feature file
- * that offers it. The API's refusal is shown verbatim: "still carried by live
- * items" names exactly what has to change, and rewording it here would lose
- * that.
- */
-export function RetireWithReasonDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  confirmLabel,
-  inputId,
-  pending,
-  error,
-  errorHeadline,
-  onConfirm,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: ReactNode
-  confirmLabel: string
-  inputId: string
-  pending: boolean
-  /** The failed attempt, if any. Cleared by the caller when the dialog closes. */
-  error: Error | null
-  errorHeadline: string
-  onConfirm: (reason: string) => void
-}) {
-  const [reason, setReason] = useState('')
-  const [touched, setTouched] = useState(false)
-  const tooShort = reason.trim().length < REASON_MIN_LENGTH
-
-  // Reset on close rather than on open, so a refused attempt stays readable -
-  // and correctable - for as long as the dialog is up.
-  useEffect(() => {
-    if (!open) {
-      setReason('')
-      setTouched(false)
-    }
-  }, [open])
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={title}
-      description={description}
-      confirmLabel={confirmLabel}
-      destructive
-      loading={pending}
-      onConfirm={() => {
-        if (tooShort) {
-          setTouched(true)
-          return
-        }
-        onConfirm(reason.trim())
-      }}
-    >
-      <div className="space-y-3">
-        {error && (
-          <Alert variant="destructive">
-            <AlertTitle>{errorHeadline}</AlertTitle>
-            <AlertDescription>{describeError(error)}</AlertDescription>
-          </Alert>
-        )}
-
-        <div>
-          <Label htmlFor={inputId} required>
-            Reason
-          </Label>
-          <Input
-            id={inputId}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            maxLength={REASON_MAX_LENGTH}
-            autoComplete="off"
-            className="mt-1.5"
-            aria-invalid={touched && tooShort}
-          />
-          {touched && tooShort ? (
-            <FieldError message={messages.errors.reasonTooShort} />
-          ) : (
-            <p className="mt-1 text-xs text-muted-foreground">{messages.prompts.reasonRequired}</p>
-          )}
-        </div>
-      </div>
-    </ConfirmDialog>
   )
 }

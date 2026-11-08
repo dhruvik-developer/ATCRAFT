@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,8 +29,6 @@ import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
-
-import { RetireWithReasonDialog } from './masters-shared'
 
 const formSchema = z
   .object({
@@ -349,7 +347,7 @@ export function SpecificationRetireDialog({
     if (!attribute) reset()
   }, [attribute, reset])
   return (
-    <RetireWithReasonDialog
+    <ReasonDialog
       open={Boolean(attribute)}
       onOpenChange={(next) => {
         if (!mutation.isPending) onOpenChange(next)
@@ -357,8 +355,9 @@ export function SpecificationRetireDialog({
       title={`Retire ${attribute?.code ?? 'specification'}?`}
       description="Remove this specification from pickers. First remove its item values and category templates; its code is retained in the audit history."
       confirmLabel="Retire specification"
+      destructive
       inputId="specification-retire-reason"
-      pending={mutation.isPending}
+      loading={mutation.isPending}
       error={mutation.error}
       errorHeadline="The specification was not retired"
       onConfirm={(reason) => {

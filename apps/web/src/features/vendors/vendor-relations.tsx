@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { ConfirmDialog, EmptyState, FieldError } from '@/components/shared'
+import { EmptyState, FieldError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -33,10 +33,9 @@ import {
 import { Badge, Checkbox, Input, Label, Skeleton, Textarea } from '@/components/ui/primitives'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { api } from '@/lib/api-client'
-import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { describeError, messages, success, validation } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -63,71 +62,6 @@ export function UnsavedVendorNotice({ what }: { what: string }) {
       title={`${what} open once the vendor is saved`}
       description={`Create the vendor first. ${what} are stored against its id, so they can be added the moment it exists.`}
     />
-  )
-}
-
-/** Reason capture for a removal the API will not accept without one. */
-function RemovalDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  confirmLabel,
-  loading,
-  onConfirm,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: string
-  confirmLabel: string
-  loading: boolean
-  onConfirm: (reason: string) => void
-}) {
-  const [reason, setReason] = useState('')
-  const [touched, setTouched] = useState(false)
-  const tooShort = reason.trim().length < REASON_MIN_LENGTH
-
-  useEffect(() => {
-    if (!open) {
-      setReason('')
-      setTouched(false)
-    }
-  }, [open])
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={title}
-      description={description}
-      confirmLabel={confirmLabel}
-      destructive
-      loading={loading}
-      onConfirm={() => {
-        if (tooShort) {
-          setTouched(true)
-          return
-        }
-        onConfirm(reason.trim())
-      }}
-    >
-      <div>
-        <Label htmlFor="vendor-removal-reason" required>
-          Reason
-        </Label>
-        <Input
-          id="vendor-removal-reason"
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          maxLength={REASON_MAX_LENGTH}
-          autoComplete="off"
-          className="mt-1.5"
-          aria-invalid={touched && tooShort}
-        />
-        {touched && tooShort && <FieldError message={messages.errors.reasonTooShort} />}
-      </div>
-    </ConfirmDialog>
   )
 }
 
@@ -485,12 +419,13 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
         </form>
       )}
 
-      <RemovalDialog
+      <ReasonDialog
         open={Boolean(pendingDelete)}
         onOpenChange={(open) => !open && setPendingDelete(null)}
         title="Remove this contact?"
         description="They stop receiving purchase order and delivery notifications for this vendor."
         confirmLabel="Remove contact"
+        destructive
         loading={remove.isPending}
         onConfirm={(reason) => pendingDelete && remove.mutate({ contact: pendingDelete, reason })}
       />
@@ -777,12 +712,13 @@ export function VendorCategoriesPanel({
         </form>
       )}
 
-      <RemovalDialog
+      <ReasonDialog
         open={Boolean(pendingDelete)}
         onOpenChange={(open) => !open && setPendingDelete(null)}
         title="Revoke this qualification?"
         description="The vendor stops being proposed for this category when a requisition needs sourcing."
         confirmLabel="Revoke qualification"
+        destructive
         loading={remove.isPending}
         onConfirm={(reason) => pendingDelete && remove.mutate({ link: pendingDelete, reason })}
       />

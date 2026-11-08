@@ -21,7 +21,7 @@ import { Link } from 'react-router-dom'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, FieldError, StatusBadge } from '@/components/shared'
+import { DescriptionList, FieldError, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -59,7 +59,7 @@ import type { QcInspectionDetail, QcInspectionRow } from '@/features/quality/qua
 import { InspectionDialog } from '@/features/quality/inspection-dialog'
 import { packingKeys, type PackingOrderDetail } from '@/features/packing/packing-types'
 
-import { AssemblyVerdictDialog, ReasonDialog } from './assembly-lifecycle'
+import { AssemblyVerdictDialog } from './assembly-lifecycle'
 
 import {
   acceptsComponentIssue,
@@ -1512,8 +1512,10 @@ export function AssemblyDetailDialog({
           }
           confirmLabel={reasonCopy[reasonFor].confirm}
           destructive={reasonCopy[reasonFor].destructive}
-          pending={lifecycle.isPending}
+          loading={lifecycle.isPending}
           error={lifecycle.error}
+          inputId="assembly-reason"
+          multiline
           onConfirm={(reason) => lifecycle.mutate({ action: reasonFor, reason })}
         >
           {reasonFor === 'release' && (

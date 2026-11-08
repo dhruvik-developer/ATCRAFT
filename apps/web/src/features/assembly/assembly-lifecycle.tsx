@@ -1,11 +1,10 @@
 /**
- * The small commands on an assembly order: one reason, one verdict.
+ * The direct verdict on an assembly order's held output.
  *
  * Approve, release, start, close and cancel each carry a mandatory audit
- * reason (`ReasonRequest.reason`, min 3 / max 255), so they share
- * `ReasonDialog`: a title, an optional explanation, and a reason box that
- * refuses to submit until the reason is long enough. The caller owns the
- * mutation; this module only collects the reason.
+ * reason (`ReasonRequest.reason`, min 3 / max 255) and confirm through the
+ * shared `ReasonDialog` in components/shared.tsx; the detail dialog owns those
+ * mutations.
  *
  * `AssemblyVerdictDialog` is the older verdict path: the inspection verdict on
  * held output for a hold NO quality inspection covers. When the order names an
@@ -17,7 +16,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
-import { ConfirmDialog, FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -34,7 +32,6 @@ import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatQuantity } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
-import type { ReactNode } from 'react'
 
 import { assemblyKeys, type AssemblyOrderDetail } from './assembly-model'
 
@@ -43,94 +40,6 @@ const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
 
 const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
-
-// ------------------------------------------------------------ reason ---------
-
-export function ReasonDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  confirmLabel,
-  destructive = false,
-  pending = false,
-  error,
-  onConfirm,
-  children,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description?: ReactNode
-  confirmLabel: string
-  destructive?: boolean
-  pending?: boolean
-  error?: { message: string } | null
-  onConfirm: (reason: string) => void
-  children?: ReactNode
-}) {
-  const [reason, setReason] = useState('')
-  const [complaint, setComplaint] = useState<string | null>(null)
-
-  const submit = () => {
-    const trimmed = reason.trim()
-    if (trimmed.length < REASON_MIN_LENGTH) {
-      setComplaint(
-        `A reason of at least ${REASON_MIN_LENGTH} characters is recorded with every hand-over`,
-      )
-      return
-    }
-    setComplaint(null)
-    onConfirm(trimmed)
-  }
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(next) => {
-        // A refused reason must not greet the next opening: the box and its
-        // complaint are cleared whenever the dialog closes.
-        if (!next) {
-          setReason('')
-          setComplaint(null)
-        }
-        onOpenChange(next)
-      }}
-      title={title}
-      description={description}
-      confirmLabel={confirmLabel}
-      destructive={destructive}
-      loading={pending}
-      onConfirm={submit}
-    >
-      <div className="px-6">
-        {children}
-        <div className="pb-1">
-          <Label htmlFor="assembly-reason" required>
-            Reason
-          </Label>
-          <Textarea
-            id="assembly-reason"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            rows={2}
-            maxLength={REASON_MAX_LENGTH}
-            autoComplete="off"
-            className="mt-1.5"
-            aria-invalid={Boolean(complaint)}
-            placeholder="Recorded on the audit trail with this change"
-          />
-          <FieldError message={complaint ?? undefined} />
-          {error && (
-            <Alert variant="destructive" className="mt-2">
-              <AlertDescription>{describeError(error)}</AlertDescription>
-            </Alert>
-          )}
-        </div>
-      </div>
-    </ConfirmDialog>
-  )
-}
 
 // ------------------------------------------------------------ verdict --------
 

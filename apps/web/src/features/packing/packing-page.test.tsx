@@ -18,6 +18,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { cursorPage, fail, ok, page, renderScreen, type RouteRequest } from '@/test/harness'
 
@@ -811,7 +812,7 @@ describe('what a transition sends', () => {
 
     // Every transition on this order is audited, and the API refuses a bodyless
     // one - so an empty reason is caught here rather than becoming a 422.
-    expect(await screen.findByText(/it needs a reason/i)).toBeVisible()
+    expect(await screen.findByText(messages.errors.reasonTooShort)).toBeVisible()
     expect(fetch.calls.some((call) => call.path.endsWith('/start'))).toBe(false)
 
     // `Reason` is bounded 3..255 on the API. A two-character reason is a
@@ -820,7 +821,7 @@ describe('what a transition sends', () => {
     // started on the bench and is still a draft in the system.
     await user.type(screen.getByLabelText(/reason/i), 'ok')
     await user.click(screen.getAllByRole('button', { name: /^start packing$/i }).at(-1)!)
-    expect(await screen.findByText(/between 3 and 255 characters/i)).toBeVisible()
+    expect(await screen.findByText(messages.errors.reasonTooShort)).toBeVisible()
     expect(fetch.calls.some((call) => call.path.endsWith('/start'))).toBe(false)
 
     await user.clear(screen.getByLabelText(/reason/i))

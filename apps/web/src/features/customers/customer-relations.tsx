@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { ConfirmDialog, EmptyState, FieldError } from '@/components/shared'
+import { EmptyState, FieldError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -35,10 +35,9 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label, Skeleton } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { describeError, messages, success, validation } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { GSTIN_PATTERN, PINCODE_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -65,86 +64,6 @@ export function UnsavedCustomerNotice({ what }: { what: string }) {
       title={`${what} open once the customer is saved`}
       description={`Create the customer first. ${what} are stored against its id, so they can be added the moment it exists.`}
     />
-  )
-}
-
-/**
- * A removal that the API records against the account.
- *
- * The reason is a required query parameter, so it is collected rather than
- * invented - an audit row reading "deleted" tells nobody anything. It is held
- * to the API's own 3..255 bound before it is sent: a shorter one comes back as
- * a 422 against `reason`, which the mutation cache stays quiet about, and this
- * is a confirmation with no form to render it.
- */
-function DeleteWithReasonDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  confirmLabel,
-  loading,
-  onConfirm,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description: string
-  confirmLabel: string
-  loading: boolean
-  onConfirm: (reason: string) => void
-}) {
-  const [reason, setReason] = useState('')
-  const [touched, setTouched] = useState(false)
-  const tooShort = reason.trim().length < REASON_MIN_LENGTH
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) {
-          setReason('')
-          setTouched(false)
-        }
-      }}
-      title={title}
-      description={description}
-      confirmLabel={confirmLabel}
-      destructive
-      loading={loading}
-      onConfirm={() => {
-        if (tooShort) {
-          setTouched(true)
-          return
-        }
-        onConfirm(reason.trim())
-      }}
-    >
-      <div>
-        <Label htmlFor="relation-delete-reason" required>
-          Reason
-        </Label>
-        <Input
-          id="relation-delete-reason"
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          maxLength={REASON_MAX_LENGTH}
-          autoComplete="off"
-          className="mt-1.5"
-          aria-invalid={touched && tooShort}
-        />
-        {touched && tooShort && (
-          <FieldError
-            message={
-              reason.trim() === ''
-                ? 'The API records this removal - it needs a reason'
-                : messages.errors.reasonTooShort
-            }
-          />
-        )}
-      </div>
-    </ConfirmDialog>
   )
 }
 
@@ -685,12 +604,13 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
         </form>
       )}
 
-      <DeleteWithReasonDialog
+      <ReasonDialog
         open={Boolean(pendingDelete)}
         onOpenChange={(open) => !open && setPendingDelete(null)}
         title="Remove this address?"
         description="Documents already issued keep the address printed on them. New orders will no longer offer it."
         confirmLabel="Remove address"
+        destructive
         loading={remove.isPending}
         onConfirm={(reason) => pendingDelete && remove.mutate({ address: pendingDelete, reason })}
       />
@@ -1004,12 +924,13 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
         </form>
       )}
 
-      <DeleteWithReasonDialog
+      <ReasonDialog
         open={Boolean(pendingDelete)}
         onOpenChange={(open) => !open && setPendingDelete(null)}
         title="Remove this contact?"
         description="They will stop receiving order and dispatch notifications for this customer."
         confirmLabel="Remove contact"
+        destructive
         loading={remove.isPending}
         onConfirm={(reason) => pendingDelete && remove.mutate({ contact: pendingDelete, reason })}
       />

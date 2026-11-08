@@ -19,7 +19,7 @@ import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -39,7 +39,6 @@ import { toast } from '@/lib/toast'
 import { asText } from '@/lib/utils'
 
 import { mastersKeys, type ManufacturerRow } from './masters-model'
-import { RetireWithReasonDialog } from './masters-shared'
 
 /** The server's own default for a maker nobody placed (`ManufacturerCreate.country`). */
 const DEFAULT_COUNTRY = 'India'
@@ -309,7 +308,7 @@ export function ManufacturerRetireDialog({
   }, [open, clearResult])
 
   return (
-    <RetireWithReasonDialog
+    <ReasonDialog
       open={open}
       onOpenChange={onOpenChange}
       title={manufacturer ? `Retire ${manufacturer.code}?` : 'Retire manufacturer?'}
@@ -321,8 +320,9 @@ export function ManufacturerRetireDialog({
         </>
       }
       confirmLabel="Retire manufacturer"
+      destructive
       inputId="manufacturer-retire-reason"
-      pending={retire.isPending}
+      loading={retire.isPending}
       error={retire.error}
       errorHeadline="The manufacturer was not retired"
       onConfirm={(reason) => {

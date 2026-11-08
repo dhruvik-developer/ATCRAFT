@@ -6,7 +6,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { FieldError } from '@/components/shared'
+import { FieldError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -21,7 +21,6 @@ import { Badge, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { QUANTITY_PATTERN } from '@/features/masters/masters-model'
-import { RetireWithReasonDialog } from '@/features/masters/masters-shared'
 import { invalidateProductDescriptions } from '@/features/product-descriptions/specification-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
@@ -375,7 +374,7 @@ export function ItemAccessoriesPanel({ itemId }: { itemId: string }) {
             accessory={editing}
             onOpenChange={setFormOpen}
           />
-          <RetireWithReasonDialog
+          <ReasonDialog
             open={Boolean(removing)}
             onOpenChange={(open) => {
               if (!remove.isPending && !open) setRemoving(null)
@@ -383,8 +382,9 @@ export function ItemAccessoriesPanel({ itemId }: { itemId: string }) {
             title={`Remove ${removing?.accessory_name ?? 'accessory'}?`}
             description="Remove this link from the product. The accessory item and its stock are kept."
             confirmLabel="Remove accessory"
+            destructive
             inputId="accessory-remove-reason"
-            pending={remove.isPending}
+            loading={remove.isPending}
             error={remove.error}
             errorHeadline="The accessory was not removed"
             onConfirm={(reason) => {

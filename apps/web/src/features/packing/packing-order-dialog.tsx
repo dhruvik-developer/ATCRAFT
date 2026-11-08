@@ -43,13 +43,13 @@ import {
   Truck,
   Weight,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
-  ConfirmDialog,
   DescriptionList,
   EmptyState,
   FieldError,
+  ReasonDialog,
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -83,12 +83,7 @@ import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import {
-  LOOKUP_LIST_LIMIT,
-  REASON_MAX_LENGTH,
-  REASON_MIN_LENGTH,
-  SEARCH_DEBOUNCE_MS,
-} from '@/lib/constants'
+import { LOOKUP_LIST_LIMIT, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
 import {
   formatDate,
   formatDateTime,
@@ -152,94 +147,6 @@ function toContentInput(contents: CartonContent[], lines: PackingOrderLine[]): C
       serial_ids: content.serial_ids,
       net_weight_kg: content.net_weight_kg,
     }))
-}
-
-// ------------------------------------------------------- a recorded reason ---
-
-/** Every packing transition is audited, so none of them is a bare confirm. */
-function ReasonDialog({
-  open,
-  onOpenChange,
-  title,
-  description,
-  confirmLabel,
-  destructive = false,
-  loading,
-  onConfirm,
-  children,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  description?: string
-  confirmLabel: string
-  destructive?: boolean
-  loading: boolean
-  onConfirm: (reason: string) => void
-  children?: ReactNode
-}) {
-  const [reason, setReason] = useState('')
-  const [touched, setTouched] = useState(false)
-
-  // `Reason` is bounded 3..255. A 422 keyed on it is one the mutation cache
-  // stays quiet about, on the assumption the form shows it - so both the
-  // missing case and the out-of-band case are caught before the request.
-  const trimmed = reason.trim()
-  const missing = trimmed === ''
-  const outOfBounds =
-    !missing && (trimmed.length < REASON_MIN_LENGTH || trimmed.length > REASON_MAX_LENGTH)
-  const invalid = missing || outOfBounds
-
-  return (
-    <ConfirmDialog
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange(next)
-        if (!next) {
-          setReason('')
-          setTouched(false)
-        }
-      }}
-      title={title}
-      description={description}
-      confirmLabel={confirmLabel}
-      destructive={destructive}
-      loading={loading}
-      onConfirm={() => {
-        if (invalid) {
-          setTouched(true)
-          return
-        }
-        onConfirm(trimmed)
-      }}
-    >
-      <div className="space-y-3">
-        {children}
-        <div>
-          <Label htmlFor="packing-reason" required>
-            Reason
-          </Label>
-          <Input
-            id="packing-reason"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            autoComplete="off"
-            maxLength={REASON_MAX_LENGTH}
-            className="mt-1.5"
-            aria-invalid={touched && invalid}
-          />
-          {touched && missing && (
-            <FieldError message="The API records this against the order - it needs a reason" />
-          )}
-          {touched && outOfBounds && (
-            <FieldError
-              message={`The audit reason must be between ${REASON_MIN_LENGTH} and ${REASON_MAX_LENGTH} characters`}
-            />
-          )}
-        </div>
-      </div>
-    </ConfirmDialog>
-  )
 }
 
 // ------------------------------------------------------------ add carton ----

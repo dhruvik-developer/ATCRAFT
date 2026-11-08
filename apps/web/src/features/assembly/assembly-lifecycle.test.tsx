@@ -18,6 +18,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
@@ -205,7 +206,7 @@ describe('assembly lifecycle commands', () => {
     })
 
     await user.click(screen.getByRole('button', { name: 'Approve order' }))
-    expect(await screen.findByText(/at least 3 characters/)).toBeVisible()
+    expect(await screen.findByText(messages.errors.reasonTooShort)).toBeVisible()
     expect(fetch.calls.some((call) => call.path.endsWith('/approve'))).toBe(false)
   })
 
