@@ -4526,3 +4526,34 @@ SKU without rewriting the input ledger.
 
 **Impact if wrong.** A many-to-one or mixed-tracking process needs an explicit
 lineage policy and new conversion grain before the gate can open.
+
+## §INPUT-1. Free text and user preferences have a size limit
+
+**Assumed.** A free-text request field is bounded even where its column is
+`TEXT`: 4000 characters for the notes of a master record or a document header
+(customers and their addresses and contacts, vendors and their contacts and
+category links, transporters, warehouses and storage locations, manufacturers,
+price-list rows, financial years, stock batches and serials, and the stock
+transfer, adjustment, physical-count, bin-move, scrap-disposal and
+internal-issue headers), 2000 for a document line's notes, and 2000 for a
+category, brand or item description. A user's `preferences` JSON is at most
+16 KiB, and a courier account's API password at most 256 characters. A longer
+value is refused with a field error.
+
+**Why.** No limit was specified, and without one a single request could store
+megabytes in a column that every list and detail read then returns, past the
+422 field-error contract. The widths are the ones procurement, sales and the
+BOM already use for the same kinds of text (`notes` 4000 on a header, 2000 on a
+line; descriptions 2000), and nothing in the ERP writes more than a few
+settings into `preferences`.
+
+**Where.** `src/core/constants.py` - `MAX_NOTES_LENGTH`,
+`MAX_LINE_NOTES_LENGTH`, `MAX_DESCRIPTION_LENGTH`; the `Notes`, `LineNotes`
+and `Description` aliases in the customers, inventory, organization, products,
+vendors and warehouses schemas; `src/modules/users/schemas.py` -
+`MAX_PREFERENCES_BYTES`; `src/modules/courier_tracking/schemas.py` -
+`MAX_COURIER_PASSWORD_LENGTH`.
+
+**Impact if wrong.** Raise the constant. The columns are `TEXT` and `JSONB`, so
+no migration is needed; a form that states its own limit should be raised with
+it.

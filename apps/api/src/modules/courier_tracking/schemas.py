@@ -13,12 +13,17 @@ from src.modules.courier_tracking.models import CourierProvider, CourierStatus
 Code = Annotated[str, Field(min_length=1, max_length=32, pattern=r"^\S(?:.*\S)?$")]
 DisplayName = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^\S(?:.*\S)?$")]
 
+# ASSUMPTION: a courier account's API password is at most 256 characters - past
+# any provider's own limit, short of letting one request store an arbitrary
+# blob in the encrypted credentials column. docs/assumptions.md §INPUT-1.
+MAX_COURIER_PASSWORD_LENGTH = 256
+
 
 class ShiprocketCredentials(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: Annotated[str, Field(min_length=3, max_length=254)]
-    password: SecretStr
+    password: Annotated[SecretStr, Field(max_length=MAX_COURIER_PASSWORD_LENGTH)]
 
 
 class CourierAccountCreate(BaseModel):

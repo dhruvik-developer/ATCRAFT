@@ -472,6 +472,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -868,6 +869,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -10212,6 +10214,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -12690,6 +12693,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -12814,6 +12818,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -13659,6 +13664,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -13880,6 +13886,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -15663,6 +15670,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -15839,6 +15847,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -18221,6 +18230,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -18714,6 +18724,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -26652,6 +26663,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -26781,6 +26793,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -31097,6 +31110,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -31160,6 +31174,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -32636,6 +32651,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -34811,6 +34827,7 @@
           "description": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -37793,6 +37810,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -37959,6 +37977,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -48099,6 +48118,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -48150,6 +48170,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -48893,6 +48914,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -49087,6 +49109,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -66907,6 +66930,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -68570,6 +68594,7 @@
           },
           "password": {
             "format": "password",
+            "maxLength": 256,
             "title": "Password",
             "type": "string",
             "writeOnly": true
@@ -69020,6 +69045,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -69086,6 +69112,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -69497,6 +69524,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -69700,6 +69728,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -69959,6 +69988,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -70095,6 +70125,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -70397,6 +70428,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -70488,6 +70520,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -70919,6 +70952,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -71042,6 +71076,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -71336,6 +71371,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -72860,6 +72896,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -73341,6 +73378,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -75101,6 +75139,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -75204,6 +75243,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -75326,6 +75366,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -75554,6 +75595,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -75817,6 +75859,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -81390,6 +81433,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -81614,6 +81658,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -82289,6 +82334,7 @@
           "notes": {
             "anyOf": [
               {
+                "maxLength": 4000,
                 "type": "string"
               },
               {

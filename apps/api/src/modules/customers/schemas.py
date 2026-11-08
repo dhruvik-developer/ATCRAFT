@@ -31,7 +31,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
+from src.core.constants import MAX_NOTES_LENGTH
 from src.modules.customers.models import AddressType, CustomerType, PriceType
+
+#: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
+Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 
 MoneyField = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 #: Signed money, for a finance adjustment that may reduce the balance.
@@ -88,7 +92,7 @@ class CustomerCreate(_Base):
     default_transporter_id: uuid.UUID | None = None
 
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
     _name = field_validator("name")(clean_name)
@@ -122,7 +126,7 @@ class CustomerUpdate(BaseModel):
     credit_days: Annotated[int, Field(ge=0, le=365)] | None = None
     assigned_sales_user_id: uuid.UUID | None = None
     default_transporter_id: uuid.UUID | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     #: ``credit_limit=None`` is ambiguous - "no change" or "make it unlimited"?
     #: This flag disambiguates without a sentinel amount, which is the same
@@ -293,7 +297,7 @@ class AddressCreate(_Base):
     email: EmailStr | None = None
     is_default: bool = False
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _gstin = field_validator("gstin")(validate_optional_gstin)
     _state_code = field_validator("state_code")(_validate_state_code)
@@ -327,7 +331,7 @@ class AddressUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     email: EmailStr | None = None
     is_active: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     _gstin = field_validator("gstin")(validate_optional_gstin)
     _state_code = field_validator("state_code")(_validate_state_code)
@@ -369,7 +373,7 @@ class ContactCreate(_Base):
     phone: str | None = Field(default=None, max_length=32)
     is_primary: bool = False
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _name = field_validator("name")(clean_name)
     _strip = field_validator("designation", "phone")(strip_optional)
@@ -390,7 +394,7 @@ class ContactUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=32)
     is_active: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     _name = field_validator("name")(clean_name)
 

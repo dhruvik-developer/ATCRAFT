@@ -26,6 +26,7 @@ Conventions applied throughout, each for a reason:
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import datetime
@@ -57,6 +58,11 @@ MAX_DIRECT_PERMISSIONS = 100
 #: Vendor-category and warehouse scope lists. Same reasoning as above.
 MAX_SCOPE_IDS = 200
 
+# ASSUMPTION: a user's preferences blob is at most 16 KiB of JSON. It is stored
+# as JSONB and returned by every read of the user, and nothing in the ERP writes
+# more than a few settings into it. docs/assumptions.md §INPUT-1.
+MAX_PREFERENCES_BYTES = 16 * 1024
+
 _VALID_PERMISSIONS: frozenset[str] = frozenset(str(p) for p in Permission)
 
 Name = Annotated[str, Field(min_length=1, max_length=255)]
@@ -64,6 +70,16 @@ Name = Annotated[str, Field(min_length=1, max_length=255)]
 #: characters through to a column that refuses them - a database error, a 500.
 RoleName = Annotated[str, Field(min_length=1, max_length=120)]
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
+
+
+def _bounded_preferences(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Refuse a preferences blob whose JSON is larger than ``MAX_PREFERENCES_BYTES``."""
+    if value is None:
+        return None
+    encoded = json.dumps(value, separators=(",", ":"), ensure_ascii=False, default=str)
+    if len(encoded.encode("utf-8")) > MAX_PREFERENCES_BYTES:
+        raise ValueError(f"Preferences must be at most {MAX_PREFERENCES_BYTES} bytes of JSON.")
+    return value
 
 
 def _normalise_email(value: str | None) -> str:
@@ -186,6 +202,7 @@ class UserCreate(_Base):
     _optional = field_validator("phone", "employee_code")(strip_optional)
     _permissions = field_validator("extra_permissions", "denied_permissions")(_validate_permissions)
     _ids = field_validator("role_ids", "allowed_category_ids", "allowed_warehouse_ids")(_unique_ids)
+    _preferences = field_validator("preferences")(_bounded_preferences)
 
 
 class UserUpdate(BaseModel):
@@ -247,6 +264,7 @@ class UserUpdate(BaseModel):
     _email = field_validator("email")(_normalise_email)
     _name = field_validator("full_name")(clean_name)
     _optional = field_validator("phone", "employee_code")(strip_optional)
+    _preferences = field_validator("preferences")(_bounded_preferences)
 
     @field_validator("extra_permissions", "denied_permissions")
     @classmethod

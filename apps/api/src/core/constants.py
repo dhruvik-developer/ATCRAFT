@@ -31,6 +31,15 @@ CURRENCY_CODE_LENGTH = 3
 #: workers carry. Keep input validation aligned with ``audit_logs.request_id``.
 MAX_REQUEST_ID_LENGTH = 64
 
+# ASSUMPTION: free text is bounded at the widths procurement and sales already
+# use - 4000 characters for a record's or a document header's notes, 2000 for a
+# document line's notes and for a description - so one request cannot store
+# megabytes in a TEXT column that every list and detail read then returns.
+# docs/assumptions.md §INPUT-1.
+MAX_NOTES_LENGTH = 4000
+MAX_LINE_NOTES_LENGTH = 2000
+MAX_DESCRIPTION_LENGTH = 2000
+
 #: The largest value a PostgreSQL ``INTEGER`` column holds. A request integer
 #: stored in one is bounded by it, so a larger value is a 422 naming the field
 #: instead of an encoding error from the driver - a 500 that names nothing. It
@@ -49,8 +58,11 @@ __all__ = [
     "CURRENCY_CODE_LENGTH",
     "DEFAULT_CURRENCY",
     "MAX_DEMAND_PROVENANCE_REFS",
+    "MAX_DESCRIPTION_LENGTH",
     "MAX_INTEGER_COLUMN",
     "MAX_ITEM_ACCESSORIES",
+    "MAX_LINE_NOTES_LENGTH",
+    "MAX_NOTES_LENGTH",
     "MAX_REQUEST_ID_LENGTH",
     "MAX_SERIAL_BULK",
     "MAX_SPECIFICATIONS_PER_ITEM",

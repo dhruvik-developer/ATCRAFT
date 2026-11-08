@@ -21,7 +21,11 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import strip_optional, validate_code
+from src.core.constants import MAX_NOTES_LENGTH
 from src.modules.warehouses.models import StorageLocationType, WarehouseType
+
+#: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
+Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 
 Code = Annotated[str, Field(min_length=1, max_length=32)]
 Name = Annotated[str, Field(min_length=1, max_length=255)]
@@ -74,7 +78,7 @@ class WarehouseCreate(WarehouseAddress):
             "where receipts are legitimately posted after issues, such as line-side WIP."
         ),
     )
-    notes: str | None = None
+    notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
 
@@ -105,7 +109,7 @@ class WarehouseUpdate(BaseModel):
     parent_warehouse_id: uuid.UUID | None = None
     manager_user_id: uuid.UUID | None = None
     allow_negative_stock: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     address_line1: str | None = Field(default=None, max_length=255)
     address_line2: str | None = Field(default=None, max_length=255)
@@ -208,7 +212,7 @@ class StorageLocationCreate(BaseModel):
     max_weight_kg: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     max_volume_m3: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     barcode: str | None = Field(default=None, max_length=64)
-    notes: str | None = None
+    notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
     _strip = field_validator("capacity_uom", "barcode")(strip_optional)
@@ -235,7 +239,7 @@ class StorageLocationUpdate(BaseModel):
     max_weight_kg: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     max_volume_m3: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     barcode: str | None = Field(default=None, max_length=64)
-    notes: str | None = None
+    notes: Notes | None = None
 
     _strip = field_validator("capacity_uom", "barcode")(strip_optional)
 

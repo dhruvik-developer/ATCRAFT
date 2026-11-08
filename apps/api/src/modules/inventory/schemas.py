@@ -36,7 +36,7 @@ from pydantic import (
 )
 
 from src.common.codes import clean_text
-from src.core.constants import MAX_SERIAL_BULK
+from src.core.constants import MAX_LINE_NOTES_LENGTH, MAX_NOTES_LENGTH, MAX_SERIAL_BULK
 from src.modules.inventory.models import (
     MAX_SERIALS_PER_BIN_MOVE_LINE,
     MAX_SERIALS_PER_COUNT_REQUEST,
@@ -56,6 +56,11 @@ from src.modules.inventory.models import (
     TransferSourceType,
     TransferStatus,
 )
+
+#: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
+Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
+#: A document line's free-text notes (docs/assumptions.md §INPUT-1).
+LineNotes = Annotated[str, Field(max_length=MAX_LINE_NOTES_LENGTH)]
 
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 PositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
@@ -303,7 +308,7 @@ class StockBatchCreate(BaseModel):
     received_on: date | None = None
     initial_quantity: NonNegativeQuantity = Decimal("0")
     unit_cost: UnitCost = Decimal("0")
-    notes: str | None = None
+    notes: Notes | None = None
 
     @field_validator("batch_number")
     @classmethod
@@ -366,7 +371,7 @@ class StockSerialCreate(BaseModel):
     location_id: uuid.UUID | None = None
     received_on: date | None = None
     unit_cost: UnitCost = Decimal("0")
-    notes: str | None = None
+    notes: Notes | None = None
 
     @field_validator("serial_number")
     @classmethod
@@ -414,7 +419,7 @@ class StockSerialBulkCreate(BaseModel):
     location_id: uuid.UUID | None = None
     received_on: date | None = None
     unit_cost: UnitCost = Decimal("0")
-    notes: str | None = None
+    notes: Notes | None = None
 
     @field_validator("serial_numbers")
     @classmethod
@@ -477,7 +482,7 @@ class StockTransferLineCreate(BaseModel):
     #: the transfer was raised from a short order; the header's source pair
     #: names the order itself.
     source_line_id: uuid.UUID | None = None
-    notes: str | None = None
+    notes: LineNotes | None = None
 
     @field_validator("serial_numbers")
     @classmethod
@@ -507,7 +512,7 @@ class StockTransferCreate(BaseModel):
     #: the order screen's "Raise transfer" sends SALES_ORDER and the order id.
     source_type: TransferSourceType = TransferSourceType.MANUAL
     source_id: uuid.UUID | None = None
-    notes: str | None = None
+    notes: Notes | None = None
     lines: Annotated[list[StockTransferLineCreate], Field(min_length=1)]
 
     @model_validator(mode="after")
@@ -543,7 +548,7 @@ class StockTransferUpdate(BaseModel):
 
     reason: Reason | None = None
     expected_date: date | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
 
 class StockTransferLineRead(BaseModel):
@@ -622,7 +627,7 @@ class StockAdjustmentLineCreate(BaseModel):
     #: at what the position's FIFO cost layers cost so the balance cannot be drained
     #: of value by quoting a low price.
     unit_cost: UnitCost | None = None
-    notes: str | None = None
+    notes: LineNotes | None = None
 
     @field_validator("quantity")
     @classmethod
@@ -654,7 +659,7 @@ class StockAdjustmentCreate(BaseModel):
     reason_code: AdjustmentReason
     reason: Reason
     adjustment_date: date | None = None
-    notes: str | None = None
+    notes: Notes | None = None
     #: Who bears the write-off or the write-up. Optional; NULL is "unallocated".
     cost_centre_id: uuid.UUID | None = None
     lines: Annotated[list[StockAdjustmentLineCreate], Field(min_length=1)]
@@ -785,7 +790,7 @@ class PhysicalCountCreate(BaseModel):
     #: Include positions that are currently zero. Off by default: a full-zero
     #: sheet for a large warehouse is thousands of lines nobody counts.
     include_zero_positions: bool = False
-    notes: str | None = None
+    notes: Notes | None = None
 
 
 class PhysicalCountEntry(BaseModel):
@@ -800,7 +805,7 @@ class PhysicalCountEntry(BaseModel):
     def _serial_labels(cls, value: list[str] | None) -> list[str] | None:
         return None if value is None else _normalise_serial_labels(value)
 
-    notes: str | None = None
+    notes: LineNotes | None = None
 
 
 class PhysicalCountEntryRequest(BaseModel):
@@ -935,7 +940,7 @@ class BinMoveCreate(BaseModel):
     warehouse_id: uuid.UUID
     reason: Reason
     move_date: date | None = None
-    notes: str | None = None
+    notes: Notes | None = None
     lines: Annotated[list[BinMoveLineCreate], Field(min_length=1)]
 
     @model_validator(mode="after")
@@ -1030,7 +1035,7 @@ class ScrapDisposalCreate(BaseModel):
     disposal_date: date | None = None
     buyer_reference: str | None = Field(default=None, max_length=255)
     realised_amount: NonNegativeMoney = Decimal("0")
-    notes: str | None = None
+    notes: Notes | None = None
     lines: Annotated[list[ScrapDisposalLineCreate], Field(min_length=1)]
 
     _clean_reference = field_validator("buyer_reference")(clean_text)
@@ -1118,7 +1123,7 @@ class InternalIssueLineCreate(BaseModel):
     serial_ids: list[uuid.UUID] = Field(
         default_factory=list, max_length=MAX_SERIALS_PER_INTERNAL_ISSUE_LINE
     )
-    notes: str | None = None
+    notes: LineNotes | None = None
 
     @model_validator(mode="after")
     def _serials_are_whole_units(self) -> InternalIssueLineCreate:
@@ -1139,7 +1144,7 @@ class InternalIssueCreate(BaseModel):
     issue_date: date | None = None
     department_id: uuid.UUID | None = None
     cost_centre_id: uuid.UUID | None = None
-    notes: str | None = None
+    notes: Notes | None = None
     lines: Annotated[list[InternalIssueLineCreate], Field(min_length=1)]
 
     @model_validator(mode="after")

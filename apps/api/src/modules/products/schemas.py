@@ -24,7 +24,13 @@ from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.common.codes import normalise_code, strip_optional
-from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
+from src.core.constants import (
+    CURRENCY_CODE_LENGTH,
+    DEFAULT_CURRENCY,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_INTEGER_COLUMN,
+    MAX_NOTES_LENGTH,
+)
 from src.core.pagination import bind_query_filters
 from src.modules.products.models import (
     DEFAULT_MANUFACTURER_COUNTRY,
@@ -37,6 +43,11 @@ from src.modules.products.models import (
     UomCategory,
 )
 from src.modules.products.specification_schemas import SpecificationFilterFields
+
+#: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
+Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
+#: A master's free-text description (docs/assumptions.md §INPUT-1).
+Description = Annotated[str, Field(max_length=MAX_DESCRIPTION_LENGTH)]
 
 # Numeric guards mirroring the column definitions, so a value that would violate
 # a check constraint is rejected at the edge with a field-level message rather
@@ -79,7 +90,7 @@ def _not_cleared(value: object) -> object:
 class CategoryCreate(_Base):
     code: Annotated[str, Field(min_length=1, max_length=32)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
-    description: str | None = None
+    description: Description | None = None
     parent_id: uuid.UUID | None = None
     is_active: bool = True
 
@@ -91,7 +102,7 @@ class CategoryCreate(_Base):
 
 class CategoryUpdate(_Base):
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
-    description: str | None = None
+    description: Description | None = None
     parent_id: uuid.UUID | None = None
     is_active: bool | None = None
     #: ``parent_id=None`` is ambiguous - "no change" or "make it a root"? This
@@ -206,7 +217,7 @@ class ManufacturerCreate(_Base):
     legal_name: Annotated[str, Field(max_length=255)] | None = None
     country: Annotated[str, Field(min_length=1, max_length=80)] = DEFAULT_MANUFACTURER_COUNTRY
     website: Annotated[str, Field(max_length=255)] | None = None
-    notes: str | None = None
+    notes: Notes | None = None
     is_active: bool = True
 
     @field_validator("code")
@@ -229,7 +240,7 @@ class ManufacturerUpdate(_Base):
     legal_name: Annotated[str, Field(max_length=255)] | None = None
     country: Annotated[str, Field(min_length=1, max_length=80)] | None = None
     website: Annotated[str, Field(max_length=255)] | None = None
-    notes: str | None = None
+    notes: Notes | None = None
     is_active: bool | None = None
 
     _required = field_validator("name", "country", "is_active")(_not_cleared)
@@ -256,7 +267,7 @@ class ManufacturerOut(_Base):
 class BrandCreate(_Base):
     code: Annotated[str, Field(min_length=1, max_length=32)]
     name: Annotated[str, Field(min_length=1, max_length=120)]
-    description: str | None = None
+    description: Description | None = None
     #: The brand owner, if the company records one.
     manufacturer_id: uuid.UUID | None = None
     sort_order: BrandSortOrder = 0
@@ -279,7 +290,7 @@ class BrandUpdate(_Base):
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True, extra="forbid")
 
     name: Annotated[str, Field(min_length=1, max_length=120)] | None = None
-    description: str | None = None
+    description: Description | None = None
     manufacturer_id: uuid.UUID | None = None
     sort_order: BrandSortOrder | None = None
     is_active: bool | None = None
@@ -360,7 +371,7 @@ class CapabilityFlags(_Base):
 class ItemCreate(CapabilityFlags):
     code: Annotated[str, Field(min_length=1, max_length=64)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
-    description: str | None = None
+    description: Description | None = None
 
     item_group: ItemGroup
     category_id: uuid.UUID | None = None
@@ -417,7 +428,7 @@ class ItemUpdate(CapabilityFlags):
     """Every field optional; only what is present is written."""
 
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
-    description: str | None = None
+    description: Description | None = None
     item_group: ItemGroup | None = None
     category_id: uuid.UUID | None = None
 
@@ -755,7 +766,7 @@ class PriceCreate(_Base):
     min_quantity: QuantityField = Decimal("0")
     valid_from: date
     valid_to: date | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     @model_validator(mode="after")
     def _window_ordered(self) -> PriceCreate:
@@ -770,7 +781,7 @@ class PriceUpdate(_Base):
     valid_from: date | None = None
     valid_to: date | None = None
     is_active: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
 
 class PriceOut(_Base):

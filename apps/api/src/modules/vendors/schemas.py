@@ -35,7 +35,7 @@ from src.common.tax_ids import (
     validate_gstin,
     validate_pan,
 )
-from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY, MAX_NOTES_LENGTH
 from src.modules.vendors.models import (
     DEFAULT_RATING_WINDOW_DAYS,
     MAX_RATING_WINDOW_DAYS,
@@ -45,6 +45,9 @@ from src.modules.vendors.models import (
     VendorContactRole,
     VendorType,
 )
+
+#: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
+Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 
 # ``IFSC_PATTERN`` lives in :mod:`src.common.banking`, shared with the company's
 # own bank details, and stays importable from here.
@@ -223,7 +226,7 @@ class VendorCreate(_StatutoryConsistency):
     website: str | None = Field(default=None, max_length=255)
 
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
     _name = field_validator("name")(clean_name)
@@ -298,7 +301,7 @@ class VendorUpdate(_StatutoryConsistency):
     mobile: str | None = Field(default=None, max_length=32)
     website: str | None = Field(default=None, max_length=255)
 
-    notes: str | None = None
+    notes: Notes | None = None
 
     _name = field_validator("name")(_clean_optional_name)
     _legal_name = field_validator("legal_name")(_clean_optional_name)
@@ -430,7 +433,7 @@ class VendorContactCreate(BaseModel):
     mobile: str | None = Field(default=None, max_length=32)
     is_primary: bool = False
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _name = field_validator("name")(clean_name)
     _strip = field_validator("designation", "phone", "mobile")(strip_optional)
@@ -461,7 +464,7 @@ class VendorContactUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     mobile: str | None = Field(default=None, max_length=32)
     is_active: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     _name = field_validator("name")(_clean_optional_name)
     _strip = field_validator("designation", "phone", "mobile")(strip_optional)
@@ -495,14 +498,14 @@ class VendorCategoryAssign(BaseModel):
 
     item_category_id: uuid.UUID
     is_preferred: bool = False
-    notes: str | None = None
+    notes: Notes | None = None
 
 
 class VendorCategoryUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_preferred: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
 
 class VendorCategoryRead(BaseModel):
@@ -590,7 +593,7 @@ class TransporterCreate(BaseModel):
         description=f"HTTPS URL containing the literal {TRACKING_PLACEHOLDER} placeholder",
     )
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
     _name = field_validator("name")(clean_name)
@@ -640,7 +643,7 @@ class TransporterUpdate(BaseModel):
     country: str | None = Field(default=None, max_length=80)
 
     tracking_url_template: str | None = Field(default=None, max_length=500)
-    notes: str | None = None
+    notes: Notes | None = None
 
     _name = field_validator("name")(_clean_optional_name)
     _gstin = field_validator("gstin")(_optional_gstin)

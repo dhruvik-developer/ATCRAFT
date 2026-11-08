@@ -34,7 +34,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from src.common.banking import validate_optional_ifsc
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
+from src.core.constants import MAX_NOTES_LENGTH
 from src.modules.organization.models import CostCentreType
+
+#: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
+Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 
 # ASSUMPTION: the IANA timezone name is validated semantically only when a tz
 # database is actually present. A container built without `tzdata` would
@@ -517,7 +521,7 @@ class FinancialYearCreate(BaseModel):
     start_date: date
     end_date: date
     is_active: bool = True
-    notes: str | None = None
+    notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
     _notes = field_validator("notes")(strip_optional)
@@ -536,7 +540,7 @@ class FinancialYearUpdate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     is_active: bool | None = None
-    notes: str | None = None
+    notes: Notes | None = None
 
     _start_date = field_validator("start_date")(_reject_null("start_date"))
     _end_date = field_validator("end_date")(_reject_null("end_date"))
