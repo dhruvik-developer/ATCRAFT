@@ -4,7 +4,8 @@
  * The interesting assertions are not "clicking dark makes it dark" but the two
  * that keep it honest: that `System` is reachable *after* pinning a theme (the
  * old control had no way back), and that the group reads as one choice of three
- * to a screen reader rather than as three unrelated buttons.
+ * to a screen reader rather than as three unrelated buttons - and behaves as one
+ * from the keyboard: a single Tab stop, with the arrow keys to choose.
  */
 
 import { render, screen, within } from '@testing-library/react'
@@ -64,9 +65,9 @@ describe('what it offers', () => {
 
     // Nothing stored, so System is current - not Light, which merely happens to
     // be what the system currently resolves to.
-    expect(option('System')).toHaveAttribute('aria-checked', 'true')
-    expect(option('Light')).toHaveAttribute('aria-checked', 'false')
-    expect(option('Dark')).toHaveAttribute('aria-checked', 'false')
+    expect(option('System')).toBeChecked()
+    expect(option('Light')).not.toBeChecked()
+    expect(option('Dark')).not.toBeChecked()
   })
 
   it('names each option even without visible labels, because the header is tight', () => {
@@ -91,7 +92,7 @@ describe('choosing', () => {
 
     await user.click(option('Dark'))
 
-    expect(option('Dark')).toHaveAttribute('aria-checked', 'true')
+    expect(option('Dark')).toBeChecked()
     expect(isDark()).toBe(true)
     expect(localStorage.getItem(STORAGE_KEYS.theme)).toBe('dark')
   })
@@ -108,7 +109,7 @@ describe('choosing', () => {
 
     await user.click(option('System'))
 
-    expect(option('System')).toHaveAttribute('aria-checked', 'true')
+    expect(option('System')).toBeChecked()
     expect(localStorage.getItem(STORAGE_KEYS.theme)).toBeNull()
     expect(isDark()).toBe(false)
   })
@@ -125,5 +126,67 @@ describe('choosing', () => {
 
     await user.click(option('Dark'))
     expect(isDark()).toBe(true)
+  })
+})
+
+describe('from the keyboard', () => {
+  // A radio group is one Tab stop that lands on the current option, and the
+  // arrow keys choose within it. ARIA roles on buttons announce that and do
+  // none of it, which is what this control shipped as.
+  it('is one Tab stop, landing on the current option', async () => {
+    const user = userEvent.setup()
+    render(
+      <ThemeProvider>
+        <button type="button">Before</button>
+        <ThemeToggle />
+        <button type="button">After</button>
+      </ThemeProvider>,
+    )
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Before' })).toHaveFocus()
+    await user.tab()
+    expect(option('System')).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'After' })).toHaveFocus()
+  })
+
+  it('changes and persists the theme with the arrow keys', async () => {
+    const user = userEvent.setup()
+    renderToggle()
+
+    await user.tab()
+    expect(option('System')).toHaveFocus()
+
+    await user.keyboard('{ArrowLeft}')
+    expect(option('Dark')).toHaveFocus()
+    expect(option('Dark')).toBeChecked()
+    expect(isDark()).toBe(true)
+    expect(localStorage.getItem(STORAGE_KEYS.theme)).toBe('dark')
+
+    await user.keyboard('{ArrowLeft}')
+    expect(option('Light')).toBeChecked()
+    expect(localStorage.getItem(STORAGE_KEYS.theme)).toBe('light')
+
+    await user.keyboard('{ArrowRight}')
+    expect(option('Dark')).toBeChecked()
+    expect(isDark()).toBe(true)
+  })
+
+  it('keeps two toggles on one page as separate groups', async () => {
+    // The sign-in page and a header can both hold one; a shared group name
+    // would make the arrows walk from one into the other.
+    render(
+      <ThemeProvider>
+        <ThemeToggle />
+        <ThemeToggle />
+      </ThemeProvider>,
+    )
+
+    const [first, second] = screen.getAllByRole('radiogroup', { name: 'Theme' })
+    const nameOf = (scope: HTMLElement) =>
+      within(scope).getByRole('radio', { name: 'Light' }).getAttribute('name')
+    expect(nameOf(first!)).toBeTruthy()
+    expect(nameOf(first!)).not.toBe(nameOf(second!))
   })
 })
