@@ -943,13 +943,6 @@ class TestUpdateRole:
         assert "name" in error["details"]["fields"]
         assert await session.scalar(select(Role.name).where(Role.id == role.id)) == "Stores Role"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: an explicit null is_active/permissions on a role is written to a "
-            "NOT NULL column; the IntegrityError comes back as a 422 with no details.fields"
-        ),
-    )
     @pytest.mark.parametrize("field", ["is_active", "permissions"])
     async def test_a_null_for_another_required_column_names_the_field(
         self,

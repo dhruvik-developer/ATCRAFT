@@ -484,10 +484,19 @@ class RoleUpdate(BaseModel):
     _name = field_validator("name")(clean_name)
     _description = field_validator("description")(strip_optional)
 
+    @field_validator("is_active")
+    @classmethod
+    def _is_active(cls, value: bool | None) -> bool:
+        if value is None:
+            raise ValueError("is_active cannot be null. Omit it to leave it unchanged.")
+        return value
+
     @field_validator("permissions")
     @classmethod
-    def _permissions(cls, value: list[str] | None) -> list[str] | None:
-        return None if value is None else _validate_permissions(value)
+    def _permissions(cls, value: list[str] | None) -> list[str]:
+        if value is None:
+            raise ValueError("permissions cannot be null. Omit it to leave it unchanged.")
+        return _validate_permissions(value)
 
 
 class RoleDetail(RoleSummary):

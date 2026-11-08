@@ -54,8 +54,21 @@ def _optional_code(value: str | None) -> str | None:
     return None if value is None else validate_code(value)
 
 
-def _clean_optional_name(value: str | None) -> str | None:
-    return None if value is None else clean_name(value)
+def _reject_null(label: str):
+    """Refuse an explicit null on a NOT NULL column when the key is present.
+
+    Update schemas use ``exclude_unset=True``: omitted keys keep the stored
+    value, so this validator only runs when the client sent the field. Returning
+    null here would write through to a NOT NULL column and surface as a
+    field-less 422 from the IntegrityError handler.
+    """
+
+    def _check(value: object) -> object:
+        if value is None:
+            raise ValueError(f"{label} cannot be null. Omit it to leave it unchanged.")
+        return value
+
+    return _check
 
 
 def _upper_optional(value: str | None) -> str | None:
@@ -133,7 +146,7 @@ class CompanyUpdate(BaseModel):
     bank_branch: str | None = Field(default=None, max_length=120)
     invoice_terms: str | None = Field(default=None, max_length=4000)
 
-    _name = field_validator("name")(_clean_optional_name)
+    _name = field_validator("name")(clean_name)
     _gstin = field_validator("gstin")(validate_optional_gstin)
     _pan = field_validator("pan")(validate_optional_pan)
     _strip = field_validator(
@@ -287,7 +300,8 @@ class BranchUpdate(BaseModel):
     is_active: bool | None = None
     is_head_office: bool | None = None
 
-    _name = field_validator("name")(_clean_optional_name)
+    _name = field_validator("name")(clean_name)
+    _is_active = field_validator("is_active")(_reject_null("is_active"))
     _gstin = field_validator("gstin")(validate_optional_gstin)
     _strip = field_validator(
         "address_line1", "city", "state", "state_code", "postal_code", "phone"
@@ -344,7 +358,8 @@ class PlantUpdate(BaseModel):
     state: str | None = Field(default=None, max_length=120)
     is_active: bool | None = None
 
-    _name = field_validator("name")(_clean_optional_name)
+    _name = field_validator("name")(clean_name)
+    _is_active = field_validator("is_active")(_reject_null("is_active"))
     _strip = field_validator("address_line1", "city", "state")(strip_optional)
 
 
@@ -394,7 +409,8 @@ class DepartmentUpdate(BaseModel):
     cost_centre_id: uuid.UUID | None = None
     is_active: bool | None = None
 
-    _name = field_validator("name")(_clean_optional_name)
+    _name = field_validator("name")(clean_name)
+    _is_active = field_validator("is_active")(_reject_null("is_active"))
 
 
 class DepartmentRead(BaseModel):
@@ -460,7 +476,9 @@ class CostCentreUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     is_active: bool | None = None
 
-    _name = field_validator("name")(_clean_optional_name)
+    _name = field_validator("name")(clean_name)
+    _is_active = field_validator("is_active")(_reject_null("is_active"))
+    _cost_centre_type = field_validator("cost_centre_type")(_reject_null("cost_centre_type"))
     _description = field_validator("description")(strip_optional)
 
 
@@ -519,6 +537,9 @@ class FinancialYearUpdate(BaseModel):
     is_active: bool | None = None
     notes: str | None = None
 
+    _start_date = field_validator("start_date")(_reject_null("start_date"))
+    _end_date = field_validator("end_date")(_reject_null("end_date"))
+    _is_active = field_validator("is_active")(_reject_null("is_active"))
     _notes = field_validator("notes")(strip_optional)
 
 

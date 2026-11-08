@@ -816,13 +816,6 @@ class TestUpdateFinancialYear:
         assert error_of(response, 404)["code"] == "NOT_FOUND"
         assert await column(session, FinancialYear.notes, theirs.id) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: an explicit null start_date/end_date reaches assert_period_valid "
-            "and raises TypeError - a 500, not a field error"
-        ),
-    )
     @pytest.mark.parametrize("field", ["start_date", "end_date"])
     async def test_an_explicit_null_date_is_a_field_error(
         self,
@@ -857,13 +850,6 @@ class TestExplicitNullsOnRequiredColumns:
     names no field.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: an explicit null name/is_active is written to a NOT NULL column; "
-            "the IntegrityError comes back as a 422 with no details.fields"
-        ),
-    )
     @pytest.mark.parametrize(
         ("route", "field"),
         [
