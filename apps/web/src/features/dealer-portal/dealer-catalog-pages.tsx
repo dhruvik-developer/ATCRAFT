@@ -3,6 +3,7 @@ import { Heart, ShoppingCart } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
+import { PwaInstallCard } from '@/components/pwa-install-card'
 import {
   DescriptionList,
   EmptyState,
@@ -500,6 +501,9 @@ export function DealerHomePage() {
         title={me.data ? `Welcome, ${me.data.customer_name}` : 'Dealer home'}
         description="Browse your catalog and manage orders and account activity."
       />
+      <div className="mt-4">
+        <PwaInstallCard audience="dealer" />
+      </div>
       <DealerResult loading={me.isLoading} error={me.error}>
         {me.data && <DealerCredit credit={me.data.credit} />}
       </DealerResult>

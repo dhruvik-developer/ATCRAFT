@@ -5,6 +5,10 @@ application routes, three public authentication routes and selected master-data
 tabs: 105 screen/tab entries across eleven chapters. Parameter names such as
 `:itemId` and `:id` describe the same detail route.
 
+The vendor and dealer “mobile apps” in the proposal are this same SPA installed
+as a PWA from `/vendor/*` and `/dealer/*` (Add to Home Screen / install prompt).
+Store-native App Store and Play packages stay out of scope.
+
 `Atcraft-ERP-Handbook.pdf`, `handbook.html` and `screens/` are generated local
 outputs ignored by Git. A fixed page count is not part of the contract: it
 changes with the text and the available images. The cover states when the text

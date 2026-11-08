@@ -23,10 +23,10 @@ remain operator/customer work.
 | Item | Disposition |
 |---|---|
 | D4 DSC/PAdES | Deferred — legal/signing model + certificates ([memo](d4-dsc-pades-compliance-20261019.md)) |
-| Vendor native mobile app | Deferred — not in this application |
+| Vendor / dealer **store-native** apps (App Store / Play) | Deferred — installable PWA at `/vendor/*` and `/dealer/*` is the shipped mobile surface |
 | Live Meta / DLT / Shiprocket | Config + customer accounts; code present, disabled by default |
 | Host TLS, off-box backup restore, restricted-role UAT | Operator commissioning via [`ONE-BOX-RUNBOOK.md`](../../ONE-BOX-RUNBOOK.md) and [`deployment.md`](../deployment.md) |
-| Batch SKU transformation / some serial edges | Documented open boundaries in production-scope; leave as-is |
+| D4 certificates and legal signing model | Deferred — see d4 memo |
 
 ## What shipped in this closeout pass
 
@@ -34,6 +34,9 @@ remain operator/customer work.
 - Demo seed gaps closed for courier admin + approval settings + collections coverage docs
 - Live logging defaults (`LOG_JSON=true`) and runbook “Live debugging” notes
 - Contract artifacts refreshed to HEAD (`make contract`)
+- Vendor/dealer installable PWA (install-to-home card + Chromium `beforeinstallprompt`)
+- Standing MFA / approval / serial / partial-dispatch / FIFO assumptions recorded
+- One-to-one batch SKU conversion lineage (`stock_batch_conversions`, head `20261128_0100`)
 
 Mark historical rows in `production-scope-20261025.md` that claimed an open
 in-repo gap for D2/D3/A4/B4 as delivered; only the external gates table above

@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
+import { PwaInstallCard } from '@/components/pwa-install-card'
 import { EmptyState, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -229,6 +230,7 @@ export function VendorHomePage() {
         title={`Welcome${user?.full_name ? `, ${user.full_name}` : ''}`}
         description={me.data?.name ?? 'Your vendor workspace'}
       />
+      <PwaInstallCard audience="vendor" />
       {me.error && <QueryFailure error={me.error} retry={() => void me.refetch()} />}
       {me.data && (
         <p className="text-sm text-muted-foreground">
@@ -845,7 +847,7 @@ export function VendorOrderPage() {
       )}
       <ReportJobPanel controller={job} label="Purchase order PDF" />
       <div
-        className="sticky bottom-20 z-10 flex flex-wrap gap-2 rounded-lg border bg-background p-3 shadow-sm md:bottom-3"
+        className="sticky bottom-20 z-10 flex flex-wrap gap-2 rounded-lg border bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-sm md:bottom-3"
         aria-label="Order actions"
       >
         {order.status === 'SENT' && can(P.VENDOR_PORTAL_RESPOND) && (
@@ -879,7 +881,7 @@ export function VendorOrderPage() {
         )}
         {(can(P.VENDOR_PORTAL_SHIP) || can(P.VENDOR_PORTAL_INVOICE)) && (
           <Button className="min-h-11" variant="outline" onClick={() => setAction('upload')}>
-            Upload document
+            Upload LR, photo or invoice
           </Button>
         )}
         {can(P.VENDOR_PORTAL_ACCESS) && (

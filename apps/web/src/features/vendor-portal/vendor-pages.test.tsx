@@ -430,7 +430,9 @@ describe('vendor order action payloads', () => {
     const view = detail('SENT', [P.VENDOR_PORTAL_ACCESS, P.VENDOR_PORTAL_INVOICE], {
       [`POST ${BASE}/documents`]: ok({ id: RECEIPT, file_name: 'bill.pdf' }),
     })
-    await view.user.click(await screen.findByRole('button', { name: 'Upload document' }))
+    await view.user.click(
+      await screen.findByRole('button', { name: 'Upload LR, photo or invoice' }),
+    )
     const modal = within(screen.getByRole('dialog'))
     expect(modal.getAllByRole('option').map((option) => option.textContent)).toEqual([
       'INVOICE',

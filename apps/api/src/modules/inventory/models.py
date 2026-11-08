@@ -1199,6 +1199,43 @@ class StockSerialConversion(ImmutableLedgerEntity):
     )
 
 
+class StockBatchConversion(ImmutableLedgerEntity):
+    """A lot's immutable hand-off from one SKU identity to another.
+
+    ASSUMPTION (§JW-batch-1): one source lot maps to exactly one output lot of a
+    different batch-tracked SKU; the output reuses the source batch number and
+    shelf-life dates so FEFO and recall stay aligned without rewriting the
+    input ledger.
+    """
+
+    __tablename__ = "stock_batch_conversions"
+
+    source_batch_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=False
+    )
+    output_batch_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=False
+    )
+    job_work_receipt_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "job_work_receipt_lines.id",
+            ondelete="RESTRICT",
+            name="fk_batch_conversion_receipt_line",
+        ),
+        nullable=False,
+    )
+    __table_args__ = (
+        UniqueConstraint("company_id", "source_batch_id", name="uq_stock_batch_conversions_source"),
+        UniqueConstraint("company_id", "output_batch_id", name="uq_stock_batch_conversions_output"),
+        CheckConstraint(
+            "source_batch_id <> output_batch_id",
+            name="batch_conversion_changes_identity",
+        ),
+        Index("ix_stock_batch_conversions_receipt", "company_id", "job_work_receipt_line_id"),
+    )
+
+
 class StockTransfer(TenantEntity):
     """Movement of stock between two warehouses of the same company.
 
@@ -2125,6 +2162,7 @@ __all__ = [
     "StockAdjustment",
     "StockAdjustmentLine",
     "StockBatch",
+    "StockBatchConversion",
     "StockSerial",
     "StockSerialConversion",
     "StockState",

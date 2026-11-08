@@ -13,8 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError
-from src.modules.inventory.models import StockState, TransactionType
-from src.modules.inventory.repository import StockSerialRepository
+from src.modules.inventory.models import (
+    StockBatch,
+    StockBatchConversion,
+    StockState,
+    TransactionType,
+)
+from src.modules.inventory.repository import StockBatchRepository, StockSerialRepository
 from src.modules.inventory.service import MovementRequest, TraceabilityService
 from src.modules.job_work.models import JobWorkOrder, JobWorkReceiptLine, RejectionAction
 
@@ -234,4 +239,76 @@ async def prepare_conversions(
             source=order.code,
         )
         converted.update(zip(source_ids, outputs, strict=True))
+    return converted
+
+
+async def prepare_batch_conversions(
+    session: AsyncSession,
+    tenant: TenantContext,
+    planned: Sequence[PlannedLine],
+    *,
+    order: JobWorkOrder,
+    occurred_at: datetime,
+) -> dict[uuid.UUID, uuid.UUID]:
+    """Keep the lot number while creating the output SKU's separate lot identity.
+
+    ASSUMPTION (§JW-batch-1): one source lot maps to one output lot that reuses
+    the source batch number and shelf-life dates. An existing conversion for the
+    source is reused so a partial receipt of the same consignment stays on one
+    output grain.
+    """
+    wanted: list[uuid.UUID] = []
+    targets: dict[uuid.UUID, uuid.UUID] = {}
+    for row in planned:
+        line = row.order_line
+        if (
+            not line.is_batch_tracked
+            or line.batch_id is None
+            or line.item_id == line.expected_output_item_id
+        ):
+            continue
+        if line.batch_id not in targets:
+            wanted.append(line.batch_id)
+            targets[line.batch_id] = line.expected_output_item_id
+    if not wanted:
+        return {}
+
+    batches = StockBatchRepository(session, tenant)
+    sources = await batches.load(wanted)
+    if len(sources) != len(wanted):
+        raise NotFoundError("Stock batch")
+
+    existing = {
+        row.source_batch_id: row.output_batch_id
+        for row in (
+            await session.scalars(
+                select(StockBatchConversion).where(
+                    StockBatchConversion.company_id == tenant.company_id,
+                    StockBatchConversion.source_batch_id.in_(wanted),
+                )
+            )
+        ).all()
+    }
+    converted: dict[uuid.UUID, uuid.UUID] = {}
+    for source_id, output_item_id in targets.items():
+        if source_id in existing:
+            converted[source_id] = existing[source_id]
+            continue
+        source = sources[source_id]
+        output = await batches.by_number(output_item_id, source.batch_number)
+        if output is None:
+            output = batches.add(
+                StockBatch(
+                    item_id=output_item_id,
+                    batch_number=source.batch_number,
+                    supplier_batch_number=source.supplier_batch_number,
+                    vendor_id=order.vendor_id,
+                    manufactured_on=source.manufactured_on,
+                    expires_on=source.expires_on,
+                    received_on=occurred_at.date(),
+                    notes=f"Converted from job work {order.code}"[:255],
+                )
+            )
+            await session.flush()
+        converted[source_id] = output.id
     return converted

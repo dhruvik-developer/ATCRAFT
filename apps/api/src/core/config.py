@@ -230,10 +230,11 @@ class Settings(BaseSettings):
     rate_limit_auth_per_minute: Annotated[int, Field(ge=1)] = 20
     # Roles that must enrol a second factor before the shared authentication
     # dependency lets them reach anything but the enrolment routes. Empty means
-    # "no role is required to use MFA" - the product default, because a client
-    # that has not issued authenticators to its staff must not be locked out by
-    # an upgrade. The operator opts in with, for example,
-    # ``MFA_REQUIRED_ROLES=super_admin,company_admin,finance_manager``.
+    # MFA stays optional (safe for a fresh local seed before authenticators
+    # exist). Deploy templates and ``.env.example`` ship
+    # ``SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER`` as the production default
+    # (docs/assumptions.md §MFA-1); Compose substitutes the same when the env
+    # key is unset.
     mfa_required_roles: str = ""
 
     # Comma-separated hostnames accepted by TrustedHostMiddleware.  Public

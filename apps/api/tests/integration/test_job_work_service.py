@@ -59,6 +59,8 @@ from src.modules.inventory import service as inv
 from src.modules.inventory.models import (
     InventoryBalance,
     InventoryTransaction,
+    StockBatch,
+    StockBatchConversion,
     StockState,
     TransactionType,
 )
@@ -584,6 +586,138 @@ async def test_batch_tracked_job_work_preserves_the_same_item_lot(ctx, job: PvdJ
     )
     assert len(movements) == 3
     assert all(row.batch_id == batch.id for row in movements)
+
+
+async def test_batch_sku_conversion_keeps_lot_number_and_links_both_histories(
+    ctx, job: PvdJob
+) -> None:
+    session, tenant = ctx
+    source_id = await seed_item(
+        session,
+        tenant.company_id,
+        job.uom_id,
+        code=_code("BATCH-IN"),
+        batch_tracked=True,
+    )
+    output_id = await seed_item(
+        session,
+        tenant.company_id,
+        job.uom_id,
+        code=_code("BATCH-OUT"),
+        batch_tracked=True,
+        standard_cost="130",
+    )
+    batch_number = _code("LOT")
+    source_batch = await inv.TraceabilityService(session, tenant).create_batch(
+        StockBatchCreate(item_id=source_id, batch_number=batch_number)
+    )
+    await stock_in(session, tenant, source_id, job.warehouse_id, "4", batch_id=source_batch.id)
+    order, _ = await service.create_order(
+        session,
+        tenant,
+        JobWorkOrderCreate(
+            vendor_id=job.vendor_id,
+            process_type=JobWorkProcess.POLISHING,
+            expected_return_date=today() + timedelta(days=2),
+            warehouse_id=job.warehouse_id,
+            rate_per_unit=Decimal("1"),
+            rate_basis=RateBasis.PER_PIECE,
+            lines=[
+                JobWorkOrderLineCreate(
+                    line_number=1,
+                    item_id=source_id,
+                    quantity_to_issue=Decimal("4"),
+                    batch_id=source_batch.id,
+                    expected_output_item_id=output_id,
+                )
+            ],
+        ),
+    )
+    await service.approve_order(session, tenant, order.id, reason="Batch conversion approved")
+    await service.issue_order(
+        session,
+        tenant,
+        order.id,
+        IssueRequest(
+            reason="Send selected lot for conversion",
+            lines=[
+                IssueLineIn(
+                    line_number=1,
+                    issued_quantity=Decimal("4"),
+                    batch_id=source_batch.id,
+                )
+            ],
+        ),
+    )
+    received = await service.receive(
+        session,
+        tenant,
+        principal_for(tenant),
+        order.id,
+        ReceiveRequest(
+            reason="Converted lot returned",
+            lines=[
+                ReceiptLineIn(
+                    line_number=1,
+                    batch_id=source_batch.id,
+                    output_quantity=Decimal("4"),
+                    is_final=True,
+                )
+            ],
+        ),
+    )
+
+    output_batch_id = received.receipt.lines[0].batch_id
+    assert output_batch_id is not None and output_batch_id != source_batch.id
+    output_batch = await session.get(StockBatch, output_batch_id)
+    assert output_batch is not None
+    assert output_batch.item_id == output_id
+    assert output_batch.batch_number == batch_number
+    assert await session.scalar(select(func.count()).select_from(StockBatchConversion)) == 1
+    conversion = (await session.execute(select(StockBatchConversion).limit(1))).scalar_one()
+    assert conversion.source_batch_id == source_batch.id
+    assert conversion.output_batch_id == output_batch_id
+    source_balance = await inv.get_balance(
+        session, tenant, source_id, job.warehouse_id, batch_id=source_batch.id
+    )
+    output_balance = await inv.get_balance(
+        session, tenant, output_id, job.warehouse_id, batch_id=output_batch_id
+    )
+    assert Decimal(source_balance.job_work_quantity) == Decimal("0.0000")
+    assert Decimal(output_balance.available_quantity) == Decimal("4.0000")
+
+
+async def test_batch_sku_conversion_refuses_a_non_one_to_one_yield(ctx, job: PvdJob) -> None:
+    session, tenant = ctx
+    source_id = await seed_item(
+        session, tenant.company_id, job.uom_id, code=_code("BATCH-Y1"), batch_tracked=True
+    )
+    output_id = await seed_item(
+        session, tenant.company_id, job.uom_id, code=_code("BATCH-Y2"), batch_tracked=True
+    )
+    batch = await inv.TraceabilityService(session, tenant).create_batch(
+        StockBatchCreate(item_id=source_id, batch_number=_code("LOT"))
+    )
+    payload = JobWorkOrderCreate(
+        vendor_id=job.vendor_id,
+        process_type=JobWorkProcess.POLISHING,
+        expected_return_date=today() + timedelta(days=2),
+        warehouse_id=job.warehouse_id,
+        rate_per_unit=Decimal("1"),
+        rate_basis=RateBasis.PER_PIECE,
+        lines=[
+            JobWorkOrderLineCreate(
+                line_number=1,
+                item_id=source_id,
+                quantity_to_issue=Decimal("4"),
+                expected_output_quantity=Decimal("5"),
+                batch_id=batch.id,
+                expected_output_item_id=output_id,
+            )
+        ],
+    )
+    with pytest.raises(BusinessRuleError, match="one output unit per input"):
+        await service.create_order(session, tenant, payload)
 
 
 async def test_company_owned_stock_is_conserved_across_a_clean_issue_and_receipt(

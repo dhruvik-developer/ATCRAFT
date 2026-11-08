@@ -109,7 +109,7 @@ x-api-env: &api-env
   # Independent from JWT signing so rotating login keys does not make every
   # encrypted TOTP seed unreadable.
   CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
-  MFA_REQUIRED_ROLES: ${MFA_REQUIRED_ROLES:-}
+  MFA_REQUIRED_ROLES: ${MFA_REQUIRED_ROLES:-SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER}
   JWT_ISSUER: ${JWT_ISSUER:-atcraft-erp}
   JWT_AUDIENCE: ${JWT_AUDIENCE:-atcraft-erp-api}
   CORS_ORIGINS: ${CORS_ORIGINS:-}

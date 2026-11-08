@@ -116,10 +116,14 @@ taken, named, and is changeable in one place.
   layers the posting itself consumes. Process loss within the allowance is
   expensed as scrap (as before) rather than absorbed into the good units, and
   the later invoice price variance is expensed too. docs/assumptions.md §E7b-2.
-* **Batch identity is preserved only for same-item job work.** One batch is
-  selected for each order line on the draft, reserved at that stock grain and
-  carried through every challan, receipt and ledger movement; a second batch
-  needs a separate line.
+* **Batch identity is preserved for same-item job work, and converted one-to-one
+  for batch-only SKU changes.** One batch is selected for each order line on the
+  draft, reserved at that stock grain and carried through every challan, receipt
+  and ledger movement; a second batch needs a separate line. A different
+  batch-tracked output SKU (neither side serial) requires
+  ``expected_output_quantity == quantity_to_issue``; receipt mints an output lot
+  that reuses the source batch number and joins both via
+  ``stock_batch_conversions`` (§JW-batch-1). Mixed tracking stays refused.
   Serial issues name every physical unit, and receipts name disjoint units for
   output, rejection, unprocessed return and scrap. Vendor-held rework remains
   eligible for a later receipt. Serial-only SKU conversion is one-to-one: the
@@ -172,7 +176,12 @@ from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.allocation.models import DemandType, ReservationType
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
-from src.modules.inventory.models import StockSerialConversion, StockState, TransactionType
+from src.modules.inventory.models import (
+    StockBatchConversion,
+    StockSerialConversion,
+    StockState,
+    TransactionType,
+)
 from src.modules.inventory.repository import StockBatchRepository
 from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
 from src.modules.job_work.models import (
@@ -236,6 +245,7 @@ from src.modules.job_work.schemas import (
     VendorLedgerReport,
 )
 from src.modules.job_work.serial_tracking import (
+    prepare_batch_conversions,
     prepare_conversions,
     receipt_movements,
     validate_receipt_units,
@@ -1123,8 +1133,21 @@ async def _resolve_lines(
                 inactive_record("Item", output.code, "cannot receive processed stock"),
                 details={"item_code": output.code, "line_number": line.line_number},
             )
-        # ASSUMPTION: a lot identity survives same-item processing, but cannot
-        # be transferred to a different SKU without an explicit lineage record.
+        # ASSUMPTION (§JW-batch-1): same-item lots keep their identity; a
+        # different SKU needs an explicit one-to-one lineage — serial-only or
+        # batch-only. Mixed tracking stays refused.
+        serial_lineage = (
+            source.is_serial_tracked
+            and output.is_serial_tracked
+            and not source.is_batch_tracked
+            and not output.is_batch_tracked
+        )
+        batch_lineage = (
+            source.is_batch_tracked
+            and output.is_batch_tracked
+            and not source.is_serial_tracked
+            and not output.is_serial_tracked
+        )
         if (
             output.id != source.id
             and (
@@ -1133,12 +1156,7 @@ async def _resolve_lines(
                 or output.is_batch_tracked
                 or output.is_serial_tracked
             )
-            and not (
-                source.is_serial_tracked
-                and output.is_serial_tracked
-                and not source.is_batch_tracked
-                and not output.is_batch_tracked
-            )
+            and not (serial_lineage or batch_lineage)
         ):
             raise BusinessRuleError(
                 f"{source.code} cannot be converted to {output.code} in a tracked job-work "
@@ -1147,6 +1165,24 @@ async def _resolve_lines(
                     "input_item_code": source.code,
                     "output_item_code": output.code,
                     "line_number": line.line_number,
+                },
+            )
+        if (
+            output.id != source.id
+            and batch_lineage
+            and (
+                line.expected_output_quantity is not None
+                and line.expected_output_quantity != line.quantity_to_issue
+            )
+        ):
+            raise BusinessRuleError(
+                "Batch SKU conversion requires one output unit per input unit.",
+                details={
+                    "input_item_code": source.code,
+                    "output_item_code": output.code,
+                    "line_number": line.line_number,
+                    "quantity_to_issue": str(line.quantity_to_issue),
+                    "expected_output_quantity": str(line.expected_output_quantity),
                 },
             )
 
@@ -2588,6 +2624,7 @@ def _build_receipt_movements(
     capitalised_costs: Mapping[int, Decimal] | None = None,
     rejected_costs: Mapping[int, Decimal] | None = None,
     converted_serial_ids: Mapping[uuid.UUID, uuid.UUID] | None = None,
+    converted_batch_ids: Mapping[uuid.UUID, uuid.UUID] | None = None,
 ) -> tuple[list[MovementRequest], dict[int, int]]:
     """Every ledger row one receipt writes, as one batch.
 
@@ -2643,14 +2680,21 @@ def _build_receipt_movements(
                 scrap_index[line.line_number] = len(movements) + unit_scrap_index
             movements.extend(unit_movements)
             continue
+        source_batch_id = entry.batch_id
+        output_batch_id = (
+            (converted_batch_ids or {}).get(source_batch_id, source_batch_id)
+            if source_batch_id is not None
+            else None
+        )
         common: dict[str, Any] = {
             "reference_type": MOVEMENT_REFERENCE_JOB_WORK,
             "reference_id": order.id,
             "reference_code": order.code,
             "reason": reason,
-            "batch_id": entry.batch_id,
             "occurred_at": occurred_at,
         }
+        source_common = {**common, "batch_id": source_batch_id}
+        output_common = {**common, "batch_id": output_batch_id}
 
         if plan.output_quantity > ZERO:
             movements.append(
@@ -2666,7 +2710,7 @@ def _build_receipt_movements(
                     # engine's standard-cost default (no challan history, or a
                     # line older than the costing rule).
                     unit_cost=capitalised.get(line.line_number),
-                    **common,
+                    **output_common,
                 )
             )
         if (
@@ -2686,7 +2730,7 @@ def _build_receipt_movements(
                     # Returned rejects carry only their share of the frozen
                     # input value. The good output carries the processing fee.
                     unit_cost=rejected.get(line.line_number),
-                    **common,
+                    **output_common,
                 )
             )
         delivered_input = plan.input_for_output - plan.rejected_scrap_input_quantity
@@ -2701,7 +2745,7 @@ def _build_receipt_movements(
                     # material never comes back as itself, it comes back as the
                     # output item posted above.
                     stock_state=StockState.JOB_WORK,
-                    **common,
+                    **source_common,
                 )
             )
         if plan.rejected_scrap_input_quantity > ZERO:
@@ -2713,7 +2757,7 @@ def _build_receipt_movements(
                     transaction_type=TransactionType.SCRAP,
                     from_state=StockState.JOB_WORK,
                     stock_state=StockState.SCRAP,
-                    **common,
+                    **source_common,
                 )
             )
         if plan.returned_unprocessed_quantity > ZERO:
@@ -2725,7 +2769,7 @@ def _build_receipt_movements(
                     transaction_type=TransactionType.JOB_WORK_RECEIPT,
                     from_state=StockState.JOB_WORK,
                     stock_state=StockState.AVAILABLE,
-                    **common,
+                    **source_common,
                 )
             )
         if plan.scrap_quantity > ZERO:
@@ -2738,7 +2782,7 @@ def _build_receipt_movements(
                     transaction_type=TransactionType.SCRAP,
                     from_state=StockState.JOB_WORK,
                     stock_state=StockState.SCRAP,
-                    **common,
+                    **source_common,
                 )
             )
 
@@ -2838,12 +2882,20 @@ async def receive(
 
         planned = _plan_receipt(payload.lines, by_number)
         await validate_receipt_units(session, tenant, planned)
+        occurred_at = payload.occurred_at or utcnow()
         converted_serial_ids = await prepare_conversions(
             session,
             tenant,
             planned,
             order=order,
-            occurred_at=payload.occurred_at or utcnow(),
+            occurred_at=occurred_at,
+        )
+        converted_batch_ids = await prepare_batch_conversions(
+            session,
+            tenant,
+            planned,
+            order=order,
+            occurred_at=occurred_at,
         )
         excess_total = assert_excess_loss_authorised(
             principal,
@@ -2944,6 +2996,7 @@ async def receive(
             capitalised_costs={number: cost.unit_cost for number, cost in costing.items()},
             rejected_costs={number: cost.unit_cost for number, cost in rejected_costing.items()},
             converted_serial_ids=converted_serial_ids,
+            converted_batch_ids=converted_batch_ids,
         )
         posted = await post_movements(session, tenant, movements)
         # The debit is priced from the cost the ledger actually used for the
@@ -2992,6 +3045,9 @@ async def receive(
         receipt_lines: list[JobWorkReceiptLine] = []
         for row, line_charge, debit in apportioned:
             line, plan = row.order_line, row.plan
+            receipt_batch_id = row.batch_id
+            if row.batch_id is not None and row.batch_id in converted_batch_ids:
+                receipt_batch_id = converted_batch_ids[row.batch_id]
             receipt_lines.append(
                 receipt_line_repo.add(
                     JobWorkReceiptLine(
@@ -2999,7 +3055,7 @@ async def receive(
                         job_work_order_line_id=line.id,
                         line_number=line.line_number,
                         output_item_id=line.expected_output_item_id,
-                        batch_id=row.batch_id,
+                        batch_id=receipt_batch_id,
                         output_serial_ids=row.entry.output_serial_ids,
                         rejected_serial_ids=row.entry.rejected_serial_ids,
                         returned_unprocessed_serial_ids=row.entry.returned_unprocessed_serial_ids,
@@ -3062,6 +3118,43 @@ async def receive(
                         job_work_receipt_line_id=receipt_line.id,
                     )
                 )
+        if converted_batch_ids:
+            existing_batch_sources = {
+                row.source_batch_id
+                for row in (
+                    await session.scalars(
+                        select(StockBatchConversion).where(
+                            StockBatchConversion.company_id == tenant.company_id,
+                            StockBatchConversion.source_batch_id.in_(list(converted_batch_ids)),
+                        )
+                    )
+                ).all()
+            }
+            for receipt_line in receipt_lines:
+                source_batch_id = next(
+                    (
+                        source_id
+                        for source_id, output_id in converted_batch_ids.items()
+                        if receipt_line.batch_id == output_id
+                    ),
+                    None,
+                )
+                if (
+                    source_batch_id is None
+                    or receipt_line.batch_id is None
+                    or source_batch_id in existing_batch_sources
+                ):
+                    continue
+                session.add(
+                    StockBatchConversion(
+                        company_id=tenant.company_id,
+                        created_by_id=persisted_actor(tenant.user_id),
+                        source_batch_id=source_batch_id,
+                        output_batch_id=receipt_line.batch_id,
+                        job_work_receipt_line_id=receipt_line.id,
+                    )
+                )
+                existing_batch_sources.add(source_batch_id)
         await session.flush()
         if held_for_qc and quality_port is not None:
             # One inspection per output item, each for exactly that item's held
