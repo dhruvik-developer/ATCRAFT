@@ -31,6 +31,12 @@ CURRENCY_CODE_LENGTH = 3
 #: workers carry. Keep input validation aligned with ``audit_logs.request_id``.
 MAX_REQUEST_ID_LENGTH = 64
 
+#: The largest value a PostgreSQL ``INTEGER`` column holds. A request integer
+#: stored in one is bounded by it, so a larger value is a 422 naming the field
+#: instead of an encoding error from the driver - a 500 that names nothing. It
+#: is the column's limit, not a business maximum.
+MAX_INTEGER_COLUMN = 2_147_483_647
+
 # Specifications are bounded document-sized settings, not an unbounded catalogue.
 MAX_SPECIFICATIONS_PER_ITEM = 200
 MAX_SPECIFICATION_OPTIONS = 100
@@ -43,6 +49,7 @@ __all__ = [
     "CURRENCY_CODE_LENGTH",
     "DEFAULT_CURRENCY",
     "MAX_DEMAND_PROVENANCE_REFS",
+    "MAX_INTEGER_COLUMN",
     "MAX_ITEM_ACCESSORIES",
     "MAX_REQUEST_ID_LENGTH",
     "MAX_SERIAL_BULK",

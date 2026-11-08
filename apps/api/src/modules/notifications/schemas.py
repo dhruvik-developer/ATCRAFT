@@ -24,7 +24,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.modules.notifications.alerts import ALERT_RULES, AlertGranularity, AlertRuleKey
+from src.modules.notifications.alerts import (
+    ALERT_RULES,
+    MAX_ALERT_WINDOW_MINUTES,
+    AlertGranularity,
+    AlertRuleKey,
+)
 from src.modules.notifications.models import (
     NotificationChannel,
     NotificationSeverity,
@@ -135,8 +140,8 @@ class NotificationAlertRuleUpdate(BaseModel):
 
     key: AlertRuleKey
     is_enabled: bool
-    threshold_minutes: int = Field(ge=0)
-    remind_every_minutes: int = Field(ge=1)
+    threshold_minutes: int = Field(ge=0, le=MAX_ALERT_WINDOW_MINUTES)
+    remind_every_minutes: int = Field(ge=1, le=MAX_ALERT_WINDOW_MINUTES)
 
 
 class NotificationAlertRulesUpdate(BaseModel):

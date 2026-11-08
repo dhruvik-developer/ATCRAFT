@@ -10,6 +10,7 @@ from src.core.permissions import Permission
 from src.modules.notifications.alert_service import NotificationAlertService
 from src.modules.notifications.alerts import (
     ALERT_RULES,
+    MAX_ALERT_WINDOW_MINUTES,
     AlertGranularity,
     AlertRuleKey,
     AlertStateSnapshot,
@@ -188,3 +189,25 @@ def test_alert_rule_update_requires_nonnegative_threshold_and_positive_reminder(
                 }
             ]
         )
+
+
+def test_the_longest_alert_window_keeps_every_scanner_cutoff_in_the_calendar() -> None:
+    """Scanners shift "now" by the threshold both ways; the cap keeps both representable.
+
+    A threshold past ~1.07e9 minutes once saved, then raised ``OverflowError`` in
+    ``as_of - threshold`` on every scan, so the rule never alerted again
+    (docs/assumptions.md §B4-2).
+    """
+    as_of = datetime(2026, 11, 9, 9, 30, tzinfo=UTC)
+    window = timedelta(minutes=MAX_ALERT_WINDOW_MINUTES)
+
+    assert as_of - window < as_of < as_of + window
+    assert all(
+        rule.default_threshold_minutes <= MAX_ALERT_WINDOW_MINUTES for rule in ALERT_RULES.values()
+    )
+    assert all(
+        rule.default_remind_every_minutes <= MAX_ALERT_WINDOW_MINUTES
+        for rule in ALERT_RULES.values()
+    )
+    with pytest.raises(OverflowError):
+        _ = as_of - timedelta(minutes=1_100_000_000)

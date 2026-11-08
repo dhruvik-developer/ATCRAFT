@@ -29517,6 +29517,7 @@
           "packages": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -32834,6 +32835,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 2147483647.0,
                 "type": "integer"
               },
               {
@@ -35065,6 +35067,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 2147483647.0,
                 "type": "integer"
               },
               {
@@ -40729,11 +40732,13 @@
             "$ref": "#/components/schemas/AlertRuleKey"
           },
           "remind_every_minutes": {
+            "maximum": 5256000.0,
             "minimum": 1.0,
             "title": "Remind Every Minutes",
             "type": "integer"
           },
           "threshold_minutes": {
+            "maximum": 5256000.0,
             "minimum": 0.0,
             "title": "Threshold Minutes",
             "type": "integer"
@@ -80229,6 +80234,7 @@
           "packages": {
             "anyOf": [
               {
+                "maximum": 2147483647.0,
                 "minimum": 1.0,
                 "type": "integer"
               },

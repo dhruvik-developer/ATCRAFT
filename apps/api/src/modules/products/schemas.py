@@ -24,7 +24,7 @@ from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.common.codes import normalise_code, strip_optional
-from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
 from src.core.pagination import bind_query_filters
 from src.modules.products.models import (
     DEFAULT_MANUFACTURER_COUNTRY,
@@ -390,7 +390,7 @@ class ItemCreate(CapabilityFlags):
     reorder_quantity: QuantityField = Decimal("0")
     min_order_quantity: QuantityField = Decimal("0")
     safety_stock: QuantityField = Decimal("0")
-    shelf_life_days: Annotated[int, Field(gt=0)] | None = None
+    shelf_life_days: Annotated[int, Field(gt=0, le=MAX_INTEGER_COLUMN)] | None = None
 
     is_batch_tracked: bool = False
     is_serial_tracked: bool = False
@@ -448,7 +448,7 @@ class ItemUpdate(CapabilityFlags):
     reorder_quantity: QuantityField | None = None
     min_order_quantity: QuantityField | None = None
     safety_stock: QuantityField | None = None
-    shelf_life_days: Annotated[int, Field(gt=0)] | None = None
+    shelf_life_days: Annotated[int, Field(gt=0, le=MAX_INTEGER_COLUMN)] | None = None
 
     is_batch_tracked: bool | None = None
     is_serial_tracked: bool | None = None

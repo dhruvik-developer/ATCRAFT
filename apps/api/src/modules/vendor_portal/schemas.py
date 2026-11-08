@@ -21,6 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.core.constants import MAX_INTEGER_COLUMN
 from src.core.responses import OffsetPagination
 from src.core.validation import bind_request_model
 from src.modules.finance.models import MatchStatus, PaymentMethod, PaymentStatus
@@ -70,7 +71,7 @@ class VendorPortalReady(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ready_on: datetime | None = None
-    packages: int | None = Field(default=None, ge=1)
+    packages: int | None = Field(default=None, ge=1, le=MAX_INTEGER_COLUMN)
     note: str | None = Field(default=None, max_length=2000)
 
 

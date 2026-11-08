@@ -66,11 +66,15 @@ function durationFromMinutes(minutes: number): DurationDraft {
   return { value: String(minutes), unit: 'minutes' }
 }
 
+/** The server's cap on both durations: `MAX_ALERT_WINDOW_MINUTES` (docs/assumptions.md §B4-2). */
+const MAX_ALERT_WINDOW_DAYS = 3650
+const MAX_ALERT_WINDOW_MINUTES = MAX_ALERT_WINDOW_DAYS * DURATION_FACTORS.days
+
 function minutesFromDuration(duration: DurationDraft): number | null {
   if (duration.value.trim() === '') return null
   const parsed = Number(duration.value)
   const minutes = parsed * DURATION_FACTORS[duration.unit]
-  return Number.isSafeInteger(minutes) ? minutes : null
+  return Number.isSafeInteger(minutes) && minutes <= MAX_ALERT_WINDOW_MINUTES ? minutes : null
 }
 
 function draftFromRule(rule: AlertRule): AlertRuleDraft {
@@ -274,7 +278,7 @@ export default function AlertsPage() {
                     </p>
                     {!thresholdValid && (
                       <p className="text-sm text-destructive">
-                        Enter a duration that resolves to whole minutes.
+                        {`Enter a duration that resolves to whole minutes, up to ${MAX_ALERT_WINDOW_DAYS} days.`}
                       </p>
                     )}
                   </div>
@@ -324,7 +328,7 @@ export default function AlertsPage() {
                     </p>
                     {!reminderValid && (
                       <p className="text-sm text-destructive">
-                        Enter a duration of at least one whole minute.
+                        {`Enter a duration of at least one whole minute, up to ${MAX_ALERT_WINDOW_DAYS} days.`}
                       </p>
                     )}
                   </div>

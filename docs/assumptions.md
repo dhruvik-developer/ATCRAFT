@@ -4070,6 +4070,27 @@ provide an escape hatch without silently changing code defaults.
 threshold or retention period should be set through company alert rules or
 changed here only after updating the operating handbook and tests.
 
+## §B4-2. An alert window is at most ten years
+
+**Assumed.** A company's alert threshold and reminder interval are each at most
+3650 days (`MAX_ALERT_WINDOW_MINUTES` = 5 256 000 minutes). A longer one is
+refused with a field error on `PUT /notifications/alert-rules`, and the
+administration screen states the same cap.
+
+**Why.** No maximum was specified, but one is needed: every scanner moves "now"
+by the threshold, and past roughly 1.07e9 minutes that instant falls before year
+1, so the subtraction raised `OverflowError` and the rule failed on every scan
+while it looked saved; past 2 147 483 647 the save itself was a 500. Ten years
+is the cap the other duration inputs already use (lead times, ageing and
+overdue thresholds), and no operational alert waits that long.
+
+**Where.** `src/modules/notifications/alerts.py` - `MAX_ALERT_WINDOW_MINUTES`;
+`notifications/schemas.py` - `NotificationAlertRuleUpdate`;
+`apps/web/src/features/admin/alerts-page.tsx`.
+
+**Impact if wrong.** Raise the constant (and the screen's mirror). It must stay
+well below 1.07e9 minutes for the scanners' arithmetic to hold.
+
 ## §A4-1. Overdue is measured per invoice due date
 
 **Assumed.** An overdue receivable is an ISSUED or PARTIALLY_PAID sales invoice

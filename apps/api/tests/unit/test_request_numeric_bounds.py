@@ -16,22 +16,34 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from pydantic import BaseModel, TypeAdapter
+from pydantic import ValidationError as PydanticValidationError
 
+from src.core.constants import MAX_INTEGER_COLUMN
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal
 from src.core.errors import NotFoundError
 from src.core.exception_handlers import register_exception_handlers
 from src.modules.customers.router import router as customers_router
 from src.modules.customers.service import CustomerService
+from src.modules.notifications.alert_service import NotificationAlertService
+from src.modules.notifications.alerts import MAX_ALERT_WINDOW_MINUTES
+from src.modules.notifications.router import router as notifications_router
+from src.modules.notifications.schemas import NotificationAlertRuleUpdate
+from src.modules.procurement import inbound_service
+from src.modules.procurement.inbound_schemas import InboundShipmentCreate
+from src.modules.procurement.router import router as procurement_router
 from src.modules.products import service as products_service
 from src.modules.products.router import router as products_router
+from src.modules.products.schemas import ItemCreate, ItemUpdate
 from src.modules.sales_returns import service as sales_returns_service
 from src.modules.sales_returns.router import router as sales_returns_router
+from src.modules.vendor_portal.schemas import VendorPortalReady
 
 pytestmark = pytest.mark.unit
 
@@ -61,7 +73,13 @@ def _administrator() -> Principal:
 async def client() -> AsyncIterator[httpx.AsyncClient]:
     application = FastAPI()
     register_exception_handlers(application)
-    for router in (customers_router, products_router, sales_returns_router):
+    for router in (
+        customers_router,
+        notifications_router,
+        procurement_router,
+        products_router,
+        sales_returns_router,
+    ):
         application.include_router(router)
     application.dependency_overrides[get_db] = _no_database
     application.dependency_overrides[get_current_principal] = _administrator
@@ -84,10 +102,16 @@ def reached(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
         seen.append(value)
         raise NotFoundError("Probe", "reached")
 
+    async def rules_probe(self: NotificationAlertService, payload: Any) -> None:
+        seen.append(payload)
+        raise NotFoundError("Probe", "reached")
+
     monkeypatch.setattr(products_service, "convert_quantity", probe)
     monkeypatch.setattr(products_service, "resolve_price", probe)
     monkeypatch.setattr(sales_returns_service, "create_return", probe)
+    monkeypatch.setattr(inbound_service, "record_inbound_shipment", probe)
     monkeypatch.setattr(CustomerService, "get_credit_status", credit_probe)
+    monkeypatch.setattr(NotificationAlertService, "update_rules", rules_probe)
     return seen
 
 
@@ -173,3 +197,86 @@ async def test_the_largest_stored_quantity_reaches_the_service_as_keyed(
     assert credit == Decimal(LARGEST)
     assert sales_return.lines[0].quantity == Decimal("0.0001")
     assert conversion["quantity"] == Decimal("99999999999999.123456")
+
+
+# -----------------------------------------------------------------------------
+# Integers
+# -----------------------------------------------------------------------------
+
+
+def _alert_rule(**window: int) -> dict[str, Any]:
+    rule = {"key": "PO_NOT_ACKNOWLEDGED", "is_enabled": True}
+    return {"rules": [{**rule, "threshold_minutes": 60, "remind_every_minutes": 60, **window}]}
+
+
+def _shipment(packages: int) -> dict[str, Any]:
+    return {
+        "courier_name": "Blue Dart",
+        "shipped_at": "2026-11-01T09:00:00+05:30",
+        "packages": packages,
+    }
+
+
+@pytest.mark.parametrize(
+    ("model", "field", "largest"),
+    [
+        (InboundShipmentCreate, "packages", MAX_INTEGER_COLUMN),
+        (VendorPortalReady, "packages", MAX_INTEGER_COLUMN),
+        (ItemCreate, "shelf_life_days", MAX_INTEGER_COLUMN),
+        (ItemUpdate, "shelf_life_days", MAX_INTEGER_COLUMN),
+        (NotificationAlertRuleUpdate, "threshold_minutes", MAX_ALERT_WINDOW_MINUTES),
+        (NotificationAlertRuleUpdate, "remind_every_minutes", MAX_ALERT_WINDOW_MINUTES),
+    ],
+)
+def test_an_integer_input_stops_at_its_bound(
+    model: type[BaseModel], field: str, largest: int
+) -> None:
+    info = model.model_fields[field]
+    # A bound written as ``Field(le=...)`` lives in the field's metadata; one
+    # written inside ``Annotated[int, Field(...)] | None`` lives in the annotation.
+    constrained: Any = (
+        Annotated[(info.annotation, *info.metadata)] if info.metadata else info.annotation
+    )
+    adapter: TypeAdapter[int | None] = TypeAdapter(constrained)
+
+    assert adapter.validate_python(largest) == largest
+    with pytest.raises(PydanticValidationError):
+        adapter.validate_python(largest + 1)
+
+
+async def test_an_alert_window_past_ten_years_is_a_field_error(
+    client: httpx.AsyncClient, reached: list[Any]
+) -> None:
+    too_long = MAX_ALERT_WINDOW_MINUTES + 1
+
+    assert "rules.0.threshold_minutes" in _field_errors(
+        await client.put("/notifications/alert-rules", json=_alert_rule(threshold_minutes=too_long))
+    )
+    assert "rules.0.remind_every_minutes" in _field_errors(
+        await client.put(
+            "/notifications/alert-rules", json=_alert_rule(remind_every_minutes=too_long)
+        )
+    )
+    assert reached == []
+
+    longest = _alert_rule(
+        threshold_minutes=MAX_ALERT_WINDOW_MINUTES, remind_every_minutes=MAX_ALERT_WINDOW_MINUTES
+    )
+    assert (await client.put("/notifications/alert-rules", json=longest)).status_code == 404
+    (saved,) = reached
+    assert saved.rules[0].threshold_minutes == MAX_ALERT_WINDOW_MINUTES
+
+
+async def test_a_package_count_past_the_integer_column_is_a_field_error(
+    client: httpx.AsyncClient, reached: list[Any]
+) -> None:
+    url = f"/procurement/purchase-orders/{uuid.uuid4()}/shipments"
+
+    assert "packages" in _field_errors(
+        await client.post(url, json=_shipment(MAX_INTEGER_COLUMN + 1))
+    )
+    assert reached == []
+
+    assert (await client.post(url, json=_shipment(MAX_INTEGER_COLUMN))).status_code == 404
+    (recorded,) = reached
+    assert recorded.packages == MAX_INTEGER_COLUMN

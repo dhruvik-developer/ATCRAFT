@@ -79,6 +79,14 @@ class AlertReconcilePlan:
     notify_ids: frozenset[uuid.UUID]
 
 
+# ASSUMPTION: an alert threshold or reminder interval is at most ten years -
+# the 3650 days every other duration input here is capped at (lead times,
+# ageing thresholds). Each scanner shifts "now" by the threshold, so the cap
+# also keeps that instant inside the calendar: past ~1.07e9 minutes the
+# subtraction raised OverflowError and the rule failed every scan, silently.
+# docs/assumptions.md §B4-2.
+MAX_ALERT_WINDOW_MINUTES = 3650 * 24 * 60
+
 # ASSUMPTION: alert times are UTC and the defaults below are conservative
 # operational starting points; each company's sparse rule row can override them.
 ALERT_RULES: Mapping[AlertRuleKey, AlertRule] = {
@@ -276,6 +284,7 @@ def plan_reconciliation(
 
 __all__ = [
     "ALERT_RULES",
+    "MAX_ALERT_WINDOW_MINUTES",
     "AlertCandidate",
     "AlertGranularity",
     "AlertReconcilePlan",

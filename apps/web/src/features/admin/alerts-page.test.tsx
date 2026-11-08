@@ -10,6 +10,8 @@ import AlertsPage from './alerts-page'
 
 type AlertRule = SchemaOf<'NotificationAlertRuleRead'>
 
+const WHOLE_MINUTES = 'Enter a duration that resolves to whole minutes, up to 3650 days.'
+
 function alertRule(overrides: Partial<AlertRule> = {}): AlertRule {
   return {
     key: 'PO_NOT_ACKNOWLEDGED',
@@ -116,7 +118,24 @@ describe('smart alert settings', () => {
     })
     fireEvent.change(threshold, { target: { value: '' } })
 
-    expect(screen.getByText('Enter a duration that resolves to whole minutes.')).toBeVisible()
+    expect(screen.getByText(WHOLE_MINUTES)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+  })
+
+  it('refuses a duration past the ten-year cap the server enforces', async () => {
+    renderAlerts([P.SETTINGS_VIEW, P.SETTINGS_MANAGE])
+
+    const threshold = await screen.findByRole('spinbutton', {
+      name: 'Purchase order not acknowledged alert threshold',
+    })
+    fireEvent.change(threshold, { target: { value: '3651' } })
+
+    expect(screen.getByText(WHOLE_MINUTES)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+
+    fireEvent.change(threshold, { target: { value: '3650' } })
+
+    expect(screen.queryByText(WHOLE_MINUTES)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes (1)' })).toBeEnabled()
   })
 })

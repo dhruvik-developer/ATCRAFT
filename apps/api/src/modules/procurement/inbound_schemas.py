@@ -18,6 +18,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import MAX_INTEGER_COLUMN
 from src.modules.documents.schemas import DocumentRead
 from src.modules.procurement.models import PurchaseOrderStatus
 from src.modules.procurement.schemas import NonNegativeMoney, NonNegativeQuantity
@@ -72,7 +73,7 @@ class InboundShipmentCreate(BaseModel):
     driver_mobile: str | None = Field(default=None, max_length=32)
     shipped_at: datetime
     expected_delivery_date: date | None = None
-    packages: int | None = Field(default=None, ge=1)
+    packages: int | None = Field(default=None, ge=1, le=MAX_INTEGER_COLUMN)
     weight_kg: NonNegativeQuantity | None = None
     freight_amount: NonNegativeMoney = Decimal("0")
     notes: str | None = Field(default=None, max_length=2000)
