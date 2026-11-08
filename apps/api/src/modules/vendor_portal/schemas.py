@@ -22,9 +22,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.responses import OffsetPagination
+from src.core.validation import bind_request_model
 from src.modules.finance.models import MatchStatus, PaymentMethod, PaymentStatus
 from src.modules.finance.models import VendorInvoiceStatus as InvoiceStatus
-from src.modules.finance.schemas import VendorInvoiceCreate, VendorInvoiceLineIn
+from src.modules.finance.schemas import Currency, VendorInvoiceCreate
 from src.modules.job_work.models import (
     JobWorkOrderStatus,
     JobWorkProcess,
@@ -130,17 +131,28 @@ class VendorPortalInvoiceCreate(BaseModel):
     invoice_date: date
     due_date: date | None = None
     goods_receipt_id: uuid.UUID | None = None
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    currency: Currency | None = None
     round_off_amount: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     notes: str | None = Field(default=None, max_length=2000)
     lines: list[VendorPortalInvoiceLineIn] = Field(min_length=1, max_length=200)
 
     def staff_payload(self, vendor_id: uuid.UUID) -> VendorInvoiceCreate:
-        """The finance module's create body, with the vendor forced from the token."""
-        return VendorInvoiceCreate(
-            **self.model_dump(exclude={"lines", "invoice_document_id"}),
-            vendor_id=vendor_id,
-            lines=[VendorInvoiceLineIn(**line.model_dump()) for line in self.lines],
+        """The finance module's create body, with the vendor forced from the token.
+
+        Bound as request input, not constructed: finance's own rules - a due
+        date before the invoice date, a receipt line that names no order line,
+        a line with neither item nor description - then refuse with the 422
+        field-error contract (``_root``, ``lines.0``) instead of escaping as an
+        unhandled pydantic error, a 500 the vendor's form can attach to nothing.
+        Any rule finance adds later is covered the same way.
+        """
+        return bind_request_model(
+            VendorInvoiceCreate,
+            {
+                **self.model_dump(exclude={"lines", "invoice_document_id"}),
+                "vendor_id": vendor_id,
+                "lines": [line.model_dump() for line in self.lines],
+            },
         )
 
 

@@ -1,24 +1,30 @@
 """Vendor-portal rules that need no database.
 
-The route allow-list, the vendor role presets, the purchase-order machine's
-VENDOR_DECLINED edges, the one ordered tracking rule (in both its Python and
-its SQL form), the vendor-app tab buckets, the shared "PO late" predicate and
-the PO PDF renderer.
+The route allow-list, a vendor bill's binding to finance's create body, the
+vendor role presets, the purchase-order machine's VENDOR_DECLINED edges, the
+one ordered tracking rule (in both its Python and its SQL form), the vendor-app
+tab buckets, the shared "PO late" predicate and the PO PDF renderer.
 """
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from itertools import product
 from types import SimpleNamespace
+from typing import Annotated, Any
 
 import pytest
+from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import literal_column
 from sqlalchemy.dialects import postgresql
 
 from src.core.deps import vendor_route_allowed
+from src.core.errors import ValidationError as AppValidationError
 from src.core.permissions import ROLE_PRESETS, VIEW_ONLY, Permission
+from src.modules.finance.schemas import VendorInvoiceCreate, VendorInvoiceLineIn
 from src.modules.procurement.inbound_repository import (
     TAB_TRACKING_STATUSES,
     inbound_tracking_status,
@@ -29,7 +35,11 @@ from src.modules.procurement.inbound_schemas import InboundShipmentCreate, Inbou
 from src.modules.procurement.inbound_service import shipment_message
 from src.modules.procurement.models import PurchaseOrderStatus
 from src.modules.procurement.service_rules import PURCHASE_ORDER_LIFECYCLE
-from src.modules.vendor_portal.schemas import VendorJobWorkUpdateCreate
+from src.modules.vendor_portal.schemas import (
+    VendorJobWorkUpdateCreate,
+    VendorPortalInvoiceCreate,
+    VendorPortalInvoiceLineIn,
+)
 from src.workers.tasks.reports import indian_money, plain_quantity, render_purchase_order_pdf
 
 pytestmark = pytest.mark.unit
@@ -115,6 +125,132 @@ def test_vendor_job_work_progress_requires_timezone_and_normalizes_note() -> Non
     )
     assert update.event_time.tzinfo is UTC
     assert update.note == "Batch packed"
+
+
+# -----------------------------------------------------------------------------
+# A vendor's bill is bound to finance's create body as request input
+# -----------------------------------------------------------------------------
+
+
+def _bill(**overrides: Any) -> dict[str, Any]:
+    return {
+        "purchase_order_id": uuid.uuid4(),
+        "vendor_invoice_number": "BILL-1",
+        "invoice_date": date(2026, 11, 2),
+        "lines": [{"item_id": uuid.uuid4(), "quantity": "2", "unit_price": "40"}],
+        **overrides,
+    }
+
+
+def _line(**fields: Any) -> list[dict[str, Any]]:
+    return [{"quantity": "1", "unit_price": "40", **fields}]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"due_date": date(2026, 11, 1)}, "_root"),
+        (
+            {"lines": _line(item_id=uuid.uuid4(), goods_receipt_line_id=uuid.uuid4())},
+            "lines.0",
+        ),
+        ({"lines": _line()}, "lines.0"),
+    ],
+    ids=["due-before-invoice", "receipt-line-without-order-line", "no-item-no-description"],
+)
+def test_a_bill_finance_refuses_is_a_field_error_not_a_500(
+    overrides: dict[str, Any], field: str
+) -> None:
+    bill = VendorPortalInvoiceCreate(**_bill(**overrides))  # the portal door admits it
+
+    with pytest.raises(AppValidationError) as refused:
+        bill.staff_payload(uuid.uuid4())
+
+    assert field in refused.value.details["fields"], refused.value.details
+
+
+def test_a_lower_case_currency_is_refused_at_the_portal_door() -> None:
+    with pytest.raises(PydanticValidationError) as refused:
+        VendorPortalInvoiceCreate(**_bill(currency="inr"))
+    assert [error["loc"] for error in refused.value.errors()] == [("currency",)]
+
+
+def test_a_valid_bill_binds_with_the_vendor_from_the_token() -> None:
+    vendor_id = uuid.uuid4()
+    bill = VendorPortalInvoiceCreate(**_bill(currency="INR", invoice_document_id=uuid.uuid4()))
+
+    staff = bill.staff_payload(vendor_id)
+
+    assert isinstance(staff, VendorInvoiceCreate)
+    assert staff.vendor_id == vendor_id and staff.currency == "INR"
+    assert staff.lines[0].quantity == Decimal("2") and staff.lines[0].unit_price == Decimal("40")
+
+
+#: Keywords that describe a field rather than constrain it. ``items`` is the
+#: array's element ``$ref``, which names a different class on each side; the
+#: element models are compared as a pair of their own.
+_SCHEMA_NOISE = frozenset({"title", "description", "default", "examples", "items"})
+
+
+def _constraints(schema: dict[str, Any]) -> dict[str, Any]:
+    """A property's JSON schema without its labels, and without ``| None``.
+
+    Optionality is left out on purpose: the portal may *require* what finance
+    leaves optional (the purchase order), which is stricter, not drift.
+    """
+    kept = {key: value for key, value in schema.items() if key not in _SCHEMA_NOISE}
+    if "anyOf" in kept:
+        options = [_constraints(o) for o in kept.pop("anyOf") if o != {"type": "null"}]
+        return {**kept, **options[0]} if len(options) == 1 else {**kept, "anyOf": options}
+    return kept
+
+
+def unmirrored_constraints(portal: type[BaseModel], staff: type[BaseModel]) -> list[str]:
+    """Shared fields whose constraints differ between a portal model and finance's."""
+    ours = portal.model_json_schema()["properties"]
+    theirs = staff.model_json_schema()["properties"]
+    return [
+        f"{portal.__name__}.{name}: {_constraints(ours[name])} vs {_constraints(theirs[name])}"
+        for name in sorted(ours.keys() & theirs.keys())
+        if _constraints(ours[name]) != _constraints(theirs[name])
+    ]
+
+
+@pytest.mark.parametrize(
+    ("portal", "staff"),
+    [
+        (VendorPortalInvoiceCreate, VendorInvoiceCreate),
+        (VendorPortalInvoiceLineIn, VendorInvoiceLineIn),
+    ],
+)
+def test_the_portal_bill_mirrors_every_constraint_finance_puts_on_a_shared_field(
+    portal: type[BaseModel], staff: type[BaseModel]
+) -> None:
+    """The portal states finance's limits, so its contract and form are not looser.
+
+    A rule finance adds is still a 422 through ``staff_payload`` - but only a
+    mirrored one appears in the vendor's OpenAPI contract and is refused when the
+    request is parsed, which is where the vendor's form reads its limits from.
+    """
+    shared = portal.model_fields.keys() & staff.model_fields.keys()
+    assert len(shared) >= 9, "the models no longer share their fields; compare the right pair"
+    assert not unmirrored_constraints(portal, staff)
+
+
+def test_the_mirror_check_reports_a_constraint_only_one_side_states() -> None:
+    class Loose(BaseModel):
+        currency: str | None = Field(default=None, min_length=3, max_length=3)
+        number: str
+
+    class Tight(BaseModel):
+        currency: Annotated[str, Field(min_length=3, max_length=3, pattern="^[A-Z]{3}$")] | None = (
+            None
+        )
+        number: str
+
+    assert [finding.split(":")[0] for finding in unmirrored_constraints(Loose, Tight)] == [
+        "Loose.currency"
+    ]
 
 
 # -----------------------------------------------------------------------------

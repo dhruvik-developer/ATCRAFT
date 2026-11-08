@@ -78454,6 +78454,7 @@
               {
                 "maxLength": 3,
                 "minLength": 3,
+                "pattern": "^[A-Z]{3}$",
                 "type": "string"
               },
               {

@@ -20,16 +20,17 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
 from src.core.deps import Principal, TenantContext
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditLog
+from src.modules.finance.models import VendorInvoice
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.procurement import service as procurement
-from src.modules.procurement.models import PurchaseOrder, PurchaseOrderStatus
+from src.modules.procurement.models import GoodsReceiptLine, PurchaseOrder, PurchaseOrderStatus
 from src.modules.vendors.models import Transporter, Vendor
 from src.workers.tasks.reports import render_purchase_order_pdf
 from tests import seed_support
@@ -739,6 +740,65 @@ async def test_receipts_bills_and_payments_are_the_vendors_own(
     assert (await api_client.get("/vendor-portal/payments")).json()["data"] == []
     assert (await api_client.get("/vendor-portal/receipts")).json()["data"] == []
     assert (await api_client.get("/vendor-portal/payments/summary")).json()["data"] == []
+
+
+async def test_a_bill_finance_refuses_is_a_field_error_that_writes_nothing(
+    api_client, session, tenant, principal, world
+):
+    """Each of these once passed the portal model and answered 500 from finance's."""
+    order = await accepted_order(api_client, session, tenant, principal, world)
+    receipt = await receive(session, tenant, principal, order.id, received=Decimal("3"))
+    receipt_line_id = (
+        await session.execute(
+            select(GoodsReceiptLine.id).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+        )
+    ).scalar_one()
+    line = await order_line(session, order.id)
+    bill = {
+        "purchase_order_id": str(order.id),
+        "vendor_invoice_number": code("BILL"),
+        "invoice_date": today().isoformat(),
+        "lines": [
+            {
+                "item_id": str(line.item_id),
+                "purchase_order_line_id": str(line.id),
+                "quantity": "1",
+                "unit_price": "40",
+            }
+        ],
+    }
+    priced = {"quantity": "1", "unit_price": "40"}
+    refusals = [
+        ({"currency": "inr"}, "currency"),
+        ({"due_date": (today() - timedelta(days=1)).isoformat()}, "_root"),
+        (
+            {
+                "lines": [
+                    {
+                        "item_id": str(line.item_id),
+                        "goods_receipt_line_id": str(receipt_line_id),
+                        **priced,
+                    }
+                ]
+            },
+            "lines.0",
+        ),
+        ({"lines": [priced]}, "lines.0"),
+    ]
+    invoices = select(func.count()).select_from(VendorInvoice)
+    audits = select(func.count()).select_from(AuditLog)
+    before = (await session.scalar(invoices), await session.scalar(audits))
+
+    for overrides, field in refusals:
+        refused = await api_client.post("/vendor-portal/invoices", json={**bill, **overrides})
+        assert refused.status_code == 422, refused.text
+        error = refused.json()["error"]
+        assert error["code"] == "VALIDATION_ERROR", error
+        assert field in error["details"]["fields"], error
+
+    assert (await session.scalar(invoices), await session.scalar(audits)) == before
+    accepted = await api_client.post("/vendor-portal/invoices", json=bill)
+    assert accepted.status_code == 201, accepted.text
 
 
 async def test_a_rejection_at_inspection_reaches_the_vendors_quality_contact(
