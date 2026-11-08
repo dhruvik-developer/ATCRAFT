@@ -706,10 +706,14 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 MrpRun.completed_at < end,
                 MrpRequirement.shortage_quantity > 0,
             )
+            # One row per run and item across every run in the period, so an
+            # unchanged nightly plan ties on all three readable keys; the id
+            # last makes the order total, which offset paging needs.
             .order_by(
                 MrpRequirement.earliest_required_date.asc(),
                 MrpRequirement.shortage_quantity.desc(),
                 MrpRequirement.item_code.asc(),
+                MrpRequirement.id.asc(),
             )
         )
         if filters.item_id:
@@ -1427,7 +1431,9 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 QcInspection.vendor_id,
                 Vendor.name,
             )
-            .order_by(Item.code.asc(), Vendor.name.asc())
+            # Vendor names are not unique; the vendor id last makes the order
+            # total over the (item, vendor) groups, which offset paging needs.
+            .order_by(Item.code.asc(), Vendor.name.asc(), QcInspection.vendor_id.asc().nulls_last())
         )
         if filters.item_id:
             stmt = stmt.where(QcInspection.item_id == filters.item_id)
@@ -1708,10 +1714,13 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 Transporter.name,
                 PurchaseOrderShipment.courier_name,
             )
+            # Transporter names are not unique; the id last makes the order
+            # total over the groups, which offset paging needs.
             .order_by(
                 month.desc(),
                 Transporter.name.asc().nulls_last(),
                 PurchaseOrderShipment.courier_name.asc().nulls_last(),
+                Transporter.id.asc().nulls_last(),
             )
         )
         if filters.vendor_id is not None:
@@ -2700,7 +2709,12 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                     InventorySummary.last_movement_at < cutoff,
                 ),
             )
-            .order_by(InventorySummary.valuation_amount.desc(), Item.code.asc())
+            # The grain is (item, warehouse): one item held in two warehouses at
+            # equal value ties on value and item, so the warehouse code - unique
+            # per company - completes the order offset paging needs.
+            .order_by(
+                InventorySummary.valuation_amount.desc(), Item.code.asc(), Warehouse.code.asc()
+            )
         )
 
     # --- 13. order delay ----------------------------------------------------
@@ -3092,7 +3106,11 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         return (
             self._summary_base(filters)
             .where(or_(InventorySummary.on_hand > 0, InventorySummary.valuation_amount != 0))
-            .order_by(InventorySummary.valuation_amount.desc(), Item.code.asc())
+            # (item, warehouse) grain: the warehouse code breaks the tie between
+            # one item's equal-value positions, as in ``dead_stock``.
+            .order_by(
+                InventorySummary.valuation_amount.desc(), Item.code.asc(), Warehouse.code.asc()
+            )
         )
 
     # --- 17. dispatch -------------------------------------------------------

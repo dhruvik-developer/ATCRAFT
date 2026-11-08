@@ -22,6 +22,7 @@ import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from sqlalchemy import func, select
@@ -33,10 +34,11 @@ from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import InventoryBalance
+from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunMode, MrpRunStatus
 from src.modules.reports import service
 from src.modules.reports.models import InventorySummary, ReportJobStatus, ReportKey, ReportSnapshot
 from src.modules.reports.repository import ReportSnapshotRepository
-from src.modules.reports.schemas import ReportFilters
+from src.modules.reports.schemas import ReportFilters, ReportPeriod
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
 
@@ -676,6 +678,104 @@ async def test_a_report_page_is_bounded_and_reports_its_total(
     assert result.pagination.total == 5
     assert result.pagination.has_next is True
     assert result.pagination.total_pages == 3
+
+
+async def _one_row_page(
+    session: AsyncSession,
+    tenant: TenantContext,
+    key: ReportKey,
+    page: int,
+    *,
+    period: ReportPeriod | None = None,
+) -> Any:
+    result = await service.run_report(
+        session,
+        tenant,
+        key=key,
+        period=period,
+        filters=ReportFilters(),
+        params=PageParams(page=page, limit=1),
+        may_export=True,
+        now=NOW,
+    )
+    assert isinstance(result, service.InlineReport)
+    (row,) = result.rows
+    return row
+
+
+@pytest.mark.parametrize("key", [ReportKey.INVENTORY_VALUATION, ReportKey.DEAD_STOCK])
+async def test_one_item_at_equal_value_in_two_warehouses_pages_through_both(
+    session: AsyncSession, tenant: TenantContext, company, stock, unique_code, key: ReportKey
+) -> None:
+    """Value and item tie across the two positions; the warehouse code orders them.
+
+    Ordered by value and item alone, OFFSET could serve one position on both
+    pages and the other on neither. The later code is stocked first, so
+    insertion order cannot pass for the warehouse order.
+    """
+    later = await seed_support.seed_warehouse(
+        session, company_id=company.id, code=unique_code("WHZ")
+    )
+    earlier = await seed_support.seed_warehouse(
+        session, company_id=company.id, code=unique_code("WHA")
+    )
+    for warehouse in (later, earlier):
+        await _balance(
+            session,
+            company_id=company.id,
+            item_id=stock["first"].id,
+            warehouse_id=warehouse.id,
+            on_hand="4",
+            stock_value="40.0000",
+            last_movement_at=NOW - timedelta(days=400),
+        )
+    await service.refresh_inventory_summary(session, tenant, now=NOW)
+
+    first = await _one_row_page(session, tenant, key, 1)
+    second = await _one_row_page(session, tenant, key, 2)
+
+    assert [first.warehouse_code, second.warehouse_code] == [earlier.code, later.code]
+
+
+async def test_mrp_shortage_pages_through_identical_runs_without_repeating_one(
+    session: AsyncSession, tenant: TenantContext, company, stock, unique_code
+) -> None:
+    """An unchanged nightly plan repeats every readable key; the requirement id orders them."""
+    item = stock["first"]
+    run_codes = []
+    for hours_ago in (2, 1):
+        run = MrpRun(
+            company_id=company.id,
+            code=unique_code("MRP"),
+            status=MrpRunStatus.COMPLETED,
+            mode=MrpRunMode.SYNC,
+            started_at=NOW - timedelta(hours=hours_ago),
+            completed_at=NOW - timedelta(hours=hours_ago),
+        )
+        session.add(run)
+        await session.flush()
+        session.add(
+            MrpRequirement(
+                company_id=company.id,
+                run_id=run.id,
+                item_id=item.id,
+                item_code=item.code,
+                direct_demand_quantity=Decimal("40"),
+                gross_requirement=Decimal("40"),
+                available_quantity=Decimal("10"),
+                net_requirement=Decimal("30"),
+                shortage_quantity=Decimal("30"),
+                earliest_required_date=NOW.date() + timedelta(days=7),
+            )
+        )
+        await session.flush()
+        run_codes.append(run.code)
+    period = ReportPeriod(date_from=NOW.date() - timedelta(days=1), date_to=NOW.date())
+
+    first = await _one_row_page(session, tenant, ReportKey.MRP_SHORTAGE, 1, period=period)
+    second = await _one_row_page(session, tenant, ReportKey.MRP_SHORTAGE, 2, period=period)
+
+    assert [first.run_code, second.run_code] == run_codes
 
 
 async def test_a_report_cannot_see_another_tenants_rows(

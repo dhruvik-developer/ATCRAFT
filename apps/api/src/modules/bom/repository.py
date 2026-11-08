@@ -156,7 +156,9 @@ class ItemLookupRepository(BaseRepository[Item]):
 
         ``DISTINCT ON`` picks the preferred vendor first, then the most recent
         purchase - one statement for every leaf of the structure rather than a
-        lookup per part.
+        lookup per part. Two links can tie on both (bought the same day, or
+        never dated), so the link id last makes the pick - and the cost an
+        approval persists from it - the same on every run.
         """
         if not item_ids:
             return {}
@@ -174,6 +176,7 @@ class ItemLookupRepository(BaseRepository[Item]):
                 ItemVendorLink.item_id,
                 ItemVendorLink.is_preferred.desc(),
                 ItemVendorLink.last_purchase_date.desc().nullslast(),
+                ItemVendorLink.id.desc(),
             )
         )
         return {row.item_id: row.last_purchase_price for row in (await self.session.execute(stmt))}

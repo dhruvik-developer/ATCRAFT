@@ -664,8 +664,14 @@ async def _dispatch_documents(
                     DispatchTrackingEvent.company_id == tenant.company_id,
                     DispatchTrackingEvent.dispatch_id.in_(dispatch_ids),
                 )
+                # First row per dispatch wins below. Couriers report several
+                # events at one timestamp, so the id breaks the tie exactly as
+                # the dispatch screen's ``latest_for_dispatch`` does - both
+                # screens then name the same latest status.
                 .order_by(
-                    DispatchTrackingEvent.dispatch_id, DispatchTrackingEvent.event_time.desc()
+                    DispatchTrackingEvent.dispatch_id,
+                    DispatchTrackingEvent.event_time.desc(),
+                    DispatchTrackingEvent.id.desc(),
                 )
             )
         ).scalars()

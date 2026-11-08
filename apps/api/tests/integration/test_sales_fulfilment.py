@@ -28,7 +28,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, ValidationError
 from src.core.ids import SYSTEM_ACTOR_ID
@@ -38,7 +38,14 @@ from src.modules.allocation.schemas import ReallocationRequestCreate
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.customers.models import Customer
 from src.modules.dispatch import service as dispatch_service
-from src.modules.dispatch.schemas import DispatchCreate, DispatchRequest, DispatchResult
+from src.modules.dispatch.models import DispatchStatus
+from src.modules.dispatch.repository import DispatchTrackingEventRepository
+from src.modules.dispatch.schemas import (
+    DispatchCreate,
+    DispatchRequest,
+    DispatchResult,
+    TrackingEventIn,
+)
 from src.modules.finance import sales_invoice_service as invoices
 from src.modules.finance import service as finance
 from src.modules.finance.models import (
@@ -66,6 +73,7 @@ from src.modules.products.models import Item, ItemGroup, UnitOfMeasure
 from src.modules.quality import service as quality_service
 from src.modules.quality.schemas import DecideRequest
 from src.modules.sales import service as sales
+from src.modules.sales.fulfilment import order_fulfilment
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.sales.schemas import SalesOrderCreate, SalesOrderLineIn, SalesOrderUpdate
 from src.modules.sales_returns import service as sales_returns
@@ -277,6 +285,41 @@ async def test_k01_a_ui_shaped_consignment_consumes_the_reservation_it_was_raise
     stock = await balance(b)
     assert stock.on_hand_quantity == Decimal("0.0000")
     assert stock.reserved_quantity == Decimal("0.0000")
+
+
+async def test_the_trace_names_the_latest_tracking_event_the_dispatch_screen_does(
+    bench: Bench,
+) -> None:
+    """Couriers report several scans at one timestamp; both reads break the tie by id.
+
+    The trace once kept whichever tied event the sort happened to return first,
+    so it could name a different "latest" position from the dispatch screen.
+    """
+    b = bench
+    await receive(b, "5")
+    order, line = await raise_order(b, "5")
+    shipped = await ship(b, ui_payload(b, order, [(line, "5", [])]))
+    dispatch_id = shipped.dispatch.id
+    scanned_at = utcnow() + timedelta(minutes=5)
+    for hub in ("Hub A", "Hub B", "Hub C"):
+        await dispatch_service.add_tracking_event(
+            b.session,
+            b.tenant,
+            dispatch_id,
+            TrackingEventIn(
+                event_status=DispatchStatus.IN_TRANSIT, event_time=scanned_at, location=hub
+            ),
+        )
+
+    (screen_latest,) = await DispatchTrackingEventRepository(
+        b.session, b.tenant
+    ).latest_for_dispatch(dispatch_id, limit=1)
+    trace = await order_fulfilment(b.session, b.tenant, order.id)
+
+    assert screen_latest.location == "Hub C"
+    (consignment,) = trace.dispatches
+    assert consignment.detail is not None
+    assert consignment.detail.endswith("latest: IN_TRANSIT at Hub C")
 
 
 # -----------------------------------------------------------------------------
