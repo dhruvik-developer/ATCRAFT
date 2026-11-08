@@ -208,14 +208,16 @@ export function DataTable<T>({
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={searchPlaceholder}
               maxLength={SEARCH_MAX_LENGTH}
-              className="pl-8 pr-8"
+              className="pl-8 pr-9"
               aria-label={searchPlaceholder}
             />
             {searchInput && (
+              // 32px, inside the 36px input: a bare 16px icon here is a target
+              // a phone tap misses and lands in the text instead.
               <button
                 type="button"
                 onClick={() => setSearchInput('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground"
+                className="absolute right-0.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground hover:text-foreground"
                 aria-label="Clear search"
               >
                 <X className="h-4 w-4" />

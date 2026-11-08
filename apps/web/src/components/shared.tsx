@@ -1,7 +1,7 @@
 /**
- * Cross-feature building blocks: page header, status badge, stat tile,
- * confirmation and reason dialogs, description list, field error, date-range
- * filter, panel loader.
+ * Cross-feature building blocks: page header, status badge, chip dismiss, stat
+ * tile, confirmation and reason dialogs, description list, field error,
+ * date-range filter, panel loader.
  *
  * These exist so twenty screens present a status, a heading and a destructive
  * confirmation the same way. Divergence there is what makes an ERP feel
@@ -10,7 +10,7 @@
 
 import { describeError, errors, joinValidationMessages, prompts } from '@/lib/messages'
 
-import { AlertTriangle, ChevronRight, Loader2, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Loader2, X, type LucideIcon } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -282,6 +282,29 @@ export function StatusBadge({ status, className }: { status?: string | null; cla
     <Badge variant={variant} className={className}>
       {humanise(status)}
     </Badge>
+  )
+}
+
+// ---------------------------------------------------------- BadgeDismiss ----
+
+/**
+ * The X that removes a filter or selection chip, as the chip's last child.
+ *
+ * The icon stays 12px to suit the badge, but the button around it is 24px -
+ * WCAG 2.2's minimum target, where a bare icon was a 12px one a phone tap
+ * misses. The negative margins give the extra size back to the badge's own
+ * padding, so the chip keeps its height and the X stays where it was.
+ */
+export function BadgeDismiss({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="-my-1 -ml-1 -mr-1.5 grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <X className="h-3 w-3" aria-hidden />
+    </button>
   )
 }
 

@@ -73,7 +73,9 @@ export function Toaster() {
             <button
               type="button"
               onClick={() => dismiss(item.id)}
-              className="shrink-0 rounded-sm p-0.5 opacity-50 transition-opacity hover:opacity-100"
+              // 28px to press, while the negative margin keeps the 20px slot
+              // the icon has always sat in.
+              className="-m-1 shrink-0 rounded-sm p-1.5 opacity-50 transition-opacity hover:opacity-100"
               aria-label="Dismiss"
             >
               <X className="h-4 w-4" />

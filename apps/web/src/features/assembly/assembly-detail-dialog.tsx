@@ -14,14 +14,20 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { CheckCircle2, PackageMinus, ScanBarcode, X } from 'lucide-react'
+import { CheckCircle2, PackageMinus, ScanBarcode } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, FieldError, ReasonDialog, StatusBadge } from '@/components/shared'
+import {
+  BadgeDismiss,
+  DescriptionList,
+  FieldError,
+  ReasonDialog,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -475,13 +481,10 @@ function SerialPicker({
               <Badge variant="outline" className="gap-1 font-mono">
                 <ScanBarcode className="h-3 w-3" aria-hidden />
                 {serial.serial_number}
-                <button
-                  type="button"
-                  aria-label={`Remove serial ${serial.serial_number}`}
+                <BadgeDismiss
+                  label={`Remove serial ${serial.serial_number}`}
                   onClick={() => onChange(selected.filter((row) => row.id !== serial.id))}
-                >
-                  <X className="h-3 w-3" aria-hidden />
-                </button>
+                />
               </Badge>
             </li>
           ))}

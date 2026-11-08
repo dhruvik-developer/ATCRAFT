@@ -243,13 +243,14 @@ export function PermissionMatrix({
           onChange={(event) => setTerm(event.target.value)}
           placeholder="Filter permissions..."
           aria-label="Filter permissions"
-          className="pl-8 pr-8"
+          className="pl-8 pr-9"
         />
         {term && (
+          // The same 32px target as the table search's clear button.
           <button
             type="button"
             onClick={() => setTerm('')}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground"
+            className="absolute right-0.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground hover:text-foreground"
             aria-label="Clear permission filter"
           >
             <X className="h-4 w-4" />

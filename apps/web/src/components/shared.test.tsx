@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api-client'
 import { messages } from '@/lib/messages'
 
-import { DateRangeFilter, ReasonDialog, StatusBadge } from './shared'
+import { BadgeDismiss, DateRangeFilter, ReasonDialog, StatusBadge } from './shared'
 import { CardTitle } from './ui/primitives'
 
 describe('ReasonDialog', () => {
@@ -144,6 +144,27 @@ describe('StatusBadge', () => {
 
     rerender(<StatusBadge status="NOT_A_REAL_STATUS" />)
     expect(screen.getByText('Not A Real Status').className).toContain('bg-secondary')
+  })
+})
+
+describe('BadgeDismiss', () => {
+  it('is a named button that removes its chip, and never submits a form around it', () => {
+    const onClick = vi.fn()
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault())
+    render(
+      <form onSubmit={onSubmit}>
+        <span>
+          One sales order
+          <BadgeDismiss label="Show every sales order" onClick={onClick} />
+        </span>
+      </form>,
+    )
+
+    const dismiss = screen.getByRole('button', { name: 'Show every sales order' })
+    expect(dismiss).toHaveAttribute('type', 'button')
+    fireEvent.click(dismiss)
+    expect(onClick).toHaveBeenCalledOnce()
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 })
 

@@ -33,7 +33,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
+import { BadgeDismiss, DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -403,14 +403,10 @@ export default function PurchaseOrdersPage() {
               categoryFilterName && (
                 <Badge variant="secondary" className="gap-1.5 py-1">
                   Category: {categoryFilterName}
-                  <button
-                    type="button"
-                    className="rounded-sm hover:text-foreground"
-                    aria-label="Remove the category filter"
+                  <BadgeDismiss
+                    label="Remove the category filter"
                     onClick={() => setParam('item_category_id', undefined)}
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
+                  />
                 </Badge>
               )
             )}

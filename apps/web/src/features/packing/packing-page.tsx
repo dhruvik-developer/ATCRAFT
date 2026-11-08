@@ -19,7 +19,13 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DateRangeFilter, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import {
+  BadgeDismiss,
+  DateRangeFilter,
+  FieldError,
+  PageHeader,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -502,14 +508,10 @@ export default function PackingPage() {
             {salesOrderId && (
               <Badge variant="muted" className="gap-1">
                 One sales order's packing
-                <button
-                  type="button"
-                  className="rounded-sm hover:text-foreground"
-                  aria-label="Show every sales order"
+                <BadgeDismiss
+                  label="Show every sales order"
                   onClick={() => setParam('sales_order_id', undefined)}
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                />
               </Badge>
             )}
 

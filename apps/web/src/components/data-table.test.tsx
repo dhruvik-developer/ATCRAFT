@@ -95,4 +95,24 @@ describe('server-controlled table search', () => {
     act(() => vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS))
     expect(onSearchChange).toHaveBeenCalledExactlyOnceWith('lock body')
   })
+
+  it('offers a clear control only while there is a term, and clearing reaches the server', () => {
+    vi.useFakeTimers()
+    const onSearchChange = vi.fn()
+    render(
+      <DataTable
+        columns={[{ accessorKey: 'code', header: 'Code' }]}
+        data={[{ code: 'HINGE' }]}
+        onSearchChange={onSearchChange}
+        searchValue="hinge"
+      />,
+    )
+    const search = screen.getByRole('textbox', { name: 'Search...' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(search).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS))
+    expect(onSearchChange).toHaveBeenCalledExactlyOnceWith('')
+  })
 })

@@ -33,7 +33,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { ConfirmDialog, FieldError } from '@/components/shared'
+import { BadgeDismiss, ConfirmDialog, FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -614,7 +614,7 @@ function VendorInvitations({
             const vendor = vendorById.get(vendorId)
             return (
               <li key={vendorId} className="min-w-0 max-w-full">
-                <Badge variant="secondary" className="max-w-full pr-1">
+                <Badge variant="secondary" className="max-w-full">
                   <span
                     className="min-w-0 truncate"
                     title={vendor ? `${vendor.code} - ${vendor.name}` : undefined}
@@ -626,14 +626,10 @@ function VendorInvitations({
                       (unapproved)
                     </span>
                   )}
-                  <button
-                    type="button"
-                    aria-label={`Remove ${vendor ? vendor.name : 'this vendor'} from the RFQ`}
+                  <BadgeDismiss
+                    label={`Remove ${vendor ? vendor.name : 'this vendor'} from the RFQ`}
                     onClick={() => onChange(value.filter((id) => id !== vendorId))}
-                    className="ml-0.5 shrink-0 rounded-full p-0.5 hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
+                  />
                 </Badge>
               </li>
             )

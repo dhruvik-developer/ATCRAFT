@@ -38,7 +38,10 @@ export const DialogContent = forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
+      {/* A 32px target around the 16px icon - the system's icon-sm size - with
+          the icon's centre where it always was. The bare icon was a 16px tap
+          target on every dialog in the application. */}
+      <DialogPrimitive.Close className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-sm opacity-60 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>

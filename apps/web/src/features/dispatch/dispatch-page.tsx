@@ -34,7 +34,13 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import {
+  BadgeDismiss,
+  ConfirmDialog,
+  FieldError,
+  PageHeader,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -938,14 +944,10 @@ function DispatchesTab({
           {salesOrderId && (
             <Badge variant="muted" className="gap-1">
               One sales order's consignments
-              <button
-                type="button"
-                className="rounded-sm hover:text-foreground"
-                aria-label="Show every sales order"
+              <BadgeDismiss
+                label="Show every sales order"
                 onClick={() => setParam('sales_order_id', undefined)}
-              >
-                <X className="h-3 w-3" />
-              </button>
+              />
             </Badge>
           )}
 

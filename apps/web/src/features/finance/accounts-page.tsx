@@ -625,7 +625,9 @@ export default function AccountsPage() {
                   type="button"
                   onClick={() => setParam('parent_id', undefined)}
                   aria-label="Show the whole chart again"
-                  className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  // 32px inside the 36px chip; the negative margin keeps the
+                  // icon where it sat when the target was the icon itself.
+                  className="-mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

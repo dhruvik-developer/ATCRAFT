@@ -29,7 +29,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
+import { BadgeDismiss, DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -428,14 +428,10 @@ export default function PurchaseReturnsPage() {
             {goodsReceiptId && (
               <Badge variant="secondary" className="h-9 gap-1.5 px-3">
                 One goods receipt
-                <button
-                  type="button"
+                <BadgeDismiss
+                  label="Stop filtering to one goods receipt"
                   onClick={() => setParam('goods_receipt_id', undefined)}
-                  aria-label="Stop filtering to one goods receipt"
-                  className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <X className="h-3 w-3" aria-hidden />
-                </button>
+                />
               </Badge>
             )}
 

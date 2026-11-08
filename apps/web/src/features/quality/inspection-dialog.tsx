@@ -1000,7 +1000,9 @@ export function InspectionDialog({
                                 <span className="min-w-0 flex-1 truncate">{attachedName}</span>
                                 <button
                                   type="button"
-                                  className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  // 32px inside the 36px field; the negative
+                                  // margin keeps the icon where it sat.
+                                  className="-mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                   aria-label={`Remove the photo on ${field.parameter_name}`}
                                   onClick={() => {
                                     setValue(`parameters.${index}.document_id`, null)
