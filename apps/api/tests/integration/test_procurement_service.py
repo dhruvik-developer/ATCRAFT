@@ -1134,6 +1134,16 @@ async def test_posted_return_queues_a_downloadable_vendor_debit_note(
     assert job.report_key is ReportKey.PURCHASE_RETURN_DEBIT_NOTE
     assert job.parameters == {"purchase_return_id": str(purchase_return.id)}
     assert dispatched[0]["task_name"] == "reports.generate_purchase_return_debit_note"
+    # Every document job is audited when it is queued, in the same transaction:
+    # who asked for which statutory file.
+    started = [
+        row
+        for row in await _audit_rows_for(db, tenant, purchase_return.id)
+        if row.action == AuditAction.JOB_STARTED
+    ]
+    assert [str(row.context["job_id"]) for row in started] == [job_id]
+    assert started[0].entity_type == "purchase_return"
+    assert started[0].created_by_id == tenant.user_id
 
 
 async def test_a_failed_finance_post_rolls_back_the_stock_return(
