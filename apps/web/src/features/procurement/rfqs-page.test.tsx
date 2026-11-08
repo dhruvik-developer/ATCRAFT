@@ -152,6 +152,16 @@ describe('who may work the board', () => {
     expect(await stable(() => screen.getByRole('button', { name: /new rfq/i }))).toBeVisible()
     expect(screen.getByRole('button', { name: 'More actions for RFQ-0001' })).toBeVisible()
   })
+
+  it('links every enquiry to its own page, for a viewer as much as a buyer', async () => {
+    // A real link, not only a clickable row: a `<tr onClick>` is unreachable
+    // from the keyboard, and a viewer has no menu either - so without it the
+    // quotes, the comparison and the award could not be reached at all.
+    renderScreen(<RfqsPage />, { permissions: READ_ONLY, routes: boardRoutes([rfq()]) })
+
+    const link = await stable(() => screen.getByRole('link', { name: 'RFQ-0001' }))
+    expect(link).toHaveAttribute('href', `/procurement/rfqs/${RFQ_ID}`)
+  })
 })
 
 describe('the state machine decides which commands exist', () => {

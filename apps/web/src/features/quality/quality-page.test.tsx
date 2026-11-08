@@ -378,6 +378,52 @@ async function openInspection(
   return rendered
 }
 
+describe('reaching an inspection from the keyboard', () => {
+  // The row opens the read-only detail on a click, but a `<tr onClick>` is not
+  // in the tab order. Inspect is offered only on an open row and only with qc
+  // rights, so the code is the keyboard's one way into a decided inspection.
+  it('opens the detail from the code on the pending queue', async () => {
+    const { user } = renderScreen(<QualityPage />, {
+      permissions: [P.QC_VIEW],
+      routes: {
+        'GET /quality/pending': page([inspection()]),
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail()),
+      },
+    })
+
+    const code = await screen.findByRole('button', { name: 'QC-0001' })
+    code.focus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('dialog', { name: 'Inspection QC-0001' })).toBeVisible()
+  })
+
+  it('opens a decided inspection from the history, where Inspect is never offered', async () => {
+    const decided: Partial<QcInspectionRow> = {
+      status: 'CLOSED',
+      result: 'ACCEPTED',
+      inspected_at: '2026-08-30T09:00:00Z',
+    }
+    const { user } = renderScreen(<QualityPage />, {
+      permissions: [P.QC_VIEW, P.QC_DECIDE],
+      routes: {
+        'GET /quality/pending': page([]),
+        'GET /quality/inspections': page([inspection(decided)]),
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail(decided)),
+      },
+    })
+    await screen.findByText('Nothing waiting for inspection')
+    await user.click(screen.getByRole('tab', { name: /all inspections/i }))
+
+    const code = await screen.findByRole('button', { name: 'QC-0001' })
+    expect(screen.queryByRole('button', { name: 'Inspect' })).toBeNull()
+    code.focus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByRole('dialog', { name: 'Inspection QC-0001' })).toBeVisible()
+  })
+})
+
 describe('the inspection sheet', () => {
   it('makes an inspection read-only when its source was withdrawn after the queue loaded', async () => {
     const { fetch } = await openInspection(

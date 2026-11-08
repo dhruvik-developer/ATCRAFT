@@ -172,6 +172,25 @@ describe('reading the chart at all', () => {
     expect(within(rowFor('1200')).getByText('ACCOUNTS_RECEIVABLE')).toBeInTheDocument()
     expect(within(rowFor('1010')).getByText('User-defined')).toBeInTheDocument()
   })
+
+  it('opens an account from its code, so the keyboard reaches the drill-downs too', async () => {
+    // The row opens the account on a click, but a `<tr onClick>` is not in the
+    // tab order. The code is a real button for the same dialog.
+    const { user } = renderScreen(<AccountsPage />, {
+      permissions: [P.LEDGER_VIEW],
+      routes: {
+        'GET /finance/accounts': page([account(), BANK]),
+        [`GET /finance/accounts/${RECEIVABLE_ID}`]: ok(account()),
+      },
+    })
+
+    const code = await screen.findByRole('button', { name: '1200' })
+    code.focus()
+    await user.keyboard('{Enter}')
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('Control account')).toBeInTheDocument()
+  })
 })
 
 describe('the party drill-down', () => {

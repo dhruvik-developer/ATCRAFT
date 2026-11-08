@@ -114,6 +114,25 @@ describe('who may write a specification', () => {
     expect(screen.queryByRole('button', { name: /more actions/i })).toBeNull()
   })
 
+  it('lets a reader open a version from its code, so the keyboard reaches the check sheet', async () => {
+    // The row opens the version on a click, but a `<tr onClick>` is not in the
+    // tab order, and a reader has no per-row actions to fall back on.
+    const { user } = renderScreen(<QcTemplatesPage />, {
+      permissions: [P.QC_VIEW],
+      routes: {
+        'GET /quality/templates': page([template()]),
+        [`GET /quality/templates/${TEMPLATE_ID}`]: ok(templateDetail()),
+      },
+    })
+
+    const code = await screen.findByRole('button', { name: 'QC-BRASS-ROD' })
+    code.focus()
+    await user.keyboard('{Enter}')
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('Overall length')).toBeVisible()
+  })
+
   it('does not read the category catalogue without the right to see it', async () => {
     // The filter is not merely hidden: an unrouted request would throw here, so
     // this also pins that the screen does not fire a query it cannot use. A

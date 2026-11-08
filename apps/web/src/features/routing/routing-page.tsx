@@ -83,7 +83,20 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
       {
         id: 'code',
         header: 'Code',
-        cell: ({ row }) => <span className="font-medium">{row.original.code}</span>,
+        // A real button, not only the row's click handler: the row is a <tr>
+        // with an onClick and is unreachable from the keyboard on its own.
+        cell: ({ row }) => (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setOpenRoutingId(row.original.id)
+            }}
+            className="rounded-sm font-medium hover:underline"
+          >
+            {row.original.code}
+          </button>
+        ),
       },
       {
         id: 'name',

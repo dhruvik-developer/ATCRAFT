@@ -137,6 +137,36 @@ function ItemCell({ inspection }: { inspection: QcInspectionRow }) {
   )
 }
 
+/**
+ * The inspection's code, as the keyboard's way into its read-only detail.
+ *
+ * The row opens the same detail on a click, but a `<tr onClick>` is
+ * unreachable from the keyboard - and Inspect is offered only on an open row
+ * and only with qc rights, so without this a decided inspection could not be
+ * read from either tab at all.
+ */
+function OpenInspectionButton({
+  inspection,
+  onOpen,
+}: {
+  inspection: QcInspectionRow
+  onOpen: (inspection: QcInspectionRow) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        // The row opens the same dialog; the click must not reach it as well.
+        event.stopPropagation()
+        onOpen(inspection)
+      }}
+      className="rounded-sm font-medium hover:underline"
+    >
+      {inspection.code}
+    </button>
+  )
+}
+
 // ------------------------------------------------------------- pending ------
 
 function PendingTab({
@@ -184,7 +214,7 @@ function PendingTab({
         id: 'code',
         header: 'Inspection',
         enableSorting: false,
-        cell: ({ row }) => <span className="font-medium">{row.original.code}</span>,
+        cell: ({ row }) => <OpenInspectionButton inspection={row.original} onOpen={onOpen} />,
       },
       {
         id: 'qc_stage',
@@ -263,7 +293,7 @@ function PendingTab({
     }
 
     return defs
-  }, [canInspect, onInspect])
+  }, [canInspect, onInspect, onOpen])
 
   return (
     <DataTable
@@ -383,7 +413,7 @@ function InspectionsTab({
       {
         accessorKey: 'code',
         header: 'Inspection',
-        cell: ({ row }) => <span className="font-medium">{row.original.code}</span>,
+        cell: ({ row }) => <OpenInspectionButton inspection={row.original} onOpen={onOpen} />,
       },
       {
         accessorKey: 'qc_stage',
@@ -496,7 +526,7 @@ function InspectionsTab({
     }
 
     return defs
-  }, [canInspect, onInspect])
+  }, [canInspect, onInspect, onOpen])
 
   return (
     <DataTable

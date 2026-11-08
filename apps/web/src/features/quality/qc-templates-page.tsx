@@ -213,7 +213,20 @@ export default function QcTemplatesPage() {
       {
         accessorKey: 'code',
         header: 'Code',
-        cell: ({ row }) => <span className="font-mono font-medium">{row.original.code}</span>,
+        // A real button, not only the row's click handler: the row is a <tr>
+        // with an onClick and is unreachable from the keyboard on its own.
+        cell: ({ row }) => (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setDetailId(row.original.id)
+            }}
+            className="rounded-sm font-mono font-medium hover:underline"
+          >
+            {row.original.code}
+          </button>
+        ),
       },
       {
         accessorKey: 'version',

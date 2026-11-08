@@ -26,7 +26,7 @@
 import { type ColumnDef } from '@tanstack/react-table'
 import { MoreHorizontal, Plus, Send, TriangleAlert, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
 import { PageHeader, StatusBadge } from '@/components/shared'
@@ -134,7 +134,16 @@ export default function RfqsPage() {
         header: 'RFQ',
         cell: ({ row }) => (
           <div>
-            <span className="font-medium">{row.original.code}</span>
+            {/* A real link, not only a clickable row: a `<tr onClick>` cannot
+                be reached from the keyboard, and this is the only way into
+                an RFQ's quotes, comparison and award from the board. */}
+            <Link
+              to={`/procurement/rfqs/${row.original.id}`}
+              className="font-medium hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {row.original.code}
+            </Link>
             {row.original.requisition_id && (
               // The summary carries the requisition's id and nothing else, and
               // there is no per-requisition screen to open, so this states the

@@ -416,8 +416,19 @@ export default function AccountsPage() {
         // header below is fixed rather than sending a sort that 400s.
         accessorKey: 'code',
         header: 'Code',
+        // A real button, not only the row's click handler: the row is a <tr>
+        // with an onClick and is unreachable from the keyboard on its own.
         cell: ({ row }) => (
-          <span className="font-mono text-xs font-medium">{row.original.code}</span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setSelected(row.original)
+            }}
+            className="rounded-sm font-mono text-xs font-medium hover:underline"
+          >
+            {row.original.code}
+          </button>
         ),
       },
       {
