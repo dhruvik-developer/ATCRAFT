@@ -62502,7 +62502,7 @@
             "type": "boolean"
           },
           "name": {
-            "maxLength": 255,
+            "maxLength": 120,
             "minLength": 1,
             "title": "Name",
             "type": "string"
@@ -62707,7 +62707,7 @@
           "name": {
             "anyOf": [
               {
-                "maxLength": 255,
+                "maxLength": 120,
                 "minLength": 1,
                 "type": "string"
               },

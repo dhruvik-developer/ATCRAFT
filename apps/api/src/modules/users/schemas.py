@@ -60,6 +60,9 @@ MAX_SCOPE_IDS = 200
 _VALID_PERMISSIONS: frozenset[str] = frozenset(str(p) for p in Permission)
 
 Name = Annotated[str, Field(min_length=1, max_length=255)]
+#: ``roles.name`` is VARCHAR(120). The person-sized ``Name`` let 121-255
+#: characters through to a column that refuses them - a database error, a 500.
+RoleName = Annotated[str, Field(min_length=1, max_length=120)]
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 
 
@@ -443,7 +446,7 @@ class RoleCreate(_Base):
     """
 
     code: Annotated[str, Field(min_length=2, max_length=48)]
-    name: Name
+    name: RoleName
     description: str | None = Field(default=None, max_length=2000)
     permissions: Annotated[list[str], Field(max_length=len(_VALID_PERMISSIONS))] = Field(
         default_factory=list
@@ -476,7 +479,7 @@ class RoleUpdate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True, extra="forbid")
 
-    name: Name | None = None
+    name: RoleName | None = None
     description: str | None = Field(default=None, max_length=2000)
     permissions: Annotated[list[str], Field(max_length=len(_VALID_PERMISSIONS))] | None = None
     is_active: bool | None = None

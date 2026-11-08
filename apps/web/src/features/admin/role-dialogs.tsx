@@ -52,7 +52,7 @@ const roleSchema = z.object({
       ROLE_CODE_PATTERN,
       'Start with a letter; letters, digits, spaces, dashes and underscores only',
     ),
-  name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(120, 'At most 120 characters'),
   description: z.string().trim().max(2000, 'At most 2000 characters'),
   is_vendor_role: z.boolean(),
   is_active: z.boolean(),

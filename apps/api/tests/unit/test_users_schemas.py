@@ -134,6 +134,15 @@ class TestRoleContracts:
         with pytest.raises(ValidationError):
             RoleCreate(code=raw, name="Anything")
 
+    def test_a_role_name_fits_its_column(self) -> None:
+        # roles.name is VARCHAR(120); a longer name used to reach PostgreSQL.
+        assert RoleCreate(code="LONG_NAME", name="R" * 120).name == "R" * 120
+        assert RoleUpdate(name="R" * 120).name == "R" * 120
+        with pytest.raises(ValidationError):
+            RoleCreate(code="LONG_NAME", name="R" * 121)
+        with pytest.raises(ValidationError):
+            RoleUpdate(name="R" * 121)
+
     def test_system_flag_is_not_part_of_the_contract(self) -> None:
         # System roles are seeded; a client-created role claiming the flag would
         # be undeletable for a reason nobody could trace.

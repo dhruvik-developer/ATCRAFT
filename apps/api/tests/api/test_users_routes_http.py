@@ -778,6 +778,23 @@ class TestCreateRole:
         assert error["code"] == "VALIDATION_ERROR"
         assert {"code", "name", "permissions"} <= set(error["details"]["fields"])
 
+    async def test_a_role_name_must_fit_its_column(
+        self, api_client: AsyncClient, unique_code
+    ) -> None:
+        longest = "R" * 120
+        created = data_of(
+            await api_client.post("/roles", json={"code": unique_code("LONG"), "name": longest}),
+            201,
+        )
+        assert created["name"] == longest
+
+        too_long = {"name": "R" * 121}
+        refused = await api_client.post("/roles", json={"code": unique_code("LONG"), **too_long})
+        assert "name" in error_of(refused, 422)["details"]["fields"]
+        renamed = await api_client.patch(f"/roles/{created['id']}", json=too_long)
+        assert "name" in error_of(renamed, 422)["details"]["fields"]
+        assert data_of(await api_client.get(f"/roles/{created['id']}"))["name"] == longest
+
     async def test_a_role_cannot_carry_a_permission_its_creator_lacks(
         self,
         api_client: AsyncClient,
