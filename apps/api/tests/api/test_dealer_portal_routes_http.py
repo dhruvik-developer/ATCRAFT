@@ -775,15 +775,6 @@ async def test_cart_changes_the_dealer_may_not_make_are_refused(
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: cart_version moves only on a cart's first change - touch() re-sets an "
-        "unchanged updated_by_id, so no UPDATE bumps the version and checkout accepts a "
-        "cart changed since it was read (dealer_portal/service.py:953, "
-        "common/repository.py:178)"
-    ),
-)
 async def test_checkout_refuses_a_cart_changed_since_it_was_read(api_client, shop):
     sign_in(shop.dealer)
     cart = ok(
@@ -1321,14 +1312,6 @@ async def test_a_credit_note_pdf_is_queued_for_the_dealer(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: queueing a credit-note PDF writes no audit row, while its sales-invoice "
-        "twin records JOB_STARTED (finance/credit_note_service.py:116 vs "
-        "finance/sales_invoice_service.py:747)"
-    ),
-)
 async def test_queueing_a_credit_note_pdf_is_audited(api_client, session, account, credited):
     sign_in(account.dealer)
     job = ok(await api_client.post(f"/dealer-portal/credit-notes/{credited.note_id}/pdf"), 202)
@@ -1444,13 +1427,6 @@ async def test_return_requests_outside_the_rules_are_refused(api_client, session
     assert ok(await api_client.get(url)) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: a dealer return request writes no audit row - "
-        "sales_returns.service.create_return records nothing (sales_returns/service.py:208)"
-    ),
-)
 async def test_a_return_request_is_audited(api_client, session, tenant, account):
     dispatch_id = await ship(session, tenant, account)
     sign_in(account.dealer)
@@ -1468,14 +1444,6 @@ async def test_a_return_request_is_audited(api_client, session, tenant, account)
     assert [row.created_by_id for row in trail] == [account.buyer_id]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: POST /dealer-portal/returns checks only that a line is eligible, not the "
-        "returnable quantity open requests leave, so two DRAFT requests can claim more than "
-        "was dispatched (dealer_portal/commerce_service.py:163)"
-    ),
-)
 async def test_a_second_request_cannot_claim_more_than_is_still_returnable(
     api_client, session, tenant, account, decimal_equal
 ):

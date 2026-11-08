@@ -160,14 +160,22 @@ class DealerCommerceService:
         customer = await self.portal._customer()
         async with transaction(self.session):
             await self.repo.require_owned(Dispatch, payload.dispatch_id, "Dispatch")
-            eligible = {
-                line.id for line, _, _, _ in await self.repo.eligible_lines([payload.dispatch_id])
+            remaining_by_line = {
+                line.id: remaining
+                for line, _, _, remaining in await self.repo.eligible_lines([payload.dispatch_id])
             }
-            if any(line.dispatch_line_id not in eligible for line in payload.lines):
+            if any(line.dispatch_line_id not in remaining_by_line for line in payload.lines):
                 raise BusinessRuleError(
                     "Choose returnable, non-serial dispatch lines. "
                     "Contact sales for serial returns."
                 )
+            for line in payload.lines:
+                left = remaining_by_line[line.dispatch_line_id]
+                if line.quantity > left:
+                    raise BusinessRuleError(
+                        "Return quantity exceeds the remaining returnable quantity "
+                        f"({left}) for that dispatch line."
+                    )
             row = await returns.create_return(
                 self.session,
                 self.tenant,

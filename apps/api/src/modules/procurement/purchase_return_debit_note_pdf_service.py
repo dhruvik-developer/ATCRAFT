@@ -11,6 +11,8 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError
 from src.core.types import ZERO, to_money
+from src.modules.audit.models import AuditAction
+from src.modules.audit.service import record_audit
 from src.modules.procurement.models import PurchaseReturnStatus
 from src.modules.procurement.repository import PurchaseReturnRepository
 from src.modules.reports import service as reports_service
@@ -53,6 +55,17 @@ async def queue_purchase_return_debit_note_pdf(
         job.expires_at = None
         ReportSnapshotRepository(session, tenant).add(job)
         await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.JOB_STARTED,
+            entity_type="purchase_return",
+            entity_id=purchase_return.id,
+            entity_code=purchase_return.code,
+            summary=f"Queued debit-note PDF for {purchase_return.code}",
+            user_id=tenant.user_id,
+            context={"job_id": job.id},
+        )
     await reports_service.dispatch_job(
         session,
         tenant,

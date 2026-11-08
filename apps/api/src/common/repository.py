@@ -176,8 +176,18 @@ class BaseRepository(Generic[ModelT]):
         return instance
 
     def touch(self, instance: ModelT) -> ModelT:
+        """Mark a row as edited by the current actor.
+
+        Always refresh ``updated_at`` when the model has one. Setting only
+        ``updated_by_id`` to the same actor leaves the ORM instance clean, so
+        SQLAlchemy issues no UPDATE and an optimistic-lock ``version`` never
+        advances - which is how a dealer cart could be changed in another tab
+        and still check out with the stale version.
+        """
         if hasattr(instance, "updated_by_id"):
             instance.updated_by_id = actor_id(self.tenant.user_id)
+        if hasattr(instance, "updated_at"):
+            instance.updated_at = utcnow()
         return instance
 
     async def soft_delete(self, instance: ModelT) -> ModelT:

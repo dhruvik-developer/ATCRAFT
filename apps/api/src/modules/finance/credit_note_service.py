@@ -135,6 +135,17 @@ async def queue_credit_note_pdf(
         job.expires_at = None
         ReportSnapshotRepository(session, tenant).add(job)
         await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.JOB_STARTED,
+            entity_type="credit_note",
+            entity_id=note.id,
+            entity_code=note.code,
+            summary=f"Queued PDF for {note.code}",
+            user_id=tenant.user_id,
+            context={"job_id": job.id},
+        )
     await reports_service.dispatch_job(
         session,
         tenant,

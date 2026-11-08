@@ -225,7 +225,23 @@ async def create_return(
             item = items[dispatch_line.item_id]
             if not item.can_return:
                 raise BusinessRuleError(f"Item {item.code} cannot be returned.")
-            available = dispatch_line.quantity - dispatch_line.returned_quantity
+            # Open DRAFT/RECEIVED requests consume the returnable pool too.
+            # ``returned_quantity`` only grows when a return is received, so a
+            # second DRAFT could otherwise over-claim the dispatched quantity.
+            claimed = await session.scalar(
+                select(func.coalesce(func.sum(SalesReturnLine.quantity), 0)).where(
+                    SalesReturnLine.company_id == tenant.company_id,
+                    SalesReturnLine.dispatch_line_id == dispatch_line.id,
+                    SalesReturnLine.sales_return_id != row.id,
+                    SalesReturnLine.sales_return_id.in_(
+                        select(SalesReturn.id).where(
+                            SalesReturn.company_id == tenant.company_id,
+                            SalesReturn.status != SalesReturnStatus.CANCELLED,
+                        )
+                    ),
+                )
+            )
+            available = dispatch_line.quantity - (claimed or ZERO)
             if line_in.quantity > available:
                 raise BusinessRuleError(
                     "Return quantity exceeds the remaining quantity for line "
@@ -304,6 +320,21 @@ async def create_return(
                 )
             )
         await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type="sales_return",
+            entity_id=row.id,
+            entity_code=row.code,
+            summary=f"Created sales return {row.code}",
+            user_id=tenant.user_id,
+            new_values={
+                "dispatch_id": str(dispatch.id),
+                "source": str(payload.source),
+                "line_count": len(payload.lines),
+            },
+        )
     return await get_return(session, tenant, row.id)
 
 
