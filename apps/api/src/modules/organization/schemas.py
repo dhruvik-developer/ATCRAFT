@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -54,7 +55,7 @@ def _optional_code(value: str | None) -> str | None:
     return None if value is None else validate_code(value)
 
 
-def _reject_null(label: str):
+def _reject_null(label: str) -> Callable[[object], object]:
     """Refuse an explicit null on a NOT NULL column when the key is present.
 
     Update schemas use ``exclude_unset=True``: omitted keys keep the stored
