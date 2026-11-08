@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SEARCH_DEBOUNCE_MS } from '@/lib/constants'
+import { SEARCH_DEBOUNCE_MS, SEARCH_MAX_LENGTH } from '@/lib/constants'
 import { ApiError } from '@/lib/api-client'
 import { errors } from '@/lib/messages'
 
@@ -60,6 +60,20 @@ describe('shared table errors', () => {
 })
 
 describe('server-controlled table search', () => {
+  it('caps the term at the API query limit', () => {
+    const props = {
+      columns: [{ accessorKey: 'code', header: 'Code' }],
+      data: [{ code: 'HINGE' }],
+      onSearchChange: vi.fn(),
+    }
+    render(<DataTable {...props} />)
+
+    expect(screen.getByRole('textbox', { name: 'Search...' })).toHaveAttribute(
+      'maxLength',
+      String(SEARCH_MAX_LENGTH),
+    )
+  })
+
   it('follows navigation without submitting the previous search draft again', () => {
     vi.useFakeTimers()
     const onSearchChange = vi.fn()

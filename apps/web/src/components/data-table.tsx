@@ -43,7 +43,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/overlays'
 import { Input, Skeleton } from '@/components/ui/primitives'
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
+import {
+  DEFAULT_PAGE_SIZE,
+  PAGE_SIZES,
+  SEARCH_DEBOUNCE_MS,
+  SEARCH_MAX_LENGTH,
+} from '@/lib/constants'
 import { describeError, empty } from '@/lib/messages'
 import { cn } from '@/lib/utils'
 import type { OffsetPagination } from '@/types/api'
@@ -202,6 +207,7 @@ export function DataTable<T>({
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder={searchPlaceholder}
+              maxLength={SEARCH_MAX_LENGTH}
               className="pl-8 pr-8"
               aria-label={searchPlaceholder}
             />

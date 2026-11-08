@@ -71,6 +71,13 @@ export const LOOKUP_LIST_LIMIT = MAX_PAGE_SIZE
 /** Delay between the last keystroke and the search request. */
 export const SEARCH_DEBOUNCE_MS = 300
 
+/**
+ * List endpoints cap the `search` query parameter at 64 characters. The field
+ * stops at the same limit, so a pasted paragraph cannot become a 422 and a
+ * persistent error toast.
+ */
+export const SEARCH_MAX_LENGTH = 64
+
 // ------------------------------------------------------------- selects -----
 
 /** Radix Select forbids an empty option value, so "no filter" / "not set" need sentinels. */

@@ -276,6 +276,10 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
   expect(created.ok(), `could not create the item to adjust: ${created.status()}`).toBeTruthy()
   const itemId = (await created.json()).data.id as string
   const reason = `E2E adjustment ${RUN}: five found on the shelf after the cycle count`
+  // List search caps `search` at 64 characters, so search the unique prefix
+  // rather than the whole reason: a longer term is a 422, and its persistent
+  // error toast then sits over the next screen's action buttons.
+  const search = `E2E adjustment ${RUN}`
 
   expect(
     await apiSearch(request, `/inventory/ledger?item_id=${itemId}&limit=5`),
@@ -310,8 +314,8 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
 
   // Raising it makes a draft; stock does not move until it is posted. Find the
   // row by its reason and post it through the row action, as a person would.
-  await page.getByPlaceholder('Search adjustment code or reason').fill(reason)
-  const row = page.getByRole('row').filter({ hasText: reason }).first()
+  await page.getByPlaceholder('Search adjustment code or reason').fill(search)
+  const row = page.getByRole('row').filter({ hasText: search }).first()
   await expect(row).toBeVisible({ timeout: 15_000 })
   await row.getByRole('button', { name: 'Post' }).click()
   const confirm = page.getByRole('button', { name: 'Post adjustment' })
@@ -327,6 +331,12 @@ test('a stock adjustment posts and moves the ledger', async ({ request }) => {
   const balances = await apiSearch(request, `/inventory/balances?item_id=${itemId}`)
   const available = (balances[0] as { available_quantity?: string } | undefined)?.available_quantity
   expect(Number(available ?? 0), 'the balance did not move by the posted quantity').toBe(5)
+
+  // The success toast overlays the bottom-right for a few seconds, where the
+  // next journey's dialog buttons sit. Let it clear instead of racing it.
+  await expect(page.locator('[data-toast-variant="success"]')).toHaveCount(0, {
+    timeout: 10_000,
+  })
 })
 
 test('a dispatch invoice can be issued from its row and found in the invoice register', async ({
