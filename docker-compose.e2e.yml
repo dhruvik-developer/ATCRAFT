@@ -1,7 +1,17 @@
 # Browser journeys share the seeded administrator and issue synthetic bursts.
 # Rate limiting is not the subject of these functional journeys; throttling the
 # suite makes test order, rather than application behavior, decide whether it passes.
+#
+# The seeded fixture identities have no authenticator, so the production MFA
+# default (docker-compose.yml: SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER, see
+# docs/assumptions.md §MFA-1) would refuse the administrator every business
+# route and the suite could not sign in. This stack takes the operator choice
+# §MFA-1 documents for a site without authenticators. A literal empty value is
+# required: the base file's ${MFA_REQUIRED_ROLES:-...} also replaces an EMPTY
+# variable. The lock-out itself is pinned by tests/unit/test_auth_mfa.py and
+# test_mfa_required_role_is_blocked_until_it_enrols in the backend suite.
 services:
   backend:
     environment:
       RATE_LIMIT_ENABLED: "false"
+      MFA_REQUIRED_ROLES: ""
