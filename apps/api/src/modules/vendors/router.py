@@ -584,11 +584,8 @@ async def list_vendor_contacts(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[VendorContactRead]:
-    # The path wins over any query parameter of the same name: the URL is the
-    # authoritative scope.
-    scoped = filters.model_copy(update={"vendor_id": vendor_id})
-    items, pagination = await VendorContactService(session, tenant).list_contacts(
-        scoped, params, sort
+    items, pagination = await VendorContactService(session, tenant).list_vendor_contacts(
+        vendor_id, filters, params, sort
     )
     return PaginatedResponse[VendorContactRead](data=items, pagination=pagination)
 
@@ -627,8 +624,8 @@ async def list_vendor_categories(
     filters = bind_query_filters(
         VendorCategoryFilters, vendor_id=vendor_id, is_preferred=is_preferred
     )
-    items, pagination = await VendorCategoryService(session, tenant).list_categories(
-        filters, params, sort
+    items, pagination = await VendorCategoryService(session, tenant).list_vendor_categories(
+        vendor_id, filters, params, sort
     )
     return PaginatedResponse[VendorCategoryRead](data=items, pagination=pagination)
 

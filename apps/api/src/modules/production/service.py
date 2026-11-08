@@ -3905,6 +3905,27 @@ async def list_production_entries(
     return [ProductionEntryRead.model_validate(row) for row in rows], pagination
 
 
+async def list_order_entries(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    filters: ProductionEntryFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[ProductionEntryRead], OffsetPagination]:
+    """Bookings against one job; the job must be this company's.
+
+    The flat list reads ``production_order_id`` as a filter, where an unknown one
+    is an empty page. This read addresses the job, so an unknown job is a 404,
+    as on every by-id route.
+    """
+    await _get_order(session, tenant, order_id)
+    # The path segment is the authority on which job is being read; a query
+    # parameter naming a different one would be ambiguous, so it is overwritten.
+    scoped = filters.model_copy(update={"production_order_id": order_id})
+    return await list_production_entries(session, tenant, scoped, params, sort)
+
+
 # =============================================================================
 # Work orders
 # =============================================================================
@@ -3921,6 +3942,20 @@ async def list_work_orders(
         filters, params, sort
     )
     return [WorkOrderRead.model_validate(row) for row in rows], pagination
+
+
+async def list_order_work_orders(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    filters: WorkOrderFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[WorkOrderRead], OffsetPagination]:
+    """Operations of one job; the job must be this company's, as for its bookings."""
+    await _get_order(session, tenant, order_id)
+    scoped = filters.model_copy(update={"production_order_id": order_id})
+    return await list_work_orders(session, tenant, scoped, params, sort)
 
 
 async def _assert_order_open_for_shop_floor(
@@ -4763,6 +4798,8 @@ __all__ = [
     "issue_detail",
     "list_components",
     "list_material_issues",
+    "list_order_entries",
+    "list_order_work_orders",
     "list_orders",
     "list_production_entries",
     "list_work_orders",

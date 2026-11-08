@@ -4576,7 +4576,7 @@ export interface paths {
         };
         /**
          * When the latest plan expects a sales order to be covered
-         * @description The newest completed run whose demand snapshot contained this order, with the date each line is expected to be covered by stock, dated supply or the order the plan raises. `run_id` is null when no completed run has ever seen the order; that is a normal state, not a 404. Dates come from the plan's stamped demand rows, so they are evidence of what was known when it ran rather than a fresh calculation.
+         * @description The newest completed run whose demand snapshot contained this order, with the date each line is expected to be covered by stock, dated supply or the order the plan raises. `run_id` is null when no completed run has ever seen the order; that is a normal state, not a 404 - an order that is not this company's is. Dates come from the plan's stamped demand rows, so they are evidence of what was known when it ran rather than a fresh calculation.
          */
         get: operations["sales_order_availability_api_v1_mrp_sales_orders__order_id__expected_availability_get"];
         put?: never;

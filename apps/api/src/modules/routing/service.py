@@ -1241,6 +1241,8 @@ class RoutingService:
     async def list_versions(
         self, item_id: uuid.UUID, params: PageParams
     ) -> tuple[list[RoutingSummary], OffsetPagination]:
+        # get_or_404 first: an unknown item must 404, not answer with [].
+        await self.items.get_or_404(item_id)
         rows, pagination = await self.repo.list_page(
             params, stmt=self.repo.versions_stmt(item_id), order_by=Routing.version.desc()
         )
@@ -1275,8 +1277,11 @@ class RoutingService:
 
         Answers with ``routing_id=None`` rather than raising when the item has no
         effective approved routing: MRP then falls back to ``items.lead_time_days``
-        instead of treating a missing process as zero days.
+        instead of treating a missing process as zero days. An item that is not
+        this company's is a 404: a zero-day answer about no part at all would
+        read as "instant".
         """
+        await self.items.get_or_404(item_id)
         on = as_of or today()
         routings = await self.repo.effective_routings_for_items([item_id], on)
         routing = routings.get(item_id)
@@ -2500,7 +2505,8 @@ async def manufacture_lead_time_days(
 
     The contract MRP calls: ``None`` means the item has no effective approved
     routing, and the caller must fall back to ``items.lead_time_days`` rather
-    than plan on zero days.
+    than plan on zero days. An item that is not this company's raises
+    ``NotFoundError``.
     """
     result = await RoutingService(session, tenant).item_lead_time(item_id, quantity, as_of=as_of)
     return result.lead_time_days if result.routing_id is not None else None

@@ -320,9 +320,10 @@ async def list_run_demand(
         "The newest completed run whose demand snapshot contained this order, "
         "with the date each line is expected to be covered by stock, dated supply "
         "or the order the plan raises. `run_id` is null when no completed run has "
-        "ever seen the order; that is a normal state, not a 404. Dates come from "
-        "the plan's stamped demand rows, so they are evidence of what was known "
-        "when it ran rather than a fresh calculation."
+        "ever seen the order; that is a normal state, not a 404 - an order that "
+        "is not this company's is. Dates come from the plan's stamped demand rows, "
+        "so they are evidence of what was known when it ran rather than a fresh "
+        "calculation."
     ),
     dependencies=[require_permission(Permission.MRP_VIEW)],
 )
@@ -348,10 +349,9 @@ async def list_run_suggestions(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[MrpSuggestionRead]:
-    # The path segment is the authority on which run is being read; a query
-    # parameter naming a different one would be ambiguous, so it is overwritten.
-    scoped = filters.model_copy(update={"run_id": run_id})
-    items, pagination = await service.list_suggestions(session, tenant, scoped, params, sort)
+    items, pagination = await service.list_run_suggestions(
+        session, tenant, run_id, filters, params, sort
+    )
     return PaginatedResponse[MrpSuggestionRead](data=items, pagination=pagination)
 
 

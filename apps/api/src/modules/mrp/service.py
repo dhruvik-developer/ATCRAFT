@@ -121,6 +121,7 @@ from src.modules.mrp.schemas import (
     SuggestionConvertRequest,
     SuggestionFilters,
 )
+from src.modules.sales.repository import SalesOrderRepository
 from src.modules.warehouses.repository import WarehouseRepository
 
 log = get_logger(__name__)
@@ -1231,7 +1232,11 @@ async def sales_order_availability(
     "Is there stock now?" is the allocation endpoint's job; a promised date has
     to be defensible against the plan it was taken from, so it comes from the
     stamped demand row rather than a fresh calculation.
+
+    No run having seen the order is a normal state and answers empty; an order
+    that is not this company's is a 404, as on every by-id route.
     """
+    await SalesOrderRepository(session, tenant).get_or_404(order_id)
     demands = MrpDemandRepository(session, tenant)
     run = await demands.latest_completed_run_for_sales_order(order_id)
     if run is None:
@@ -1271,6 +1276,27 @@ async def list_suggestions(
         search=filters.search,
     )
     return [MrpSuggestionRead.model_validate(row) for row in rows], pagination
+
+
+async def list_run_suggestions(
+    session: AsyncSession,
+    tenant: TenantContext,
+    run_id: uuid.UUID,
+    filters: SuggestionFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[MrpSuggestionRead], OffsetPagination]:
+    """What one run proposes; the run must be this company's.
+
+    The flat list reads ``run_id`` as a filter, where an unknown one is an empty
+    page. This read addresses the run, so an unknown run is a 404 - as
+    :func:`list_run_demand` answers for the same path segment.
+    """
+    await MrpRunRepository(session, tenant).get_or_404(run_id)
+    # The path segment is the authority on which run is being read; a query
+    # parameter naming a different one would be ambiguous, so it is overwritten.
+    scoped = filters.model_copy(update={"run_id": run_id})
+    return await list_suggestions(session, tenant, scoped, params, sort)
 
 
 async def shortage_report(
@@ -1665,6 +1691,7 @@ __all__ = [
     "get_run",
     "get_suggestion",
     "list_run_demand",
+    "list_run_suggestions",
     "list_runs",
     "list_suggestions",
     "release_planning_lock",

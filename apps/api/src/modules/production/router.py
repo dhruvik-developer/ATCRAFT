@@ -893,10 +893,9 @@ async def list_production_entries(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[ProductionEntryRead]:
-    # The path segment is the authority on which job is being read; a query
-    # parameter naming a different one would be ambiguous, so it is overwritten.
-    scoped = filters.model_copy(update={"production_order_id": order_id})
-    items, pagination = await service.list_production_entries(session, tenant, scoped, params, sort)
+    items, pagination = await service.list_order_entries(
+        session, tenant, order_id, filters, params, sort
+    )
     return PaginatedResponse[ProductionEntryRead](data=items, pagination=pagination)
 
 
@@ -914,8 +913,9 @@ async def list_order_work_orders(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[WorkOrderRead]:
-    scoped = filters.model_copy(update={"production_order_id": order_id})
-    items, pagination = await service.list_work_orders(session, tenant, scoped, params, sort)
+    items, pagination = await service.list_order_work_orders(
+        session, tenant, order_id, filters, params, sort
+    )
     return PaginatedResponse[WorkOrderRead](data=items, pagination=pagination)
 
 

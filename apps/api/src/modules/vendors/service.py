@@ -1380,6 +1380,26 @@ class VendorContactService:
         rows, pagination = await self.repo.list_page(params, stmt=stmt, order_by=None)
         return [VendorContactRead.model_validate(row) for row in rows], pagination
 
+    async def list_vendor_contacts(
+        self,
+        vendor_id: uuid.UUID,
+        filters: VendorContactFilters,
+        params: PageParams,
+        sort: SortParams,
+    ) -> tuple[list[VendorContactRead], OffsetPagination]:
+        """The contacts of one vendor, which must be visible to the caller.
+
+        The flat list reads ``vendor_id`` as a filter, where an unknown one is an
+        empty page. This read addresses the vendor itself, so an unknown vendor,
+        another company's or - for a portal principal - another vendor's is a
+        404, as on every by-id route.
+        """
+        await self.vendors.get_or_404(vendor_id)
+        # The path wins over any query parameter of the same name: the URL is
+        # the authoritative scope.
+        scoped = filters.model_copy(update={"vendor_id": vendor_id})
+        return await self.list_contacts(scoped, params, sort)
+
     async def get_contact(self, contact_id: uuid.UUID) -> VendorContactRead:
         return VendorContactRead.model_validate(await self.repo.get_or_404(contact_id))
 
@@ -1544,6 +1564,23 @@ class VendorCategoryService:
         # qualification, which is the N+1 section 32 forbids.
         labels = await self.repo.category_labels([row.item_category_id for row in rows])
         return [self._to_read(row, labels) for row in rows], pagination
+
+    async def list_vendor_categories(
+        self,
+        vendor_id: uuid.UUID,
+        filters: VendorCategoryFilters,
+        params: PageParams,
+        sort: SortParams,
+    ) -> tuple[list[VendorCategoryRead], OffsetPagination]:
+        """The categories one vendor is qualified for; the vendor must be visible.
+
+        As :meth:`VendorContactService.list_vendor_contacts`: the path addresses
+        the vendor, so one the caller cannot see is a 404 rather than an empty
+        page.
+        """
+        await self.vendors.get_or_404(vendor_id)
+        scoped = filters.model_copy(update={"vendor_id": vendor_id})
+        return await self.list_categories(scoped, params, sort)
 
     async def assign(
         self, vendor_id: uuid.UUID, payload: VendorCategoryAssign

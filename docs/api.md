@@ -179,6 +179,12 @@ page; it remains scoped to the verified tenant and any supplied `item_id`.
 A record belonging to another company returns **404, not 403**. Confirming it
 exists elsewhere is itself a disclosure.
 
+A nested read addresses its parent - `GET /warehouses/{id}/locations`,
+`/mrp/runs/{id}/suggestions`, `/quality/reports/item/{id}` - so a parent that is
+not in your tenant is the same 404. The flat list filtered by that id
+(`GET /warehouses/locations?warehouse_id=...`) reads it as a filter instead, and
+no match is an empty page.
+
 ---
 
 ## Error codes

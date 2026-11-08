@@ -417,11 +417,8 @@ async def list_warehouse_locations(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[StorageLocationRead]:
-    # The path wins over a query parameter of the same name: the URL is the
-    # authoritative scope.
-    scoped = filters.model_copy(update={"warehouse_id": warehouse_id})
-    items, pagination = await StorageLocationService(session, tenant).list_locations(
-        scoped, params, sort
+    items, pagination = await StorageLocationService(session, tenant).list_warehouse_locations(
+        warehouse_id, filters, params, sort
     )
     return PaginatedResponse[StorageLocationRead](data=items, pagination=pagination)
 

@@ -65,6 +65,7 @@ from src.modules.quality.models import (
     ReworkStatus,
 )
 from src.modules.quality.schemas import InspectionFilters, ReworkFilters, TemplateFilters
+from src.modules.vendors.models import Vendor
 from src.modules.warehouses.models import Warehouse
 
 
@@ -167,6 +168,16 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
         return {
             row.id: (row.code, row.is_active) for row in (await self.session.execute(stmt)).all()
         }
+
+
+class VendorLookupRepository(BaseRepository[Vendor]):
+    """Existence check for the vendor a quality report is asked about.
+
+    ``get_or_404`` is the whole of it: tenant and soft-delete filters come from
+    the base class, so a vendor the vendor screens cannot open is a 404 here too.
+    """
+
+    model = Vendor
 
 
 class SerialLabelRepository(BaseRepository[StockSerial]):
@@ -877,6 +888,7 @@ __all__ = [
     "QualityPeriodTotals",
     "QualityTotals",
     "VendorItemTotals",
+    "VendorLookupRepository",
     "WarehouseLookupRepository",
     "decided_inspection_companies",
     "open_inspection_count",

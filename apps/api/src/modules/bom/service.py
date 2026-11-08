@@ -509,6 +509,12 @@ async def list_versions(
     item_id: uuid.UUID,
     params: PageParams,
 ) -> tuple[list[BomSummary], OffsetPagination]:
+    """Every version of one item's structure; the item must be this company's.
+
+    An unknown or another company's item is a 404, as on every by-id route,
+    rather than an empty page that reads as "this part has no structure".
+    """
+    await ItemLookupRepository(session, tenant).get_or_404(item_id)
     rows, pagination = await BomRepository(session, tenant).list_versions(item_id, params)
     return [BomSummary.model_validate(row) for row in rows], pagination
 
@@ -1301,7 +1307,11 @@ async def where_used_page(
     be exactly the unbounded read section 31 forbids. Multi-level has no stable
     sort key spanning levels, so the engine walks it under a hard row budget and
     the bounded result is paged in memory.
+
+    The component must be this company's item: an unknown one is a 404, not an
+    empty page that reads as "used nowhere" - which is what a retire check asks.
     """
+    await ItemLookupRepository(session, tenant).get_or_404(component_item_id)
     if levels == 1:
         return await _direct_where_used_page(session, tenant, component_item_id, params)
 

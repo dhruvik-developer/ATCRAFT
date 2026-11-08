@@ -637,6 +637,25 @@ class StorageLocationService:
         rows, pagination = await self.repo.list_page(params, stmt=stmt, order_by=None)
         return [StorageLocationRead.model_validate(row) for row in rows], pagination
 
+    async def list_warehouse_locations(
+        self,
+        warehouse_id: uuid.UUID,
+        filters: StorageLocationFilters,
+        params: PageParams,
+        sort: SortParams,
+    ) -> tuple[list[StorageLocationRead], OffsetPagination]:
+        """The locations of one warehouse, which must exist in this company.
+
+        The flat list reads ``warehouse_id`` as a filter, where naming an unknown
+        one is an empty page. This read addresses the warehouse itself, so an
+        unknown or another company's warehouse is a 404, as on every by-id route.
+        """
+        await self.warehouses.get_or_404(warehouse_id)
+        # The path wins over a query parameter of the same name: the URL is the
+        # authoritative scope.
+        scoped = filters.model_copy(update={"warehouse_id": warehouse_id})
+        return await self.list_locations(scoped, params, sort)
+
     async def get_location(self, location_id: uuid.UUID) -> StorageLocationRead:
         return StorageLocationRead.model_validate(await self.repo.get_or_404(location_id))
 

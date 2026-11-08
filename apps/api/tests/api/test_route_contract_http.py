@@ -44,27 +44,16 @@ REQUEST_DEADLINE_SECONDS = 30
 
 #: Routes that legitimately answer something other than 404 for an id that
 #: does not exist, with the reason. Keep this short: each entry is a claim
-#: that "unknown id" is not an error for that route.
-#: Nested collection reads return an empty page when the parent is missing
-#: rather than probing the parent first - the empty list is the contract.
+#: that "unknown id" is not an error for that route. A nested read addresses
+#: its parent - ``/warehouses/{id}/locations``, ``/mrp/runs/{id}/suggestions`` -
+#: so it resolves the parent first and answers 404 for one this company does
+#: not have; only its flat sibling reads the id as a filter, where no match is
+#: an empty page.
 NOT_FOUND_EXEMPT: dict[tuple[str, str], str] = {
-    ("GET", "/warehouses/{warehouse_id}/locations"): "empty locations for an unknown warehouse",
-    ("GET", "/vendors/{vendor_id}/contacts"): "empty contacts for an unknown vendor",
-    ("GET", "/vendors/{vendor_id}/categories"): "empty categories for an unknown vendor",
-    ("GET", "/bom/where-used/{item_id}"): "empty where-used for an unknown item",
-    ("GET", "/bom/items/{item_id}/versions"): "empty BOM versions for an unknown item",
-    ("GET", "/routing/items/{item_id}/versions"): "empty routing versions for an unknown item",
-    ("GET", "/routing/items/{item_id}/lead-time"): "zero lead time for an unknown item",
-    ("GET", "/mrp/sales-orders/{order_id}/expected-availability"): (
-        "empty availability for an unknown order"
+    ("GET", "/audit/entity/{entity_type}/{entity_id}"): (
+        "the trail must stay readable after its entity is deleted, so an entity with "
+        "no rows is an empty trail by design"
     ),
-    ("GET", "/mrp/runs/{run_id}/suggestions"): "empty suggestions for an unknown run",
-    ("GET", "/production/{order_id}/entries"): "empty entries for an unknown order",
-    ("GET", "/production/{order_id}/work-orders"): "empty work orders for an unknown order",
-    ("GET", "/quality/reports/item/{item_id}"): "zeroed quality report for an unknown item",
-    ("GET", "/quality/reports/vendor/{vendor_id}"): "zeroed quality report for an unknown vendor",
-    ("GET", "/packing/trace/serial/{serial_id}"): "empty packing trace for an unknown serial",
-    ("GET", "/audit/entity/{entity_type}/{entity_id}"): "empty audit trail for an unknown entity",
 }
 
 

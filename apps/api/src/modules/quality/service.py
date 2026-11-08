@@ -149,6 +149,7 @@ from src.modules.quality.repository import (
     QcTemplateRepository,
     QualityTotals,
     SerialLabelRepository,
+    VendorLookupRepository,
     WarehouseLookupRepository,
     decided_inspection_companies,
 )
@@ -2726,9 +2727,11 @@ async def item_quality_history(
     numbers (section 25).
 
     Only decided inspections count. A pending one has no verdict, and counting it
-    would drag the rate towards zero purely because nobody has looked yet.
+    would drag the rate towards zero purely because nobody has looked yet. An
+    item that is not this company's is a 404, not a zeroed history about nothing.
     """
     since, until, days = _resolve_window(window_days)
+    await ItemLookupRepository(session, tenant).get_or_404(item_id)
     repo = QcInspectionRepository(session, tenant)
 
     totals = await repo.item_totals(item_id, since=since, until=until)
@@ -2780,9 +2783,11 @@ async def vendor_quality_summary(
 
     The breakdown is ordered by inspected quantity and capped, so the rows that
     dominate the rate survive the cut and the result set is bounded however large
-    the vendor's history is (section 31).
+    the vendor's history is (section 31). A vendor that is not this company's is a
+    404: a zeroed summary would read to the rating engine as "no evidence".
     """
     since, until, days = _resolve_window(window_days)
+    await VendorLookupRepository(session, tenant).get_or_404(vendor_id)
     repo = QcInspectionRepository(session, tenant)
 
     totals = await repo.vendor_totals(vendor_id, since=since, until=until)

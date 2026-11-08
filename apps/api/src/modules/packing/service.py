@@ -1407,7 +1407,10 @@ async def find_cartons_holding_serial(
     data set returns at most one carton; the return type is a list because the
     containment guard is application-level, and an answer of two is a data
     incident somebody must be able to see rather than one this function hides.
+    An empty list means a real unit is in no carton; a serial that is not this
+    company's is a 404, so a mistyped id cannot pass for "not packed".
     """
+    await SerialLookupRepository(session, tenant).get_or_404(serial_id)
     contents = await CartonContentRepository(session, tenant).find_by_serial(serial_id)
     if not contents:
         return []
