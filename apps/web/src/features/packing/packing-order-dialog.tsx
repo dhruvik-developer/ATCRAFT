@@ -840,7 +840,10 @@ function CartonCard({
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1">
+        {/* No shrink-0: it pins the group at its one-line width, so on a phone
+            the buttons ran past the card instead of wrapping. The header
+            wraps the group below the title, and the group wraps its buttons. */}
+        <div className="flex flex-wrap items-center gap-1">
           <Button
             variant="outline"
             size="sm"
