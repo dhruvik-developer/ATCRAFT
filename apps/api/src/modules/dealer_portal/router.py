@@ -210,7 +210,7 @@ async def catalog_item_price(
     item_id: uuid.UUID,
     session: DbSession,
     tenant: Tenant,
-    quantity: Annotated[Decimal, Query(gt=0)] = Decimal("1"),
+    quantity: Annotated[Decimal, Query(gt=0, max_digits=18, decimal_places=4)] = Decimal("1"),
     variant_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ApiResponse[DealerPriceQuote]:
     return ApiResponse[DealerPriceQuote].ok(
@@ -334,7 +334,7 @@ async def move_wishlist_to_cart(
     entry_id: uuid.UUID,
     session: DbSession,
     tenant: Tenant,
-    quantity: Annotated[Decimal, Query(gt=0)] = Decimal("1"),
+    quantity: Annotated[Decimal, Query(gt=0, max_digits=18, decimal_places=4)] = Decimal("1"),
 ) -> ApiResponse[DealerCartRead]:
     cart = await DealerPortalService(session, tenant).move_wishlist_to_cart(entry_id, quantity)
     return ApiResponse[DealerCartRead].ok(cart, "Moved to the cart")

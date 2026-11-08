@@ -174,13 +174,13 @@ class DealerCartLineIn(BaseModel):
 
     item_id: uuid.UUID
     item_variant_id: uuid.UUID | None = None
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
 
 
 class DealerCartLineUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
 
 
 class DealerCartWarning(BaseModel):

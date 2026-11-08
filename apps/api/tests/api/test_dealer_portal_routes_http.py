@@ -904,6 +904,47 @@ async def test_wishlist_changes_the_dealer_may_not_make_are_refused(
     ]
 
 
+async def test_a_quantity_beyond_the_stored_scale_is_a_field_error(api_client, shop):
+    """NUMERIC(18,4) is the contract, so the door states it.
+
+    ``1e25`` used to overflow ``Decimal.quantize`` in ``to_quantity`` and fifteen
+    integer digits to overflow the column - both a 500; a fifth decimal place
+    would have been rounded into a quantity nobody keyed.
+    """
+    sign_in(shop.dealer)
+    lines_url = "/dealer-portal/cart/lines"
+    price_url = f"/dealer-portal/catalog/items/{shop.item_id}/price"
+    saved = ok(
+        await api_client.post("/dealer-portal/wishlist", json={"item_id": str(shop.item_id)}),
+        201,
+    )
+    move_url = f"/dealer-portal/wishlist/{saved['id']}/move-to-cart"
+    added = ok(
+        await api_client.post(lines_url, json={"item_id": str(shop.item_id), "quantity": "1.2345"}),
+        201,
+    )
+    (line,) = added["lines"]
+    assert Decimal(line["quantity"]) == Decimal("1.2345")
+
+    for quantity in ("1e25", "100000000000000", "1.00001"):
+        body = {"item_id": str(shop.item_id), "quantity": quantity}
+        assert "quantity" in field_errors(await api_client.post(lines_url, json=body))
+        assert "quantity" in field_errors(
+            await api_client.patch(f"{lines_url}/{line['id']}", json={"quantity": quantity})
+        )
+        assert "query.quantity" in field_errors(
+            await api_client.get(price_url, params={"quantity": quantity})
+        )
+        assert "query.quantity" in field_errors(
+            await api_client.post(move_url, params={"quantity": quantity})
+        )
+
+    largest = ok(await api_client.get(price_url, params={"quantity": "99999999999999.9999"}))
+    assert Decimal(largest["quantity"]) == Decimal("99999999999999.9999")
+    (unchanged,) = ok(await api_client.get("/dealer-portal/cart"))["lines"]
+    assert Decimal(unchanged["quantity"]) == Decimal("1.2345")
+
+
 # -----------------------------------------------------------------------------
 # Checkout
 # -----------------------------------------------------------------------------

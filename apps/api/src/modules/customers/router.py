@@ -288,7 +288,12 @@ async def get_credit_status(
     customer_id: uuid.UUID,
     order_value: Annotated[
         Decimal | None,
-        Query(ge=0, description="Order value being considered; omit for the current position"),
+        Query(
+            ge=0,
+            max_digits=18,
+            decimal_places=4,
+            description="Order value being considered; omit for the current position",
+        ),
     ] = None,
 ) -> ApiResponse[CreditStatus]:
     status_out = await CustomerService(session, tenant).get_credit_status(customer_id, order_value)

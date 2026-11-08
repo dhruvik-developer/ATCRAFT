@@ -15,7 +15,7 @@ class SalesReturnLineIn(BaseModel):
     dispatch_line_id: uuid.UUID
     qc_inspection_id: uuid.UUID | None = None
     serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
-    quantity: Decimal = Field(gt=0)
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=4)
     reason_code: str = Field(min_length=2, max_length=32)
     note: str | None = Field(default=None, max_length=2000)
     requires_qc: bool = True

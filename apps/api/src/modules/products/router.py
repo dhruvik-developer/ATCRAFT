@@ -520,7 +520,12 @@ async def convert_quantity(
     tenant: Tenant,
     from_uom_id: Annotated[uuid.UUID, Query()],
     to_uom_id: Annotated[uuid.UUID, Query()],
-    quantity: Annotated[Decimal, Query(gt=0, description="Quantity in from_uom")],
+    # Six places, as the converter dialog accepts: the conversion multiplies
+    # before it rounds to the stored scale, so a finer input is a finer answer.
+    quantity: Annotated[
+        Decimal,
+        Query(gt=0, max_digits=20, decimal_places=6, description="Quantity in from_uom"),
+    ],
 ) -> ApiResponse[ConversionResult]:
     result = await service.convert_quantity(
         session, tenant, quantity=quantity, from_uom_id=from_uom_id, to_uom_id=to_uom_id
@@ -840,7 +845,7 @@ async def resolved_price(
     tenant: Tenant,
     item_id: uuid.UUID,
     price_type: Annotated[PriceType, Query()],
-    quantity: Annotated[Decimal, Query(gt=0)],
+    quantity: Annotated[Decimal, Query(gt=0, max_digits=18, decimal_places=4)],
     variant_id: Annotated[uuid.UUID | None, Query()] = None,
     on_date: Annotated[date | None, Query(description="Defaults to today (UTC)")] = None,
 ) -> ApiResponse[ResolvedPrice]:
