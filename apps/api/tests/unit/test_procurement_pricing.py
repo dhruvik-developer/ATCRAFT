@@ -204,6 +204,16 @@ def test_the_effective_price_is_what_will_actually_be_paid_per_unit():
     assert effective_unit_price(unit_price=Decimal("100")) == Decimal("100")
 
 
+def test_the_effective_price_rounds_a_half_tie_up():
+    """Half of 0.000001 is a tie at the unit-price scale; ``to_unit_price`` rounds it up.
+
+    Half-even would round it to zero and rank a priced offer as free.
+    """
+    assert effective_unit_price(
+        unit_price=Decimal("0.000001"), discount_percentage=Decimal("50")
+    ) == Decimal("0.000001")
+
+
 # =============================================================================
 # Quotation ranking and the recommendation
 # =============================================================================

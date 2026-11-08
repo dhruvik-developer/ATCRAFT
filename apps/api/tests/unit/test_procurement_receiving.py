@@ -254,6 +254,24 @@ def test_receipt_cost_falls_back_when_the_quantity_is_zero():
     ) == Decimal("12.500000")
 
 
+def test_receipt_cost_rounds_a_half_tie_up_like_every_other_unit_cost():
+    """100.01 over 32 units is exactly 3.1253125: half-up, as ``to_unit_price`` rounds.
+
+    Half-even would give 3.125312 - a FIFO layer valued differently from the
+    same arithmetic anywhere else in the ERP. The fallback rounds the same way.
+    """
+    assert receipt_unit_cost(
+        quantity=Decimal("32"),
+        taxable_amount=Decimal("100.01"),
+        fallback_unit_price=Decimal("1"),
+    ) == Decimal("3.125313")
+    assert receipt_unit_cost(
+        quantity=Decimal("0"),
+        taxable_amount=Decimal("0"),
+        fallback_unit_price=Decimal("0.0000025"),
+    ) == Decimal("0.000003")
+
+
 # -----------------------------------------------------------------------------
 # Requisition line progress
 # -----------------------------------------------------------------------------

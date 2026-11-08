@@ -25,7 +25,7 @@ from src.core.demand_provenance import DemandReference
 from src.core.errors import BusinessRuleError, ErrorCode, ValidationError
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
-from src.core.types import ZERO, Money, to_money, to_quantity
+from src.core.types import ZERO, Money, to_money, to_quantity, to_unit_price
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     OVER_RECEIPT_MULTIPLIER,
@@ -615,7 +615,7 @@ def effective_unit_price(
     if discount_percentage is None or discount_percentage <= 0:
         return Decimal(unit_price)
     factor = (Decimal(100) - Decimal(discount_percentage)) / Decimal(100)
-    return (Decimal(unit_price) * factor).quantize(Decimal("0.000001"))
+    return to_unit_price(Decimal(unit_price) * factor)
 
 
 # =============================================================================
@@ -783,10 +783,14 @@ def receipt_unit_cost(
     yet, and a wrong basis silently misstates the cost of every item on the
     order. Freight stays a header cost for finance to treat as landed cost when
     the basis is decided.
+
+    Rounded half-up through ``to_unit_price`` like every other unit cost: this
+    figure becomes the receipt's FIFO layer cost, and a half-even tie here
+    would value the same arithmetic differently from the rest of the ERP.
     """
     if quantity <= 0:
-        return Decimal(fallback_unit_price).quantize(Decimal("0.000001"))
-    return (Decimal(taxable_amount) / Decimal(quantity)).quantize(Decimal("0.000001"))
+        return to_unit_price(fallback_unit_price)
+    return to_unit_price(Decimal(taxable_amount) / Decimal(quantity))
 
 
 # =============================================================================
