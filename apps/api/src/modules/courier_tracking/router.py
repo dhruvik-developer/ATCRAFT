@@ -218,7 +218,8 @@ async def courier_webhook(
     if account is None or account.webhook_secret_ciphertext is None:
         raise NotFoundError("Courier webhook")
     secret = decrypt_courier_webhook_secret(account.webhook_secret_ciphertext)
-    if account.provider is CourierProvider.GENERIC_WEBHOOK:
+    # provider is a String column: ORM loads return plain str, so == not is.
+    if account.provider == CourierProvider.GENERIC_WEBHOOK:
         if not verify_generic_signature(
             secret=secret,
             body=body,

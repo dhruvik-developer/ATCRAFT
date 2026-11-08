@@ -188,7 +188,8 @@ async def update_account(
         if "display_name" in updates and payload.display_name is not None:
             account.display_name = payload.display_name.strip()
         if payload.credentials is not None:
-            if account.provider is not CourierProvider.SHIPROCKET:
+            # provider is a String column: ORM loads return plain str, so == not is.
+            if account.provider != CourierProvider.SHIPROCKET:
                 raise ValidationError("API credentials are only supported for Shiprocket.")
             account.credentials_ciphertext = encrypt_courier_credential(
                 _credentials_json(payload.credentials)
@@ -328,7 +329,7 @@ async def test_connection(
     account = await CourierAccountRepository(session, tenant).get_account(account_id)
     if account is None:
         raise NotFoundError("Courier account not found.")
-    if account.provider is CourierProvider.GENERIC_WEBHOOK:
+    if account.provider == CourierProvider.GENERIC_WEBHOOK:
         if account.webhook_token_hash is None or account.webhook_secret_ciphertext is None:
             raise BusinessRuleError("Rotate webhook credentials before testing this account.")
         return account.provider
@@ -736,7 +737,7 @@ async def refresh_tracking(
         transporter_id = shipment.transporter_id
 
     account = await _account_for_transporter_or_first(repo, tenant, transporter_id)
-    if account.provider is not CourierProvider.SHIPROCKET:
+    if account.provider != CourierProvider.SHIPROCKET:
         raise BusinessRuleError("Manual refresh is supported for Shiprocket accounts only.")
     credentials = _read_credentials(account)
     token = await _shiprocket_token(account, tenant.company_id, credentials)
@@ -792,7 +793,7 @@ async def _shiprocket_token(
 async def poll_account(
     session: AsyncSession, tenant: TenantContext, account: CourierAccount
 ) -> tuple[int, str | None]:
-    if account.provider is not CourierProvider.SHIPROCKET or not account.is_active:
+    if account.provider != CourierProvider.SHIPROCKET or not account.is_active:
         return 0, None
     if not settings.courier_tracking_enabled:
         return 0, None
