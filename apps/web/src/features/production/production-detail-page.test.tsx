@@ -328,7 +328,12 @@ describe('cancelling an order', () => {
       [`POST /production/${ORDER_ID}/cancel`]: ok(detail({ status: 'CANCELLED' })),
     })
 
-    await user.click(await screen.findByRole('button', { name: /^cancel$/i }))
+    const trigger = await screen.findByRole('button', { name: /^cancel$/i })
+    // The quiet destructive trigger: red at rest and still red under the
+    // pointer, which `outline` + `text-destructive` was not.
+    expect(trigger).toHaveClass('text-destructive', 'hover:text-destructive')
+    expect(trigger).not.toHaveClass('hover:text-accent-foreground')
+    await user.click(trigger)
     await user.click(await screen.findByRole('button', { name: /cancel order/i }))
 
     // Empty: caught here rather than becoming a 422 nobody sees.

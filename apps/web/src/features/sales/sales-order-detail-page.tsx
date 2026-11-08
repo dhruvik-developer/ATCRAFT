@@ -1080,11 +1080,7 @@ export default function SalesOrderDetailPage() {
               </Button>
             )}
             {isCancellable(order.status) && can(P.SALES_ORDER_CANCEL) && (
-              <Button
-                variant="outline"
-                className="text-destructive"
-                onClick={() => setCancelOpen(true)}
-              >
+              <Button variant="destructive-outline" onClick={() => setCancelOpen(true)}>
                 <Ban />
                 Cancel order
               </Button>

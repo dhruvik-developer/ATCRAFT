@@ -829,11 +829,7 @@ export default function PurchaseOrderDetailPage() {
               </Button>
             )}
             {isPoDecidable(order.status) && can(P.PURCHASE_ORDER_REJECT) && (
-              <Button
-                variant="outline"
-                className="text-destructive"
-                onClick={() => setCommand('reject')}
-              >
+              <Button variant="destructive-outline" onClick={() => setCommand('reject')}>
                 <XCircle />
                 Reject
               </Button>
@@ -859,11 +855,7 @@ export default function PurchaseOrderDetailPage() {
               </Button>
             )}
             {isPoCancellable(order.status) && can(P.PURCHASE_ORDER_CANCEL) && (
-              <Button
-                variant="outline"
-                className="text-destructive"
-                onClick={() => setCommand('cancel')}
-              >
+              <Button variant="destructive-outline" onClick={() => setCommand('cancel')}>
                 <Ban />
                 Cancel order
               </Button>

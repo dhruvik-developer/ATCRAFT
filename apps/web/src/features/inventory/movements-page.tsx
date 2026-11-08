@@ -935,9 +935,8 @@ function PhysicalCountsTab() {
             actions.push(
               <Button
                 key="cancel"
-                variant="ghost"
+                variant="destructive-outline"
                 size="sm"
-                className="text-destructive"
                 onClick={() =>
                   setPending({
                     path: '/inventory/physical-counts/' + count.id + '/cancel',

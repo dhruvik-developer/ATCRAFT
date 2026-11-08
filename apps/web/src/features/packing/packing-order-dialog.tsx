@@ -1435,12 +1435,7 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
           </Button>
         )}
         {canManage && isPackingCancellable(order.status) && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-destructive"
-            onClick={() => setAction('cancel')}
-          >
+          <Button variant="destructive-outline" size="sm" onClick={() => setAction('cancel')}>
             Cancel order
           </Button>
         )}

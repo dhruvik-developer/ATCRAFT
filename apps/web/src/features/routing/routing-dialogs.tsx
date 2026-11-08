@@ -568,8 +568,8 @@ export function RoutingDetailDialog({
           )}
           {routing && canManage && isObsoletable(routing.status) && (
             <Button
-              variant="outline"
-              className="mr-auto text-destructive"
+              variant="destructive-outline"
+              className="mr-auto"
               onClick={() => {
                 setStatusAction('obsolete')
                 setReasonTouched(false)

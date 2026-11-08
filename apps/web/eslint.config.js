@@ -43,6 +43,17 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'no-restricted-syntax': [
+        'error',
+        {
+          // twMerge keeps `text-destructive` beside the variant's
+          // `hover:text-accent-foreground`, and the hover rule wins.
+          selector:
+            "JSXOpeningElement[name.name='Button'] > JSXAttribute[name.name='className'][value.value=/(^|\\s)text-destructive(\\s|$)/]",
+          message:
+            "Use variant='destructive-outline' rather than colouring a Button with className: the variant's hover colour overrides text-destructive under the pointer.",
+        },
+      ],
     },
   },
 )

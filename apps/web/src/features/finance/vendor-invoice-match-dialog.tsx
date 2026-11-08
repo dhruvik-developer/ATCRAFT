@@ -677,14 +677,14 @@ export function VendorInvoiceMatchDialog({
                 `finance-types.ts` so no status is compared inline here. */}
             {invoice && canRecord && isInvoiceDeletable(invoice.status) && (
               <Button
-                variant="ghost"
+                variant="destructive-outline"
                 onClick={() => {
                   setCommandReason('')
                   setCommandTouched(false)
                   setCommand('delete')
                 }}
               >
-                <Trash2 className="text-destructive" />
+                <Trash2 />
                 Delete draft
               </Button>
             )}

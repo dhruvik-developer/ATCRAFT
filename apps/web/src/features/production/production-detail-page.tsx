@@ -1252,11 +1252,7 @@ export default function ProductionDetailPage() {
               </Button>
             )}
             {isCancellable(order.status) && can(P.PRODUCTION_ORDER_CANCEL) && (
-              <Button
-                variant="outline"
-                className="text-destructive"
-                onClick={() => setCancelOpen(true)}
-              >
+              <Button variant="destructive-outline" onClick={() => setCancelOpen(true)}>
                 <Ban />
                 Cancel
               </Button>

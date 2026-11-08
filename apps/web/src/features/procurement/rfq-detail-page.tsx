@@ -408,11 +408,7 @@ export default function RfqDetailPage() {
                 </Button>
               )}
               {isRfqCancellable(rfq.status) && (
-                <Button
-                  variant="outline"
-                  className="text-destructive"
-                  onClick={() => setCommand('cancel')}
-                >
+                <Button variant="destructive-outline" onClick={() => setCommand('cancel')}>
                   <Ban />
                   Cancel
                 </Button>

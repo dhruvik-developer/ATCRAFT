@@ -1129,11 +1129,7 @@ export default function BomDetailPage() {
               </Button>
             )}
             {canReject && (
-              <Button
-                variant="outline"
-                className="text-destructive"
-                onClick={() => setAction('reject')}
-              >
+              <Button variant="destructive-outline" onClick={() => setAction('reject')}>
                 <XCircle />
                 Reject
               </Button>
@@ -1161,11 +1157,7 @@ export default function BomDetailPage() {
               </Button>
             )}
             {canDeleteDraft && (
-              <Button
-                variant="outline"
-                className="text-destructive"
-                onClick={() => setAction('delete')}
-              >
+              <Button variant="destructive-outline" onClick={() => setAction('delete')}>
                 <Trash2 />
                 Delete draft
               </Button>

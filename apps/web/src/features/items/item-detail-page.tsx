@@ -1278,8 +1278,8 @@ export default function ItemDetailPage() {
                 </Button>
               )}
               {canRetireThis && (
-                <Button variant="outline" onClick={() => setRetireOpen(true)}>
-                  <Trash2 className="text-destructive" />
+                <Button variant="destructive-outline" onClick={() => setRetireOpen(true)}>
+                  <Trash2 />
                   Retire
                 </Button>
               )}
