@@ -6,6 +6,13 @@
 > jobs. This closes the repository CI/browser-suite run for that revision; it
 > does not replace release-candidate restricted-role UAT or production
 > commissioning, backup/recovery, monitoring or client sign-off.
+>
+> **Production closeout - 8 November 2026.** In-repo software readiness after the
+> fresh Alembic baseline (`20261127_0100`) is recorded in
+> [`production-closeout-20261108.md`](production-closeout-20261108.md). D4 and
+> the vendor native mobile app remain explicitly deferred; live Meta/DLT/courier
+> credentials, host TLS, off-box restore and restricted-role UAT remain
+> external commissioning gates.
 
 This is a source review of the current working tree, including the changes now
 being verified. It is not a deployment approval or a claim that the authorized

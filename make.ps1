@@ -50,8 +50,20 @@ function Invoke-Step {
     Write-Host "==> $Command" -ForegroundColor Cyan
     Push-Location $WorkDir
     try {
-        & powershell -NoProfile -Command $Command
-        if ($LASTEXITCODE -ne 0) { throw "Step failed (exit $LASTEXITCODE): $Command" }
+        # npm writes ordinary progress to stderr. PowerShell 5.1 promotes that to
+        # NativeCommandError and can abort even when the process exited 0.
+        # Start-Process keeps the real exit code without poisoning the session.
+        $executable = 'powershell.exe'
+        $argumentList = @('-NoProfile', '-Command', $Command)
+        if ($Command -match '^\s*npm\b') {
+            $executable = 'cmd.exe'
+            $argumentList = @('/c', $Command)
+        }
+        $proc = Start-Process -FilePath $executable -ArgumentList $argumentList `
+            -WorkingDirectory (Get-Location).Path -Wait -PassThru -NoNewWindow
+        if ($proc.ExitCode -ne 0) {
+            throw "Step failed (exit $($proc.ExitCode)): $Command"
+        }
     } finally { Pop-Location }
 }
 

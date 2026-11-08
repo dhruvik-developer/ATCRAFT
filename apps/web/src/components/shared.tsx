@@ -165,12 +165,19 @@ const STATUS_VARIANTS: Record<
   COUNTED: 'default',
   ORDERED: 'default',
   JOB_WORK: 'default',
+  // Collections follow-up note channels (StatusBadge on the notes trail).
+  CALL: 'default',
+  EMAIL: 'default',
+  VISIT: 'default',
+  MESSAGE: 'default',
+  SYSTEM: 'muted',
   PARTIALLY_RECEIVED: 'warning',
   PARTIALLY_DISPATCHED: 'warning',
   PARTIALLY_PAID: 'warning',
   PARTIALLY_ALLOCATED: 'warning',
   PARTIALLY_CONSUMED: 'warning',
   PARTIALLY_ORDERED: 'warning',
+  PARTIAL_PAYMENT: 'warning',
   QC_PENDING: 'warning',
   QC_HOLD: 'warning',
   HOLD: 'warning',
@@ -182,8 +189,13 @@ const STATUS_VARIANTS: Record<
   SUSPENDED: 'warning',
   VARIANCE: 'warning',
   OVERRIDDEN: 'warning',
+  NO_RESPONSE: 'warning',
   LATE: 'destructive',
   EXCEPTION: 'warning',
+  // Dealer catalogue availability bands.
+  LIMITED: 'warning',
+  MADE_TO_ORDER: 'secondary',
+  OTHER: 'secondary',
 
   // settled, good
   APPROVED: 'success',

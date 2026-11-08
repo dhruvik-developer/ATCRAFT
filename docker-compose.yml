@@ -147,6 +147,9 @@ x-api-env: &api-env
   CLAMAV_SOCKET_PATH: ${CLAMAV_SOCKET_PATH:-}
   CLAMAV_TIMEOUT_SECONDS: ${CLAMAV_TIMEOUT_SECONDS:-10}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Structured JSON on stdout so host/container log collectors can correlate
+  # request_id / company_id / user_id. Local .env may set false for console.
+  LOG_JSON: ${LOG_JSON:-true}
 
 services:
   # ---------------------------------------------------------------- postgres

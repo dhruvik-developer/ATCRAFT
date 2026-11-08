@@ -16,24 +16,21 @@ preserve their original planning and audit evidence.
 
 ## Current checkpoint
 
-Updated 26 October 2026. The migration chain has twelve
-revisions: the verified `20261021_0100` baseline and eleven forward revisions through
-`20261101_0100`. D5 specification masters, inherited item descriptions and
-accessories are implemented; combined acceptance is in progress. The owner's
+Updated 8 November 2026. Alembic history is again a **single** revision,
+`20261127_0100`, covering the former head `20261126_0100` (see
+[migration-squash-20261127.md](migration-squash-20261127.md); the October squash
+note remains historical). The owner's
 [single-checkout policy](../../AGENTS.md) supersedes the historical lane/worktree
 instructions below. Only `atcraft-erp`, `atcraft_erp` and `atcraft_erp_test` remain
 locally; leave `TEST_POSTGRES_DB` unset. The [current full-scope checkpoint](production-scope-20261025.md)
-distinguishes this delivery's fixes and verification from the software packages
-that remain in the user's authorized full scope. Combined release checks and
-full-scope acceptance remain separate; a historical audit or a passing focused
-suite does not establish completion of the proposal.
+distinguishes delivered software from external commissioning gates; the
+[8 November production closeout](production-closeout-20261108.md) records
+in-repo readiness after the fresh baseline. Combined release checks and
+customer UAT remain separate from a green repository gate.
 The [26 October local release verification](release-verification-20261026.md)
 records the populated portal/responsive/accessibility checks, patched web/proxy
-runtime, seed and restore proofs. The signing integration decision remains
-pending at the user's request; other full-scope work continues.
-The original 58-revision squash is recorded in
-[migration-squash-20261021.md](migration-squash-20261021.md). Application-wide
-standards checks and their results are recorded in the
+runtime, seed and restore proofs. D4 DSC/PAdES remains deferred pending the
+signing/legal model. Application-wide standards checks are recorded in the
 [22–23 October verification](development-standards-20261022.md); local setup and
 the repeatable demonstration seed are documented in the
 [local seed workflow](../local-seed-data.md). The D4/PAdES compliance and

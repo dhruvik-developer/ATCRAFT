@@ -80,11 +80,16 @@ new background jobs raised while testing:
 | Finance and returns | Account chart, journals, vendor/sales invoices, payments/allocations, sales returns and credit notes |
 | Documents and reports | Uploaded sample files, generated invoice/credit PDFs and report jobs; live reports read the seeded transactions |
 | Portals and notifications | Dealer offers/cart/wishlist/order request, vendor interactions, in-app notifications and audit history |
+| Approvals and courier | Company approval thresholds (dual PO / inventory); demo `DM-COURIER-WH` generic-webhook courier account linked to demo transporters |
+| Collections | Overdue follow-ups against seeded overdue invoices (A4) |
+| Dual PO approval | High-value purchase orders that exercise the second-approver path when thresholds apply |
 
 The seed includes supported workflows and representative lifecycle states. It
-does not fabricate credentials, provider webhooks, MFA enrollment, every possible
-stock grain or unsupported serial-component assembly. External courier, mail,
-push and signature services still require their own configured test accounts.
+does not fabricate live Shiprocket / Meta / DLT credentials, MFA enrollment,
+every possible stock grain or unsupported serial-component assembly. External
+courier, mail, push and signature services still require their own configured
+test accounts; the demo webhook courier is enough for administration UI and
+signed-ingest testing without a provider.
 The final report lists any deliberately unavailable scenario or operational
 failure; investigate unexpected skips rather than treating them as coverage.
 

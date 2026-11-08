@@ -75,7 +75,13 @@ from src.common.codes import financial_year_key, normalise_code
 from src.core.clock import today
 from src.core.demo_data import DemoContext, find_by_code
 from src.core.deps import TenantContext
-from src.core.errors import AuthorizationError, BusinessRuleError, DuplicateError, NotFoundError
+from src.core.errors import (
+    AuthorizationError,
+    BusinessRuleError,
+    DuplicateError,
+    NotFoundError,
+    ValidationError,
+)
 from src.core.seed import WAREHOUSES as BASELINE_WAREHOUSES
 from src.modules.customers.models import (
     AddressType,
@@ -2372,6 +2378,83 @@ async def _seed_vendor_portal_users(ctx: DemoContext) -> None:
         _seen(ctx, "user", code, detail.id, created=True)
 
 
+async def _seed_platform_integrations(ctx: DemoContext) -> None:
+    """Courier webhook account and company approval thresholds for demos.
+
+    Live Shiprocket / Meta / DLT credentials stay out of source; the webhook
+    account is enough to exercise administration UI and signed ingest without a
+    provider. Approval settings are materialised so dual-PO and inventory
+    threshold screens have a row to show on a brand-new company.
+    """
+    from src.modules.audit import service as audit_service
+    from src.modules.audit.schemas import ApprovalSettingsUpdate
+    from src.modules.courier_tracking import service as courier_service
+    from src.modules.courier_tracking.models import CourierAccount, CourierProvider
+    from src.modules.courier_tracking.schemas import CourierAccountCreate
+
+    # Persist the code defaults as a company row so Settings → Approvals shows a
+    # stored configuration (not only ephemeral defaults) and dual-PO thresholds
+    # have something to audit against on a fresh demo company.
+    await audit_service.update_company_approval_settings(
+        ctx.session,
+        ctx.tenant,
+        ApprovalSettingsUpdate(
+            po_dual_approval_amount=audit_service.DEFAULT_PO_DUAL_APPROVAL_AMOUNT,
+            adjustment_approval_threshold=audit_service.DEFAULT_ADJUSTMENT_APPROVAL_THRESHOLD,
+            internal_issue_approval_threshold=(
+                audit_service.DEFAULT_INTERNAL_ISSUE_APPROVAL_THRESHOLD
+            ),
+            requisition_auto_approve_limit=audit_service.DEFAULT_REQUISITION_AUTO_APPROVE_LIMIT,
+        ),
+    )
+    ctx.note(STAGE, created=1)
+
+    courier_code = "DM-COURIER-WH"
+    existing = (
+        (
+            await ctx.session.execute(
+                select(CourierAccount).where(
+                    CourierAccount.company_id == ctx.company_id,
+                    CourierAccount.code == courier_code,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        _seen(ctx, "courier_account", courier_code, existing.id, created=False)
+        return
+
+    # Only COURIER-typed transporters may link; VRL/CITY are TRANSPORT.
+    transporter_ids = [
+        tid for tid in (ctx.maybe_id("transporter", ctx.code("TRN", "GATI")),) if tid is not None
+    ]
+    try:
+        account = await courier_service.create_account(
+            ctx.session,
+            ctx.tenant,
+            CourierAccountCreate(
+                code=courier_code,
+                provider=CourierProvider.GENERIC_WEBHOOK,
+                display_name="Demo webhook courier",
+                transporter_ids=transporter_ids,
+                auto_confirm_delivery=True,
+                is_active=True,
+            ),
+        )
+    except (
+        BusinessRuleError,
+        DuplicateError,
+        NotFoundError,
+        AuthorizationError,
+        ValidationError,
+    ) as exc:
+        ctx.skipped.append((STAGE, f"courier account {courier_code} not created: {exc}"))
+        return
+    _seen(ctx, "courier_account", courier_code, account.id, created=True)
+
+
 async def seed(ctx: DemoContext) -> None:
     """Fill in the master data every later stage addresses by code.
 
@@ -2408,3 +2491,4 @@ async def seed(ctx: DemoContext) -> None:
     await _seed_vendors(ctx, buyer)
     await _seed_item_vendor_links(ctx, anchor)
     await _seed_vendor_portal_users(ctx)
+    await _seed_platform_integrations(ctx)

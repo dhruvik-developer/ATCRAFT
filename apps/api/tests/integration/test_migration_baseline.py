@@ -1,9 +1,9 @@
 """A fresh database builds the current head schema and rolls back cleanly.
 
-The 58 pre-squash revisions were replaced by one baseline generated from a
-``pg_dump --schema-only`` of the verified head database, and post-squash
-revisions sit on top of it. This test proves the fresh-install path: an empty
-database reaches the full schema through the migration chain, the schema still
+The revision chain was squashed to one baseline generated from a
+``pg_dump --schema-only`` of the verified head database
+(``20261127_0100``). This test proves the fresh-install path: an empty
+database reaches the full schema through that baseline, the schema still
 matches the models and constraint vocabulary that the application depends on,
 and a disposable database can be downgraded and rebuilt.
 """

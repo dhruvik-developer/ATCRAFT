@@ -36,14 +36,16 @@ git pull --ff-only origin main
 4. Take a PostgreSQL dump when this is an existing deployment.
 5. Update/start PostgreSQL and Redis. A fresh database runs
    `alembic upgrade head` from the new backend image. A database created before
-   the 2026-10-19 migration squash must record exactly revision `20261020_0100`,
+   the 2026-11-27 migration squash must record exactly revision `20261126_0100`,
    be verified on a clone, and then be stamped with
-   `alembic stamp --purge 20261021_0100`; see
-   `docs/implementation/migration-squash-20261021.md`. An earlier revision must
-   be upgraded through the old chain at tag `pre-migration-squash-20261019`
-   first. Stamping records the baseline bridge only; run the normal guarded
-   release afterwards to apply all later migrations through the current head.
-   Never run the baseline upgrade against a populated pre-squash database.
+   `alembic stamp --purge 20261127_0100`; see
+   `docs/implementation/migration-squash-20261127.md`. An earlier revision must
+   be upgraded through the old chain at tag `pre-migration-squash-20261127`
+   first (the October tag `pre-migration-squash-20261019` remains available for
+   databases that never reached the November chain). Stamping records the
+   baseline bridge only; run the normal guarded release afterwards to apply any
+   later migrations through the current head. Never run the baseline upgrade
+   against a populated pre-squash database.
 6. Start the new release only after migration succeeds and wait for all health
    checks. The backend health check uses `/health/ready`, which checks both
    PostgreSQL and Redis.

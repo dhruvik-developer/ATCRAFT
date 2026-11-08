@@ -759,11 +759,29 @@ Every command takes the deployment name. There is no default.
 ./scripts/deploy.sh main health           # containers + HTTP + readiness detail
 ./scripts/deploy.sh main logs             # follow all
 ./scripts/deploy.sh main logs backend     # follow one
+./scripts/deploy.sh main logs celery-worker
 ./scripts/deploy.sh main restart          # the full guarded release again - same as up
 ./scripts/deploy.sh main psql             # psql in this deployment's database
 ./scripts/deploy.sh main shell            # shell in this deployment's backend
 ./scripts/deploy.sh main doctor           # configuration, without starting anything
 ```
+
+### Live debugging
+
+Deployed processes emit **one JSON object per line** on stdout when
+`LOG_JSON=true` (the default in `deploy/*.env.example` and Compose). Every
+request carries `request_id`; authenticated traffic also carries `company_id`
+and `user_id`. Filter a failing call by copying the `request_id` from the
+error envelope or the access log line, then:
+
+```bash
+./scripts/deploy.sh main logs backend | grep '"request_id":"<id>"'
+./scripts/deploy.sh main logs celery-worker | grep '"request_id":"<id>"'
+```
+
+Use `LOG_LEVEL=DEBUG` only on the `dev` deployment while investigating; leave
+`main` at `INFO`. Do not set `APP_DEBUG=true` on either deployment — production
+startup refuses it, and stack traces must never reach the browser.
 
 `restart` is not a bounce. It re-runs the guarded release, so it refuses a
 dirty tree or a `HEAD` that is not the pushed upstream, rebuilds the images,
@@ -891,11 +909,11 @@ normal release must not split `up` and `migrate` into separate steps.
 that still records revision `20261020_0100` must not use the normal `upgrade`
 path: the 58-revision chain was replaced by a single baseline, and replaying it
 against populated data is destructive. Confirm the target's `alembic_version` is
-exactly `20261020_0100`; an earlier revision must first be upgraded through the
-old chain at tag `pre-migration-squash-20261019`. Then verify a clone and run
-`alembic stamp --purge 20261021_0100` in the maintenance window before starting
+exactly `20261126_0100`; an earlier revision must first be upgraded through the
+old chain at tag `pre-migration-squash-20261127`. Then verify a clone and run
+`alembic stamp --purge 20261127_0100` in the maintenance window before starting
 the new release. The normal `up` then sees head and performs no schema work. See
-`docs/implementation/migration-squash-20261021.md` for the verification,
+`docs/implementation/migration-squash-20261127.md` for the verification,
 stamp and recovery procedure.
 
 ---
