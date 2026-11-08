@@ -466,7 +466,6 @@ function RequisitionPicker({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            aria-label="Requisition"
             className={cn(
               'h-9 min-w-[200px] flex-1 justify-between font-normal',
               !value && 'text-muted-foreground',

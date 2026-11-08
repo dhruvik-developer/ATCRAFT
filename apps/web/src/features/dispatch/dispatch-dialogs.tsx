@@ -1273,7 +1273,7 @@ function AddTrackingEventForm({ dispatchId }: { dispatchId: string }) {
           name="event_status"
           render={({ field }) => (
             <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger id="event-status" className="mt-1.5" aria-label="Event status">
+              <SelectTrigger id="event-status" className="mt-1.5">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

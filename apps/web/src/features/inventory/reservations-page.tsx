@@ -419,7 +419,6 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
                     <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger
                         id="reservation-demand-type"
-                        aria-label="Demand type"
                         aria-invalid={Boolean(errors.demand_type)}
                       >
                         <SelectValue placeholder="What kind of demand?" />

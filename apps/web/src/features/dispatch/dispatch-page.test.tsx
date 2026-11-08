@@ -31,6 +31,7 @@ import { describe, expect, it } from 'vitest'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
+import { DispatchTimelineDialog } from './dispatch-dialogs'
 import DispatchPage from './dispatch-page'
 import type {
   DispatchDetail,
@@ -784,6 +785,30 @@ describe('creating a consignment', () => {
 
     await user.click(await screen.findByRole('button', { name: /create dispatch/i }))
     expect(await screen.findByText(/your role cannot read the warehouse list/i)).toBeVisible()
+  })
+})
+
+describe('recording a tracking event', () => {
+  it('names the event picker by the words on screen', async () => {
+    // An aria-label of "Event status" under a label reading "What happened"
+    // replaced the visible name, so "click What happened" by voice found
+    // nothing. The label alone names it now.
+    renderScreen(
+      <DispatchTimelineDialog
+        dispatch={dispatch({ status: 'DISPATCHED' })}
+        open
+        onOpenChange={() => undefined}
+      />,
+      {
+        permissions: [P.DISPATCH_VIEW, P.DISPATCH_UPDATE],
+        routes: {
+          [`GET /dispatch/${DISPATCH_ID}`]: ok(dispatchDetail({ status: 'DISPATCHED' })),
+          [`GET /dispatch/${DISPATCH_ID}/tracking-events`]: ok([]),
+        },
+      },
+    )
+
+    expect(await screen.findByRole('combobox', { name: 'What happened' })).toBeVisible()
   })
 })
 

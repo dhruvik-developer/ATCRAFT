@@ -237,7 +237,9 @@ export default function AlertsPage() {
                     <div className="flex gap-2">
                       <Input
                         id={`alert-threshold-${rule.key}`}
-                        aria-label={`${rule.name} alert threshold`}
+                        // The visible words first, so "click Alert after" works
+                        // by voice; the rule's name tells the cards apart.
+                        aria-label={`Alert after, ${rule.name}`}
                         aria-invalid={!thresholdValid}
                         type="number"
                         min={0}
@@ -287,7 +289,7 @@ export default function AlertsPage() {
                     <div className="flex gap-2">
                       <Input
                         id={`alert-reminder-${rule.key}`}
-                        aria-label={`${rule.name} reminder interval`}
+                        aria-label={`Repeat reminder every, ${rule.name}`}
                         aria-invalid={!reminderValid}
                         type="number"
                         min={0}

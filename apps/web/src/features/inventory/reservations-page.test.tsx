@@ -217,7 +217,7 @@ async function fillCreateForm(
 
   await user.type(within(dialog).getByRole('textbox', { name: /quantity to hold/i }), quantity)
 
-  await user.click(within(dialog).getByRole('combobox', { name: 'Demand type' }))
+  await user.click(within(dialog).getByRole('combobox', { name: 'Held for' }))
   await user.click(await screen.findByRole('option', { name: 'Sales Order' }))
 
   await user.type(within(dialog).getByRole('textbox', { name: /demand id/i }), DEMAND_ID)

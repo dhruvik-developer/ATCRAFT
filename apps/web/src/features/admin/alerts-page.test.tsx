@@ -57,7 +57,7 @@ describe('smart alert settings', () => {
     expect(screen.getByRole('checkbox', { name: 'Enable this alert' })).toBeDisabled()
     expect(
       screen.getByRole('spinbutton', {
-        name: 'Purchase order not acknowledged alert threshold',
+        name: 'Alert after, Purchase order not acknowledged',
       }),
     ).toBeDisabled()
     expect(
@@ -66,6 +66,24 @@ describe('smart alert settings', () => {
       }),
     ).toHaveTextContent('days')
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+  })
+
+  it('names each duration by its visible label first, then by its rule', async () => {
+    // Speech input says the words on screen ("click Repeat reminder every"),
+    // so the accessible name leads with them; the rule's name follows because
+    // every card on the page carries the same two labels.
+    renderAlerts([P.SETTINGS_VIEW])
+
+    expect(
+      await screen.findByRole('spinbutton', {
+        name: 'Alert after, Purchase order not acknowledged',
+      }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('spinbutton', {
+        name: 'Repeat reminder every, Purchase order not acknowledged',
+      }),
+    ).toBeVisible()
   })
 
   it('submits only changed rules and preserves untouched rules', async () => {
@@ -84,7 +102,7 @@ describe('smart alert settings', () => {
     )
 
     const threshold = await screen.findByRole('spinbutton', {
-      name: 'Purchase order not acknowledged alert threshold',
+      name: 'Alert after, Purchase order not acknowledged',
     })
     await user.clear(threshold)
     await user.type(threshold, '0.0625')
@@ -114,7 +132,7 @@ describe('smart alert settings', () => {
     renderAlerts([P.SETTINGS_VIEW, P.SETTINGS_MANAGE])
 
     const threshold = await screen.findByRole('spinbutton', {
-      name: 'Purchase order not acknowledged alert threshold',
+      name: 'Alert after, Purchase order not acknowledged',
     })
     fireEvent.change(threshold, { target: { value: '' } })
 
@@ -126,7 +144,7 @@ describe('smart alert settings', () => {
     renderAlerts([P.SETTINGS_VIEW, P.SETTINGS_MANAGE])
 
     const threshold = await screen.findByRole('spinbutton', {
-      name: 'Purchase order not acknowledged alert threshold',
+      name: 'Alert after, Purchase order not acknowledged',
     })
     fireEvent.change(threshold, { target: { value: '3651' } })
 

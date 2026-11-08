@@ -519,6 +519,21 @@ describe('what the RFQ form sends', () => {
     expect(within(dialog).getByText(/cannot raise an rfq from here/i)).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Raise draft RFQ' })).toBeDisabled()
   })
+
+  it('names the requisition picker by the words on screen', async () => {
+    // An aria-label of "Requisition" under a label reading "Raised against"
+    // replaced the visible name, so "click Raised against" by voice found
+    // nothing. The label alone names it now.
+    const { user, fetch } = renderScreen(<RfqsPage />, {
+      permissions: [...BUYER, P.PURCHASE_REQUISITION_VIEW],
+      routes: formRoutes(),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /new rfq/i }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    expect(within(dialog).getByRole('combobox', { name: 'Raised against' })).toBeVisible()
+  })
 })
 
 describe('the board itself', () => {
