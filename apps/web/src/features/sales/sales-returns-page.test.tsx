@@ -1,8 +1,9 @@
-import { screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import SalesReturnsPage, { type SalesReturnRow } from './sales-returns-page'
 
@@ -50,7 +51,7 @@ describe('SalesReturnsPage', () => {
     expect(screen.queryByRole('button', { name: 'Receive' })).not.toBeInTheDocument()
   })
 
-  it('requests a cancellation reason before cancelling a draft return', async () => {
+  it('collects the cancellation reason in a dialog that opens empty', async () => {
     const { user, fetch } = renderScreen(<SalesReturnsPage />, {
       permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
       routes: {
@@ -59,15 +60,79 @@ describe('SalesReturnsPage', () => {
       },
     })
 
-    vi.spyOn(window, 'prompt').mockReturnValue('Customer requested cancellation')
+    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
+    const trigger = screen.getByRole('button', { name: 'Cancel' })
+    expect(trigger).toHaveClass('text-destructive')
+    await user.click(trigger)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Cancel SR/2026-001?' })
+    const box = within(dialog).getByRole('textbox', { name: 'Reason' })
+    const confirm = within(dialog).getByRole('button', { name: 'Cancel return' })
+    // Nothing is suggested: the native prompt arrived pre-filled with
+    // "Customer requested cancellation", and one OK audited it as the cause.
+    expect(box).toHaveValue('')
+    expect(confirm).toHaveClass('bg-destructive')
+
+    await user.click(confirm)
+    expect(within(dialog).getByText(messages.errors.reasonTooShort)).toBeVisible()
+    await user.type(box, 'ab')
+    await user.click(confirm)
+    expect(within(dialog).getByText(messages.errors.reasonTooShort)).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+
+    await user.clear(box)
+    await user.type(box, '  Raised against the wrong dispatch  ')
+    await user.click(confirm)
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/sales-returns/sr-1/cancel')).toEqual({
+        reason: 'Raised against the wrong dispatch',
+      }),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('keeps a refused cancellation open with the reason the API gave', async () => {
+    const { user } = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+      routes: {
+        'GET /sales-returns': page([salesReturnRow()]),
+        'POST /sales-returns/sr-1/cancel': fail(
+          422,
+          'VALIDATION_ERROR',
+          'Request validation failed',
+          {
+            fields: { reason: ['The reason must name what changed'] },
+          },
+        ),
+      },
+    })
 
     await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Cancel SR/2026-001?' })
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'Changed mind')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel return' }))
 
-    await waitFor(() => fetch.requestFor('POST', '/sales-returns/sr-1/cancel'))
-    expect(fetch.requestFor('POST', '/sales-returns/sr-1/cancel')).toEqual({
-      reason: 'Customer requested cancellation',
+    expect(await within(dialog).findByText('The reason must name what changed')).toBeVisible()
+    expect(screen.getByRole('dialog', { name: 'Cancel SR/2026-001?' })).toBeVisible()
+    expect(within(dialog).getByRole('textbox', { name: 'Reason' })).toHaveValue('Changed mind')
+  })
+
+  it('sends nothing when the cancellation is dismissed', async () => {
+    const { user, fetch } = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+      routes: { 'GET /sales-returns': page([salesReturnRow()]) },
     })
+
+    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Cancel SR/2026-001?' })
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'Not after all')
+    await user.keyboard('{Escape}')
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeVisible()
   })
 
   it('saves per-serial QC dispositions for a received return', async () => {

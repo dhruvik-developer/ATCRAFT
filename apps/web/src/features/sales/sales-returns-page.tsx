@@ -1,10 +1,9 @@
-import { describeError } from '@/lib/messages'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 
 import { DataTable } from '@/components/data-table'
-import { FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { FieldError, PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -27,6 +26,8 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { useAuth } from '@/features/auth/auth-context'
 import { formatDate } from '@/lib/format'
 import { api } from '@/lib/api-client'
+import { describeError, success } from '@/lib/messages'
+import { toast } from '@/lib/toast'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
 import type { SchemaOf } from '@/types/api'
@@ -271,6 +272,7 @@ export default function SalesReturnsPage() {
     id: string
     action: SalesReturnAction
   } | null>(null)
+  const [cancelling, setCancelling] = useState<SalesReturnRow | null>(null)
   const [unitDispositionOpen, setUnitDispositionOpen] = useState(false)
   const [unitDispositions, setUnitDispositions] = useState<Record<string, SerialDisposition>>({})
   const [unitDispositionError, setUnitDispositionError] = useState<string | null>(null)
@@ -288,6 +290,19 @@ export default function SalesReturnsPage() {
     staleTime: staleTimes.transactional,
   })
   const pendingSerials = undisposedSerialIds(selectedDetail.data)
+  // The reason is the person's own: it is collected in a dialog that opens
+  // empty, never pre-filled, because whatever a hurried OK sends is what the
+  // audit trail keeps.
+  const cancelReturn = useMutation({
+    mutationFn: ({ target, reason }: { target: SalesReturnRow; reason: string }) =>
+      api.post(`/sales-returns/${target.id}/cancel`, { reason }),
+    onSuccess: async (_result, { target }) => {
+      toast.success(success.cancelled('Sales return'), target.code)
+      setCancelling(null)
+      setSelected(null)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
+    },
+  })
   const disposeUnits = useMutation({
     mutationFn: (payload: { accepted: string[]; damaged: string[]; scrapped: string[] }) =>
       api.post(`/sales-returns/${selected}/units`, payload),
@@ -342,35 +357,7 @@ export default function SalesReturnsPage() {
     [],
   )
 
-  async function transition(id: string, action: SalesReturnAction) {
-    if (action === 'cancel') {
-      const promptReason = window.prompt(
-        'Provide a reason for cancelling this return.',
-        'Customer requested cancellation',
-      )
-      if (promptReason === null) {
-        return
-      }
-      const reason = promptReason.trim()
-      if (!reason) {
-        return
-      }
-
-      setTransitionError(null)
-      setTransitioning({ id, action })
-      try {
-        await api.post(`/sales-returns/${id}/cancel`, { reason })
-        setSelected(null)
-        await list.refetch()
-      } catch (error) {
-        const message = describeError(error, 'The return action failed.')
-        setTransitionError(message)
-      } finally {
-        setTransitioning(null)
-      }
-      return
-    }
-
+  async function transition(id: string, action: Exclude<SalesReturnAction, 'cancel'>) {
     setTransitionError(null)
     setTransitioning({ id, action })
     try {
@@ -414,12 +401,16 @@ export default function SalesReturnsPage() {
               availableActions.map((action) => (
                 <Button
                   key={action}
-                  variant={action === 'cancel' ? 'outline' : 'default'}
+                  variant={action === 'cancel' ? 'destructive-outline' : 'default'}
                   disabled={transitioning?.id === selectedReturn.id}
                   loading={
                     transitioning?.id === selectedReturn.id && transitioning.action === action
                   }
-                  onClick={() => void transition(selectedReturn.id, action)}
+                  onClick={() =>
+                    action === 'cancel'
+                      ? setCancelling(selectedReturn)
+                      : void transition(selectedReturn.id, action)
+                  }
                 >
                   {action === 'receive' ? 'Receive' : action === 'close' ? 'Close' : 'Cancel'}
                 </Button>
@@ -461,6 +452,25 @@ export default function SalesReturnsPage() {
         open={newReturnOpen}
         onClose={() => setNewReturnOpen(false)}
         onCreated={() => void list.refetch()}
+      />
+      <ReasonDialog
+        open={cancelling !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCancelling(null)
+            cancelReturn.reset()
+          }
+        }}
+        title={`Cancel ${cancelling?.code ?? 'this return'}?`}
+        description="A cancelled return cannot be reopened. The reason is kept on the return and in its audit trail."
+        confirmLabel="Cancel return"
+        destructive
+        loading={cancelReturn.isPending}
+        error={cancelReturn.error}
+        inputId="sales-return-cancel-reason"
+        onConfirm={(reason) => {
+          if (cancelling) cancelReturn.mutate({ target: cancelling, reason })
+        }}
       />
       <Dialog
         open={unitDispositionOpen}

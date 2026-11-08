@@ -19,6 +19,21 @@ async function rulesFiredBy(code: string): Promise<string[]> {
 }
 
 describe('the lint rules that replace review comments', () => {
+  it('refuses the native alert, confirm and prompt dialogs', async () => {
+    const fired = await rulesFiredBy(
+      [
+        'export function cancel(): boolean {',
+        "  window.alert('Cancelled')",
+        "  const reason = window.prompt('Why?', 'Customer requested cancellation')",
+        "  return confirm('Sure?') && reason !== null",
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired.filter((rule) => rule === 'no-alert')).toHaveLength(3)
+  })
+
   it('refuses a Button coloured destructive through className', async () => {
     const fired = await rulesFiredBy(
       [

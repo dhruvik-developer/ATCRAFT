@@ -43,6 +43,11 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // A native prompt ignores the theme, blocks the tab, and answers null
+      // wherever a kiosk or embedded browser suppresses dialogs - so the action
+      // it guards silently does nothing. Confirm with ConfirmDialog, and collect
+      // an audit reason with ReasonDialog (components/shared.tsx).
+      'no-alert': 'error',
       'no-restricted-syntax': [
         'error',
         {
