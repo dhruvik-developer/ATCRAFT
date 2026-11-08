@@ -52,6 +52,22 @@
     --sidebar-foreground: 214 20% 82%;
     --sidebar-accent: 214 60% 42%;
     --sidebar-border: 218 26% 24%;
+    /* The sidebar is dark in both themes, so the text that sits on it - and
+       on its accent - is white in both, as is the wash behind a hovered
+       link. Named here so a brand change edits one place instead of hunting
+       literals. */
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-emphasis: 0 0% 100%;
+
+    /* The scrim behind a dialog or the navigation drawer, and the highlight
+       that sweeps a loading skeleton. Theme-independent by design.
+       The colours that are only ever used translucent carry their alpha here
+       rather than as a `/N` modifier: a modifier on an `hsl(var())` token
+       needs color-mix(), and without it falls back to the opaque colour - a
+       white hover wash under white text would hide the link it highlights. */
+    --sidebar-hover: 0 0% 100% / 0.05;
+    --overlay: 0 0% 0% / 0.5;
+    --shimmer: 0 0% 100% / 0.25;
 
     --radius: 0.5rem;
   }
@@ -97,6 +113,12 @@
     --sidebar-foreground: 214 18% 78%;
     --sidebar-accent: 214 65% 50%;
     --sidebar-border: 218 20% 20%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-emphasis: 0 0% 100%;
+
+    --sidebar-hover: 0 0% 100% / 0.05;
+    --overlay: 0 0% 0% / 0.5;
+    --shimmer: 0 0% 100% / 0.25;
   }
 
   * {
@@ -194,7 +216,7 @@
     @apply relative overflow-hidden rounded-md bg-muted;
   }
   .skeleton::after {
-    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent;
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-shimmer to-transparent;
     content: '';
   }
 }

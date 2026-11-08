@@ -377,9 +377,15 @@ Light, dark and system. The palette is entirely CSS custom properties in
 configured `darkMode: ['class']`, so a screen never writes a `dark:` variant and
 never names a colour: it names a token and the theme swaps underneath. That is
 why the whole ERP themes correctly with no per-screen work, charts included
-(`fill: 'hsl(var(--primary))'`). The few literal `text-white` / `bg-black/50`
-uses are deliberate - the sidebar is dark in both themes, and a modal scrim is
-black in both.
+(`fill: 'hsl(var(--primary))'`). A colour that does not change with the theme
+is a token too, defined with the same value in both sets: the always-dark
+sidebar's text (`--sidebar-emphasis`, `--sidebar-accent-foreground`) and hover
+wash (`--sidebar-hover`), the modal scrim (`--overlay`) and the skeleton's
+highlight (`--shimmer`). The translucent ones carry their alpha in the token
+rather than as a `/N` modifier, because a modifier on an `hsl(var())` colour
+needs `color-mix()` and falls back to the opaque colour without it.
+`tests/unit/test_frontend_colour_tokens.py` fails on a white, black, palette
+or arbitrary colour utility, and on a configured colour either set lacks.
 
 `lib/theme.ts` owns the decision and is shared with `main.tsx`, which paints
 before React mounts so a dark operator never sees a white flash while

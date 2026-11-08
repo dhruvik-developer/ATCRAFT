@@ -181,7 +181,7 @@ export function LoginPage() {
           the viewport. The form is the page; this is decoration beside it. */}
       <aside
         aria-label="About Atcraft Manufacturing ERP"
-        className="relative hidden flex-col justify-between bg-sidebar p-10 text-white lg:flex"
+        className="relative hidden flex-col justify-between bg-sidebar p-10 text-sidebar-emphasis lg:flex"
       >
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-lg bg-sidebar-accent text-lg font-bold">
@@ -193,12 +193,12 @@ export function LoginPage() {
           <p className="text-3xl font-semibold leading-tight">
             From sales order to dispatch, with the stock figures that hold up.
           </p>
-          <p className="mt-4 text-sm leading-relaxed text-white/70">
+          <p className="mt-4 text-sm leading-relaxed text-sidebar-emphasis/70">
             Multi-level BOM, common-part consolidation, MRP, procurement, production, job work,
             quality and dispatch - on one auditable ledger.
           </p>
         </div>
-        <p className="text-xs text-white/70">
+        <p className="text-xs text-sidebar-emphasis/70">
           Authorised users only. All activity is recorded in the audit trail.
         </p>
       </aside>

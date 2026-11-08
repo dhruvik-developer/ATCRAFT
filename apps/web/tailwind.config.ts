@@ -63,8 +63,13 @@ export default {
           DEFAULT: 'hsl(var(--sidebar))',
           foreground: 'hsl(var(--sidebar-foreground))',
           accent: 'hsl(var(--sidebar-accent))',
+          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+          emphasis: 'hsl(var(--sidebar-emphasis))',
+          hover: 'hsl(var(--sidebar-hover))',
           border: 'hsl(var(--sidebar-border))',
         },
+        overlay: 'hsl(var(--overlay))',
+        shimmer: 'hsl(var(--shimmer))',
       },
       borderRadius: {
         lg: 'var(--radius)',

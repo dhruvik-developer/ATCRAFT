@@ -316,7 +316,7 @@ function MobileNavigation({
         </button>
       </DialogPrimitive.Trigger>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-30 bg-black/50" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-30 bg-overlay" />
         <DialogPrimitive.Content
           className="fixed inset-y-0 left-0 z-40 flex w-64 max-w-[calc(100vw-2rem)] flex-col bg-sidebar text-sidebar-foreground outline-none"
           aria-describedby={undefined}
@@ -345,18 +345,18 @@ function SidebarContent({
   return (
     <>
       <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4">
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-sidebar-accent font-bold text-white">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-sidebar-accent font-bold text-sidebar-accent-foreground">
           A
         </div>
         <div className={cn('min-w-0 flex-1', collapsed && 'lg:hidden')}>
-          <p className="truncate text-sm font-semibold text-white">Atcraft ERP</p>
+          <p className="truncate text-sm font-semibold text-sidebar-emphasis">Atcraft ERP</p>
           <p className="truncate text-2xs text-sidebar-foreground/70">{companyName ?? ''}</p>
         </div>
         {mobile && (
           <DialogPrimitive.Close asChild>
             <button
               type="button"
-              className="ml-auto rounded p-1 text-sidebar-foreground/70 hover:text-white"
+              className="ml-auto rounded p-1 text-sidebar-foreground/70 hover:text-sidebar-emphasis"
               aria-label="Close navigation"
             >
               <X className="h-5 w-5" />
@@ -390,7 +390,7 @@ function SidebarContent({
           <button
             type="button"
             onClick={onToggle}
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/70 hover:bg-white/5 hover:text-white"
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-hover hover:text-sidebar-emphasis"
             aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
           >
             <PanelLeftClose
@@ -423,8 +423,8 @@ function SidebarLink({ item, collapsed }: { item: NavItem; collapsed: boolean })
           cn(
             'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
             isActive
-              ? 'bg-sidebar-accent font-medium text-white'
-              : 'text-sidebar-foreground/80 hover:bg-white/5 hover:text-white',
+              ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+              : 'text-sidebar-foreground/80 hover:bg-sidebar-hover hover:text-sidebar-emphasis',
             collapsed && 'lg:justify-center lg:px-0',
           )
         }
