@@ -397,12 +397,12 @@ class TestMaster:
                 dormant.id, CostCentreUpdate(is_active=True)
             )
 
-    async def test_a_null_for_a_required_field_is_ignored_not_written(
+    async def test_an_omitted_required_field_is_left_alone(
         self, session: AsyncSession, tenant: TenantContext
     ) -> None:
         centre = await _centre(session, tenant, name="Assembly")
         updated = await CostCentreService(session, tenant).update_cost_centre(
-            centre.id, CostCentreUpdate.model_validate({"name": None, "description": "Bench"})
+            centre.id, CostCentreUpdate(description="Bench")
         )
         assert updated.name == "Assembly"
         assert updated.description == "Bench"

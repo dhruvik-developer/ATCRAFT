@@ -113,6 +113,17 @@ class TestLifecycleOverHttp:
         refused = await api_client.patch(f"{BASE}/{created['id']}", json={"code": "NEW"})
         assert refused.status_code == 422
 
+    @pytest.mark.parametrize("field", ["name", "cost_centre_type", "is_active"])
+    async def test_a_null_for_a_required_column_names_the_field(
+        self, api_client, field: str
+    ) -> None:
+        created = (await api_client.post(BASE, json=_body())).json()["data"]
+
+        refused = await api_client.patch(f"{BASE}/{created['id']}", json={field: None})
+
+        assert refused.status_code == 422
+        assert field in refused.json()["error"]["details"]["fields"]
+
     async def test_an_unknown_sort_column_is_refused_not_ignored(self, api_client) -> None:
         response = await api_client.get(BASE, params={"sort_by": "description"})
         assert response.status_code == 422
