@@ -16,17 +16,11 @@
  * absent optional fields sent as `null` rather than as `""`, and `line_number`
  * re-issued from the editor's own order so removing a line does not leave the
  * API a gap it stores verbatim.
- *
- * `TooltipProvider` wraps the screen because `app-layout` does: the purpose
- * column renders a Radix tooltip and `Tooltip.Root` throws outside a provider.
- * The wrapper reproduces the composition the route already has - it stubs
- * nothing the screen depends on.
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { TooltipProvider } from '@/components/ui/overlays'
 import { toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
@@ -145,11 +139,7 @@ function formRoutes(extra: RouteTable = {}): RouteTable {
   })
 }
 
-const screenUnderTest = (
-  <TooltipProvider>
-    <RequisitionsPage />
-  </TooltipProvider>
-)
+const screenUnderTest = <RequisitionsPage />
 
 type User = ReturnType<typeof renderScreen>['user']
 
@@ -825,6 +815,24 @@ describe('the queue itself', () => {
     // can do something about; on a closed one the flag is noise.
     await stable(() => screen.getByText(/d late\)$/))
     expect(screen.getByText('Rebuild the press tooling')).toBeVisible()
+  })
+
+  it('shows the whole purpose in the queue, with nothing to hover for', async () => {
+    // The purpose usually decides the approval and no other screen shows it to
+    // the approver. Cut to one line behind a hover tooltip, it could not be read
+    // from a phone or from the keyboard. jsdom measures no layout, so the class
+    // that did the cutting is what is pinned here; the wrap itself needs a browser.
+    const purpose =
+      'Rebuild the press tooling for the 40 mm hinge die, worn past tolerance after the September run, before the export order is pressed'
+    renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW],
+      routes: queueRoutes([requisition({ purpose })]),
+    })
+
+    const cell = await stable(() => screen.getByText(purpose))
+    expect(cell).toBeVisible()
+    expect(cell).not.toHaveClass('truncate')
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('does not flag a late date on a requisition that is already closed', async () => {

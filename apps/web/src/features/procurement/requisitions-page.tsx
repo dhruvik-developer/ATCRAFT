@@ -57,9 +57,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -444,17 +441,13 @@ export default function RequisitionsPage() {
         header: 'Purpose',
         enableSorting: false,
         // What the requester says the material is for. It is the only free text
-        // on the header and it is usually what decides the approval.
+        // on the header and it is usually what decides the approval, so it is
+        // shown whole and wrapped (at most 255 characters). Truncated behind a
+        // hover tooltip it could not be read from a phone or the keyboard, and
+        // no other screen shows it to the approver.
         cell: ({ row }) =>
           row.original.purpose ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="block max-w-[18rem] cursor-help truncate">
-                  {row.original.purpose}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs">{row.original.purpose}</TooltipContent>
-            </Tooltip>
+            <span className="block max-w-[18rem] break-words">{row.original.purpose}</span>
           ) : (
             <span className="text-muted-foreground">-</span>
           ),
