@@ -4,7 +4,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, StatusBadge } from '@/components/shared'
+import { ConfirmDialog, FieldError, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -474,10 +474,11 @@ export default function OperationTab({ kind }: { kind: Kind }) {
   const client = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [pending, setPending] = useState<{ row: Operation; verb: string } | null>(null)
-  const [reason, setReason] = useState('')
-  const [reasonError, setReasonError] = useState('')
   const [detailId, setDetailId] = useState<string | null>(null)
   const reviewRequired = pending?.verb === 'approve' || pending?.verb === 'post'
+  // Cancelling or rejecting an issue is audited and cannot be undone: it takes a
+  // recorded reason and confirms with the destructive button.
+  const needsReason = pending?.verb === 'cancel' || pending?.verb === 'reject'
   const selectedId = detailId ?? (reviewRequired ? pending?.row.id : null)
   const detail = useQuery({
     queryKey: [...queryKeys.inventory.all, 'operation-detail', kind, selectedId],
@@ -501,10 +502,10 @@ export default function OperationTab({ kind }: { kind: Kind }) {
     staleTime: staleTimes.transactional,
   })
   const action = useMutation({
-    mutationFn: () =>
+    mutationFn: (reason?: string) =>
       api.post<Operation>(
         `/inventory/${kind}/${pending?.row.id}/${pending?.verb}`,
-        pending?.verb === 'cancel' || pending?.verb === 'reject' ? { reason: reason.trim() } : {},
+        reason === undefined ? {} : { reason },
       ),
     onSuccess: (row) => {
       toast.success(
@@ -517,10 +518,14 @@ export default function OperationTab({ kind }: { kind: Kind }) {
       )
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       setPending(null)
-      setReason('')
-      setReasonError('')
     },
   })
+  const closePending = (open: boolean) => {
+    if (!open) {
+      setPending(null)
+      action.reset()
+    }
+  }
   const columns = useMemo<ColumnDef<Operation, unknown>[]>(
     () => [
       {
@@ -686,40 +691,19 @@ export default function OperationTab({ kind }: { kind: Kind }) {
         </DialogContent>
       </Dialog>
       <ConfirmDialog
-        open={Boolean(pending)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPending(null)
-            setReason('')
-            setReasonError('')
-          }
-        }}
+        open={Boolean(pending) && !needsReason}
+        onOpenChange={closePending}
         title={`${humanise(pending?.verb ?? '')} ${pending?.row.code ?? 'issue'}?`}
         description={
-          pending?.verb === 'post' || pending?.verb === 'approve'
+          reviewRequired
             ? 'Posting removes these materials from available stock.'
             : 'The status change is recorded with this document.'
         }
-        confirmLabel={
-          pending?.verb === 'cancel'
-            ? 'Cancel issue'
-            : pending?.verb === 'reject'
-              ? 'Reject issue'
-              : humanise(pending?.verb ?? 'Confirm')
-        }
+        confirmLabel={humanise(pending?.verb ?? 'Confirm')}
         loading={action.isPending || Boolean(reviewRequired && detail.isPending)}
         onConfirm={() => {
-          if (
-            (pending?.verb === 'cancel' || pending?.verb === 'reject') &&
-            reason.trim().length < REASON_MIN_LENGTH
-          ) {
-            setReasonError(
-              `Enter at least ${REASON_MIN_LENGTH} characters explaining this ${pending?.verb === 'reject' ? 'rejection' : 'cancellation'}.`,
-            )
-            return
-          }
           if (reviewRequired && (!detail.data || detail.isError)) return
-          action.mutate()
+          action.mutate(undefined)
         }}
       >
         {reviewRequired && (
@@ -729,21 +713,21 @@ export default function OperationTab({ kind }: { kind: Kind }) {
             {detail.data && <OperationLines document={detail.data} />}
           </div>
         )}
-        {(pending?.verb === 'cancel' || pending?.verb === 'reject') && (
-          <div className="space-y-1.5">
-            <Label htmlFor="issue-cancel-reason" required>
-              Reason
-            </Label>
-            <Textarea
-              id="issue-cancel-reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-            <FieldError message={reasonError} />
-          </div>
-        )}
         <FieldError message={action.error ? describeError(action.error) : undefined} />
       </ConfirmDialog>
+      <ReasonDialog
+        open={Boolean(pending) && needsReason}
+        onOpenChange={closePending}
+        title={`${humanise(pending?.verb ?? '')} ${pending?.row.code ?? 'issue'}?`}
+        description="The status change is recorded with this document."
+        confirmLabel={pending?.verb === 'reject' ? 'Reject issue' : 'Cancel issue'}
+        destructive
+        loading={action.isPending}
+        error={action.error}
+        inputId="issue-cancel-reason"
+        multiline
+        onConfirm={(reason) => action.mutate(reason)}
+      />
     </>
   )
 }

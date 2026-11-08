@@ -136,6 +136,8 @@ interface PendingAction {
   title: string
   description: string
   confirmLabel: string
+  /** Abandons the consignment: confirmed with the destructive button. */
+  destructive?: boolean
   successTitle: string
   successBody: string
   /** What the note box is asking for, and whether the API insists on it. */
@@ -248,6 +250,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
       title={pending.title}
       description={pending.description}
       confirmLabel={pending.confirmLabel}
+      destructive={pending.destructive}
       loading={run.isPending}
       onConfirm={() => {
         if (noteInvalid || delayReasonMissing) {
@@ -800,6 +803,7 @@ function DispatchesTab({
 
               {canCancel && (
                 <DropdownMenuItem
+                  destructive
                   onSelect={() =>
                     onAction({
                       dispatch,
@@ -808,6 +812,7 @@ function DispatchesTab({
                       description:
                         'The consignment is abandoned before it leaves. Nothing has moved out, so nothing is returned - but the document stays on the record. Packed boxes handed to it go back to the packing dock for another consignment.',
                       confirmLabel: 'Cancel dispatch',
+                      destructive: true,
                       successTitle: success.cancelled('Dispatch'),
                       successBody: `${dispatch.code} will not go out.`,
                       noteLabel: 'Reason',

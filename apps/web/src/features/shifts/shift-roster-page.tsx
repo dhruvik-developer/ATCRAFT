@@ -4,7 +4,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { useEffect, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, PageHeader, StatusBadge } from '@/components/shared'
+import { PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Input, Label } from '@/components/ui/primitives'
@@ -37,8 +37,12 @@ export default function ShiftRosterPage() {
     cell?: RosterCell
   } | null>(null)
   const [editing, setEditing] = useState<ShiftOption | null | undefined>()
-  const [confirm, setConfirm] = useState<{ path: string; label: string } | null>(null)
-  const [reason, setReason] = useState('')
+  /** The audited change awaiting its reason; retiring and cancelling cannot be undone. */
+  const [confirm, setConfirm] = useState<{
+    path: string
+    label: string
+    destructive?: boolean
+  } | null>(null)
   const rosterView = can(P.SHIFT_ROSTER_VIEW)
   const rosterManage = can(P.SHIFT_ROSTER_MANAGE)
   const shiftView = can(P.SHIFT_VIEW)
@@ -90,17 +94,20 @@ export default function ShiftRosterPage() {
     enabled: rosterView,
   })
   const action = useMutation({
-    mutationFn: () => {
-      if (!confirm) throw new Error('Choose an action')
-      return confirm.label === 'Retire'
-        ? api.delete(`${confirm.path}?reason=${encodeURIComponent(reason)}`)
-        : api.post(confirm.path, { reason })
-    },
+    mutationFn: ({
+      target,
+      reason,
+    }: {
+      target: { path: string; label: string }
+      reason: string
+    }) =>
+      target.label === 'Retire'
+        ? api.delete(`${target.path}?reason=${encodeURIComponent(reason)}`)
+        : api.post(target.path, { reason }),
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: queryKeys.routing.all })
       toast.success(success.updated('Roster'))
       setConfirm(null)
-      setReason('')
     },
   })
   const columns: ColumnDef<ShiftOption>[] = [
@@ -147,7 +154,11 @@ export default function ShiftRosterPage() {
                   size="sm"
                   variant="outline"
                   onClick={() =>
-                    setConfirm({ path: `/routing/shifts/${row.original.id}`, label: 'Retire' })
+                    setConfirm({
+                      path: `/routing/shifts/${row.original.id}`,
+                      label: 'Retire',
+                      destructive: true,
+                    })
                   }
                 >
                   Retire
@@ -170,6 +181,7 @@ export default function ShiftRosterPage() {
             setConfirm({
               path: `/routing/roster/assignments/${row.id}/cancel`,
               label: 'Cancel assignment',
+              destructive: true,
             })
           }
         >
@@ -441,32 +453,25 @@ export default function ShiftRosterPage() {
           onClose={() => setDialog(null)}
         />
       )}
-      <ConfirmDialog
+      <ReasonDialog
         open={Boolean(confirm)}
         onOpenChange={(open) => {
           if (!open) {
             setConfirm(null)
-            setReason('')
+            action.reset()
           }
         }}
         title={confirm?.label ?? ''}
         description="This change is recorded in the audit trail. Future assignments must be cancelled before a shift or machine can leave use."
         confirmLabel={confirm?.label ?? 'Confirm'}
+        destructive={confirm?.destructive}
         loading={action.isPending}
-        onConfirm={() => {
-          if (reason.trim().length >= 3) action.mutate()
+        error={action.error}
+        inputId="shift-reason"
+        onConfirm={(reason) => {
+          if (confirm) action.mutate({ target: confirm, reason })
         }}
-      >
-        <Label htmlFor="shift-reason">Reason</Label>
-        <Input
-          id="shift-reason"
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          minLength={3}
-          maxLength={255}
-        />
-        {action.error && <p className="text-sm text-destructive">{describeError(action.error)}</p>}
-      </ConfirmDialog>
+      />
     </>
   )
 }

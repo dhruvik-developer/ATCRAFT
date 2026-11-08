@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
@@ -69,6 +70,8 @@ describe('inventory operation documents', () => {
     })
     await user.click(await screen.findByRole('button', { name: /^submit$/i }))
     const dialog = await screen.findByRole('dialog')
+    // Submitting moves nothing and is not final, so it is not the red button.
+    expect(within(dialog).getByRole('button', { name: /^submit$/i })).toHaveClass('bg-primary')
     await user.click(within(dialog).getByRole('button', { name: /^submit$/i }))
     await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
     expect(fetch.requestFor('POST', `/inventory/internal-issues/${issue().id}/submit`)).toEqual({})
@@ -103,7 +106,10 @@ describe('inventory operation documents', () => {
     })
     await user.click(await screen.findByRole('button', { name: /^reject$/i }))
     const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: /^reject issue$/i }))
+    const confirm = within(dialog).getByRole('button', { name: /^reject issue$/i })
+    expect(confirm).toHaveClass('bg-destructive')
+    await user.click(confirm)
+    expect(within(dialog).getByText(messages.errors.reasonTooShort)).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Reason' }),
@@ -168,8 +174,13 @@ describe('inventory operation documents', () => {
     })
     await user.click(await screen.findByRole('button', { name: /^cancel$/i }))
     const dialog = await screen.findByRole('dialog')
-    await user.click(within(dialog).getByRole('button', { name: /^cancel issue$/i }))
+    const confirm = within(dialog).getByRole('button', { name: /^cancel issue$/i })
+    expect(confirm).toHaveClass('bg-destructive')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'no')
+    await user.click(confirm)
+    expect(within(dialog).getByText(messages.errors.reasonTooShort)).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Reason' }))
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Reason' }),
       'Maintenance job was cancelled',

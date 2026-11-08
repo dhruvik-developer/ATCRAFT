@@ -10,11 +10,17 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
-import { RoutingFormDialog, WorkCenterFormDialog } from './routing-dialogs'
-import { workableMachinesOf, type Machine, type WorkCenter } from './routing-model'
+import { RoutingDetailDialog, RoutingFormDialog, WorkCenterFormDialog } from './routing-dialogs'
+import {
+  workableMachinesOf,
+  type Machine,
+  type RoutingDetail,
+  type WorkCenter,
+} from './routing-model'
 
 const STAMP = '2026-09-01T09:00:00Z'
 
@@ -236,5 +242,80 @@ describe('the operation machine picker', () => {
 describe('workableMachinesOf', () => {
   it('keeps active machines of the centre and drops retired ones', () => {
     expect(workableMachinesOf([LATHE, RETIRED, PRESS_MACHINE], MILL.id)).toEqual([LATHE])
+  })
+})
+
+// ------------------------------------------------------------ status --------
+
+function routing(status: RoutingDetail['status']): RoutingDetail {
+  return {
+    id: 'rt-1',
+    code: 'RT-001',
+    name: 'Hinge body',
+    item_id: 'item-1',
+    version: 2,
+    status,
+    is_default: true,
+    effective_from: '2026-09-01',
+    effective_to: null,
+    approved_by_id: null,
+    approved_at: null,
+    created_at: STAMP,
+    updated_at: STAMP,
+    notes: null,
+    operations: [],
+  }
+}
+
+function renderDetail(status: RoutingDetail['status'], routes: RouteTable = {}) {
+  return renderScreen(
+    <RoutingDetailDialog routingId="rt-1" canManage onOpenChange={() => undefined} />,
+    {
+      permissions: [P.ROUTING_VIEW, P.ROUTING_MANAGE],
+      routes: {
+        'GET /routing/rt-1': ok(routing(status)),
+        'GET /routing/rt-1/cost': ok({ operations: [] }),
+        'GET /routing/work-centers': page([CNC]),
+        'GET /routing/machines': page([]),
+        ...routes,
+      },
+    },
+  )
+}
+
+describe('changing a routing status', () => {
+  it('confirms obsolete as destructive and holds back a reason the API would refuse', async () => {
+    const { user, fetch } = renderDetail('APPROVED', {
+      'POST /routing/rt-1/obsolete': ok({ ...routing('OBSOLETE'), operations: undefined }),
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Mark obsolete' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Mark RT-001 obsolete?' })
+    const confirm = within(dialog).getByRole('button', { name: 'Mark obsolete' })
+    expect(confirm).toHaveClass('bg-destructive')
+
+    // Two characters reached the API before, and its 422 was shown nowhere.
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'ab')
+    await user.click(confirm)
+    expect(within(dialog).getByText(messages.errors.reasonTooShort)).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'andoned for v3')
+    await user.click(confirm)
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/routing/rt-1/obsolete')).toEqual({
+        reason: 'abandoned for v3',
+      }),
+    )
+  })
+
+  it('approves through the primary confirmation', async () => {
+    const { user } = renderDetail('DRAFT')
+
+    await user.click(await screen.findByRole('button', { name: 'Approve' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Approve RT-001?' })
+    expect(within(dialog).getByRole('button', { name: 'Approve routing' })).toHaveClass(
+      'bg-primary',
+    )
   })
 })

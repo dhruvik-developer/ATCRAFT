@@ -23,7 +23,13 @@ import { Controller, useFieldArray, useForm, useWatch, type Control } from 'reac
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, EmptyState, FieldError, StatusBadge } from '@/components/shared'
+import {
+  DescriptionList,
+  EmptyState,
+  FieldError,
+  ReasonDialog,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -236,8 +242,6 @@ export function RoutingDetailDialog({
   const open = Boolean(routingId)
   const queryClient = useQueryClient()
   const [statusAction, setStatusAction] = useState<'approve' | 'obsolete' | null>(null)
-  const [reason, setReason] = useState('')
-  const [reasonTouched, setReasonTouched] = useState(false)
 
   const detail = useQuery({
     queryKey: queryKeys.routing.routing(routingId ?? ''),
@@ -450,181 +454,163 @@ export function RoutingDetailDialog({
         `${saved.code} is now ${humanise(saved.status).toLowerCase()}.`,
       )
       setStatusAction(null)
-      setReason('')
-      setReasonTouched(false)
     },
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="xl">
-        <DialogHeader>
-          <DialogTitle>
-            {routing ? `${routing.code}${routing.name ? ` - ${routing.name}` : ''}` : 'Routing'}
-          </DialogTitle>
-          <DialogDescription>
-            Operations run in sequence. Setup time is paid once per batch and run time for every
-            unit; queue and move time lengthen the lead time without charging a rate.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent size="xl">
+          <DialogHeader>
+            <DialogTitle>
+              {routing ? `${routing.code}${routing.name ? ` - ${routing.name}` : ''}` : 'Routing'}
+            </DialogTitle>
+            <DialogDescription>
+              Operations run in sequence. Setup time is paid once per batch and run time for every
+              unit; queue and move time lengthen the lead time without charging a rate.
+            </DialogDescription>
+          </DialogHeader>
 
-        <DialogBody className="space-y-4">
-          {detail.isLoading && (
-            <div className="space-y-2">
-              <Skeleton className="h-20 w-full" />
-              <Skeleton className="h-40 w-full" />
-            </div>
-          )}
-
-          {detail.error && (
-            <Alert variant="destructive">
-              <AlertTitle>Could not load this routing</AlertTitle>
-              <AlertDescription>{describeError(detail.error)}</AlertDescription>
-            </Alert>
-          )}
-
-          {routing && (
-            <>
-              <DescriptionList
-                columns={4}
-                items={[
-                  { label: 'Version', value: `v${routing.version}` },
-                  { label: 'Status', value: <StatusBadge status={routing.status} /> },
-                  { label: 'Default', value: routing.is_default ? 'Yes' : 'No' },
-                  { label: 'Operations', value: formatNumber(operations.length) },
-                  { label: 'Effective from', value: formatDate(routing.effective_from) },
-                  {
-                    label: 'Effective to',
-                    value: routing.effective_to ? formatDate(routing.effective_to) : 'Open ended',
-                  },
-                  {
-                    label: 'Total time / unit',
-                    value: cost.data
-                      ? `${formatQuantity(cost.data.total_minutes)} min`
-                      : 'Not costed',
-                  },
-                  {
-                    label: 'Lead time',
-                    value: cost.data
-                      ? `${formatNumber(cost.data.lead_time_days)} day(s) at ${formatQuantity(cost.data.working_hours_per_day)}h`
-                      : 'Not costed',
-                  },
-                  {
-                    label: 'Time cost / unit',
-                    value: cost.data ? formatMoney(cost.data.time_cost) : 'Not costed',
-                  },
-                  {
-                    label: 'Process charges',
-                    value: cost.data ? formatMoney(cost.data.process_cost) : 'Not costed',
-                  },
-                  {
-                    label: 'Cost / unit',
-                    value: cost.data ? formatMoney(cost.data.cost_per_unit) : 'Not costed',
-                  },
-                  { label: 'Notes', value: routing.notes ?? '-' },
-                ]}
-              />
-
-              {cost.error && (
-                <Alert variant="warning">
-                  <AlertTitle>Costs are not available for this routing</AlertTitle>
-                  <AlertDescription>
-                    The times below are the routing&apos;s own. The money columns are blank rather
-                    than zero, because the rate lives on each operation&apos;s work centre and this
-                    roll-up could not be read: {describeError(cost.error)}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {operations.length === 0 ? (
-                <EmptyState
-                  title="No operations on this routing"
-                  description="A routing without operations contributes no time and no cost to a production order."
-                />
-              ) : (
-                <DataTable
-                  columns={columns}
-                  data={operations}
-                  getRowId={(row) => row.id}
-                  emptyTitle="No operations"
-                  emptyDescription="This routing carries no operations."
-                />
-              )}
-            </>
-          )}
-        </DialogBody>
-
-        <DialogFooter>
-          {routing && canManage && isApprovable(routing.status) && (
-            <Button
-              className="mr-auto"
-              onClick={() => {
-                setStatusAction('approve')
-                setReasonTouched(false)
-              }}
-            >
-              Approve
-            </Button>
-          )}
-          {routing && canManage && isObsoletable(routing.status) && (
-            <Button
-              variant="destructive-outline"
-              className="mr-auto"
-              onClick={() => {
-                setStatusAction('obsolete')
-                setReasonTouched(false)
-              }}
-            >
-              Mark obsolete
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-
-        {statusAction !== null && (
-          <div className="border-t pt-4">
-            <Label htmlFor="routing-status-reason" required>
-              Reason to {statusAction === 'approve' ? 'approve' : 'retire'} {routing?.code}
-            </Label>
-            <div className="mt-1.5 flex flex-wrap items-start gap-2">
-              <Input
-                id="routing-status-reason"
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                autoComplete="off"
-                className="min-w-0 flex-1 basis-full sm:basis-0"
-                aria-invalid={reasonTouched && reason.trim() === ''}
-              />
-              <Button
-                loading={changeStatus.isPending}
-                onClick={() => {
-                  if (reason.trim() === '') {
-                    setReasonTouched(true)
-                    return
-                  }
-                  changeStatus.mutate({ key: statusAction, why: reason.trim() })
-                }}
-              >
-                Confirm
-              </Button>
-              <Button variant="ghost" onClick={() => setStatusAction(null)}>
-                Cancel
-              </Button>
-            </div>
-            {reasonTouched && reason.trim() === '' && (
-              <FieldError message="The API records a reason against every status change" />
+          <DialogBody className="space-y-4">
+            {detail.isLoading && (
+              <div className="space-y-2">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-40 w-full" />
+              </div>
             )}
-            <p className="mt-2 text-xs text-muted-foreground">
-              {statusAction === 'approve'
-                ? 'An approved routing can no longer be edited; changes need a new version.'
-                : 'Production orders already planned against this version keep it, so history stays intact.'}
-            </p>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+
+            {detail.error && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load this routing</AlertTitle>
+                <AlertDescription>{describeError(detail.error)}</AlertDescription>
+              </Alert>
+            )}
+
+            {routing && (
+              <>
+                <DescriptionList
+                  columns={4}
+                  items={[
+                    { label: 'Version', value: `v${routing.version}` },
+                    { label: 'Status', value: <StatusBadge status={routing.status} /> },
+                    { label: 'Default', value: routing.is_default ? 'Yes' : 'No' },
+                    { label: 'Operations', value: formatNumber(operations.length) },
+                    { label: 'Effective from', value: formatDate(routing.effective_from) },
+                    {
+                      label: 'Effective to',
+                      value: routing.effective_to ? formatDate(routing.effective_to) : 'Open ended',
+                    },
+                    {
+                      label: 'Total time / unit',
+                      value: cost.data
+                        ? `${formatQuantity(cost.data.total_minutes)} min`
+                        : 'Not costed',
+                    },
+                    {
+                      label: 'Lead time',
+                      value: cost.data
+                        ? `${formatNumber(cost.data.lead_time_days)} day(s) at ${formatQuantity(cost.data.working_hours_per_day)}h`
+                        : 'Not costed',
+                    },
+                    {
+                      label: 'Time cost / unit',
+                      value: cost.data ? formatMoney(cost.data.time_cost) : 'Not costed',
+                    },
+                    {
+                      label: 'Process charges',
+                      value: cost.data ? formatMoney(cost.data.process_cost) : 'Not costed',
+                    },
+                    {
+                      label: 'Cost / unit',
+                      value: cost.data ? formatMoney(cost.data.cost_per_unit) : 'Not costed',
+                    },
+                    { label: 'Notes', value: routing.notes ?? '-' },
+                  ]}
+                />
+
+                {cost.error && (
+                  <Alert variant="warning">
+                    <AlertTitle>Costs are not available for this routing</AlertTitle>
+                    <AlertDescription>
+                      The times below are the routing&apos;s own. The money columns are blank rather
+                      than zero, because the rate lives on each operation&apos;s work centre and
+                      this roll-up could not be read: {describeError(cost.error)}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {operations.length === 0 ? (
+                  <EmptyState
+                    title="No operations on this routing"
+                    description="A routing without operations contributes no time and no cost to a production order."
+                  />
+                ) : (
+                  <DataTable
+                    columns={columns}
+                    data={operations}
+                    getRowId={(row) => row.id}
+                    emptyTitle="No operations"
+                    emptyDescription="This routing carries no operations."
+                  />
+                )}
+              </>
+            )}
+          </DialogBody>
+
+          <DialogFooter>
+            {routing && canManage && isApprovable(routing.status) && (
+              <Button className="mr-auto" onClick={() => setStatusAction('approve')}>
+                Approve
+              </Button>
+            )}
+            {routing && canManage && isObsoletable(routing.status) && (
+              <Button
+                variant="destructive-outline"
+                className="mr-auto"
+                onClick={() => setStatusAction('obsolete')}
+              >
+                Mark obsolete
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* A modal of its own rather than a strip under the footer: the reason is
+          checked against the API's floor before anything is sent, and a refusal
+          is shown beside it instead of vanishing with the 422 the cache keeps
+          quiet about. Retiring a version is the destructive one. */}
+      <ReasonDialog
+        open={statusAction !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setStatusAction(null)
+            changeStatus.reset()
+          }
+        }}
+        title={
+          statusAction === 'approve'
+            ? `Approve ${routing?.code ?? 'this routing'}?`
+            : `Mark ${routing?.code ?? 'this routing'} obsolete?`
+        }
+        description={
+          statusAction === 'approve'
+            ? 'An approved routing can no longer be edited; changes need a new version.'
+            : 'Production orders already planned against this version keep it, so history stays intact.'
+        }
+        confirmLabel={statusAction === 'approve' ? 'Approve routing' : 'Mark obsolete'}
+        destructive={statusAction === 'obsolete'}
+        loading={changeStatus.isPending}
+        error={changeStatus.error}
+        inputId="routing-status-reason"
+        onConfirm={(why) => {
+          if (statusAction) changeStatus.mutate({ key: statusAction, why })
+        }}
+      />
+    </>
   )
 }
 

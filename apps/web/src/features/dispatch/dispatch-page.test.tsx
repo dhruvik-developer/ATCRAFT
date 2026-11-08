@@ -470,6 +470,51 @@ describe('the lifecycle the row offers', () => {
   )
 
   it(
+    'confirms a cancellation as the destructive step it is, and posts its reason',
+    async () => {
+      const { user, fetch } = await openActions(
+        'NOT_DISPATCHED',
+        [P.DISPATCH_VIEW, P.DISPATCH_UPDATE],
+        { [`POST /dispatch/${DISPATCH_ID}/cancel`]: ok(null) },
+      )
+
+      // The item that abandons the consignment reads differently in the menu...
+      const item = screen.getByRole('menuitem', { name: 'Cancel dispatch' })
+      expect(item).toHaveClass('text-destructive')
+      expect(screen.getByRole('menuitem', { name: 'Mark ready' })).not.toHaveClass(
+        'text-destructive',
+      )
+      await user.click(item)
+
+      // ...and so does its last step: the destructive confirm, not Approve's blue.
+      const dialog = await screen.findByRole('dialog', { name: 'Cancel DSP-0001?' })
+      const confirm = within(dialog).getByRole('button', { name: 'Cancel dispatch' })
+      expect(confirm).toHaveClass('bg-destructive')
+      expect(confirm).not.toHaveClass('bg-primary')
+
+      await user.type(within(dialog).getByLabelText(/reason/i), 'Customer collected in person')
+      await user.click(confirm)
+      const body = (await waitFor(() =>
+        fetch.requestFor('POST', `/dispatch/${DISPATCH_ID}/cancel`),
+      )) as Record<string, unknown>
+      expect(body).toEqual({ reason: 'Customer collected in person' })
+    },
+    POPPER,
+  )
+
+  it(
+    'keeps the primary confirm for a transition that abandons nothing',
+    async () => {
+      const { user } = await openActions('NOT_DISPATCHED', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+
+      await user.click(screen.getByRole('menuitem', { name: 'Mark ready' }))
+      const dialog = await screen.findByRole('dialog')
+      expect(within(dialog).getByRole('button', { name: 'Mark ready' })).toHaveClass('bg-primary')
+    },
+    POPPER,
+  )
+
+  it(
     'records the actual gate details when a consignment leaves',
     async () => {
       const { user, fetch } = await openActions(

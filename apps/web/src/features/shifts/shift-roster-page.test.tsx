@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
@@ -135,5 +136,49 @@ describe('shift and roster permissions', () => {
       operator_user_id: 'operator-1',
       notes: null,
     })
+  })
+})
+
+describe('retiring a shift', () => {
+  it('reports a reason too short to send, then retires with the reason in the query', async () => {
+    const seen: URL[] = []
+    const { user, fetch } = renderScreen(<ShiftRosterPage />, {
+      permissions: [P.SHIFT_VIEW, P.SHIFT_MANAGE],
+      routes: {
+        ...routes,
+        'DELETE /routing/shifts/shift-a': ({ url }: { url: URL }) => {
+          seen.push(url)
+          return ok(null)
+        },
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Retire' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Retire' })
+    const confirm = within(dialog).getByRole('button', { name: 'Retire' })
+    // Retiring cannot be undone, so its confirmation is the destructive one.
+    expect(confirm).toHaveClass('bg-destructive')
+
+    // Two characters used to make the button do nothing at all; now it says why.
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'ab')
+    await user.click(confirm)
+    expect(within(dialog).getByText(messages.errors.reasonTooShort)).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'DELETE')).toBe(false)
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'sent shift dropped')
+    await user.click(confirm)
+    await waitFor(() => expect(seen).toHaveLength(1))
+    expect(seen[0]!.searchParams.get('reason')).toBe('absent shift dropped')
+  })
+
+  it('keeps the primary confirm for a deactivation, which can be reversed', async () => {
+    const { user } = renderScreen(<ShiftRosterPage />, {
+      permissions: [P.SHIFT_VIEW, P.SHIFT_MANAGE],
+      routes,
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Deactivate' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Deactivate' })
+    expect(within(dialog).getByRole('button', { name: 'Deactivate' })).toHaveClass('bg-primary')
   })
 })
