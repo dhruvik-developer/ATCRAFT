@@ -25,6 +25,7 @@ WORKDIR /app
 # store as well as certifi: stdlib TLS clients do not use certifi's CA bundle.
 RUN apt-get update \
  && apt-get install --yes --no-install-recommends apt=3.0.4 ca-certificates=20250419+deb13u1 \
+    zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY docker-entrypoint.sh /usr/local/bin/atcraft-entrypoint
