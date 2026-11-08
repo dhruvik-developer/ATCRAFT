@@ -4,10 +4,57 @@ import { useLocation } from 'react-router-dom'
 
 import { AppRouter } from '@/app/router'
 import { P } from '@/lib/permissions'
-import { renderScreen } from '@/test/harness'
+import { ok, renderScreen } from '@/test/harness'
+
+import PortalLayout from './portal-layout'
 
 function LocationProbe() {
   return <output aria-label="Current route">{useLocation().pathname}</output>
+}
+
+/** Every subset of `values`, so a test covers whatever rights a role may hold. */
+function subsets<T>(values: readonly T[]): T[][] {
+  return values.reduce<T[][]>((all, value) => [...all, ...all.map((set) => [...set, value])], [[]])
+}
+
+const VENDOR_RIGHTS = [
+  P.VENDOR_PORTAL_RESPOND,
+  P.VENDOR_PORTAL_JOB_WORK,
+  P.VENDOR_PORTAL_SHIP,
+  P.VENDOR_PORTAL_INVOICE,
+  P.VENDOR_PORTAL_QUALITY,
+]
+const DEALER_RIGHTS = [
+  P.DEALER_PORTAL_BROWSE,
+  P.DEALER_PORTAL_ORDER,
+  P.DEALER_PORTAL_ACCOUNT,
+  P.DEALER_PORTAL_RETURN,
+]
+
+/** The fixed phone bar is one row of this many cells; one more wraps it. */
+const PHONE_BAR_CELLS = 5
+
+const COMPANY = 'Brasswell Hardware'
+
+async function renderPortal(portal: 'vendor' | 'dealer', permissions: string[]) {
+  const binding = portal === 'vendor' ? { vendor_id: 'vendor' } : { customer_id: 'dealer' }
+  const rendered = renderScreen(<PortalLayout />, {
+    permissions,
+    user: { ...binding, company_name: COMPANY },
+    routes: {
+      'GET /vendor-portal/me': ok({ name: 'Acme Metals' }),
+      'GET /dealer-portal/me': ok({ customer_name: 'Meridian Interiors' }),
+    },
+  })
+  // Until the session arrives the layout draws an empty dealer bar, which would
+  // pass any count - so wait for the company name only the session carries.
+  await screen.findByText(COMPANY)
+  expect(screen.getByText(portal === 'vendor' ? /Vendor portal/ : /Dealer portal/)).toBeVisible()
+  return rendered
+}
+
+function phoneBar(): HTMLElement {
+  return screen.getByRole('navigation', { name: 'Mobile portal navigation' })
 }
 
 beforeAll(async () => {
@@ -105,6 +152,51 @@ describe('portal session boundaries', () => {
       false,
     )
   })
+
+  it('keeps job work under More for a vendor owner, rather than in a sixth bar cell', async () => {
+    // VENDOR_OWNER holds both job work and invoices. Job work is one of More's
+    // pages, so the bar does not spend a cell on it as well.
+    const { user } = await renderPortal('vendor', [
+      P.VENDOR_PORTAL_ACCESS,
+      P.VENDOR_PORTAL_JOB_WORK,
+      P.VENDOR_PORTAL_INVOICE,
+    ])
+
+    const bar = phoneBar()
+    expect(
+      within(bar)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['Home', 'Orders', 'Shipments', 'Invoices'])
+    // The desktop list keeps every page, each once.
+    const aside = screen.getByRole('navigation', { name: 'Portal navigation' })
+    expect(within(aside).getAllByRole('link', { name: 'Job work' })).toHaveLength(1)
+
+    await user.click(within(bar).getByRole('button', { name: 'More' }))
+    expect(screen.getAllByRole('menuitem', { name: 'Job work' })).toHaveLength(1)
+  })
+
+  it.each(subsets(VENDOR_RIGHTS).map((rights) => [rights]))(
+    'fits the vendor phone bar on one row for a vendor holding %j',
+    async (rights) => {
+      await renderPortal('vendor', [P.VENDOR_PORTAL_ACCESS, ...rights])
+      const bar = phoneBar()
+      const cells = within(bar).queryAllByRole('link').length
+      expect(cells + within(bar).getAllByRole('button').length).toBeLessThanOrEqual(PHONE_BAR_CELLS)
+    },
+  )
+
+  it.each(subsets(DEALER_RIGHTS).map((rights) => [rights]))(
+    'fits the dealer phone bar on one row for a dealer holding %j',
+    async (rights) => {
+      await renderPortal('dealer', rights)
+      const bar = phoneBar()
+      const cells = within(bar).queryAllByRole('link').length
+      expect(cells + within(bar).queryAllByRole('button').length).toBeLessThanOrEqual(
+        PHONE_BAR_CELLS,
+      )
+    },
+  )
 
   it('uses the exact endpoint permission on dealer invoices', async () => {
     renderScreen(<AppRouter />, {

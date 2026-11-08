@@ -118,6 +118,10 @@ export default function PortalLayout() {
         { to: `${root}/invoices`, label: 'Invoices', permission: P.DEALER_PORTAL_ACCOUNT },
         { to: `${root}/returns`, label: 'Returns', permission: P.DEALER_PORTAL_RETURN },
       ]
+  // The phone bar holds what More does not. Job work is in both lists, so a
+  // vendor owner - who also has Invoices - got six cells in a five-cell bar,
+  // and the fixed bar wrapped onto a second row over the end of every page.
+  const barItems = items.filter((item) => !more.some((extra) => extra.to === item.to))
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
@@ -211,9 +215,11 @@ export default function PortalLayout() {
       </div>
       <nav
         aria-label="Mobile portal navigation"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
+        // One row whatever the count: the cells share the width rather than
+        // assuming five of them, so a role with fewer leaves no empty slot.
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-flow-col auto-cols-fr border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        {items
+        {barItems
           .filter((item) => !item.permission || can(item.permission))
           .map(({ to, label, icon: Icon }) =>
             isVendorUser && to === '/profile' ? (
