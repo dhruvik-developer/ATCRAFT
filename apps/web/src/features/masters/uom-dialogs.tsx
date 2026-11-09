@@ -80,16 +80,8 @@ import {
 // -------------------------------------------------------------- the unit ----
 
 const uomSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(1, validation.required('Code'))
-    .max(16, 'Code is at most 16 characters'),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(64, 'Name is at most 64 characters'),
+  code: z.string().trim().min(1, validation.required('Code')).max(16, validation.maxLength(16)),
+  name: z.string().trim().min(1, validation.required('Name')).max(64, validation.maxLength(64)),
   uom_category: z.enum(UOM_CATEGORIES),
   is_base: z.boolean(),
   decimal_places: z

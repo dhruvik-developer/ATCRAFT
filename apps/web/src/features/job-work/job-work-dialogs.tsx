@@ -104,10 +104,10 @@ function stillAtVendor(line: JobWorkOrderLine): string {
 const issueSchema = z.object({
   challan_date: z.string().min(1, 'A challan needs a date'),
   expected_return_date: z.string(),
-  vehicle_number: z.string().trim().max(32, 'At most 32 characters'),
+  vehicle_number: z.string().trim().max(32, validation.maxLength(32)),
   /** Blank means the vendor's own vehicle collected the goods. */
   transporter_id: z.string(),
-  remarks: z.string().trim().max(500, 'At most 500 characters'),
+  remarks: z.string().trim().max(500, validation.maxLength(500)),
   /** Required by the API on every issue - it is the audit reason. */
   reason: z.string().trim().min(1, 'Say why this material is going out'),
   lines: z.array(
@@ -120,7 +120,7 @@ const issueSchema = z.object({
       quantity: z
         .string()
         .trim()
-        .regex(JOB_WORK_QUANTITY_INPUT, 'Enter a quantity with up to 4 decimal places'),
+        .regex(JOB_WORK_QUANTITY_INPUT, validation.decimals('a quantity', 4)),
     }),
   ),
 })

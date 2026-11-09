@@ -48,7 +48,7 @@ import {
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, SELECT_NONE } from '@/lib/constants'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -234,7 +234,7 @@ export function PurchaseOrderSendDialog({
               aria-invalid={noteTooLong || serverNote !== null}
             />
             {noteTooLong ? (
-              <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+              <FieldError message={validation.maxLength(REASON_MAX_LENGTH)} />
             ) : serverNote !== null ? (
               <FieldError message={serverNote} />
             ) : (

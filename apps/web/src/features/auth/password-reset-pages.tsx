@@ -26,7 +26,7 @@ import { passwordField } from './password-policy'
 
 const requestSchema = z.object({
   email: z.string().min(1, validation.required('Email')).email(validation.email),
-  company_code: z.string().max(32, 'Company code is too long').optional(),
+  company_code: z.string().max(32, validation.maxLength(32)).optional(),
 })
 
 const confirmSchema = z

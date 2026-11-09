@@ -197,12 +197,9 @@ const lineSchema = z.object({
   batch_number: z.string(),
   returnable_quantity: z.string(),
   unit_cost: z.string(),
-  quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
-  reason: z.string().trim().max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
-  notes: z
-    .string()
-    .trim()
-    .max(MAX_LINE_NOTES_LENGTH, `At most ${MAX_LINE_NOTES_LENGTH} characters`),
+  quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+  reason: z.string().trim().max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
+  notes: z.string().trim().max(MAX_LINE_NOTES_LENGTH, validation.maxLength(MAX_LINE_NOTES_LENGTH)),
 })
 
 const schema = z
@@ -212,12 +209,12 @@ const schema = z
       .string()
       .trim()
       .min(REASON_MIN_LENGTH, `At least ${REASON_MIN_LENGTH} characters`)
-      .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+      .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
     debit_note_number: z
       .string()
       .trim()
-      .max(MAX_DEBIT_NOTE_LENGTH, `At most ${MAX_DEBIT_NOTE_LENGTH} characters`),
-    notes: z.string().trim().max(MAX_NOTES_LENGTH, `At most ${MAX_NOTES_LENGTH} characters`),
+      .max(MAX_DEBIT_NOTE_LENGTH, validation.maxLength(MAX_DEBIT_NOTE_LENGTH)),
+    notes: z.string().trim().max(MAX_NOTES_LENGTH, validation.maxLength(MAX_NOTES_LENGTH)),
     lines: z.array(lineSchema),
   })
   // Both rules mirror one the API enforces. Catching them here names the failing

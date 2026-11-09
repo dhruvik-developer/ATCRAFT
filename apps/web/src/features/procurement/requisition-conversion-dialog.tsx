@@ -66,7 +66,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { describeError, empty, raisedDocuments } from '@/lib/messages'
+import { describeError, empty, raisedDocuments, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -887,7 +887,7 @@ function ProposedLine({
             className="mt-1.5"
           />
           {quantityInvalid ? (
-            <FieldError message="A quantity above zero, with up to 4 decimal places" />
+            <FieldError message={validation.decimals('a quantity above zero', 4)} />
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
               {edit.quantity.trim() === '' ? 'Still to order' : 'Your quantity'}
@@ -909,7 +909,7 @@ function ProposedLine({
             className="mt-1.5"
           />
           {priceInvalid ? (
-            <FieldError message="A price with up to 6 decimal places" />
+            <FieldError message={validation.decimals('a price', 6)} />
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
               {PRICE_SOURCE_COPY[line.price_source]}
@@ -1030,7 +1030,7 @@ function UnresolvedLines({
                     aria-invalid={priceInvalid}
                     className="mt-1.5"
                   />
-                  {priceInvalid && <FieldError message="A price with up to 6 decimal places" />}
+                  {priceInvalid && <FieldError message={validation.decimals('a price', 6)} />}
                 </div>
                 <Button
                   variant="ghost"

@@ -806,9 +806,9 @@ const lineSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+    .regex(QUANTITY, validation.decimals('a quantity', 4))
     .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
-  unit_price: z.string().trim().regex(PRICE, 'Enter a price with up to 6 decimal places'),
+  unit_price: z.string().trim().regex(PRICE, validation.decimals('a price', 6)),
   discount_percentage: z
     .string()
     .trim()
@@ -828,7 +828,7 @@ const schema = z
       .string()
       .trim()
       .min(1, "Record the vendor's own quotation number")
-      .max(64, 'At most 64 characters'),
+      .max(64, validation.maxLength(64)),
     quotation_date: z.string().min(1, validation.required('Date the vendor quoted')),
     valid_until: z.string(),
     currency: z
@@ -841,8 +841,8 @@ const schema = z
       .string()
       .trim()
       .refine((value) => value === '' || MONEY.test(value), 'Enter an amount, e.g. 1500.00'),
-    terms: z.string().trim().max(4000, 'At most 4000 characters'),
-    notes: z.string().trim().max(4000, 'At most 4000 characters'),
+    terms: z.string().trim().max(4000, validation.maxLength(4000)),
+    notes: z.string().trim().max(4000, validation.maxLength(4000)),
     lines: z.array(lineSchema).min(1, 'A quotation needs at least one line'),
   })
   // An offer that expired before it was made is a keying slip, and it would be

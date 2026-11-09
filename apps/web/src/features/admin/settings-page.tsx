@@ -35,7 +35,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import type { SalesSettings } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
 import { reportFieldErrors } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -336,17 +336,17 @@ export default function SettingsPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Amounts may have up to four decimal places. Leave a field blank to restore the
-              built-in default for that one. A zero PO dual-approval amount disables that rule; a
-              zero stock-adjustment or internal-issue threshold requires approval for any positive
-              value. A zero requisition auto-approve limit disables auto-approval.
+              {validation.decimals('amounts', 4)}. Leave a field blank to restore the built-in
+              default for that one. A zero PO dual-approval amount disables that rule; a zero
+              stock-adjustment or internal-issue threshold requires approval for any positive value.
+              A zero requisition auto-approve limit disables auto-approval.
             </p>
 
             {approvalError && (
               <Alert variant="destructive">
                 <AlertTitle>Check the amount</AlertTitle>
                 <AlertDescription>
-                  {approvalError} must be a non-negative number with at most four decimal places.
+                  {approvalError}: {validation.decimals('an amount of zero or more', 4)}.
                 </AlertDescription>
               </Alert>
             )}

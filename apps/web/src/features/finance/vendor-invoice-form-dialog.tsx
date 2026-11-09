@@ -159,20 +159,20 @@ const lineSchema = z.object({
   description: z
     .string()
     .trim()
-    .max(MAX_LINE_DESCRIPTION_LENGTH, `At most ${MAX_LINE_DESCRIPTION_LENGTH} characters`),
-  hsn_code: z.string().trim().max(MAX_HSN_CODE_LENGTH, `At most ${MAX_HSN_CODE_LENGTH} characters`),
+    .max(MAX_LINE_DESCRIPTION_LENGTH, validation.maxLength(MAX_LINE_DESCRIPTION_LENGTH)),
+  hsn_code: z.string().trim().max(MAX_HSN_CODE_LENGTH, validation.maxLength(MAX_HSN_CODE_LENGTH)),
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+    .regex(QUANTITY, validation.decimals('a quantity', 4))
     .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string(),
-  unit_price: z.string().trim().regex(UNIT_PRICE, 'Enter a price with up to 6 decimal places'),
-  discount_amount: z.string().trim().regex(MONEY_OR_BLANK, 'Up to 4 decimal places'),
+  unit_price: z.string().trim().regex(UNIT_PRICE, validation.decimals('a price', 6)),
+  discount_amount: z.string().trim().regex(MONEY_OR_BLANK, validation.decimals('an amount', 4)),
   tax_rate: z
     .string()
     .trim()
-    .regex(RATE_OR_BLANK, 'Up to 4 decimal places')
+    .regex(RATE_OR_BLANK, validation.decimals('a rate', 4))
     .refine((v) => toDecimal(v).lessThanOrEqualTo(MAX_TAX_RATE), `At most ${MAX_TAX_RATE}%`),
   is_interstate: z.boolean(),
   // Carried, never typed: both are set by seeding from a document and are what
@@ -188,7 +188,7 @@ const lineSchema = z.object({
   notes: z
     .string()
     .trim()
-    .max(MAX_INVOICE_NOTES_LENGTH, `At most ${MAX_INVOICE_NOTES_LENGTH} characters`),
+    .max(MAX_INVOICE_NOTES_LENGTH, validation.maxLength(MAX_INVOICE_NOTES_LENGTH)),
 })
 
 const schema = z
@@ -200,7 +200,7 @@ const schema = z
       .min(1, "The vendor's own invoice number is required")
       .max(
         MAX_VENDOR_INVOICE_NUMBER_LENGTH,
-        `At most ${MAX_VENDOR_INVOICE_NUMBER_LENGTH} characters`,
+        validation.maxLength(MAX_VENDOR_INVOICE_NUMBER_LENGTH),
       ),
     invoice_date: z.string().min(1, validation.required('Invoice date')),
     due_date: z.string(),
@@ -211,11 +211,14 @@ const schema = z
     goods_receipt_id: z.string(),
     /** Empty means unallocated: the bill is charged to no cost centre. */
     cost_centre_id: z.string(),
-    round_off_amount: z.string().trim().regex(SIGNED_MONEY_OR_BLANK, 'Up to 4 decimal places'),
+    round_off_amount: z
+      .string()
+      .trim()
+      .regex(SIGNED_MONEY_OR_BLANK, validation.decimals('an amount', 4)),
     notes: z
       .string()
       .trim()
-      .max(MAX_INVOICE_NOTES_LENGTH, `At most ${MAX_INVOICE_NOTES_LENGTH} characters`),
+      .max(MAX_INVOICE_NOTES_LENGTH, validation.maxLength(MAX_INVOICE_NOTES_LENGTH)),
     lines: z
       .array(lineSchema)
       .min(1, 'An invoice needs at least one line')

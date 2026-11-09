@@ -66,7 +66,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
-import { empty, errors, success } from '@/lib/messages'
+import { empty, errors, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -815,7 +815,7 @@ export default function RequisitionsPage() {
             <FieldError message={errors.reasonTooShort} />
           )}
           {reasonTouched && reasonTooLong && (
-            <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+            <FieldError message={validation.maxLength(REASON_MAX_LENGTH)} />
           )}
           {serverReason !== null && <FieldError message={serverReason} />}
         </div>
@@ -862,7 +862,7 @@ export default function RequisitionsPage() {
               message={`This is recorded - it needs a reason of at least ${REASON_MIN_LENGTH} characters`}
             />
           ) : commandTouched && commandTooLong ? (
-            <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+            <FieldError message={validation.maxLength(REASON_MAX_LENGTH)} />
           ) : commandServerReason !== null ? (
             <FieldError message={commandServerReason} />
           ) : (

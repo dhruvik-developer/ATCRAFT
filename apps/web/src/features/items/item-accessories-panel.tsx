@@ -41,7 +41,7 @@ const schema = z.object({
     .trim()
     .refine(
       (value) => QUANTITY_PATTERN.test(value) && toDecimal(value).greaterThan(0),
-      'Enter a positive quantity with up to 4 decimal places.',
+      validation.decimals('a quantity above zero', 4),
     ),
   relation: z.enum(['OPTIONAL', 'INCLUDED']),
   sort_order: z

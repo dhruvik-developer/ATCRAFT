@@ -26,7 +26,7 @@ import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { formatMoney, toDecimal } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError } from '@/lib/messages'
+import { describeError, validation } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -326,7 +326,7 @@ export function PurchaseReturnDebitAllocation({
       )}
       {invalidAmount && (
         <p role="alert" className="text-sm text-destructive">
-          Enter positive invoice amounts with up to two decimal places.
+          {validation.decimals('invoice amounts above zero', 2)}.
         </p>
       )}
       {!invoices.isLoading && invoices.data?.data.length === 0 && (

@@ -38,7 +38,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P, type PermissionKey } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -327,7 +327,7 @@ export function trackingTemplateProblem(template: string): string | null {
     return `The tracking link must contain the literal ${TRACKING_PLACEHOLDER} placeholder`
   }
   if (trimmed.length > TRACKING_TEMPLATE_MAX_LENGTH) {
-    return `At most ${TRACKING_TEMPLATE_MAX_LENGTH} characters`
+    return validation.maxLength(TRACKING_TEMPLATE_MAX_LENGTH)
   }
   return null
 }

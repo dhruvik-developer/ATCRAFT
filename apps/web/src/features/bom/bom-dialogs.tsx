@@ -64,9 +64,9 @@ const lineSchema = z.object({
   quantity_per: z
     .string()
     .trim()
-    .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => value !== '0', 'Quantity per must be more than zero'),
-  scrap_percentage: z.string().trim().regex(DECIMAL, 'Enter a percentage with up to 4 decimals'),
+    .regex(DECIMAL, validation.decimals('a quantity', 4))
+    .refine((value) => value !== '0', validation.positive('Quantity per')),
+  scrap_percentage: z.string().trim().regex(DECIMAL, validation.decimals('a percentage', 4)),
   is_optional: z.boolean(),
 })
 
@@ -81,17 +81,17 @@ const createSchema = z
     // The version number is minted by the API under a per-item advisory lock
     // (`service.next_version`); a client that sends one is ignored at best and
     // racing at worst, so the field is gone.
-    revision: z.string().trim().max(16, 'Revision is at most 16 characters'),
+    revision: z.string().trim().max(16, validation.maxLength(16)),
     output_quantity: z
       .string()
       .trim()
-      .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
-      .refine((value) => value !== '0', 'Output quantity must be more than zero'),
+      .regex(DECIMAL, validation.decimals('a quantity', 4))
+      .refine((value) => value !== '0', validation.positive('Output quantity')),
     base_uom_id: z.string().min(1, validation.required('Base unit')),
     effective_from: z.string().min(1, validation.required('Effective-from date')),
     effective_to: z.string(),
     is_default: z.boolean(),
-    notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
+    notes: z.string().trim().max(1000, validation.maxLength(1000)),
     lines: z.array(lineSchema).min(1, 'A bill needs at least one component line'),
   })
   .superRefine((values, context) => {
@@ -620,16 +620,16 @@ const editLineSchema = z.object({
   quantity_per: z
     .string()
     .trim()
-    .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => value !== '0', 'Quantity per must be more than zero'),
-  scrap_percentage: z.string().trim().regex(DECIMAL, 'Enter a percentage with up to 4 decimals'),
+    .regex(DECIMAL, validation.decimals('a quantity', 4))
+    .refine((value) => value !== '0', validation.positive('Quantity per')),
+  scrap_percentage: z.string().trim().regex(DECIMAL, validation.decimals('a percentage', 4)),
   is_optional: z.boolean(),
   substitute_for_index: z.number().int().min(0).nullable(),
   operation_sequence: z
     .string()
     .trim()
     .regex(/^(\d{1,5})?$/, 'Enter the operation step number, if any'),
-  notes: z.string().trim().max(2000, 'Notes are at most 2000 characters'),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
 })
 
 /**
@@ -643,12 +643,12 @@ const editOperationSchema = z.object({
   sequence: z.number().int().positive().nullable(),
   name: z.string().trim().min(1, validation.required('Operation name')).max(255),
   work_center_id: z.string().nullable(),
-  setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-  run_time_minutes_per_unit: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-  cost_per_hour: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
-  fixed_cost: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+  setup_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
+  run_time_minutes_per_unit: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
+  cost_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
+  fixed_cost: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
   is_outsourced: z.boolean(),
-  notes: z.string().trim().max(2000, 'Notes are at most 2000 characters'),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
 })
 
 const editSchema = z
@@ -1223,7 +1223,7 @@ export function BomEditDialog({
 const copySchema = z.object({
   // No version field: the API mints the next one under the per-item advisory
   // lock, which is the only place two people copying at once can be serialised.
-  revision: z.string().trim().max(16, 'Revision is at most 16 characters'),
+  revision: z.string().trim().max(16, validation.maxLength(16)),
   effective_from: z.string().min(1, validation.required('Effective-from date')),
   effective_to: z.string(),
   copy_operations: z.boolean(),
@@ -1231,8 +1231,8 @@ const copySchema = z.object({
     .string()
     .trim()
     .min(1, 'A new version is recorded with the reason it was raised')
-    .max(500, 'At most 500 characters'),
-  notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
+    .max(500, validation.maxLength(500)),
+  notes: z.string().trim().max(1000, validation.maxLength(1000)),
 })
 
 type CopyValues = z.infer<typeof copySchema>

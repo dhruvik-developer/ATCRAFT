@@ -350,7 +350,7 @@ const transferSchema = z
           to_location_id: z.string().optional(),
           quantity: z
             .string()
-            .refine(isPositiveQuantity, 'Enter a quantity greater than zero, to 4 decimal places.'),
+            .refine(isPositiveQuantity, validation.decimals('a quantity above zero', 4)),
         }),
       )
       .min(1, 'A transfer needs at least one line.'),
@@ -598,7 +598,7 @@ const adjustmentSchema = z
             .optional()
             .refine(
               (value) => !value || /^\d+(\.\d{1,6})?$/.test(value.trim()),
-              'Enter a non-negative cost, to 6 decimal places.',
+              validation.decimals('a cost of zero or more', 6),
             ),
           quantity: z
             .string()
@@ -873,7 +873,7 @@ const physicalCountSchema = z.object({
   // every attempt to open a count sheet came back a validation error naming a
   // field the form did not have.
   reason: z.string().trim().min(5, 'Say why the count is being run.'),
-  notes: z.string().trim().max(500, 'Keep the scope note under 500 characters.').optional(),
+  notes: z.string().trim().max(500, validation.maxLength(500)).optional(),
 })
 
 type PhysicalCountForm = z.infer<typeof physicalCountSchema>
@@ -1298,7 +1298,7 @@ function CountedQuantityCell({ line }: { line: PhysicalCountLineRow }) {
   const value = draft ?? line.counted_quantity ?? ''
   const message =
     draft !== undefined && draft.trim() !== '' && !COUNTED_QUANTITY_PATTERN.test(draft.trim())
-      ? 'A quantity of nought or more, to 4 decimal places.'
+      ? validation.decimals('a quantity of zero or more', 4)
       : entry.errorsByLine[line.id]
   return (
     <div className="flex flex-col items-end">

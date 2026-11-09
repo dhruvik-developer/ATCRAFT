@@ -120,7 +120,7 @@ const createSchema = z.object({
     .trim()
     .refine(
       (value) => QUANTITY_PATTERN.test(value) && toDecimal(value).greaterThan(0),
-      'Enter how much to hold, greater than zero and to 4 decimal places.',
+      validation.decimals('a quantity above zero', 4),
     ),
   // The `: boolean` is load-bearing. Zod narrows a schema's output type when the
   // predicate is a type guard, and a narrowed `DemandType` cannot hold the empty
@@ -139,7 +139,7 @@ const createSchema = z.object({
       (value) => UUID_PATTERN.test(value),
       'Paste the id of the document this stock is held for.',
     ),
-  demand_code: z.string().trim().max(64, 'A document number is at most 64 characters.'),
+  demand_code: z.string().trim().max(64, validation.maxLength(64)),
   reservation_type: z
     .string()
     .refine((value): boolean => isReservationType(value), 'Choose how firm the claim is.'),
@@ -157,10 +157,7 @@ const createSchema = z.object({
     .string()
     .trim()
     .min(10, 'Say why this stock is being held, in enough detail to audit later.')
-    .max(
-      REASON_MAX_LENGTH,
-      `Keep the reason under ${REASON_MAX_LENGTH} characters - no more is stored.`,
-    ),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
 })
 
 type CreateForm = z.infer<typeof createSchema>

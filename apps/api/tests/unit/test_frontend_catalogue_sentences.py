@@ -37,7 +37,12 @@ _WORD = re.compile(r"[A-Za-z]+(?:'[a-z]+)?")
 
 
 def catalogue_sentences(catalogue: str) -> list[str]:
-    """The source text of every string literal in ``catalogue`` long enough to police."""
+    """The source text of every string literal in ``catalogue`` long enough to police.
+
+    A literal passed to a call - ``validation.decimals('a quantity above zero', 4)``
+    - is a phrase the builder completes, not a sentence of its own, so it is not
+    one a screen could be said to copy.
+    """
     code = blank_comments(catalogue)
     found: list[str] = []
     index = 0
@@ -45,7 +50,8 @@ def catalogue_sentences(catalogue: str) -> list[str]:
         if code[index] in "'\"`":
             end = _skip_string(code, index)
             body = code[index + 1 : end - 1]
-            if len(_WORD.findall(_INTERPOLATION.sub(" ", body))) >= MIN_WORDS:
+            argument = code[:index].rstrip().endswith(("(", ","))
+            if not argument and len(_WORD.findall(_INTERPOLATION.sub(" ", body))) >= MIN_WORDS:
                 found.append(body)
             index = end
             continue
@@ -145,7 +151,12 @@ def test_the_rule_leaves_composition_comments_and_short_words_alone() -> None:
         "  filtered: 'Nothing matches the current filters.',\n"
         "  loadFailedAction: 'Try again',\n"
         "} as const\n"
+        "export const fulfilment = {\n"
+        "  quantityInvalid: validation.decimals('a quantity above zero', 4),\n"
+        "} as const\n"
     )
+    # A builder's argument is no sentence of its own.
+    assert sentences == ["Nothing matches the current filters."]
     screen = "\n".join(
         [
             "  emptyDescription={`${empty.filtered} Clear a filter, or add the supplier.`}",
@@ -153,6 +164,7 @@ def test_the_rule_leaves_composition_comments_and_short_words_alone() -> None:
             "  {/* Nothing matches the current filters. reads oddly here */}",
             "  <Button>Try again</Button>",
             "  emptyTitle='Nothing here yet'",
+            "  quantity: z.string().regex(QTY, validation.decimals('a quantity above zero', 4)),",
         ]
     )
 

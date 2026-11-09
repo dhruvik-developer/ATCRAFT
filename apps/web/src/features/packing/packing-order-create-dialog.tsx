@@ -24,7 +24,7 @@ import type { SalesOrderDetail } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
 import { formatQuantity, toDecimal } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -182,8 +182,7 @@ export function PackingOrderCreateDialog({
         !QUANTITY.test(line.quantity_to_pack) ||
         !toDecimal(line.quantity_to_pack).greaterThan(0)
       ) {
-        errors[`line-${line.key}`] =
-          'Enter a quantity greater than zero with up to 4 decimal places.'
+        errors[`line-${line.key}`] = validation.decimals('a quantity above zero', 4)
       } else if (
         line.maximum_quantity &&
         toDecimal(line.quantity_to_pack).greaterThan(line.maximum_quantity)

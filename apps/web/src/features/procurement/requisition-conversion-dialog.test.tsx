@@ -359,7 +359,7 @@ describe('every correction is a new preview', () => {
     await user.type(quantity, '12.34567')
 
     expect(
-      await screen.findByText('A quantity above zero, with up to 4 decimal places'),
+      await screen.findByText('Enter a quantity above zero with up to 4 decimal places'),
     ).toBeVisible()
     expect(screen.getByRole('button', { name: 'Raise 2 purchase orders' })).toBeDisabled()
     // Five places would be a 422: what the proposal is asked for is the last

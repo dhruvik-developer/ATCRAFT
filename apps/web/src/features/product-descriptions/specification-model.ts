@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 
 import { toDecimal } from '@/lib/format'
 import { PRODUCT_DESCRIPTION_TEXT_MAX, SPECIFICATION_VALUE_MAX } from '@/lib/constants'
+import { validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
@@ -51,9 +52,7 @@ export function specificationInput(
   switch (attribute.value_type) {
     case 'TEXT':
       if (value.length > PRODUCT_DESCRIPTION_TEXT_MAX)
-        throw new Error(
-          `${attribute.name}: use at most ${PRODUCT_DESCRIPTION_TEXT_MAX} characters.`,
-        )
+        throw new Error(`${attribute.name}: ${validation.maxLength(PRODUCT_DESCRIPTION_TEXT_MAX)}.`)
       return { ...base, value_text: value }
     case 'NUMBER': {
       if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value))

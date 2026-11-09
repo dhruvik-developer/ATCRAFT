@@ -59,7 +59,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -105,7 +105,7 @@ const parameterSchema = z.object({
   is_mandatory: z.boolean(),
 
   value: z.string(),
-  remark: z.string().trim().max(255, 'At most 255 characters'),
+  remark: z.string().trim().max(255, validation.maxLength(255)),
   document_id: z.string().nullable(),
   /** Known only for a photo attached in this session; the wire carries an id. */
   document_name: z.string().nullable(),
@@ -134,17 +134,23 @@ const schema = z
      * to 500 and to accept a single character, so both ends produced a 422 on a
      * field the operator had filled in and no message anywhere.
      */
-    reason: z.string().trim().max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    reason: z.string().trim().max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
     rejection_reason: z
       .string()
       .trim()
-      .max(REJECTION_REASON_MAX_LENGTH, `At most ${REJECTION_REASON_MAX_LENGTH} characters`),
-    accepted_quantity: z.string().trim().regex(QUANTITY_INPUT, 'Up to 4 decimal places'),
-    rejected_quantity: z.string().trim().regex(QUANTITY_INPUT, 'Up to 4 decimal places'),
-    rework_quantity: z.string().trim().regex(QUANTITY_INPUT, 'Up to 4 decimal places'),
-    hold_quantity: z.string().trim().regex(QUANTITY_INPUT, 'Up to 4 decimal places'),
-    scrap_quantity: z.string().trim().regex(QUANTITY_INPUT, 'Up to 4 decimal places'),
-    remarks: z.string().trim().max(2000, 'At most 2000 characters'),
+      .max(REJECTION_REASON_MAX_LENGTH, validation.maxLength(REJECTION_REASON_MAX_LENGTH)),
+    accepted_quantity: z
+      .string()
+      .trim()
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    rejected_quantity: z
+      .string()
+      .trim()
+      .regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    rework_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    hold_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    scrap_quantity: z.string().trim().regex(QUANTITY_INPUT, validation.decimals('a quantity', 4)),
+    remarks: z.string().trim().max(2000, validation.maxLength(2000)),
     parameters: z.array(parameterSchema),
   })
   .superRefine((values, ctx) => {
@@ -170,7 +176,7 @@ const schema = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['parameters', index, 'value'],
-            message: 'Enter a measurement, up to 6 decimal places',
+            message: validation.decimals('a measurement', 6),
           })
         }
 

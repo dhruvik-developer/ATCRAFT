@@ -21,7 +21,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { financeKeys } from './finance-types'
 import { MAX_ALLOCATIONS, paymentKeys, type PaymentDetail } from './payment-model'
@@ -259,7 +259,7 @@ export function SalesReceiptAllocationDialog({
           )}
           {!valid && (
             <FieldError
-              message={`Use positive amounts with up to two decimal places, within the receipt total and invoice balance. A receipt may settle at most ${MAX_ALLOCATIONS} invoices.`}
+              message={`${validation.decimals('amounts above zero', 2)}, within the receipt total and invoice balance. A receipt may settle at most ${MAX_ALLOCATIONS} invoices.`}
             />
           )}
           {save.error && (

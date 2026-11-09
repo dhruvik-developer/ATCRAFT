@@ -53,9 +53,9 @@ const WHOLE_DAYS = /^\d{0,3}$/
 
 const schema = z
   .object({
-    code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters'),
-    name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
-    legal_name: z.string().trim().max(255, 'At most 255 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(32, validation.maxLength(32)),
+    name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
+    legal_name: z.string().trim().max(255, validation.maxLength(255)),
     vendor_types: z.array(z.enum(VENDOR_TYPES)).min(1, 'Choose at least one type'),
 
     gstin: z
@@ -69,10 +69,10 @@ const schema = z
       .string()
       .trim()
       .refine((v) => v === '' || PAN_PATTERN.test(v.toUpperCase()), 'Not a valid 10-character PAN'),
-    msme_number: z.string().trim().max(32, 'At most 32 characters'),
+    msme_number: z.string().trim().max(32, validation.maxLength(32)),
 
     payment_terms_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
-    credit_limit: z.string().trim().regex(MONEY, 'Enter an amount with up to 4 decimal places'),
+    credit_limit: z.string().trim().regex(MONEY, validation.decimals('an amount', 4)),
     lead_time_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
     currency: z
       .string()
@@ -80,40 +80,40 @@ const schema = z
       .length(3, 'Three-letter currency code')
       .regex(/^[A-Za-z]{3}$/, 'Three-letter currency code'),
 
-    bank_name: z.string().trim().max(120, 'At most 120 characters'),
-    bank_branch: z.string().trim().max(120, 'At most 120 characters'),
-    bank_account_name: z.string().trim().max(255, 'At most 255 characters'),
-    bank_account_number: z.string().trim().max(34, 'At most 34 characters'),
+    bank_name: z.string().trim().max(120, validation.maxLength(120)),
+    bank_branch: z.string().trim().max(120, validation.maxLength(120)),
+    bank_account_name: z.string().trim().max(255, validation.maxLength(255)),
+    bank_account_number: z.string().trim().max(34, validation.maxLength(34)),
     bank_ifsc: z
       .string()
       .trim()
       .refine((v) => v === '' || IFSC_PATTERN.test(v.toUpperCase()), 'Not a valid IFSC'),
 
-    address_line1: z.string().trim().max(255, 'At most 255 characters'),
-    address_line2: z.string().trim().max(255, 'At most 255 characters'),
-    city: z.string().trim().max(120, 'At most 120 characters'),
-    state: z.string().trim().max(120, 'At most 120 characters'),
+    address_line1: z.string().trim().max(255, validation.maxLength(255)),
+    address_line2: z.string().trim().max(255, validation.maxLength(255)),
+    city: z.string().trim().max(120, validation.maxLength(120)),
+    state: z.string().trim().max(120, validation.maxLength(120)),
     state_code: z
       .string()
       .trim()
       .refine((v) => v === '' || /^\d{2}$/.test(v), 'Two digits, as printed on the GSTIN'),
-    postal_code: z.string().trim().max(16, 'At most 16 characters'),
+    postal_code: z.string().trim().max(16, validation.maxLength(16)),
     country: z
       .string()
       .trim()
       .min(1, validation.required('Country'))
-      .max(80, 'At most 80 characters'),
+      .max(80, validation.maxLength(80)),
 
-    contact_person: z.string().trim().max(160, 'At most 160 characters'),
+    contact_person: z.string().trim().max(160, validation.maxLength(160)),
     email: z
       .string()
       .trim()
       .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
-    phone: z.string().trim().max(32, 'At most 32 characters'),
-    mobile: z.string().trim().max(32, 'At most 32 characters'),
-    website: z.string().trim().max(255, 'At most 255 characters'),
+    phone: z.string().trim().max(32, validation.maxLength(32)),
+    mobile: z.string().trim().max(32, validation.maxLength(32)),
+    website: z.string().trim().max(255, validation.maxLength(255)),
 
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
     is_active: z.boolean(),
   })
   // The GSTIN embeds the PAN and the state code. Catching a mismatch here saves

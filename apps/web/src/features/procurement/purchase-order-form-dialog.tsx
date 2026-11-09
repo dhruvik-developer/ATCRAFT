@@ -90,10 +90,10 @@ const schema = z
       .min(MIN_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`)
       .max(MAX_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`),
     payment_terms_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
-    delivery_address: z.string().trim().max(4000, 'At most 4000 characters'),
-    terms: z.string().trim().max(4000, 'At most 4000 characters'),
-    vendor_reference: z.string().trim().max(64, 'At most 64 characters'),
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    delivery_address: z.string().trim().max(4000, validation.maxLength(4000)),
+    terms: z.string().trim().max(4000, validation.maxLength(4000)),
+    vendor_reference: z.string().trim().max(64, validation.maxLength(64)),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
     lines: z
       .array(
         z.object({
@@ -101,9 +101,9 @@ const schema = z
           quantity: z
             .string()
             .trim()
-            .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+            .regex(QUANTITY, validation.decimals('a quantity', 4))
             .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
-          unit_price: z.string().trim().regex(PRICE, 'Enter a price with up to 6 decimal places'),
+          unit_price: z.string().trim().regex(PRICE, validation.decimals('a price', 6)),
         }),
       )
       .min(1, 'A purchase order needs at least one line')

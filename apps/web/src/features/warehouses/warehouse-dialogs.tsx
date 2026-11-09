@@ -62,25 +62,21 @@ const warehouseSchema = z.object({
     .string()
     .trim()
     .min(1, validation.required('Code'))
-    .max(32, 'Code is at most 32 characters')
+    .max(32, validation.maxLength(32))
     .regex(CODE_PATTERN, CODE_MESSAGE),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(255, 'Name is at most 255 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   warehouse_type: z.enum(WAREHOUSE_TYPES),
   branch_id: z.string(),
   parent_warehouse_id: z.string(),
   allow_negative_stock: z.boolean(),
   is_default: z.boolean(),
-  address_line1: z.string().trim().max(255, 'At most 255 characters'),
-  city: z.string().trim().max(120, 'At most 120 characters'),
-  state: z.string().trim().max(120, 'At most 120 characters'),
-  state_code: z.string().trim().max(4, 'GST state code is at most 4 characters'),
-  postal_code: z.string().trim().max(16, 'At most 16 characters'),
-  country: z.string().trim().max(80, 'At most 80 characters'),
-  phone: z.string().trim().max(32, 'At most 32 characters'),
+  address_line1: z.string().trim().max(255, validation.maxLength(255)),
+  city: z.string().trim().max(120, validation.maxLength(120)),
+  state: z.string().trim().max(120, validation.maxLength(120)),
+  state_code: z.string().trim().max(4, validation.maxLength(4)),
+  postal_code: z.string().trim().max(16, validation.maxLength(16)),
+  country: z.string().trim().max(80, validation.maxLength(80)),
+  phone: z.string().trim().max(32, validation.maxLength(32)),
   email: z
     .string()
     .trim()
@@ -485,17 +481,13 @@ const locationSchema = z.object({
     .string()
     .trim()
     .min(1, validation.required('Code'))
-    .max(32, 'Code is at most 32 characters')
+    .max(32, validation.maxLength(32))
     .regex(CODE_PATTERN, CODE_MESSAGE),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(255, 'Name is at most 255 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   location_type: z.enum(LOCATION_TYPES),
-  capacity_quantity: z.string().trim().regex(DECIMAL, 'Enter a number with up to 4 decimal places'),
-  capacity_uom: z.string().trim().max(16, 'At most 16 characters'),
-  barcode: z.string().trim().max(64, 'At most 64 characters'),
+  capacity_quantity: z.string().trim().regex(DECIMAL, validation.decimals('a number', 4)),
+  capacity_uom: z.string().trim().max(16, validation.maxLength(16)),
+  barcode: z.string().trim().max(64, validation.maxLength(64)),
   notes: z.string().trim(),
 })
 

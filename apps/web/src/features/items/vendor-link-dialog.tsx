@@ -57,21 +57,18 @@ const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z.object({
   vendor_id: z.string().min(1, validation.choose('a vendor')),
-  vendor_item_code: z.string().trim().max(64, 'Vendor item code is at most 64 characters'),
-  vendor_item_name: z.string().trim().max(255, 'Vendor item name is at most 255 characters'),
+  vendor_item_code: z.string().trim().max(64, validation.maxLength(64)),
+  vendor_item_name: z.string().trim().max(255, validation.maxLength(255)),
   manufacturer_id: z.string(),
-  manufacturer_part_number: z.string().trim().max(64, 'Part number is at most 64 characters'),
+  manufacturer_part_number: z.string().trim().max(64, validation.maxLength(64)),
   is_preferred: z.boolean(),
   lead_time_days: z
     .string()
     .trim()
     .regex(WHOLE_DAYS, 'Whole days only')
     .refine((value) => value === '' || Number(value) <= 3650, 'Lead time cannot exceed 3650 days'),
-  min_order_quantity: z
-    .string()
-    .trim()
-    .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places'),
-  order_multiple: z.string().trim().regex(DECIMAL, 'Enter a quantity with up to 4 decimal places'),
+  min_order_quantity: z.string().trim().regex(DECIMAL, validation.decimals('a quantity', 4)),
+  order_multiple: z.string().trim().regex(DECIMAL, validation.decimals('a quantity', 4)),
   is_active: z.boolean(),
 })
 

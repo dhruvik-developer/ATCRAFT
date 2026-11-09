@@ -193,6 +193,8 @@ describe('settings', () => {
     await user.type(poInput, '1.23456')
 
     expect(screen.getByRole('button', { name: /Save approval thresholds/i })).toBeDisabled()
-    expect(await screen.findByText(/at most four decimal places/)).toBeVisible()
+    expect(
+      await screen.findByText(/an amount of zero or more with up to 4 decimal places/),
+    ).toBeVisible()
   })
 })

@@ -84,15 +84,12 @@ const schema = z
   .object({
     item_id: z.string().min(1, validation.choose('the item to assemble')),
     bom_id: z.string(),
-    planned_quantity: z
-      .string()
-      .trim()
-      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    planned_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
     warehouse_id: z
       .string()
       .min(1, validation.choose('the warehouse the components are drawn from')),
     output_warehouse_id: z.string(),
-    assembly_line: z.string().trim().max(64, 'At most 64 characters'),
+    assembly_line: z.string().trim().max(64, validation.maxLength(64)),
     planned_start: z.string(),
     planned_end: z.string(),
     priority: z
@@ -101,7 +98,7 @@ const schema = z
       .regex(PRIORITY, 'Enter a whole number')
       .refine((value) => Number(value) <= 9999, 'At most 9999'),
     requires_qc: z.boolean(),
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })
   .refine(
     (values) =>

@@ -59,24 +59,16 @@ const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
 const DECIMAL_6 = /^(\d{1,14}(\.\d{1,6})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
-const decimalField = (message = 'Enter a number with up to 4 decimal places') =>
+const decimalField = (message = validation.decimals('a number', 4)) =>
   z.string().trim().regex(DECIMAL, message)
 
 /** Channel prices carry 6 decimal places, like the price-list rows. */
-const priceField = (message = 'Enter a price with up to 6 decimal places') =>
+const priceField = (message = validation.decimals('a price', 6)) =>
   z.string().trim().regex(DECIMAL_6, message)
 
 const schema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(1, validation.required('Code'))
-    .max(64, 'Code is at most 64 characters'),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(255, 'Name is at most 255 characters'),
+  code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   item_group: z.enum(ITEM_GROUPS),
   category_id: z.string(),
   finish_id: z.string(),
@@ -84,11 +76,11 @@ const schema = z.object({
   colour_id: z.string(),
   brand_id: z.string(),
   manufacturer_id: z.string(),
-  manufacturer_part_number: z.string().trim().max(64, 'Part number is at most 64 characters'),
+  manufacturer_part_number: z.string().trim().max(64, validation.maxLength(64)),
   base_uom_id: z.string().min(1, validation.required('Base unit')),
   purchase_uom_id: z.string(),
   sale_uom_id: z.string(),
-  hsn_code: z.string().trim().max(16, 'HSN code is at most 16 characters'),
+  hsn_code: z.string().trim().max(16, validation.maxLength(16)),
   gst_rate: decimalField().refine(
     (value) => toDecimal(value).lte(100),
     'GST rate cannot exceed 100',

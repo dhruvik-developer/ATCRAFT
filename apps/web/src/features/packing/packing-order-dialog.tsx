@@ -102,7 +102,7 @@ import {
   plural,
   toDecimal,
 } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -362,7 +362,7 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
             ['Tare weight', tare],
           ] as const) {
             if (!MEASURE_INPUT.test(value.trim())) {
-              return setProblem(`${label} takes up to 3 decimal places.`)
+              return setProblem(validation.decimals(`the ${label.toLowerCase()}`, 3))
             }
           }
           setProblem(null)
@@ -466,7 +466,7 @@ function AddContentsForm({
       )
     }
     if (!MEASURE_INPUT.test(netWeight.trim())) {
-      return setProblem('Net weight takes up to 3 decimal places.')
+      return setProblem(validation.decimals('the net weight', 3))
     }
     if (item?.is_batch_tracked && !batchId) {
       return setProblem(`${item.code} is batch tracked - name the batch going in the carton.`)

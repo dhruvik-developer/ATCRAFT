@@ -74,14 +74,14 @@ const codeField = z
   .string()
   .trim()
   .min(1, validation.required('Code'))
-  .max(32, 'At most 32 characters')
+  .max(32, validation.maxLength(32))
   .regex(CODE_PATTERN, CODE_MESSAGE)
 
 const nameField = z
   .string()
   .trim()
   .min(1, validation.required('Name'))
-  .max(255, 'At most 255 characters')
+  .max(255, validation.maxLength(255))
 
 const optionalEmail = z
   .string()
@@ -93,13 +93,13 @@ const optionalEmail = z
 const branchSchema = z.object({
   code: codeField,
   name: nameField,
-  gstin: z.string().trim().max(15, 'A GSTIN is 15 characters'),
-  address_line1: z.string().trim().max(255, 'At most 255 characters'),
-  city: z.string().trim().max(120, 'At most 120 characters'),
-  state: z.string().trim().max(120, 'At most 120 characters'),
-  state_code: z.string().trim().max(4, 'At most 4 characters'),
-  postal_code: z.string().trim().max(16, 'At most 16 characters'),
-  phone: z.string().trim().max(32, 'At most 32 characters'),
+  gstin: z.string().trim().max(15, validation.maxLength(15)),
+  address_line1: z.string().trim().max(255, validation.maxLength(255)),
+  city: z.string().trim().max(120, validation.maxLength(120)),
+  state: z.string().trim().max(120, validation.maxLength(120)),
+  state_code: z.string().trim().max(4, validation.maxLength(4)),
+  postal_code: z.string().trim().max(16, validation.maxLength(16)),
+  phone: z.string().trim().max(32, validation.maxLength(32)),
   email: optionalEmail,
   is_active: z.boolean(),
   is_head_office: z.boolean(),
@@ -362,9 +362,9 @@ const plantSchema = z.object({
   code: codeField,
   name: nameField,
   branch_id: z.string(),
-  address_line1: z.string().trim().max(255, 'At most 255 characters'),
-  city: z.string().trim().max(120, 'At most 120 characters'),
-  state: z.string().trim().max(120, 'At most 120 characters'),
+  address_line1: z.string().trim().max(255, validation.maxLength(255)),
+  city: z.string().trim().max(120, validation.maxLength(120)),
+  state: z.string().trim().max(120, validation.maxLength(120)),
   is_active: z.boolean(),
 })
 
@@ -866,7 +866,7 @@ const costCentreSchema = z.object({
   parent_id: z.string(),
   plant_id: z.string(),
   head_user_id: z.string(),
-  description: z.string().trim().max(2000, 'At most 2000 characters'),
+  description: z.string().trim().max(2000, validation.maxLength(2000)),
   is_active: z.boolean(),
 })
 
@@ -1186,7 +1186,7 @@ export function CostCentreFormDialog({
 
 const financialYearSchema = z
   .object({
-    code: z.string().trim().min(1, validation.required('Code')).max(16, 'At most 16 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(16, validation.maxLength(16)),
     start_date: z.string().min(1, validation.required('Start date')),
     end_date: z.string().min(1, validation.required('End date')),
     is_active: z.boolean(),

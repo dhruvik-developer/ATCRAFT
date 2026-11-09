@@ -53,7 +53,7 @@ import {
   toDecimal,
 } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -241,7 +241,7 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
           !toDecimal(line.quantity).greaterThan(0),
       )
     ) {
-      setError('Every line needs an item and a positive quantity, to 4 decimal places.')
+      setError(`Every line needs an item. ${validation.decimals('a quantity above zero', 4)}.`)
       return
     }
     if (kind === 'bin-moves' && lines.some((line) => line.location_id === line.to_location_id)) {

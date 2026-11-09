@@ -70,9 +70,9 @@ const WHOLE_DAYS = /^\d{0,4}$/
 
 const schema = z
   .object({
-    code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters'),
-    name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
-    legal_name: z.string().trim().max(255, 'At most 255 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(32, validation.maxLength(32)),
+    name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
+    legal_name: z.string().trim().max(255, validation.maxLength(255)),
     customer_type: z.enum(CUSTOMER_TYPES),
     price_list_type: z.enum(PRICE_TYPES),
     gstin: z
@@ -87,10 +87,10 @@ const schema = z
       .trim()
       .refine((v) => v === '' || PAN_PATTERN.test(v.toUpperCase()), 'Not a valid 10-character PAN'),
     /** Ignored while `unlimited_credit` is on. */
-    credit_limit: z.string().trim().regex(MONEY, 'Enter an amount with up to 4 decimal places'),
+    credit_limit: z.string().trim().regex(MONEY, validation.decimals('an amount', 4)),
     unlimited_credit: z.boolean(),
     credit_days: z.string().trim().regex(WHOLE_DAYS, 'Whole days only'),
-    notes: z.string().trim().max(1000, 'At most 1000 characters'),
+    notes: z.string().trim().max(1000, validation.maxLength(1000)),
     is_active: z.boolean(),
   })
   // A limited account with no figure is ambiguous: the API reads a missing limit

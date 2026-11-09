@@ -70,17 +70,17 @@ export function UnsavedCustomerNotice({ what }: { what: string }) {
 // ------------------------------------------------------------ addresses -----
 
 const addressSchema = z.object({
-  label: z.string().trim().max(64, 'At most 64 characters'),
+  label: z.string().trim().max(64, validation.maxLength(64)),
   address_type: z.enum(ADDRESS_TYPES),
   address_line1: z
     .string()
     .trim()
     .min(1, validation.required('Address line 1'))
-    .max(255, 'At most 255 characters'),
-  address_line2: z.string().trim().max(255, 'At most 255 characters'),
-  landmark: z.string().trim().max(255, 'At most 255 characters'),
-  city: z.string().trim().min(1, validation.required('City')).max(64, 'At most 64 characters'),
-  state: z.string().trim().max(64, 'At most 64 characters'),
+    .max(255, validation.maxLength(255)),
+  address_line2: z.string().trim().max(255, validation.maxLength(255)),
+  landmark: z.string().trim().max(255, validation.maxLength(255)),
+  city: z.string().trim().min(1, validation.required('City')).max(64, validation.maxLength(64)),
+  state: z.string().trim().max(64, validation.maxLength(64)),
   state_code: z
     .string()
     .trim()
@@ -93,7 +93,7 @@ const addressSchema = z.object({
     .string()
     .trim()
     .min(1, validation.required('Country'))
-    .max(64, 'At most 64 characters'),
+    .max(64, validation.maxLength(64)),
   gstin: z
     .string()
     .trim()
@@ -101,8 +101,8 @@ const addressSchema = z.object({
       (v) => v === '' || GSTIN_PATTERN.test(v.toUpperCase()),
       'Not a valid 15-character GSTIN',
     ),
-  contact_person: z.string().trim().max(128, 'At most 128 characters'),
-  phone: z.string().trim().max(32, 'At most 32 characters'),
+  contact_person: z.string().trim().max(128, validation.maxLength(128)),
+  phone: z.string().trim().max(32, validation.maxLength(32)),
   email: z
     .string()
     .trim()
@@ -618,13 +618,13 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
 // ------------------------------------------------------------- contacts -----
 
 const contactSchema = z.object({
-  name: z.string().trim().min(1, validation.required('Name')).max(128, 'At most 128 characters'),
-  designation: z.string().trim().max(64, 'At most 64 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(128, validation.maxLength(128)),
+  designation: z.string().trim().max(64, validation.maxLength(64)),
   email: z
     .string()
     .trim()
     .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
-  phone: z.string().trim().max(32, 'At most 32 characters'),
+  phone: z.string().trim().max(32, validation.maxLength(32)),
   is_primary: z.boolean(),
 })
 

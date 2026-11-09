@@ -86,7 +86,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, humanise, toDecimal } from '@/lib/format'
-import { describeError, errors, joinValidationMessages, success } from '@/lib/messages'
+import { describeError, errors, joinValidationMessages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -159,9 +159,9 @@ const parameterSchema = z
       .string()
       .trim()
       .min(1, 'Name the characteristic')
-      .max(PARAMETER_NAME_MAX_LENGTH, `At most ${PARAMETER_NAME_MAX_LENGTH} characters`),
+      .max(PARAMETER_NAME_MAX_LENGTH, validation.maxLength(PARAMETER_NAME_MAX_LENGTH)),
     parameter_type: z.enum(QC_PARAMETER_TYPES),
-    unit: z.string().trim().max(UNIT_MAX_LENGTH, `At most ${UNIT_MAX_LENGTH} characters`),
+    unit: z.string().trim().max(UNIT_MAX_LENGTH, validation.maxLength(UNIT_MAX_LENGTH)),
     min_value: z.string().trim(),
     max_value: z.string().trim(),
     target_value: z.string().trim(),
@@ -204,7 +204,7 @@ const parameterSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['allowed_values'],
-          message: `Each answer is at most ${ALLOWED_VALUE_MAX_LENGTH} characters`,
+          message: `${validation.maxLength(ALLOWED_VALUE_MAX_LENGTH)} in each answer`,
         })
       }
       if (new Set(values).size !== values.length) {
@@ -225,11 +225,11 @@ const templateFormShape = z.object({
     .string()
     .trim()
     .min(NAME_MIN_LENGTH, `At least ${NAME_MIN_LENGTH} characters`)
-    .max(NAME_MAX_LENGTH, `At most ${NAME_MAX_LENGTH} characters`),
+    .max(NAME_MAX_LENGTH, validation.maxLength(NAME_MAX_LENGTH)),
   description: z
     .string()
     .trim()
-    .max(DESCRIPTION_MAX_LENGTH, `At most ${DESCRIPTION_MAX_LENGTH} characters`),
+    .max(DESCRIPTION_MAX_LENGTH, validation.maxLength(DESCRIPTION_MAX_LENGTH)),
   /** Required only when forking a version; that is where the audit needs it. */
   reason: z.string().trim(),
   scope: z.enum(SCOPES),
@@ -309,7 +309,7 @@ function schemaFor(mode: FormMode) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['sample_percentage'],
-          message: 'A percentage above 0 and at most 100, to 4 decimal places',
+          message: validation.decimals('a percentage above 0 and at most 100', 4),
         })
       }
     }

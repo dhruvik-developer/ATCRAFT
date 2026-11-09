@@ -190,6 +190,10 @@ export const validation = {
   positive: (field: string) => `${field} must be greater than zero.`,
   integer: (field: string) => `${field} must be a whole number.`,
   email: 'Enter a valid email address.',
+  /** A text bound, said under its field: `.max(64, validation.maxLength(64))`. */
+  maxLength: (limit: number) => `At most ${limit} characters`,
+  /** A decimal's precision: `decimals('a quantity', 4)`, `decimals('an amount of zero or more', 2)`. */
+  decimals: (what: string, places: number) => `Enter ${what} with up to ${places} decimal places`,
 } as const
 
 export const fileMessages = {
@@ -294,7 +298,7 @@ export const fulfilment = {
     'Nothing on this order can leave yet: no line holds a live stock reservation. Allocate available stock to the order first.',
   quantityTooHigh: (most: string) =>
     `At most ${most} may leave now - the line's live reservation, less what other open consignments already carry.`,
-  quantityInvalid: 'Enter a quantity above zero, with up to 4 decimal places.',
+  quantityInvalid: validation.decimals('a quantity above zero', 4),
   /** Why the warehouse cannot be changed once an order is chosen. */
   orderWarehouse:
     "A consignment against an order leaves from the order's warehouse, where its stock is reserved.",

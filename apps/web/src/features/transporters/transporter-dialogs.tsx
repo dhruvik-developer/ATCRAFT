@@ -80,8 +80,8 @@ import {
 
 const schema = z
   .object({
-    code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters'),
-    name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(32, validation.maxLength(32)),
+    name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
     transporter_type: z.enum(TRANSPORTER_TYPES),
 
     gstin: z
@@ -96,33 +96,33 @@ const schema = z
       .trim()
       .refine((v) => v === '' || PAN_PATTERN.test(v.toUpperCase()), 'Not a valid 10-character PAN'),
 
-    contact_person: z.string().trim().max(160, 'At most 160 characters'),
+    contact_person: z.string().trim().max(160, validation.maxLength(160)),
     email: z
       .string()
       .trim()
       .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
-    phone: z.string().trim().max(32, 'At most 32 characters'),
-    mobile: z.string().trim().max(32, 'At most 32 characters'),
-    website: z.string().trim().max(255, 'At most 255 characters'),
+    phone: z.string().trim().max(32, validation.maxLength(32)),
+    mobile: z.string().trim().max(32, validation.maxLength(32)),
+    website: z.string().trim().max(255, validation.maxLength(255)),
 
-    address_line1: z.string().trim().max(255, 'At most 255 characters'),
-    city: z.string().trim().max(120, 'At most 120 characters'),
-    state: z.string().trim().max(120, 'At most 120 characters'),
+    address_line1: z.string().trim().max(255, validation.maxLength(255)),
+    city: z.string().trim().max(120, validation.maxLength(120)),
+    state: z.string().trim().max(120, validation.maxLength(120)),
     state_code: z
       .string()
       .trim()
       .refine((v) => v === '' || STATE_CODE_PATTERN.test(v), 'Two digits, as printed on the GSTIN'),
-    postal_code: z.string().trim().max(16, 'At most 16 characters'),
+    postal_code: z.string().trim().max(16, validation.maxLength(16)),
     country: z
       .string()
       .trim()
       .min(1, validation.required('Country'))
-      .max(80, 'At most 80 characters'),
+      .max(80, validation.maxLength(80)),
 
     tracking_url_template: z
       .string()
       .trim()
-      .max(TRACKING_TEMPLATE_MAX_LENGTH, `At most ${TRACKING_TEMPLATE_MAX_LENGTH} characters`),
+      .max(TRACKING_TEMPLATE_MAX_LENGTH, validation.maxLength(TRACKING_TEMPLATE_MAX_LENGTH)),
     notes: z.string(),
     is_active: z.boolean(),
   })

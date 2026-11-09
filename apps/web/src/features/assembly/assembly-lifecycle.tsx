@@ -31,7 +31,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatQuantity } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
 import { assemblyKeys, type AssemblyOrderDetail } from './assembly-model'
@@ -93,7 +93,7 @@ export function AssemblyVerdictDialog({
 
   const submit = () => {
     if (!QUANTITY.test(accepted.trim()) || !OPTIONAL_QUANTITY.test(rejected.trim())) {
-      setComplaint('Enter quantities with up to 4 decimal places')
+      setComplaint(validation.decimals('quantities', 4))
       return
     }
     const trimmedReason = reason.trim()

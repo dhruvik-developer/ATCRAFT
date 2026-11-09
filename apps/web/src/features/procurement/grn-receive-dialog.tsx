@@ -170,24 +170,24 @@ const lineSchema = z.object({
   uom_id: z.string(),
   pending_quantity: z.string(),
   requires_qc: z.boolean(),
-  received_quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
-  accepted_quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
-  rejected_quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
-  batch_number: z.string().trim().max(64, 'At most 64 characters'),
+  received_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+  accepted_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+  rejected_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
+  batch_number: z.string().trim().max(64, validation.maxLength(64)),
   manufactured_on: z.string(),
   expires_on: z.string(),
   serial_numbers: z.string(),
-  rejection_reason: z.string().trim().max(2000, 'At most 2000 characters'),
+  rejection_reason: z.string().trim().max(2000, validation.maxLength(2000)),
 })
 
 const schema = z
   .object({
     receipt_date: z.string().min(1, validation.required('Receipt date')),
-    vendor_delivery_note: z.string().trim().max(64, 'At most 64 characters'),
-    vendor_invoice_number: z.string().trim().max(64, 'At most 64 characters'),
-    gate_entry_number: z.string().trim().max(64, 'At most 64 characters'),
-    vehicle_number: z.string().trim().max(32, 'At most 32 characters'),
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    vendor_delivery_note: z.string().trim().max(64, validation.maxLength(64)),
+    vendor_invoice_number: z.string().trim().max(64, validation.maxLength(64)),
+    gate_entry_number: z.string().trim().max(64, validation.maxLength(64)),
+    vehicle_number: z.string().trim().max(32, validation.maxLength(32)),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
     lines: z.array(lineSchema),
   })
   // Every one of these mirrors a rule the API enforces. Catching them here

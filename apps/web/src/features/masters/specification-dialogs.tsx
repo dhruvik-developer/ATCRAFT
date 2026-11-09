@@ -66,7 +66,7 @@ const formSchema = z
       context.addIssue({
         code: 'custom',
         path: ['options_text'],
-        message: 'Each option may contain at most 64 characters.',
+        message: `${validation.maxLength(64)} in each option`,
       })
     if (new Set(options).size !== options.length)
       context.addIssue({

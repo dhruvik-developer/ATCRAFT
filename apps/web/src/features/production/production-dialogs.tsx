@@ -101,21 +101,21 @@ const completionSchema = z
     produced_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-    rejection_reason: z.string().trim().max(255, 'At most 255 characters'),
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+    rejection_reason: z.string().trim().max(255, validation.maxLength(255)),
     scrap_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
     actual_end_date: z.string().min(1, 'Enter the actual end date'),
     shift_id: z.string(),
     output_batch_id: z.string(),
     output_serial_numbers: z.string(),
-    note: z.string().trim().max(1000, 'At most 1000 characters'),
+    note: z.string().trim().max(1000, validation.maxLength(1000)),
   })
   .superRefine((values, ctx) => {
     if (toDecimal(values.rejected_quantity).greaterThan(0) && !values.rejection_reason) {
@@ -458,8 +458,8 @@ const orderSchema = z
     planned_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-      .refine((value) => toDecimal(value).greaterThan(0), 'Quantity must be more than zero'),
+      .regex(QUANTITY, validation.decimals('a quantity', 4))
+      .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
     planned_start_date: z.string().min(1, validation.required('Planned start')),
     // Required by the API, not optional: `ProductionOrderCreate` names both
     // dates and the output warehouse without defaults.
@@ -475,7 +475,7 @@ const orderSchema = z
      * posts false, which the API refuses while a routing operation gates.
      */
     qc_mode: z.enum(['auto', 'hold', 'skip']),
-    notes: z.string().trim().max(500, 'At most 500 characters'),
+    notes: z.string().trim().max(500, validation.maxLength(500)),
   })
   // ISO dates compare correctly as strings, so no Date object is needed here.
   .refine((values) => values.planned_end_date >= values.planned_start_date, {
@@ -846,7 +846,7 @@ const issueSchema = z.object({
       REASON_MIN_LENGTH,
       `Every stock movement is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
     )
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
   lines: z.array(
     z.object({
       component_id: z.string(),
@@ -855,10 +855,7 @@ const issueSchema = z.object({
       line_number: z.number(),
       label: z.string(),
       location_id: z.string().optional(),
-      quantity: z
-        .string()
-        .trim()
-        .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+      quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
     }),
   ),
 })
@@ -1171,7 +1168,7 @@ const returnSchema = z.object({
       REASON_MIN_LENGTH,
       `Every stock movement is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
     )
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
   lines: z.array(
     z
       .object({
@@ -1182,10 +1179,7 @@ const returnSchema = z.object({
         label: z.string(),
         /** This line's own ceiling, carried so the rule can name the row. */
         returnable: z.string(),
-        quantity: z
-          .string()
-          .trim()
-          .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+        quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
       })
       .superRefine((line, ctx) => {
         // Held here rather than left to the API. The service refuses the whole
@@ -1556,13 +1550,13 @@ const entrySchema = z
     produced_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-    rejection_reason: z.string().trim().max(255, 'At most 255 characters'),
-    downtime_minutes: z.string().trim().regex(MINUTES, 'Enter minutes, up to 4 decimals'),
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
+    rejection_reason: z.string().trim().max(255, validation.maxLength(255)),
+    downtime_minutes: z.string().trim().regex(MINUTES, validation.decimals('minutes', 4)),
     output_batch_id: z.string(),
     output_serial_numbers: z.string(),
   })

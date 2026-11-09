@@ -235,7 +235,7 @@ export function RfqCommandDialog({
         {touched && copy?.reasonRequired && tooShort && (
           <FieldError message={messages.errors.reasonTooShort} />
         )}
-        {touched && tooLong && <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />}
+        {touched && tooLong && <FieldError message={validation.maxLength(REASON_MAX_LENGTH)} />}
         {!copy?.reasonRequired && (
           <p className="mt-1 text-xs text-muted-foreground">
             Optional. Whatever you record here goes onto the audit trail with the transition.
@@ -273,18 +273,18 @@ const schema = z
     vendor_ids: z
       .array(z.string())
       .max(MAX_RFQ_VENDORS, `At most ${MAX_RFQ_VENDORS} vendors on one RFQ`),
-    terms: z.string().trim().max(4000, 'At most 4000 characters'),
-    notes: z.string().trim().max(4000, 'At most 4000 characters'),
+    terms: z.string().trim().max(4000, validation.maxLength(4000)),
+    notes: z.string().trim().max(4000, validation.maxLength(4000)),
     lines: z.array(
       z.object({
         item_id: z.string().min(1, validation.choose('an item')),
         quantity: z
           .string()
           .trim()
-          .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+          .regex(QUANTITY, validation.decimals('a quantity', 4))
           .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
         required_date: z.string(),
-        specification: z.string().trim().max(4000, 'At most 4000 characters'),
+        specification: z.string().trim().max(4000, validation.maxLength(4000)),
         // Carried through an edit rather than edited. See the module comment.
         description: z.string(),
         uom_id: z.string(),

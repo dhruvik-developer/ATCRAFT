@@ -27,7 +27,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDate, formatQuantity, plural } from '@/lib/format'
-import { describeError, messages } from '@/lib/messages'
+import { describeError, messages, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
 import {
@@ -157,7 +157,7 @@ export function PurchaseOrderDuplicateDialog({
       return
     }
     if (text.length > limit) {
-      setReasonError(`At most ${limit} characters for this action`)
+      setReasonError(`${validation.maxLength(limit)} for this action`)
       return
     }
     setReasonError(null)

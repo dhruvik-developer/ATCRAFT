@@ -634,18 +634,18 @@ const operationSchema = z
       .string()
       .trim()
       .min(1, validation.required('Operation code'))
-      .max(64, 'At most 64 characters'),
+      .max(64, validation.maxLength(64)),
     operation_name: z
       .string()
       .trim()
       .min(1, validation.required('Operation name'))
-      .max(255, 'At most 255 characters'),
+      .max(255, validation.maxLength(255)),
     work_center_id: z.string().min(1, 'Every operation runs on a work centre'),
-    setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-    run_time_per_unit_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-    queue_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-    move_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-    process_cost: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+    setup_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
+    run_time_per_unit_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
+    queue_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
+    move_time_minutes: z.string().trim().regex(DECIMAL, validation.decimals('minutes', 4)),
+    process_cost: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
     is_outsourced: z.boolean(),
     qc_required: z.boolean(),
     // Assigned, not just carried. `RoutingUpdate.operations` replaces the list
@@ -670,18 +670,14 @@ const operationSchema = z
   })
 
 const routingSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(1, validation.required('Code'))
-    .max(64, 'Code is at most 64 characters'),
-  name: z.string().trim().max(255, 'Name is at most 255 characters'),
+  code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),
+  name: z.string().trim().max(255, validation.maxLength(255)),
   // A routing always belongs to an item: `RoutingCreate.item_id` is required and
   // there is no such thing as a shared routing.
   item_id: z.string().min(1, validation.choose('the item this routing makes')),
   // No version and no status field: the API mints the version and moves the
   // status through its own approve/obsolete endpoints.
-  notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
+  notes: z.string().trim().max(1000, validation.maxLength(1000)),
   effective_from: z.string(),
   effective_to: z.string(),
   is_default: z.boolean(),
@@ -1257,25 +1253,17 @@ export function RoutingFormDialog({
 // ---------------------------------------------------- work centre form ------
 
 const workCenterSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(1, validation.required('Code'))
-    .max(64, 'Code is at most 64 characters'),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(255, 'Name is at most 255 characters'),
-  description: z.string().trim().max(1000, 'Description is at most 1000 characters'),
-  capacity_per_hour: z.string().trim().regex(DECIMAL, 'Enter a number with up to 4 decimals'),
-  cost_per_hour: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+  code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
+  description: z.string().trim().max(1000, validation.maxLength(1000)),
+  capacity_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('a number', 4)),
+  cost_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
   // A flat charge per batch. There is no efficiency percentage on this record.
-  setup_cost: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+  setup_cost: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
   working_hours_per_day: z
     .string()
     .trim()
-    .regex(DECIMAL, 'Enter hours with up to 4 decimals')
+    .regex(DECIMAL, validation.decimals('hours', 4))
     // Compared as a decimal, like every other measured value in this form: a
     // `parseFloat` here is the same defect near the working day that it is near
     // money, and "24.00001" is not 24 hours however an IEEE-754 double reads it.
@@ -1522,21 +1510,13 @@ export function WorkCenterFormDialog({
 // -------------------------------------------------------- machine form ------
 
 const machineSchema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(1, validation.required('Code'))
-    .max(64, 'Code is at most 64 characters'),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(255, 'Name is at most 255 characters'),
+  code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   // Required: the API has no unassigned machine.
   work_center_id: z.string().min(1, 'A machine belongs to a work centre'),
-  machine_type: z.string().trim().max(64, 'Type is at most 64 characters'),
-  capacity_per_hour: z.string().trim().regex(DECIMAL, 'Enter a number with up to 4 decimals'),
-  cost_per_hour: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+  machine_type: z.string().trim().max(64, validation.maxLength(64)),
+  capacity_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('a number', 4)),
+  cost_per_hour: z.string().trim().regex(DECIMAL, validation.decimals('an amount', 4)),
   last_maintenance_date: z.string(),
   next_maintenance_date: z.string(),
 })
@@ -1786,7 +1766,7 @@ const statusSchema = z.object({
     .string()
     .trim()
     .min(1, 'A condition change is recorded with a reason')
-    .max(255, 'At most 255 characters'),
+    .max(255, validation.maxLength(255)),
   next_maintenance_date: z.string(),
 })
 

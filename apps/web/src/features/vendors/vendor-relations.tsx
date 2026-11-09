@@ -69,15 +69,15 @@ export function UnsavedVendorNotice({ what }: { what: string }) {
 
 const contactSchema = z
   .object({
-    name: z.string().trim().min(1, validation.required('Name')).max(160, 'At most 160 characters'),
+    name: z.string().trim().min(1, validation.required('Name')).max(160, validation.maxLength(160)),
     contact_role: z.enum(VENDOR_CONTACT_ROLES),
-    designation: z.string().trim().max(120, 'At most 120 characters'),
+    designation: z.string().trim().max(120, validation.maxLength(120)),
     email: z
       .string()
       .trim()
       .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
-    phone: z.string().trim().max(32, 'At most 32 characters'),
-    mobile: z.string().trim().max(32, 'At most 32 characters'),
+    phone: z.string().trim().max(32, validation.maxLength(32)),
+    mobile: z.string().trim().max(32, validation.maxLength(32)),
     is_primary: z.boolean(),
   })
   // Mirrors the API check constraint: a contact nobody can reach is not a
@@ -435,7 +435,7 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
 const categorySchema = z.object({
   item_category_id: z.string().min(1, validation.choose('an item category')),
   is_preferred: z.boolean(),
-  notes: z.string().trim().max(1000, 'At most 1000 characters'),
+  notes: z.string().trim().max(1000, validation.maxLength(1000)),
 })
 
 type CategoryValues = z.infer<typeof categorySchema>

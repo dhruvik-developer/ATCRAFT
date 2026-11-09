@@ -20,7 +20,7 @@ import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, toDecimal } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
@@ -40,16 +40,18 @@ const lineSchema = z.object({
   hsn_code: z.string().trim().max(16),
   quantity: z
     .string()
-    .regex(/^\d{1,14}(\.\d{1,4})?$/, 'Up to 4 decimal places')
-    .refine((v): boolean => toDecimal(v).greaterThan(0), 'Quantity must be greater than zero'),
+    .regex(/^\d{1,14}(\.\d{1,4})?$/, validation.decimals('a quantity', 4))
+    .refine((v): boolean => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string().nullable(),
   unit_price: z
     .string()
-    .regex(/^\d{1,12}(\.\d{1,6})?$/, 'Enter a non-negative price with up to 6 decimal places'),
-  discount_amount: z.string().regex(/^\d{1,14}(\.\d{1,4})?$/, 'Enter a non-negative discount'),
+    .regex(/^\d{1,12}(\.\d{1,6})?$/, validation.decimals('a price of zero or more', 6)),
+  discount_amount: z
+    .string()
+    .regex(/^\d{1,14}(\.\d{1,4})?$/, validation.decimals('a discount of zero or more', 4)),
   tax_rate: z
     .string()
-    .regex(/^\d{1,5}(\.\d{1,4})?$/, 'Up to 4 decimal places')
+    .regex(/^\d{1,5}(\.\d{1,4})?$/, validation.decimals('a rate', 4))
     .refine((v): boolean => toDecimal(v).lessThanOrEqualTo(100), 'Tax must be between 0 and 100%'),
   is_interstate: z.boolean(),
 })
@@ -59,7 +61,9 @@ const schema = z
     invoice_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose the invoice date'),
     due_date: z.string(),
     notes: z.string().trim().max(2000),
-    round_off_amount: z.string().regex(/^-?\d{1,14}(\.\d{1,4})?$/, 'Up to 4 decimal places'),
+    round_off_amount: z
+      .string()
+      .regex(/^-?\d{1,14}(\.\d{1,4})?$/, validation.decimals('an amount', 4)),
     lines: z
       .array(lineSchema)
       .min(1, 'This receipt has no accepted quantities to invoice')

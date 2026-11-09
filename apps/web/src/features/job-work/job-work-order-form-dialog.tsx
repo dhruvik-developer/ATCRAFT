@@ -146,7 +146,7 @@ const lineSchema = z
     quantity_to_issue: z
       .string()
       .trim()
-      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+      .regex(QUANTITY, validation.decimals('a quantity', 4))
       .refine((value) => toDecimal(value).greaterThan(0), 'A line has to send something out'),
     /** Blank means the same item comes back, which is what the contract defaults to. */
     expected_output_item_id: z.string(),
@@ -154,7 +154,7 @@ const lineSchema = z
     expected_output_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places')
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4))
       .refine(
         (value) => value === '' || toDecimal(value).greaterThan(0),
         'Expect more than nothing back, or leave it blank for a 1:1 yield',
@@ -162,9 +162,9 @@ const lineSchema = z
     expected_loss_percentage: z
       .string()
       .trim()
-      .regex(PERCENT, 'Enter a percentage with up to 4 decimal places')
+      .regex(PERCENT, validation.decimals('a percentage', 4))
       .refine((value) => toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })
   .refine((line) => !line.is_batch_tracked || Boolean(line.batch_id), {
     path: ['batch_id'],
@@ -188,25 +188,25 @@ const lineSchema = z
 const schema = z.object({
   vendor_id: z.string().min(1, validation.choose('the vendor who will do the work')),
   process_type: z.enum(JOB_WORK_PROCESSES),
-  process_description: z.string().trim().max(2000, 'At most 2000 characters'),
+  process_description: z.string().trim().max(2000, validation.maxLength(2000)),
   expected_return_date: z.string().min(1, 'Say when the material is due back'),
   warehouse_id: z.string().min(1, validation.choose('the store the material leaves')),
   /** Blank means "the store it left", resolved explicitly before posting. */
   return_warehouse_id: z.string(),
   /** Blank means unallocated: the charges belong to no cost centre. */
   cost_centre_id: z.string(),
-  rate_per_unit: z.string().trim().regex(RATE, 'Enter a rate with up to 6 decimal places'),
+  rate_per_unit: z.string().trim().regex(RATE, validation.decimals('a rate', 6)),
   rate_basis: z.enum(RATE_BASES),
   /** Blank means the documented default GST rate - the client confirms it. */
   tax_rate: z
     .string()
     .trim()
-    .regex(/^(\d{1,3}(\.\d{1,4})?)?$/, 'Enter a percentage with up to 4 decimal places')
+    .regex(/^(\d{1,3}(\.\d{1,4})?)?$/, validation.decimals('a percentage', 4))
     .refine((value) => value === '' || toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
   /** Blank means the default SAC for manufacturing services on others' goods. */
-  sac_code: z.string().trim().max(16, 'At most 16 characters'),
+  sac_code: z.string().trim().max(16, validation.maxLength(16)),
   requires_qc: z.boolean(),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
   lines: z
     .array(lineSchema)
     .min(1, 'A job work order needs at least one line')

@@ -20,7 +20,7 @@ import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { toDateInput, toDateTimeInput } from '@/lib/format'
-import { describeError } from '@/lib/messages'
+import { describeError, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
@@ -32,7 +32,7 @@ import { P } from '@/lib/permissions'
 const nullableText = (max: number) => z.string().trim().max(max)
 const amount = z
   .string()
-  .regex(/^\d{1,14}(\.\d{1,4})?$/, 'Enter a non-negative amount with up to 4 decimals')
+  .regex(/^\d{1,14}(\.\d{1,4})?$/, validation.decimals('an amount of zero or more', 4))
 const shipmentSchema = z
   .object({
     transporter_id: z.string(),
@@ -60,7 +60,7 @@ const shipmentSchema = z
       .string()
       .refine(
         (v): boolean => v === '' || /^\d{1,14}(\.\d{1,4})?$/.test(v),
-        'Up to 4 decimal places',
+        validation.decimals('a weight', 4),
       ),
     freight_amount: amount,
     notes: nullableText(2000),

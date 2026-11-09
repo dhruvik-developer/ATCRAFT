@@ -89,7 +89,7 @@ import {
   humanise,
   plural,
 } from '@/lib/format'
-import { empty, success } from '@/lib/messages'
+import { empty, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -578,7 +578,7 @@ function ExplosionPanel({ bom }: { bom: BomDetail }) {
             <p id="explode-quantity-hint" className="pb-2 text-xs text-muted-foreground">
               {isValid
                 ? `Requirements below are for ${formatQuantity(quantity)}.`
-                : 'Enter a quantity above zero with up to 4 decimal places.'}
+                : validation.decimals('a quantity above zero', 4)}
             </p>
           </div>
 

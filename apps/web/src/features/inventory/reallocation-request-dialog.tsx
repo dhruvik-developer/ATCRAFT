@@ -21,7 +21,7 @@
  * Nothing moves either way until an approver acts on the PENDING request.
  */
 
-import { joinValidationMessages } from '@/lib/messages'
+import { joinValidationMessages, validation } from '@/lib/messages'
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -72,17 +72,14 @@ const reallocationSchema = z.object({
     .trim()
     .refine(
       (value) => /^\d+(\.\d{1,4})?$/.test(value),
-      'Use a positive quantity with up to 4 decimal places.',
+      validation.decimals('a quantity above zero', 4),
     )
-    .refine((value) => toDecimal(value).greaterThan(0), 'Enter an amount greater than zero.'),
+    .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
   reason: z
     .string()
     .trim()
     .min(5, 'Explain why this demand should take priority over the one losing stock.')
-    .max(
-      REASON_MAX_LENGTH,
-      `Keep the reason under ${REASON_MAX_LENGTH} characters - no more is stored.`,
-    ),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
 })
 
 type ReallocationForm = z.infer<typeof reallocationSchema>

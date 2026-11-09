@@ -10,6 +10,8 @@
 
 import { z } from 'zod'
 
+import { validation } from '@/lib/messages'
+
 export const PASSWORD_MIN_LENGTH = 12
 export const PASSWORD_MAX_LENGTH = 128
 
@@ -42,7 +44,7 @@ export function unmetRules(password: string): PasswordRule[] {
 /** Zod field honouring the same rules, with one message per failed rule. */
 export const passwordField = z
   .string()
-  .max(PASSWORD_MAX_LENGTH, `At most ${PASSWORD_MAX_LENGTH} characters`)
+  .max(PASSWORD_MAX_LENGTH, validation.maxLength(PASSWORD_MAX_LENGTH))
   .superRefine((value, ctx) => {
     for (const rule of unmetRules(value)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Missing: ${rule.label.toLowerCase()}` })

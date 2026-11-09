@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { plural, toDecimal } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -162,7 +162,7 @@ export function buildPurchaseOrderAmendment(
   const trimmedReason = reason.trim()
   if (trimmedReason.length < REASON_MIN_LENGTH) errors.reason = messages.errors.reasonTooShort
   if (trimmedReason.length > REASON_MAX_LENGTH)
-    errors.reason = `At most ${REASON_MAX_LENGTH} characters`
+    errors.reason = validation.maxLength(REASON_MAX_LENGTH)
   if (!drafts.length) errors.lines = 'A purchase order needs at least one line'
   if (drafts.length > MAX_PURCHASE_ORDER_LINES)
     errors.lines = `A purchase order cannot have more than ${MAX_PURCHASE_ORDER_LINES} lines`
@@ -174,9 +174,9 @@ export function buildPurchaseOrderAmendment(
     const validQuantity =
       PURCHASE_QUANTITY_PATTERN.test(quantity) && toDecimal(quantity).greaterThan(0)
     if (!validQuantity)
-      errors[`${prefix}.quantity`] = 'Enter a positive quantity with up to 4 decimal places'
+      errors[`${prefix}.quantity`] = validation.decimals('a quantity above zero', 4)
     if (!PURCHASE_PRICE_PATTERN.test(unitPrice))
-      errors[`${prefix}.unit_price`] = 'Enter a price with up to 6 decimal places'
+      errors[`${prefix}.unit_price`] = validation.decimals('a price', 6)
     if (!line.itemId) errors[`${prefix}.item_id`] = 'Choose an item'
 
     let validAllocations = true
@@ -184,8 +184,10 @@ export function buildPurchaseOrderAmendment(
       const allocationQuantity = allocation.quantity.trim()
       if (!PURCHASE_QUANTITY_PATTERN.test(allocationQuantity)) {
         validAllocations = false
-        errors[`${prefix}.source_allocations.${allocationIndex}.quantity`] =
-          'Enter zero or a positive quantity with up to 4 decimal places'
+        errors[`${prefix}.source_allocations.${allocationIndex}.quantity`] = validation.decimals(
+          'a quantity of zero or more',
+          4,
+        )
         return []
       }
       return toDecimal(allocationQuantity).isZero()

@@ -104,11 +104,11 @@ function userSchema(isEdit: boolean) {
       .string()
       .trim()
       .min(1, validation.required('Name'))
-      .max(255, 'At most 255 characters'),
+      .max(255, validation.maxLength(255)),
     // On an edit the field means "set a new password"; blank leaves it alone.
     password: z
       .string()
-      .max(PASSWORD_MAX_LENGTH, `At most ${PASSWORD_MAX_LENGTH} characters`)
+      .max(PASSWORD_MAX_LENGTH, validation.maxLength(PASSWORD_MAX_LENGTH))
       .superRefine((value, ctx) => {
         if (isEdit && value === '') return
         for (const rule of unmetRules(value)) {
@@ -118,8 +118,8 @@ function userSchema(isEdit: boolean) {
           })
         }
       }),
-    phone: z.string().trim().max(32, 'At most 32 characters'),
-    employee_code: z.string().trim().max(32, 'At most 32 characters'),
+    phone: z.string().trim().max(32, validation.maxLength(32)),
+    employee_code: z.string().trim().max(32, validation.maxLength(32)),
     branch_id: z.string(),
     plant_id: z.string(),
     department_id: z.string(),
@@ -1013,7 +1013,7 @@ const assignmentSchema = z.object({
     .string()
     .trim()
     .min(REASON_MIN_LENGTH, `Give a reason of at least ${REASON_MIN_LENGTH} characters`)
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
 })
 
 type AssignmentValues = z.infer<typeof assignmentSchema>
@@ -1241,7 +1241,7 @@ const resetSchema = z.object({
     .string()
     .trim()
     .min(REASON_MIN_LENGTH, `Give a reason of at least ${REASON_MIN_LENGTH} characters`)
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
 })
 
 type ResetValues = z.infer<typeof resetSchema>

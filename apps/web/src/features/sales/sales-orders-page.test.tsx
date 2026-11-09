@@ -902,7 +902,7 @@ describe('the line editor', () => {
     await user.type(quantity, '0')
     await user.click(screen.getByRole('button', { name: 'Add line' }))
 
-    expect(await screen.findByText('Quantity must be more than zero')).toBeVisible()
+    expect(await screen.findByText('Quantity must be greater than zero.')).toBeVisible()
     // Still in the editor: the line was not accepted into the set behind it.
     expect(screen.getByRole('button', { name: 'Add line' })).toBeVisible()
   })

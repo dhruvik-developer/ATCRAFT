@@ -82,19 +82,19 @@ const schema = z
     inspected_quantity: z
       .string()
       .trim()
-      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-      .refine((value) => value !== '' && Number(value) > 0, 'Quantity must be more than zero'),
+      .regex(QUANTITY, validation.decimals('a quantity', 4))
+      .refine((value) => value !== '' && Number(value) > 0, validation.positive('Quantity')),
     hold_stock: z.boolean(),
     template_id: z.string(),
     reference_type: z.enum(REFERENCE_TYPES),
-    reference_code: z.string().trim().max(64, 'At most 64 characters'),
+    reference_code: z.string().trim().max(64, validation.maxLength(64)),
     reference_id: z.string().trim(),
     reason: z
       .string()
       .trim()
       .min(REASON_MIN_LENGTH, `At least ${REASON_MIN_LENGTH} characters`)
-      .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
-    remarks: z.string().trim().max(2000, 'At most 2000 characters'),
+      .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
+    remarks: z.string().trim().max(2000, validation.maxLength(2000)),
   })
   .superRefine((values, ctx) => {
     if (values.batch_id !== '' && !UUID.test(values.batch_id)) {

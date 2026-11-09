@@ -82,7 +82,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { empty, messages, success } from '@/lib/messages'
+import { empty, messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1126,7 +1126,7 @@ export default function PurchaseOrderDetailPage() {
             <FieldError message={messages.errors.reasonTooShort} />
           )}
           {reasonTouched && reasonTooLong && (
-            <FieldError message={`At most ${maxReasonLength} characters`} />
+            <FieldError message={validation.maxLength(maxReasonLength)} />
           )}
           {serverReason !== null && <FieldError message={serverReason} />}
         </div>

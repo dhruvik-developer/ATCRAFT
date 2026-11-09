@@ -63,16 +63,8 @@ import {
 } from './masters-model'
 
 const schema = z.object({
-  code: z
-    .string()
-    .trim()
-    .min(1, validation.required('Code'))
-    .max(32, 'Code is at most 32 characters'),
-  name: z
-    .string()
-    .trim()
-    .min(1, validation.required('Name'))
-    .max(255, 'Name is at most 255 characters'),
+  code: z.string().trim().min(1, validation.required('Code')).max(32, validation.maxLength(32)),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
   description: z.string(),
   parent_id: z.string(),
   is_active: z.boolean(),

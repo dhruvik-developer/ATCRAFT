@@ -44,25 +44,14 @@ const COST_DELTA = /^(-?\d{1,14}(\.\d{1,4})?)?$/
 
 const schema = z
   .object({
-    code: z
-      .string()
-      .trim()
-      .min(1, validation.required('Code'))
-      .max(64, 'Code is at most 64 characters'),
-    name: z
-      .string()
-      .trim()
-      .min(1, validation.required('Name'))
-      .max(255, 'Name is at most 255 characters'),
+    code: z.string().trim().min(1, validation.required('Code')).max(64, validation.maxLength(64)),
+    name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
     finish_id: z.string(),
     size_id: z.string(),
     colour_id: z.string(),
-    price_delta: z
-      .string()
-      .trim()
-      .regex(PRICE_DELTA, 'Enter a signed number with up to 6 decimals'),
-    cost_delta: z.string().trim().regex(COST_DELTA, 'Enter a signed number with up to 4 decimals'),
-    barcode: z.string().trim().max(64, 'Barcode is at most 64 characters'),
+    price_delta: z.string().trim().regex(PRICE_DELTA, validation.decimals('a signed number', 6)),
+    cost_delta: z.string().trim().regex(COST_DELTA, validation.decimals('a signed number', 4)),
+    barcode: z.string().trim().max(64, validation.maxLength(64)),
     is_active: z.boolean(),
   })
   .refine(

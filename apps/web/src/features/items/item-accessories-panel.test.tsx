@@ -134,7 +134,7 @@ describe('item accessories', () => {
     await user.paste('0')
     await user.click(screen.getByRole('button', { name: 'Save accessory' }))
     expect(
-      await screen.findByText('Enter a positive quantity with up to 4 decimal places.'),
+      await screen.findByText('Enter a quantity above zero with up to 4 decimal places'),
     ).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'PATCH')).toBe(false)
     await user.clear(quantity)

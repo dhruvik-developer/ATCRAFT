@@ -59,7 +59,7 @@ import {
   plural,
   toDecimal,
 } from '@/lib/format'
-import { describeError, picker, success } from '@/lib/messages'
+import { describeError, picker, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -112,7 +112,7 @@ const issueSchema = z.object({
       REASON_MIN_LENGTH,
       `Every hand-over is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
     )
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
   lines: z.array(
     z.object({
       // The API addresses a component by its line number on the order.
@@ -120,10 +120,7 @@ const issueSchema = z.object({
       item_id: z.string(),
       label: z.string(),
       batch_id: z.string(),
-      quantity: z
-        .string()
-        .trim()
-        .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+      quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
     }),
   ),
 })
@@ -586,14 +583,11 @@ function SerialPicker({
 
 const completeSchema = z
   .object({
-    assembled_quantity: z
-      .string()
-      .trim()
-      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    assembled_quantity: z.string().trim().regex(QUANTITY, validation.decimals('a quantity', 4)),
     rejected_quantity: z
       .string()
       .trim()
-      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+      .regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
     reason: z
       .string()
       .trim()
@@ -601,7 +595,7 @@ const completeSchema = z
         REASON_MIN_LENGTH,
         `The completion is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
       )
-      .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+      .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
     output_batch_id: z.string(),
     output_serial_numbers: z.string(),
   })

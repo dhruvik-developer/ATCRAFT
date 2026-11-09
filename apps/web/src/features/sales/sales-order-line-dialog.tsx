@@ -60,21 +60,21 @@ const ITEM_DEFAULT_UOM = '__item_default'
 const schema = z.object({
   item_id: z.string().min(1, validation.choose('an item')),
   item_variant_id: z.string(),
-  description: z.string().trim().max(500, 'At most 500 characters'),
+  description: z.string().trim().max(500, validation.maxLength(500)),
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => toDecimal(value).greaterThan(0), 'Quantity must be more than zero'),
+    .regex(QUANTITY, validation.decimals('a quantity', 4))
+    .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string(),
-  unit_price: z.string().trim().regex(PRICE, 'Enter a price with up to 6 decimal places'),
+  unit_price: z.string().trim().regex(PRICE, validation.decimals('a price', 6)),
   discount_percentage: z
     .string()
     .trim()
     .regex(RATE, 'Enter a percentage')
     .refine((value) => toDecimal(value).lessThanOrEqualTo(100), 'A discount cannot exceed 100%'),
   required_date: z.string(),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
 })
 
 type LineFormValues = z.infer<typeof schema>

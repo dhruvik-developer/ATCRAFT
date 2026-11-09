@@ -18,7 +18,7 @@ import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { InboundDocumentDialog } from '@/features/procurement/inbound-document-dialog'
@@ -69,7 +69,7 @@ const actionSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['note'],
-        message: `At most ${REASON_MAX_LENGTH} characters`,
+        message: validation.maxLength(REASON_MAX_LENGTH),
       })
   })
 

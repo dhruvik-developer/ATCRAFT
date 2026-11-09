@@ -192,8 +192,8 @@ const paymentFormSchema = z
     amount: z
       .string()
       .trim()
-      .regex(MONEY, 'An amount with up to two decimal places')
-      .refine((value) => toDecimal(value).greaterThan(0), 'The amount must be more than zero'),
+      .regex(MONEY, validation.decimals('an amount', 2))
+      .refine((value) => toDecimal(value).greaterThan(0), validation.positive('Amount')),
     currency: z
       .string()
       .trim()
@@ -202,10 +202,10 @@ const paymentFormSchema = z
       (method): boolean => method !== 'ADJUSTMENT',
       'Choose an actual payment method; noncash adjustments cannot use this form.',
     ),
-    reference_number: z.string().trim().max(64, 'At most 64 characters'),
-    bank_name: z.string().trim().max(120, 'At most 120 characters'),
+    reference_number: z.string().trim().max(64, validation.maxLength(64)),
+    bank_name: z.string().trim().max(120, validation.maxLength(120)),
     instrument_date: z.string(),
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })
   .superRefine((values, ctx) => {
     // The server refuses the inverse pairing as a model-level 422, which
@@ -1079,7 +1079,7 @@ export function PaymentAllocationDialog({
    */
   const problems: string[] = []
   if (draftEntries.some(([, line]) => !MONEY.test(line.amount.trim()))) {
-    problems.push('Every amount takes up to two decimal places.')
+    problems.push(`${validation.decimals('every amount', 2)}.`)
   }
   if (payableEntries.length > MAX_ALLOCATIONS) {
     problems.push(`A payment may settle at most ${MAX_ALLOCATIONS} invoices.`)

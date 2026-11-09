@@ -41,7 +41,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -60,16 +60,16 @@ const openSchema = z.object({
   quantity: z
     .string()
     .trim()
-    .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => Number(value) > 0, 'Quantity must be more than zero'),
+    .regex(QUANTITY, validation.decimals('a quantity', 4))
+    .refine((value) => Number(value) > 0, validation.positive('Quantity')),
   assign_to_me: z.boolean(),
   work_center_id: z.string(),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
   reason: z
     .string()
     .trim()
     .min(REASON_MIN_LENGTH, `At least ${REASON_MIN_LENGTH} characters`)
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
 })
 
 type OpenFormValues = z.infer<typeof openSchema>
@@ -228,13 +228,13 @@ function OpenCycleForm({
 
 const completeSchema = z.object({
   outcome: z.enum(QC_REWORK_OUTCOMES),
-  cost: z.string().trim().regex(MONEY, 'Enter an amount with up to 4 decimal places'),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  cost: z.string().trim().regex(MONEY, validation.decimals('an amount', 4)),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
   reason: z
     .string()
     .trim()
     .min(REASON_MIN_LENGTH, `At least ${REASON_MIN_LENGTH} characters`)
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    .max(REASON_MAX_LENGTH, validation.maxLength(REASON_MAX_LENGTH)),
 })
 
 type CompleteFormValues = z.infer<typeof completeSchema>

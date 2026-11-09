@@ -47,13 +47,13 @@ const roleSchema = z.object({
     .string()
     .trim()
     .min(2, 'Code is at least 2 characters')
-    .max(48, 'At most 48 characters')
+    .max(48, validation.maxLength(48))
     .regex(
       ROLE_CODE_PATTERN,
       'Start with a letter; letters, digits, spaces, dashes and underscores only',
     ),
-  name: z.string().trim().min(1, validation.required('Name')).max(120, 'At most 120 characters'),
-  description: z.string().trim().max(2000, 'At most 2000 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(120, validation.maxLength(120)),
+  description: z.string().trim().max(2000, validation.maxLength(2000)),
   is_vendor_role: z.boolean(),
   is_active: z.boolean(),
 })

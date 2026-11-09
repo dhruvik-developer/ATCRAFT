@@ -72,11 +72,11 @@ const MONTHS = [
 ]
 
 const companySchema = z.object({
-  name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters'),
-  legal_name: z.string().trim().max(255, 'At most 255 characters'),
-  gstin: z.string().trim().max(15, 'A GSTIN is 15 characters'),
-  pan: z.string().trim().max(10, 'A PAN is 10 characters'),
-  cin: z.string().trim().max(21, 'A CIN is 21 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
+  legal_name: z.string().trim().max(255, validation.maxLength(255)),
+  gstin: z.string().trim().max(15, validation.maxLength(15)),
+  pan: z.string().trim().max(10, validation.maxLength(10)),
+  cin: z.string().trim().max(21, validation.maxLength(21)),
   email: z
     .string()
     .trim()
@@ -84,26 +84,26 @@ const companySchema = z.object({
       (value) => value === '' || z.string().email().safeParse(value).success,
       validation.email,
     ),
-  phone: z.string().trim().max(32, 'At most 32 characters'),
-  website: z.string().trim().max(255, 'At most 255 characters'),
-  address_line1: z.string().trim().max(255, 'At most 255 characters'),
-  address_line2: z.string().trim().max(255, 'At most 255 characters'),
-  city: z.string().trim().max(120, 'At most 120 characters'),
-  state: z.string().trim().max(120, 'At most 120 characters'),
-  state_code: z.string().trim().max(4, 'At most 4 characters'),
-  postal_code: z.string().trim().max(16, 'At most 16 characters'),
+  phone: z.string().trim().max(32, validation.maxLength(32)),
+  website: z.string().trim().max(255, validation.maxLength(255)),
+  address_line1: z.string().trim().max(255, validation.maxLength(255)),
+  address_line2: z.string().trim().max(255, validation.maxLength(255)),
+  city: z.string().trim().max(120, validation.maxLength(120)),
+  state: z.string().trim().max(120, validation.maxLength(120)),
+  state_code: z.string().trim().max(4, validation.maxLength(4)),
+  postal_code: z.string().trim().max(16, validation.maxLength(16)),
   country: z
     .string()
     .trim()
     .min(1, validation.required('Country'))
-    .max(80, 'At most 80 characters'),
+    .max(80, validation.maxLength(80)),
   currency: z.string().trim().length(3, 'Use the three-letter ISO code, for example INR'),
   financial_year_start_month: z.string(),
   timezone: z
     .string()
     .trim()
     .min(1, validation.required('Time zone'))
-    .max(64, 'At most 64 characters'),
+    .max(64, validation.maxLength(64)),
 })
 
 type CompanyValues = z.infer<typeof companySchema>
@@ -474,8 +474,8 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
 const withoutSpaces = (value: string): string => value.replace(/\s+/g, '').toUpperCase()
 
 const bankSchema = z.object({
-  bank_name: z.string().trim().max(120, 'At most 120 characters'),
-  bank_account_name: z.string().trim().max(255, 'At most 255 characters'),
+  bank_name: z.string().trim().max(120, validation.maxLength(120)),
+  bank_account_name: z.string().trim().max(255, validation.maxLength(255)),
   // Measured without its spaces, as the API measures it: a number keyed in the
   // groups it is printed in must not be refused for the gaps.
   bank_account_number: z
@@ -483,7 +483,7 @@ const bankSchema = z.object({
     .trim()
     .refine(
       (value): boolean => withoutSpaces(value).length <= 34,
-      'At most 34 characters, not counting spaces',
+      `${validation.maxLength(34)}, not counting spaces`,
     ),
   bank_ifsc: z
     .string()
@@ -492,8 +492,8 @@ const bankSchema = z.object({
       (value): boolean => value === '' || IFSC_PATTERN.test(withoutSpaces(value)),
       'Not a valid IFSC - four letters, a zero, then six letters or digits',
     ),
-  bank_branch: z.string().trim().max(120, 'At most 120 characters'),
-  invoice_terms: z.string().trim().max(4000, 'At most 4000 characters'),
+  bank_branch: z.string().trim().max(120, validation.maxLength(120)),
+  invoice_terms: z.string().trim().max(4000, validation.maxLength(4000)),
 })
 
 type BankValues = z.infer<typeof bankSchema>

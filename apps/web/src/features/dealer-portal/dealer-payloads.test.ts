@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { isIsoCalendarDate } from '@/lib/format'
+import { validation } from '@/lib/messages'
 import type { SchemaOf } from '@/types/api'
 
 import { dealerCheckoutPayload, dealerQuantity, dealerReturnPayload } from './dealer-payloads'
@@ -33,7 +34,8 @@ describe('dealer input contracts', () => {
   )
   it.each(['', '0', '-1', '1.12345', '1e3', 'Infinity', 'NaN', '100000000000000', ' 1 ', '0x10'])(
     'refuses unsafe quantity %s',
-    (value) => expect(() => dealerQuantity(value)).toThrow(/positive quantity/),
+    (value) =>
+      expect(() => dealerQuantity(value)).toThrow(validation.decimals('a quantity above zero', 4)),
   )
   it.each(['2026-02-29', '2026-13-01', '2026-02-31', '0000-01-01', 'tomorrow', '2026-1-01'])(
     'refuses invalid calendar date %s',

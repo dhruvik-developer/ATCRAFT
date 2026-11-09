@@ -1,4 +1,5 @@
 import { isIsoCalendarDate, toDecimal } from '@/lib/format'
+import { validation } from '@/lib/messages'
 import type { SchemaOf } from '@/types/api'
 
 function member<const T extends readonly string[]>(value: string, choices: T): T[number] {
@@ -74,7 +75,7 @@ export function offerPayload(
   const minQuantity = String(fields.get('min_quantity') ?? '').trim()
   const discount = String(fields.get('discount_percentage') ?? '').trim()
   if (!/^\d{1,14}(\.\d{1,4})?$/.test(minQuantity) || !toDecimal(minQuantity).greaterThan(0))
-    throw new Error('Enter a positive minimum quantity with up to 4 decimal places.')
+    throw new Error(validation.decimals('a minimum quantity above zero', 4))
   if (
     !/^\d{1,3}(\.\d{1,4})?$/.test(discount) ||
     !toDecimal(discount).greaterThan(0) ||

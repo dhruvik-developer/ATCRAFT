@@ -6,9 +6,11 @@ import {
   describeError,
   errorDescription,
   errors,
+  fulfilment,
   joinValidationMessages,
   notificationsRead,
   prompts,
+  validation,
 } from './messages'
 
 describe('validation sentence formatting', () => {
@@ -67,6 +69,26 @@ describe('notification read results', () => {
       title: 'All notifications read',
       description: '1 notification marked as read.',
     })
+  })
+})
+
+describe('the shared validation vocabulary', () => {
+  it('words a length bound the way 165 forms already did, with no full stop', () => {
+    expect(validation.maxLength(64)).toBe('At most 64 characters')
+  })
+
+  it('words a precision once, in decimal places rather than decimals', () => {
+    expect(validation.decimals('a quantity', 4)).toBe(
+      'Enter a quantity with up to 4 decimal places',
+    )
+    expect(validation.decimals('an amount of zero or more', 2)).toBe(
+      'Enter an amount of zero or more with up to 2 decimal places',
+    )
+  })
+
+  it('says a positive quantity the same way on the dispatch dialog as on every form', () => {
+    expect(fulfilment.quantityInvalid).toBe(validation.decimals('a quantity above zero', 4))
+    expect(validation.positive('Quantity')).toBe('Quantity must be greater than zero.')
   })
 })
 

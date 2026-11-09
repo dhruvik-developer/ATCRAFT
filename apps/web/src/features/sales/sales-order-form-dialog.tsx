@@ -69,10 +69,10 @@ const schema = z
     promised_date: z.string(),
     priority: z.string(),
     is_urgent: z.boolean(),
-    customer_po_number: z.string().trim().max(64, 'At most 64 characters'),
+    customer_po_number: z.string().trim().max(64, validation.maxLength(64)),
     billing_address_id: z.string(),
     shipping_address_id: z.string(),
-    notes: z.string().trim().max(4000, 'At most 4000 characters'),
+    notes: z.string().trim().max(4000, validation.maxLength(4000)),
   })
   // A required date before the order date is a data-entry slip that would flow
   // straight into MRP demand, so it is caught here rather than at confirm time.

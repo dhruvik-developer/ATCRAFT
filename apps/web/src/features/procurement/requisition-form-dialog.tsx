@@ -101,8 +101,8 @@ const schema = z
       .int(validation.integer('Priority'))
       .min(MIN_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`)
       .max(MAX_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`),
-    purpose: z.string().trim().max(255, 'At most 255 characters'),
-    notes: z.string().trim().max(4000, 'At most 4000 characters'),
+    purpose: z.string().trim().max(255, validation.maxLength(255)),
+    notes: z.string().trim().max(4000, validation.maxLength(4000)),
     lines: z
       .array(
         z.object({
@@ -110,12 +110,12 @@ const schema = z
           quantity: z
             .string()
             .trim()
-            .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+            .regex(QUANTITY, validation.decimals('a quantity', 4))
             .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
           estimated_unit_price: z
             .string()
             .trim()
-            .regex(OPTIONAL_PRICE, 'Enter a price with up to 6 decimal places, or leave it blank'),
+            .regex(OPTIONAL_PRICE, `${validation.decimals('a price', 6)}, or leave it blank`),
           // Recorded on the line but not edited here. They are held in the form
           // so that an amend - which replaces the whole line set - sends them
           // back rather than silently dropping them.

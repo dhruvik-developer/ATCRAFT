@@ -577,7 +577,7 @@ describe('recording a payment', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Record payment' }))
 
     expect(
-      await within(dialog).findByText('An amount with up to two decimal places'),
+      await within(dialog).findByText('Enter an amount with up to 2 decimal places'),
     ).toBeInTheDocument()
     expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
   })

@@ -39,7 +39,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { packingKeys, type PackingOrderDetail } from '@/features/packing/packing-types'
 import { staleTimes } from '@/lib/query-client'
@@ -50,12 +50,9 @@ const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
 
 const schema = z.object({
   customer_id: z.string(),
-  quantity: z
-    .string()
-    .trim()
-    .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+  quantity: z.string().trim().regex(OPTIONAL_QUANTITY, validation.decimals('a quantity', 4)),
   planned_date: z.string(),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  notes: z.string().trim().max(2000, validation.maxLength(2000)),
 })
 
 type FormValues = z.infer<typeof schema>

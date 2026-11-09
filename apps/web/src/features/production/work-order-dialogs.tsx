@@ -51,7 +51,7 @@ import {
   toDateTimeInput,
 } from '@/lib/format'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -76,7 +76,7 @@ const assignSchema = z
     shift_id: z.string(),
     planned_start_at: z.string(),
     planned_end_at: z.string(),
-    notes: z.string().trim().max(MAX_NOTES_LENGTH, `At most ${MAX_NOTES_LENGTH} characters`),
+    notes: z.string().trim().max(MAX_NOTES_LENGTH, validation.maxLength(MAX_NOTES_LENGTH)),
   })
   // The same rule `update_work_order` enforces, checked here so the planner is
   // told before the request rather than by a 422 after it. Both values are

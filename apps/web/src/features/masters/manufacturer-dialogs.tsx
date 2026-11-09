@@ -44,15 +44,15 @@ import { mastersKeys, type ManufacturerRow } from './masters-model'
 const DEFAULT_COUNTRY = 'India'
 
 const manufacturerSchema = z.object({
-  code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters.'),
-  name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters.'),
-  legal_name: z.string().trim().max(255, 'At most 255 characters.'),
+  code: z.string().trim().min(1, validation.required('Code')).max(32, validation.maxLength(32)),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, validation.maxLength(255)),
+  legal_name: z.string().trim().max(255, validation.maxLength(255)),
   country: z
     .string()
     .trim()
     .min(1, validation.required('Country'))
-    .max(80, 'At most 80 characters.'),
-  website: z.string().trim().max(255, 'At most 255 characters.'),
+    .max(80, validation.maxLength(80)),
+  website: z.string().trim().max(255, validation.maxLength(255)),
   notes: z.string(),
   is_active: z.boolean(),
 })

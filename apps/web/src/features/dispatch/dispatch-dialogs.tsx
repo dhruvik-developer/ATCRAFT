@@ -158,7 +158,7 @@ function LineEditor({
       )
     }
     if (!QUANTITY_INPUT.test(quantity.trim()) || !toDecimal(quantity).greaterThan(0)) {
-      return setProblem('Enter a quantity with up to 4 decimal places.')
+      return setProblem(validation.decimals('a quantity', 4))
     }
     if (item?.is_batch_tracked && !batchId) {
       return setProblem(`${item.code} is batch tracked - name the batch being shipped.`)
@@ -550,21 +550,21 @@ const createSchema = z
     expected_delivery_date: z.string(),
 
     transporter_id: z.string(),
-    courier_name: z.string().trim().max(120, 'At most 120 characters'),
-    transport_name: z.string().trim().max(120, 'At most 120 characters'),
-    tracking_id: z.string().trim().max(64, 'At most 64 characters'),
-    lr_number: z.string().trim().max(64, 'At most 64 characters'),
-    vehicle_number: z.string().trim().max(24, 'At most 24 characters'),
-    driver_name: z.string().trim().max(120, 'At most 120 characters'),
+    courier_name: z.string().trim().max(120, validation.maxLength(120)),
+    transport_name: z.string().trim().max(120, validation.maxLength(120)),
+    tracking_id: z.string().trim().max(64, validation.maxLength(64)),
+    lr_number: z.string().trim().max(64, validation.maxLength(64)),
+    vehicle_number: z.string().trim().max(24, validation.maxLength(24)),
+    driver_name: z.string().trim().max(120, validation.maxLength(120)),
     driver_mobile: z.string().trim().regex(MOBILE, 'Enter a reachable phone number'),
-    eway_bill_number: z.string().trim().max(64, 'At most 64 characters'),
+    eway_bill_number: z.string().trim().max(64, validation.maxLength(64)),
 
     total_boxes: z.string().trim().regex(BOXES, 'Whole number of boxes'),
-    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, 'Up to 3 decimal places'),
-    freight_amount: z.string().trim().regex(MONEY_INPUT, 'Up to 2 decimal places'),
+    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, validation.decimals('a weight', 3)),
+    freight_amount: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 2)),
     freight_paid_by: z.string(),
 
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })
   .superRefine((values, ctx) => {
     if (!values.customer_id) {
@@ -1216,8 +1216,8 @@ export function CreateDispatchDialog({
 const eventSchema = z.object({
   event_status: z.enum(['IN_TRANSIT', 'DELIVERED', 'QC_PENDING', 'RECEIVED']),
   event_time: z.string().min(1, 'When did this happen?'),
-  location: z.string().trim().max(160, 'At most 160 characters'),
-  remark: z.string().trim().max(500, 'At most 500 characters'),
+  location: z.string().trim().max(160, validation.maxLength(160)),
+  remark: z.string().trim().max(500, validation.maxLength(500)),
 })
 
 type EventFormValues = z.infer<typeof eventSchema>
@@ -1351,19 +1351,19 @@ const editDispatchSchema = z
     dispatch_date: z.string().min(1, validation.required('Dispatch date')),
     expected_delivery_date: z.string(),
     transporter_id: z.string(),
-    courier_name: z.string().trim().max(120, 'At most 120 characters'),
-    transport_name: z.string().trim().max(160, 'At most 160 characters'),
-    tracking_id: z.string().trim().max(120, 'At most 120 characters'),
-    lr_number: z.string().trim().max(64, 'At most 64 characters'),
-    vehicle_number: z.string().trim().max(32, 'At most 32 characters'),
-    driver_name: z.string().trim().max(120, 'At most 120 characters'),
-    driver_mobile: z.string().trim().max(20, 'At most 20 characters'),
-    eway_bill_number: z.string().trim().max(64, 'At most 64 characters'),
+    courier_name: z.string().trim().max(120, validation.maxLength(120)),
+    transport_name: z.string().trim().max(160, validation.maxLength(160)),
+    tracking_id: z.string().trim().max(120, validation.maxLength(120)),
+    lr_number: z.string().trim().max(64, validation.maxLength(64)),
+    vehicle_number: z.string().trim().max(32, validation.maxLength(32)),
+    driver_name: z.string().trim().max(120, validation.maxLength(120)),
+    driver_mobile: z.string().trim().max(20, validation.maxLength(20)),
+    eway_bill_number: z.string().trim().max(64, validation.maxLength(64)),
     total_boxes: z.string().trim().regex(BOXES, 'Whole number of boxes'),
-    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, 'Up to 3 decimal places'),
-    freight_amount: z.string().trim().regex(MONEY_INPUT, 'Up to 2 decimal places'),
+    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, validation.decimals('a weight', 3)),
+    freight_amount: z.string().trim().regex(MONEY_INPUT, validation.decimals('an amount', 2)),
     freight_paid_by: z.string(),
-    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+    notes: z.string().trim().max(2000, validation.maxLength(2000)),
   })
   .superRefine((values, ctx) => {
     if (

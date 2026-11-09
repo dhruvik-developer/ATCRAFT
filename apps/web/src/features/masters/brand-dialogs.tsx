@@ -58,8 +58,8 @@ import { mastersKeys, type BrandRow } from './masters-model'
 const MAX_POSITION = 9999
 
 const brandSchema = z.object({
-  code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters.'),
-  name: z.string().trim().min(1, validation.required('Name')).max(120, 'At most 120 characters.'),
+  code: z.string().trim().min(1, validation.required('Code')).max(32, validation.maxLength(32)),
+  name: z.string().trim().min(1, validation.required('Name')).max(120, validation.maxLength(120)),
   manufacturer_id: z.string(),
   // Annotated `boolean`: since TypeScript 5.5 a bare predicate of this shape is
   // inferred as a type guard, which would narrow the field.

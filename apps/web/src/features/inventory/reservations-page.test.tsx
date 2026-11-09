@@ -442,7 +442,7 @@ describe('the server answering back', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Reserve stock' }))
 
     expect(
-      await screen.findByText(/greater than zero and to 4 decimal places/i),
+      await screen.findByText(/Enter a quantity above zero with up to 4 decimal places/),
     ).toBeInTheDocument()
     expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
   })
