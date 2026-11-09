@@ -39,6 +39,7 @@ import { api } from '@/lib/api-client'
 import { NOTIFICATION_POLL_MS, STORAGE_KEYS } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
+import { readStorage, writeStorage } from '@/lib/storage'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { cn, initials } from '@/lib/utils'
 import type { SchemaOf } from '@/types/api'
@@ -51,9 +52,9 @@ export function AppLayout() {
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem(SIDEBAR_KEY) === 'collapsed',
-  )
+  // Through lib/storage: read here during render, a blocked store used to
+  // throw and take every signed-in screen down with it.
+  const [collapsed, setCollapsed] = useState(() => readStorage(SIDEBAR_KEY) === 'collapsed')
 
   // Close the mobile drawer on navigation, otherwise it covers the page the
   // user just asked for.
@@ -71,7 +72,7 @@ export function AppLayout() {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded')
+    writeStorage(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded')
   }, [collapsed])
 
   /**

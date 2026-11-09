@@ -15,6 +15,7 @@
 
 import { API_BASE_URL, CSRF_COOKIE_NAME, MAX_PAGE_SIZE, STORAGE_KEYS } from '@/lib/constants'
 import { errors } from '@/lib/messages'
+import { readStorage, removeStorage, writeStorage } from '@/lib/storage'
 import type {
   AcceptedJob,
   ApiEnvelope,
@@ -126,22 +127,15 @@ function invalidateAuthGeneration(): void {
 let sessionSuppressionOverride: boolean | undefined
 
 function writeSessionSuppression(suppressed: boolean): void {
-  try {
-    if (suppressed) localStorage.setItem(SESSION_SUPPRESS_KEY, '1')
-    else localStorage.removeItem(SESSION_SUPPRESS_KEY)
-    sessionSuppressionOverride = undefined
-  } catch {
-    sessionSuppressionOverride = suppressed
-  }
+  const stored = suppressed
+    ? writeStorage(SESSION_SUPPRESS_KEY, '1')
+    : removeStorage(SESSION_SUPPRESS_KEY)
+  sessionSuppressionOverride = stored ? undefined : suppressed
 }
 
 function sessionRestoreSuppressed(): boolean {
   if (sessionSuppressionOverride !== undefined) return sessionSuppressionOverride
-  try {
-    return localStorage.getItem(SESSION_SUPPRESS_KEY) === '1'
-  } catch {
-    return false
-  }
+  return readStorage(SESSION_SUPPRESS_KEY) === '1'
 }
 
 function cookieValue(name: string): string | null {

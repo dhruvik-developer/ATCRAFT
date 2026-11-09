@@ -24,6 +24,7 @@
  */
 
 import { STORAGE_KEYS } from '@/lib/constants'
+import { readStorage, removeStorage, writeStorage } from '@/lib/storage'
 
 /** What the user asked for. `system` defers to the OS, and keeps deferring. */
 export type ThemePreference = 'light' | 'dark' | 'system'
@@ -64,17 +65,13 @@ export function systemTheme(): ResolvedTheme {
  * The stored preference, or the default.
  *
  * Reading `localStorage` throws outright in a private window with site data
- * blocked, so this is guarded; an unreadable store is the same as an unset one.
- * A value written by an older build - or by hand - that is not one of the three
- * is discarded rather than trusted.
+ * blocked; `readStorage` answers that like an unset key. A value written by an
+ * older build - or by hand - that is not one of the three is discarded rather
+ * than trusted.
  */
 export function readThemePreference(): ThemePreference {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.theme)
-    return isThemePreference(stored) ? (stored as ThemePreference) : DEFAULT_THEME_PREFERENCE
-  } catch {
-    return DEFAULT_THEME_PREFERENCE
-  }
+  const stored = readStorage(STORAGE_KEYS.theme)
+  return isThemePreference(stored) ? (stored as ThemePreference) : DEFAULT_THEME_PREFERENCE
 }
 
 /**
@@ -84,12 +81,8 @@ export function readThemePreference(): ThemePreference {
  * preference must still apply it for this session, not fail the interaction.
  */
 export function writeThemePreference(preference: ThemePreference): void {
-  try {
-    if (preference === 'system') localStorage.removeItem(STORAGE_KEYS.theme)
-    else localStorage.setItem(STORAGE_KEYS.theme, preference)
-  } catch {
-    // Storage unavailable. The theme still applies for this session.
-  }
+  if (preference === 'system') removeStorage(STORAGE_KEYS.theme)
+  else writeStorage(STORAGE_KEYS.theme, preference)
 }
 
 /** What `preference` means right now. */

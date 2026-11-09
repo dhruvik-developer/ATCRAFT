@@ -35,6 +35,8 @@ export const STORAGE_KEYS = {
   sidebar: 'atcraft.sidebar',
   /** Set after sign-out so a failed logout request cannot silently restore the session. */
   sessionSuppressed: 'atcraft.session_suppressed',
+  /** Session storage: when a stale-chunk reload last ran, so a broken deploy cannot loop. */
+  chunkReloadedAt: 'atcraft.chunk-reloaded-at',
 } as const
 
 // --------------------------------------------------------------- lists -----

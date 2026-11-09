@@ -10,6 +10,8 @@ import { Toaster } from '@/components/ui/toaster'
 import { ThemeProvider } from '@/app/theme-context'
 import { AuthProvider } from '@/features/auth/auth-context'
 import { queryClient } from '@/lib/query-client'
+import { STORAGE_KEYS } from '@/lib/constants'
+import { readStorage, writeStorage } from '@/lib/storage'
 import { applyStoredTheme } from '@/lib/theme'
 import '@/styles/globals.css'
 
@@ -47,29 +49,23 @@ applyStoredTheme()
  * recovers by itself. Clearing the flag on a successful boot would not work:
  * the entry loads fine in both cases, and it is a lazy route chunk that 404s.
  */
-const RELOADED_AT_KEY = 'atcraft.chunk-reloaded-at'
+const RELOADED_AT_KEY = STORAGE_KEYS.chunkReloadedAt
 const RELOAD_LOOP_WINDOW_MS = 10_000
 
 window.addEventListener('vite:preloadError', (event) => {
   const now = Date.now()
-  let last = 0
-  try {
-    last = Number(sessionStorage.getItem(RELOADED_AT_KEY)) || 0
-  } catch {
-    // No session storage (private window, blocked site data). Fall through and
-    // reload: a stale bundle is by far the likelier cause of a preload failure.
-  }
+  // With no session storage (private window, blocked site data) this reads as
+  // never reloaded, and the reload goes ahead: a stale bundle is by far the
+  // likelier cause of a preload failure.
+  const last = Number(readStorage(RELOADED_AT_KEY, 'session')) || 0
 
   // Reloaded for this a moment ago and it failed again - the chunk is really
   // gone. Let it through to the error boundary rather than spinning.
   if (now - last < RELOAD_LOOP_WINDOW_MS) return
 
-  try {
-    sessionStorage.setItem(RELOADED_AT_KEY, String(now))
-  } catch {
-    // Without storage the loop guard cannot arm; the reload below is still the
-    // right move for the common case.
-  }
+  // Without storage the loop guard cannot arm; the reload below is still the
+  // right move for the common case.
+  writeStorage(RELOADED_AT_KEY, String(now), 'session')
   event.preventDefault()
   window.location.reload()
 })

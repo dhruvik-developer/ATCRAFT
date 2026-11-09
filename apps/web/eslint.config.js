@@ -53,6 +53,25 @@ const localeFormatting = ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeS
   }),
 )
 
+/*
+ * Browser storage throws wherever site data is blocked, and AppLayout reading it
+ * bare during render took every signed-in screen down on such a machine.
+ * lib/storage.ts is the guarded way in; tests set up storage directly.
+ */
+const storageMessage = (name) =>
+  `${name} throws wherever site data is blocked. Use readStorage / writeStorage / removeStorage from lib/storage.ts.`
+const browserStorageGlobals = ['localStorage', 'sessionStorage'].map((name) => ({
+  name,
+  message: storageMessage(name),
+}))
+const browserStorageProperties = ['window', 'globalThis'].flatMap((object) =>
+  ['localStorage', 'sessionStorage'].map((property) => ({
+    object,
+    property,
+    message: storageMessage(property),
+  })),
+)
+
 export default tseslint.config(
   { ignores: ['dist', 'node_modules', 'coverage'] },
   {
@@ -103,7 +122,8 @@ export default tseslint.config(
         utcDateSlice,
         decimalThroughNumber,
       ],
-      'no-restricted-properties': ['error', ...localeFormatting],
+      'no-restricted-properties': ['error', ...localeFormatting, ...browserStorageProperties],
+      'no-restricted-globals': ['error', ...browserStorageGlobals],
     },
   },
   {
@@ -113,7 +133,15 @@ export default tseslint.config(
     files: ['src/lib/format.ts'],
     rules: {
       'no-restricted-syntax': ['error', destructiveButtonClassName],
-      'no-restricted-properties': 'off',
+      'no-restricted-properties': ['error', ...browserStorageProperties],
+    },
+  },
+  {
+    // The guarded way into browser storage, and the tests that arrange it.
+    files: ['src/lib/storage.ts', 'src/test/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-properties': ['error', ...localeFormatting],
+      'no-restricted-globals': 'off',
     },
   },
 )

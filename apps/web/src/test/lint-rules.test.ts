@@ -175,4 +175,23 @@ describe('the lint rules that replace review comments', () => {
     ])
     expect(await rulesFiredBy(code, 'src/lib/format.ts')).toEqual([])
   })
+
+  it('refuses bare browser storage outside lib/storage.ts and the tests', async () => {
+    const code = [
+      'export function remember(collapsed: boolean): boolean {',
+      "  localStorage.setItem('atcraft.sidebar', String(collapsed))",
+      "  window.sessionStorage.removeItem('atcraft.chunk-reloaded-at')",
+      "  return sessionStorage.getItem('atcraft.theme') === 'dark'",
+      '}',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code)).toEqual([
+      'no-restricted-globals',
+      'no-restricted-properties',
+      'no-restricted-globals',
+    ])
+    expect(await rulesFiredBy(code, 'src/lib/storage.ts')).toEqual([])
+    expect(await rulesFiredBy(code, 'src/app/app-layout.test.tsx')).toEqual([])
+  })
 })

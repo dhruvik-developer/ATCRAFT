@@ -248,6 +248,31 @@ describe('the account menu', () => {
   })
 })
 
+describe('a browser with site storage blocked', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('still renders the shell, and the sidebar still collapses', async () => {
+    // Every Storage call throws there. The sidebar preference used to be read
+    // straight off localStorage during render, so the throw reached the root
+    // error boundary and every signed-in screen showed the crash fallback.
+    const denied = () => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    }
+    // Before the first render, which is when the preference is read.
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(denied)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(denied)
+    const { user } = renderLayout([P.ITEM_VIEW])
+
+    const nav = await sidebar()
+    expect(await within(nav).findByRole('link', { name: 'Items' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Collapse navigation' }))
+    expect(await screen.findByRole('button', { name: 'Expand navigation' })).toBeVisible()
+  })
+})
+
 describe('the mobile navigation drawer', () => {
   afterEach(() => {
     localStorage.removeItem(STORAGE_KEYS.sidebar)
