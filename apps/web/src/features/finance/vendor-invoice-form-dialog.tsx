@@ -54,17 +54,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  Check,
-  ChevronsUpDown,
-  ClipboardCopy,
-  Link2Off,
-  Loader2,
-  Plus,
-  Search,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { ClipboardCopy, Link2Off, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -79,9 +69,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -98,6 +85,7 @@ import {
   Label,
   Textarea,
 } from '@/components/ui/primitives'
+import { SearchPicker } from '@/components/ui/search-picker'
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
@@ -110,16 +98,15 @@ import type {
   PurchaseOrderRow,
 } from '@/features/procurement/procurement-types'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { cn, indexById } from '@/lib/utils'
+import { indexById } from '@/lib/utils'
 
 import {
   MAX_HSN_CODE_LENGTH,
@@ -434,141 +421,55 @@ function PurchaseOrderPicker({
   selectedLabel: string | null
   onChange: (order: PurchaseOrderRow | null) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [term, setTerm] = useState('')
-
-  // One request per keystroke would put a scan of the order book behind every
-  // character typed.
-  const debouncedTerm = useDebouncedValue(term)
-
-  const params = {
-    limit: PICKER_PAGE_SIZE,
-    with_total: false,
-    vendor_id: vendorId,
-    sort_by: 'po_date',
-    sort_dir: 'desc',
-    ...(debouncedTerm ? { search: debouncedTerm } : {}),
-  }
-
-  const results = useQuery({
-    queryKey: queryKeys.procurement.purchaseOrders(params),
-    queryFn: ({ signal }) =>
-      api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params, signal }),
-    enabled: open && Boolean(vendorId),
-    staleTime: staleTimes.transactional,
-  })
-
-  const rows = results.data?.data ?? []
-
   return (
-    <div className="flex items-center gap-1">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            id="invoice-purchase-order"
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            aria-label="Purchase order"
-            disabled={!vendorId}
-            className={cn(
-              'h-9 w-full justify-between font-normal',
-              !value && 'text-muted-foreground',
-            )}
-          >
-            <span className="truncate">
-              {value ? (selectedLabel ?? 'Purchase order') : 'No purchase order'}
-            </span>
-            <ChevronsUpDown className="opacity-50" aria-hidden />
-          </Button>
-        </PopoverTrigger>
-
-        <PopoverContent
-          align="start"
-          collisionPadding={16}
-          className="w-[min(26rem,calc(100vw-2rem))] p-0"
-        >
-          <div className="relative border-b p-2">
-            <Search
-              className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              autoFocus
-              value={term}
-              onChange={(event) => setTerm(event.target.value)}
-              placeholder="Search by order code"
-              aria-label="Search this vendor's purchase orders"
-              className="pl-8"
-            />
-          </div>
-
-          <div className="max-h-72 overflow-y-auto p-1" role="listbox" aria-label="Purchase orders">
-            {results.isLoading && (
-              <p className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Searching...
-              </p>
-            )}
-
-            {!results.isLoading && results.error && (
-              <FieldError
-                className="mt-0 px-2 py-6 text-sm"
-                message={describeError(results.error)}
-              />
-            )}
-
-            {!results.isLoading && !results.error && rows.length === 0 && (
-              <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                No purchase order for this vendor matches.
-              </p>
-            )}
-
-            {rows.map((order) => (
-              <button
-                key={order.id}
-                type="button"
-                role="option"
-                aria-selected={order.id === value}
-                onClick={() => {
-                  onChange(order)
-                  setOpen(false)
-                }}
-                className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              >
-                <Check
-                  className={cn('mt-0.5 h-4 w-4 shrink-0', order.id !== value && 'invisible')}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate font-medium">{order.code}</span>
-                    <StatusBadge status={order.status} />
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {formatDate(order.po_date)} -{' '}
-                    {formatMoney(order.total_amount, { currency: usableCurrency(order.currency) })}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {value && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Clear the purchase order"
-          onClick={() => onChange(null)}
-        >
-          <X />
-        </Button>
+    <SearchPicker<PurchaseOrderRow>
+      id="invoice-purchase-order"
+      label="Purchase order"
+      labelDisplay="external"
+      listLabel="Purchase orders"
+      width="wide"
+      display={value ? (selectedLabel ?? 'Purchase order') : null}
+      placeholder="No purchase order"
+      disabled={!vendorId}
+      searchLabel="Search this vendor's purchase orders"
+      searchPlaceholder="Search by order code"
+      query={(term) => {
+        const params = {
+          limit: PICKER_PAGE_SIZE,
+          with_total: false,
+          vendor_id: vendorId,
+          sort_by: 'po_date',
+          sort_dir: 'desc',
+          ...(term ? { search: term } : {}),
+        }
+        return {
+          queryKey: queryKeys.procurement.purchaseOrders(params),
+          queryFn: ({ signal }) =>
+            api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params, signal }),
+          staleTime: staleTimes.transactional,
+          enabled: Boolean(vendorId),
+        }
+      }}
+      getKey={(order) => order.id}
+      selectedKey={value || null}
+      onSelect={onChange}
+      renderOption={(order) => (
+        <>
+          <span className="flex items-center gap-2">
+            <span className="truncate font-medium">{order.code}</span>
+            <StatusBadge status={order.status} />
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {formatDate(order.po_date)} -{' '}
+            {formatMoney(order.total_amount, { currency: usableCurrency(order.currency) })}
+          </span>
+        </>
       )}
-    </div>
+      emptyText="No purchase order for this vendor matches."
+      clear={
+        value ? { label: 'Clear the purchase order', onClear: () => onChange(null) } : undefined
+      }
+    />
   )
 }
 
@@ -594,145 +495,57 @@ function GoodsReceiptPicker({
   selectedLabel: string | null
   onChange: (receipt: GoodsReceiptRow | null) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [term, setTerm] = useState('')
-
-  const debouncedTerm = useDebouncedValue(term)
-
-  const params = {
-    limit: PICKER_PAGE_SIZE,
-    with_total: false,
-    status: 'POSTED',
-    vendor_id: vendorId,
-    // Narrowed to the chosen order when there is one, because the API refuses a
-    // receipt booked against a different order than the invoice names.
-    ...(purchaseOrderId ? { purchase_order_id: purchaseOrderId } : {}),
-    sort_by: 'receipt_date',
-    sort_dir: 'desc',
-    ...(debouncedTerm ? { search: debouncedTerm } : {}),
-  }
-
-  const results = useQuery({
-    queryKey: queryKeys.procurement.grns(params),
-    queryFn: ({ signal }) =>
-      api.getPage<GoodsReceiptRow>('/procurement/goods-receipts', { params, signal }),
-    enabled: open && Boolean(vendorId),
-    staleTime: staleTimes.transactional,
-  })
-
-  const rows = results.data?.data ?? []
-
   return (
-    <div className="flex items-center gap-1">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            id="invoice-goods-receipt"
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            aria-label="Goods receipt"
-            disabled={!vendorId}
-            className={cn(
-              'h-9 w-full justify-between font-normal',
-              !value && 'text-muted-foreground',
-            )}
-          >
-            <span className="truncate">
-              {value ? (selectedLabel ?? 'Goods receipt') : 'No goods receipt'}
-            </span>
-            <ChevronsUpDown className="opacity-50" aria-hidden />
-          </Button>
-        </PopoverTrigger>
-
-        <PopoverContent
-          align="start"
-          collisionPadding={16}
-          className="w-[min(26rem,calc(100vw-2rem))] p-0"
-        >
-          <div className="relative border-b p-2">
-            <Search
-              className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              autoFocus
-              value={term}
-              onChange={(event) => setTerm(event.target.value)}
-              placeholder="Search by receipt code or delivery note"
-              aria-label="Search posted goods receipts for this vendor"
-              className="pl-8"
-            />
-          </div>
-
-          <div
-            className="max-h-72 overflow-y-auto p-1"
-            role="listbox"
-            aria-label="Posted goods receipts"
-          >
-            {results.isLoading && (
-              <p className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Searching...
-              </p>
-            )}
-
-            {!results.isLoading && results.error && (
-              <FieldError
-                className="mt-0 px-2 py-6 text-sm"
-                message={describeError(results.error)}
-              />
-            )}
-
-            {!results.isLoading && !results.error && rows.length === 0 && (
-              <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                No posted receipt matches. Only material that was actually taken into stock can be
-                billed against a receipt.
-              </p>
-            )}
-
-            {rows.map((receipt) => (
-              <button
-                key={receipt.id}
-                type="button"
-                role="option"
-                aria-selected={receipt.id === value}
-                onClick={() => {
-                  onChange(receipt)
-                  setOpen(false)
-                }}
-                className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              >
-                <Check
-                  className={cn('mt-0.5 h-4 w-4 shrink-0', receipt.id !== value && 'invisible')}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{receipt.code}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    Received {formatDate(receipt.receipt_date)},{' '}
-                    {formatQuantity(receipt.total_accepted_quantity)} accepted
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {value && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Clear the goods receipt"
-          onClick={() => onChange(null)}
-        >
-          <X />
-        </Button>
+    <SearchPicker<GoodsReceiptRow>
+      id="invoice-goods-receipt"
+      label="Goods receipt"
+      labelDisplay="external"
+      listLabel="Posted goods receipts"
+      width="wide"
+      display={value ? (selectedLabel ?? 'Goods receipt') : null}
+      placeholder="No goods receipt"
+      disabled={!vendorId}
+      searchLabel="Search posted goods receipts for this vendor"
+      searchPlaceholder="Search by receipt code or delivery note"
+      query={(term) => {
+        const params = {
+          limit: PICKER_PAGE_SIZE,
+          with_total: false,
+          status: 'POSTED',
+          vendor_id: vendorId,
+          // Narrowed to the chosen order when there is one, because the API
+          // refuses a receipt booked against a different order than the
+          // invoice names.
+          ...(purchaseOrderId ? { purchase_order_id: purchaseOrderId } : {}),
+          sort_by: 'receipt_date',
+          sort_dir: 'desc',
+          ...(term ? { search: term } : {}),
+        }
+        return {
+          queryKey: queryKeys.procurement.grns(params),
+          queryFn: ({ signal }) =>
+            api.getPage<GoodsReceiptRow>('/procurement/goods-receipts', { params, signal }),
+          staleTime: staleTimes.transactional,
+          enabled: Boolean(vendorId),
+        }
+      }}
+      getKey={(receipt) => receipt.id}
+      selectedKey={value || null}
+      onSelect={onChange}
+      renderOption={(receipt) => (
+        <>
+          <span className="block truncate font-medium">{receipt.code}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            Received {formatDate(receipt.receipt_date)},{' '}
+            {formatQuantity(receipt.total_accepted_quantity)} accepted
+          </span>
+        </>
       )}
-    </div>
+      emptyText="No posted receipt matches. Only material that was actually taken into stock can be billed against a receipt."
+      clear={
+        value ? { label: 'Clear the goods receipt', onClear: () => onChange(null) } : undefined
+      }
+    />
   )
 }
 

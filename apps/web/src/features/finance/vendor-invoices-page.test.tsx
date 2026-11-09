@@ -665,6 +665,80 @@ describe('recording a multi-line bill', () => {
   })
 })
 
+// ------------------------------------------------- the documents it names ----
+
+describe('linking a bill to the order and receipt it covers', () => {
+  const ORDER = {
+    id: 'po000000-0000-7000-8000-000000000001',
+    code: 'PO/2026-27/00012',
+    vendor_id: VENDOR.id,
+    status: 'CLOSED',
+    po_date: '2026-08-20',
+    total_amount: '1359.00',
+    currency: 'INR',
+  }
+  const RECEIPT = {
+    id: 'gr000000-0000-7000-8000-000000000001',
+    code: 'GRN/2026-27/00044',
+    vendor_id: VENDOR.id,
+    purchase_order_id: ORDER.id,
+    status: 'POSTED',
+    receipt_date: '2026-08-28',
+    total_accepted_quantity: '12.0000',
+  }
+
+  it("searches only the vendor's orders, then only that order's posted receipts", async () => {
+    const orderSearches: URLSearchParams[] = []
+    const receiptSearches: URLSearchParams[] = []
+    const { user } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [
+        P.VENDOR_INVOICE_VIEW,
+        P.VENDOR_INVOICE_CREATE,
+        P.VENDOR_VIEW,
+        P.PURCHASE_ORDER_VIEW,
+        P.GRN_VIEW,
+      ],
+      routes: {
+        'GET /finance/vendor-invoices': page([summary()]),
+        'GET /vendors': page([VENDOR]),
+        'GET /procurement/purchase-orders': ({ url }) => {
+          orderSearches.push(url.searchParams)
+          return page([ORDER])
+        },
+        [`GET /procurement/purchase-orders/${ORDER.id}`]: ok({ ...ORDER, lines: [] }),
+        'GET /procurement/goods-receipts': ({ url }) => {
+          receiptSearches.push(url.searchParams)
+          return page([RECEIPT])
+        },
+        [`GET /procurement/goods-receipts/${RECEIPT.id}`]: ok({ ...RECEIPT, lines: [] }),
+      },
+    })
+
+    await screen.findByText('VINV/2026-27/00031')
+    await user.click(screen.getByRole('button', { name: /record invoice/i }))
+    const dialog = await screen.findByRole('dialog')
+    const order = () => within(dialog).getByRole('combobox', { name: 'Purchase order' })
+    const receipt = () => within(dialog).getByRole('combobox', { name: 'Goods receipt' })
+    expect(order(), 'with no vendor there is nothing to search').toBeDisabled()
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
+    await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
+
+    await user.click(order())
+    await user.click(await screen.findByRole('option', { name: /PO\/2026-27\/00012/ }))
+    expect(orderSearches.at(-1)?.get('vendor_id')).toBe(VENDOR.id)
+    await waitFor(() => expect(order()).toHaveTextContent('PO/2026-27/00012'))
+
+    await user.click(receipt())
+    await user.click(await screen.findByRole('option', { name: /GRN\/2026-27\/00044/ }))
+    const searched = receiptSearches.at(-1)
+    expect(searched?.get('status')).toBe('POSTED')
+    expect(searched?.get('vendor_id')).toBe(VENDOR.id)
+    expect(searched?.get('purchase_order_id'), 'narrowed to the chosen order').toBe(ORDER.id)
+    await waitFor(() => expect(receipt()).toHaveTextContent('GRN/2026-27/00044'))
+  })
+})
+
 // ------------------------------------------------------------- amendment -----
 
 describe('amending a bill', () => {
