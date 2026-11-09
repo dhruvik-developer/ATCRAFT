@@ -52,6 +52,16 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
@@ -377,111 +387,86 @@ export function QuotationDetailDialog({
                 </Alert>
               )}
 
-              <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full min-w-[44rem] text-sm">
+              <TableScroller label="Quotation lines" className="rounded-lg border">
+                <Table className="min-w-[44rem]">
                   <caption className="sr-only">Quotation lines</caption>
-                  <thead className="whitespace-nowrap bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        #
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        Item
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Quantity
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Unit price
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Discount
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Tax
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Line total
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Lead time
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Item</TableHead>
+                      <TableHead align="right">Quantity</TableHead>
+                      <TableHead align="right">Unit price</TableHead>
+                      <TableHead align="right">Discount</TableHead>
+                      <TableHead align="right">Tax</TableHead>
+                      <TableHead align="right">Line total</TableHead>
+                      <TableHead align="right">Lead time</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {lines.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                      <TableRow>
+                        <TableCell align="center" colSpan={8} className="text-muted-foreground">
                           This quotation has no lines. Record the revised offer to add them.
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     )}
                     {lines.map((line) => (
-                      <tr key={line.id}>
-                        <td className="px-3 py-2 tabular text-muted-foreground">
-                          {line.line_number}
-                        </td>
-                        <td className="max-w-[18rem] px-3 py-2">
+                      <TableRow key={line.id}>
+                        <TableCell className="text-muted-foreground">{line.line_number}</TableCell>
+                        <TableCell className="max-w-[18rem]">
                           <span className="block truncate">{line.description ?? '-'}</span>
                           {line.notes && (
                             <span className="block truncate text-xs text-muted-foreground">
                               {line.notes}
                             </span>
                           )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
-                          {formatQuantity(line.quantity)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
+                        </TableCell>
+                        <TableCell align="right">{formatQuantity(line.quantity)}</TableCell>
+                        <TableCell align="right">
                           {formatMoney(line.unit_price, { currency })}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
+                        </TableCell>
+                        <TableCell align="right">
                           {toDecimal(line.discount_percentage).isZero()
                             ? '-'
                             : formatPercent(line.discount_percentage, 2)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
-                          {formatPercent(line.tax_rate, 2)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular font-medium">
+                        </TableCell>
+                        <TableCell align="right">{formatPercent(line.tax_rate, 2)}</TableCell>
+                        <TableCell align="right" className="font-medium">
                           {formatMoney(line.line_total, { currency })}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular text-muted-foreground">
+                        </TableCell>
+                        <TableCell align="right" className="text-muted-foreground">
                           {/* Nullable: the header's lead time applies when a
                               line does not promise its own. */}
                           {line.lead_time_days === null
                             ? `${formatNumber(data.lead_time_days)} d`
                             : `${formatNumber(line.lead_time_days)} d`}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                  <tfoot className="border-t bg-muted/30">
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right text-muted-foreground">
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow>
+                      <TableCell align="right" colSpan={6} className="text-muted-foreground">
                         Subtotal / discount / tax / freight
-                      </td>
-                      <td colSpan={2} className="px-3 py-2 text-right tabular">
+                      </TableCell>
+                      <TableCell align="right" colSpan={2}>
                         {formatMoney(data.subtotal, { currency })} /{' '}
                         {formatMoney(data.discount, { currency })} /{' '}
                         {formatMoney(data.tax_amount, { currency })} /{' '}
                         {formatMoney(data.freight_amount, { currency })}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-medium">
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell align="right" colSpan={6} className="font-medium">
                         Total
-                      </td>
-                      <td
-                        colSpan={2}
-                        className="px-3 py-2 text-right tabular text-base font-semibold"
-                      >
+                      </TableCell>
+                      <TableCell align="right" colSpan={2} className="text-base font-semibold">
                         {formatMoney(data.total_amount, { currency })}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                      </TableCell>
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </TableScroller>
 
               {(data.terms || data.notes) && (
                 <DescriptionList

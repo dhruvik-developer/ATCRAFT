@@ -24,6 +24,15 @@ import {
   TabsTrigger,
 } from '@/components/ui/overlays'
 import { Card, CardContent, Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
@@ -877,21 +886,21 @@ function FollowUpDialog({
               <CardContent className="pt-5">
                 <h3 className="mb-3 text-sm font-semibold">Overdue invoices</h3>
                 {current.invoices?.length ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[42rem] text-sm">
-                      <thead className="text-left text-xs text-muted-foreground">
-                        <tr>
-                          <th className="pb-2">Invoice</th>
-                          <th className="pb-2">Due date</th>
-                          <th className="pb-2 text-right">Days overdue</th>
-                          <th className="pb-2 text-right">Balance</th>
-                          <th className="pb-2">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                  <TableScroller label="Overdue invoices">
+                    <Table className="min-w-[42rem]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Invoice</TableHead>
+                          <TableHead>Due date</TableHead>
+                          <TableHead align="right">Days overdue</TableHead>
+                          <TableHead align="right">Balance</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {current.invoices.map((invoice) => (
-                          <tr key={invoice.id} className="border-t">
-                            <td className="py-2">
+                          <TableRow key={invoice.id}>
+                            <TableCell>
                               <Link
                                 className="font-medium hover:underline"
                                 to={`/finance/sales-invoices?invoice_id=${invoice.id}`}
@@ -899,22 +908,22 @@ function FollowUpDialog({
                               >
                                 {invoice.code}
                               </Link>
-                            </td>
-                            <td>{formatDate(invoice.due_date)}</td>
-                            <td className="text-right tabular-nums">
+                            </TableCell>
+                            <TableCell>{formatDate(invoice.due_date)}</TableCell>
+                            <TableCell align="right">
                               {formatNumber(invoice.overdue_days)}
-                            </td>
-                            <td className="text-right tabular-nums">
+                            </TableCell>
+                            <TableCell align="right">
                               {formatMoney(invoice.balance_amount, { currency: invoice.currency })}
-                            </td>
-                            <td>
+                            </TableCell>
+                            <TableCell>
                               <StatusBadge status={invoice.status} />
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </TableBody>
+                    </Table>
+                  </TableScroller>
                 ) : (
                   <p className="text-sm text-muted-foreground">No overdue invoices remain.</p>
                 )}

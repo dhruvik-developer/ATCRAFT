@@ -52,6 +52,15 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
@@ -154,46 +163,31 @@ function AuditDetail({ row }: { row: AuditLogRow }) {
             This action recorded no field-level change - it is an event rather than an edit.
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
+          <TableScroller label="Fields changed by this action" className="rounded-lg border">
+            <Table>
               <caption className="sr-only">Fields changed by this action</caption>
-              <thead className="bg-muted/50">
-                <tr className="border-b">
-                  <th
-                    scope="col"
-                    className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    Field
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    Before
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    After
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Field</TableHead>
+                  <TableHead>Before</TableHead>
+                  <TableHead>After</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {changes.map((change) => (
-                  <tr key={change.field} className="border-b last:border-0 align-top">
-                    <td className="px-3 py-2 font-medium">{humanise(change.field)}</td>
-                    <td className="px-3 py-2 text-muted-foreground line-through decoration-destructive/50">
+                  <TableRow key={change.field} className="[&>td]:align-top">
+                    <TableCell className="font-medium">{humanise(change.field)}</TableCell>
+                    <TableCell className="text-muted-foreground line-through decoration-destructive/50">
                       {formatAuditValue(change.before)}
-                    </td>
-                    <td className="px-3 py-2 font-medium text-success">
+                    </TableCell>
+                    <TableCell className="font-medium text-success">
                       {formatAuditValue(change.after)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableScroller>
         )}
 
         {full?.context && Object.keys(full.context).length > 0 && (

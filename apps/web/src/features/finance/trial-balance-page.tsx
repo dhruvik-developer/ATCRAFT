@@ -37,6 +37,16 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
@@ -71,58 +81,46 @@ function GroupTable({ group }: { group: TrialBalanceGroup }) {
         </span>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <th scope="col" className="px-4 py-2 font-medium">
-                Code
-              </th>
-              <th scope="col" className="px-4 py-2 font-medium">
-                Account
-              </th>
+      <TableScroller label={`${humanise(group.account_type)} balances`}>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Code</TableHead>
+              <TableHead>Account</TableHead>
               {MONEY_COLUMNS.map((column) => (
-                <th key={column.key} scope="col" className="px-4 py-2 text-right font-medium">
+                <TableHead align="right" key={column.key}>
                   {column.label}
-                </th>
+                </TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((row) => (
-              <tr key={row.account_id} className="border-b last:border-0">
-                <td className="whitespace-nowrap px-4 py-1.5 font-mono text-xs">
+              <TableRow key={row.account_id}>
+                <TableCell className="whitespace-nowrap font-mono text-xs">
                   {row.account_code}
-                </td>
-                <td className="max-w-[22rem] truncate px-4 py-1.5">{row.account_name}</td>
+                </TableCell>
+                <TableCell className="max-w-[22rem] truncate">{row.account_name}</TableCell>
                 {MONEY_COLUMNS.map((column) => (
-                  <td
-                    key={column.key}
-                    className="whitespace-nowrap px-4 py-1.5 text-right tabular-nums"
-                  >
+                  <TableCell align="right" key={column.key} className="whitespace-nowrap">
                     {formatMoney(row[column.key])}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t bg-muted/40 font-medium">
-              <td className="px-4 py-2" colSpan={2}>
-                {humanise(group.account_type)} subtotal
-              </td>
+          </TableBody>
+          <TableFooter>
+            <TableRow className="bg-muted/40 font-medium">
+              <TableCell colSpan={2}>{humanise(group.account_type)} subtotal</TableCell>
               {MONEY_COLUMNS.map((column) => (
-                <td
-                  key={column.key}
-                  className="whitespace-nowrap px-4 py-2 text-right tabular-nums"
-                >
+                <TableCell align="right" key={column.key} className="whitespace-nowrap">
                   {formatMoney(group[column.key])}
-                </td>
+                </TableCell>
               ))}
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </TableScroller>
     </section>
   )
 }

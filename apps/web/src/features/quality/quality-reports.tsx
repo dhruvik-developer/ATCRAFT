@@ -49,6 +49,15 @@ import {
   CardTitle,
   Skeleton,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
@@ -432,55 +441,25 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
           )}
 
           {items.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full text-sm">
+            <TableScroller label="Rejection rate by item" className="rounded-lg border">
+              <Table>
                 <caption className="sr-only">
                   This vendor&apos;s rejection rate by item for the selected window
                 </caption>
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th
-                      scope="col"
-                      className="h-10 px-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Item
-                    </th>
-                    <th
-                      scope="col"
-                      className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Inspections
-                    </th>
-                    <th
-                      scope="col"
-                      className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Inspected
-                    </th>
-                    <th
-                      scope="col"
-                      className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Rejected
-                    </th>
-                    <th
-                      scope="col"
-                      className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Scrapped
-                    </th>
-                    <th
-                      scope="col"
-                      className="h-10 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                      Rate
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead align="right">Inspections</TableHead>
+                    <TableHead align="right">Inspected</TableHead>
+                    <TableHead align="right">Rejected</TableHead>
+                    <TableHead align="right">Scrapped</TableHead>
+                    <TableHead align="right">Rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {items.map((row) => (
-                    <tr key={row.item_id} className="border-t">
-                      <td className="px-3 py-2">
+                    <TableRow key={row.item_id}>
+                      <TableCell>
                         {/* The breakdown carries item ids only. */}
                         <Link
                           to={`/items/${row.item_id}`}
@@ -488,27 +467,19 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
                         >
                           {row.item_id.slice(0, 8)}
                         </Link>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular">
-                        {formatNumber(row.inspection_count)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular">
-                        {formatQuantity(row.inspected_quantity)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular">
-                        {formatQuantity(row.rejected_quantity)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular">
-                        {formatQuantity(row.scrap_quantity)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular font-medium text-destructive">
+                      </TableCell>
+                      <TableCell align="right">{formatNumber(row.inspection_count)}</TableCell>
+                      <TableCell align="right">{formatQuantity(row.inspected_quantity)}</TableCell>
+                      <TableCell align="right">{formatQuantity(row.rejected_quantity)}</TableCell>
+                      <TableCell align="right">{formatQuantity(row.scrap_quantity)}</TableCell>
+                      <TableCell align="right" className="font-medium text-destructive">
                         {formatPercent(row.rejection_rate)}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </TableScroller>
           )}
         </div>
       )}

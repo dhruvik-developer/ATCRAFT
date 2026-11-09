@@ -8,6 +8,7 @@ import { PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Input, Label, NativeSelect } from '@/components/ui/primitives'
+import { TableScroller } from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useShiftOptions, type ShiftOption } from '@/hooks/use-shift-options'
@@ -340,7 +341,7 @@ export default function ShiftRosterPage() {
               </div>
             ))}
           </div>
-          <div className="hidden overflow-auto rounded-lg border md:block">
+          <TableScroller label="Roster for the day" className="hidden rounded-lg border md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -395,13 +396,13 @@ export default function ShiftRosterPage() {
                   ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
           {!list.isLoading && list.data.length === 0 && (
             <p className="py-6 text-muted-foreground">No planned assignments for this date.</p>
           )}
         </TabsContent>
         <TabsContent value="week">
-          <div className="overflow-auto rounded-lg border">
+          <TableScroller label="Roster for the week" className="rounded-lg border">
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -434,7 +435,7 @@ export default function ShiftRosterPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         </TabsContent>
         <TabsContent value="shifts">
           <DataTable

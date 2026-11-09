@@ -23,6 +23,15 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays'
 import { Input, Label, Skeleton, Textarea } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
@@ -587,60 +596,65 @@ export function SerialDetailDialog({
                   </div>
                 </section>
               )}
-              <div className="overflow-x-auto rounded border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted text-left">
-                    <tr>
-                      <th className="p-2 font-medium">Occurred</th>
-                      <th className="p-2 font-medium">Movement</th>
-                      <th className="p-2 font-medium">Warehouse</th>
-                      <th className="p-2 text-right font-medium">Quantity</th>
-                      <th className="p-2 font-medium">Reference</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <TableScroller label="Movements of this serial" className="rounded border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Occurred</TableHead>
+                      <TableHead>Movement</TableHead>
+                      <TableHead>Warehouse</TableHead>
+                      <TableHead align="right">Quantity</TableHead>
+                      <TableHead>Reference</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {(detail.data.movements ?? []).map((movement) => {
                       const quantity = toDecimal(movement.quantity)
                       return (
-                        <tr key={movement.id} className="border-t align-top">
-                          <td className="whitespace-nowrap p-2 tabular">
+                        <TableRow key={movement.id} className="[&>td]:align-top">
+                          <TableCell className="whitespace-nowrap">
                             {formatDateTime(movement.occurred_at)}
-                          </td>
-                          <td className="p-2">
+                          </TableCell>
+                          <TableCell>
                             {humanise(movement.transaction_type)}
                             <span className="block text-xs text-muted-foreground">
                               {humanise(movement.stock_state)}
                             </span>
-                          </td>
-                          <td className="p-2">{movement.warehouse_code ?? '-'}</td>
-                          <td
+                          </TableCell>
+                          <TableCell>{movement.warehouse_code ?? '-'}</TableCell>
+                          <TableCell
+                            align="right"
                             className={
                               quantity.greaterThan(0)
-                                ? 'p-2 text-right font-medium text-success tabular'
-                                : 'p-2 text-right font-medium text-destructive tabular'
+                                ? 'font-medium text-success'
+                                : 'font-medium text-destructive'
                             }
                           >
                             {formatQuantity(movement.quantity)}
-                          </td>
-                          <td className="p-2">
+                          </TableCell>
+                          <TableCell>
                             {movement.reference_code ?? '-'}
                             <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
                               {movement.reason}
                             </span>
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       )
                     })}
                     {(detail.data.movements ?? []).length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="p-4 text-center text-sm text-muted-foreground">
+                      <TableRow>
+                        <TableCell
+                          align="center"
+                          colSpan={5}
+                          className="text-sm text-muted-foreground"
+                        >
                           This unit has been registered but no movement has touched it yet.
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+              </TableScroller>
             </>
           )}
         </DialogBody>

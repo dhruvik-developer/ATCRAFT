@@ -59,6 +59,15 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import { useUomOptions } from '@/features/items/item-model'
@@ -849,49 +858,33 @@ export function PurchaseReturnDetailDialog({
                 </Alert>
               )}
 
-              <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full min-w-[40rem] text-sm">
+              <TableScroller label="Purchase return lines" className="rounded-lg border">
+                <Table className="min-w-[40rem]">
                   <caption className="sr-only">Purchase return lines</caption>
-                  <thead className="whitespace-nowrap bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        #
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        Item
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Quantity
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Unit price
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Tax rate
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Tax
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-right font-medium">
-                        Line total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Item</TableHead>
+                      <TableHead align="right">Quantity</TableHead>
+                      <TableHead align="right">Unit price</TableHead>
+                      <TableHead align="right">Tax rate</TableHead>
+                      <TableHead align="right">Tax</TableHead>
+                      <TableHead align="right">Line total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {lines.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                      <TableRow>
+                        <TableCell align="center" colSpan={7} className="text-muted-foreground">
                           This return has no lines, so there is nothing to post. Cancel it and raise
                           a new one against the receipt.
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     )}
                     {lines.map((line) => (
-                      <tr key={line.id}>
-                        <td className="px-3 py-2 tabular text-muted-foreground">
-                          {line.line_number}
-                        </td>
-                        <td className="max-w-[18rem] px-3 py-2">
+                      <TableRow key={line.id}>
+                        <TableCell className="text-muted-foreground">{line.line_number}</TableCell>
+                        <TableCell className="max-w-[18rem]">
                           <span className="block truncate">{line.description ?? 'Item'}</span>
                           {line.reason && (
                             <span className="block truncate text-xs text-muted-foreground">
@@ -905,27 +898,27 @@ export function PurchaseReturnDetailDialog({
                               Returned against the lot it arrived on
                             </span>
                           )}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
+                        </TableCell>
+                        <TableCell align="right">
                           {formatQuantity(line.quantity, uomById.get(line.uom_id)?.code)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
+                        </TableCell>
+                        <TableCell align="right">
                           {formatMoney(line.unit_price, { currency })}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular text-muted-foreground">
+                        </TableCell>
+                        <TableCell align="right" className="text-muted-foreground">
                           {formatPercent(line.tax_rate, 2)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular">
+                        </TableCell>
+                        <TableCell align="right">
                           {formatMoney(line.tax_amount, { currency })}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular font-medium">
+                        </TableCell>
+                        <TableCell align="right" className="font-medium">
                           {formatMoney(line.line_total, { currency })}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+              </TableScroller>
 
               <DescriptionList
                 columns={3}

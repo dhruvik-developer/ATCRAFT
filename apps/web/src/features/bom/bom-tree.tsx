@@ -20,6 +20,7 @@ import { Factory, Package } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/primitives'
+import { TableScroller } from '@/components/ui/table'
 import { formatPercent, formatQuantity } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -44,7 +45,7 @@ export function BomStructure({
         {lines.length} component line{lines.length === 1 ? '' : 's'} on this bill.
       </p>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <TableScroller label={`Components of ${label}`} className="rounded-lg border">
         <table className="w-full min-w-[46rem] text-sm">
           <caption className="sr-only">Components of {label}</caption>
           <thead>
@@ -138,7 +139,7 @@ export function BomStructure({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
     </div>
   )
 }

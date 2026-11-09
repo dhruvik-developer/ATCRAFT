@@ -27,6 +27,15 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { CostCentreName, CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { SerialPicker } from '@/features/dispatch/stock-pickers'
 import { useAuth } from '@/features/auth/auth-context'
@@ -81,45 +90,45 @@ function OperationLines({ document }: { document: Operation }) {
       {document.cost_centre_id && can(P.COST_CENTRE_VIEW) && (
         <CostCentreName id={document.cost_centre_id} />
       )}
-      <div className="overflow-x-auto rounded border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted text-left">
-            <tr>
-              <th className="p-2">Item</th>
-              <th className="p-2">Batch</th>
-              <th className="p-2">Bin</th>
-              {showsSerials && <th className="p-2">Serials</th>}
-              <th className="p-2 text-right">Quantity</th>
-            </tr>
-          </thead>
-          <tbody>
+      <TableScroller label="Document lines" className="rounded border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Item</TableHead>
+              <TableHead>Batch</TableHead>
+              <TableHead>Bin</TableHead>
+              {showsSerials && <TableHead>Serials</TableHead>}
+              <TableHead align="right">Quantity</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {(document.lines ?? []).map((line) => (
-              <tr key={line.id} className="border-t">
-                <td className="p-2">
+              <TableRow key={line.id}>
+                <TableCell>
                   {line.item_code ?? 'Retired item'}
                   <span className="block text-xs text-muted-foreground">{line.item_name}</span>
-                </td>
-                <td className="p-2">
+                </TableCell>
+                <TableCell>
                   {line.batch_code ?? (line.batch_id ? 'Batch unavailable' : EMPTY_VALUE)}
-                </td>
-                <td className="p-2">
+                </TableCell>
+                <TableCell>
                   {'from_location_id' in line
                     ? `${line.from_location_code ?? (line.from_location_id ? 'Retired bin' : 'Unbinned')} → ${line.to_location_code ?? (line.to_location_id ? 'Retired bin' : 'Unbinned')}`
                     : (line.location_code ?? (line.location_id ? 'Retired bin' : 'Unbinned'))}
-                </td>
+                </TableCell>
                 {showsSerials && (
-                  <td className="p-2">
+                  <TableCell>
                     {'serial_numbers' in line && (line.serial_numbers?.length ?? 0) > 0
                       ? line.serial_numbers?.join(', ')
                       : EMPTY_VALUE}
-                  </td>
+                  </TableCell>
                 )}
-                <td className="p-2 text-right tabular">{formatQuantity(line.quantity)}</td>
-              </tr>
+                <TableCell align="right">{formatQuantity(line.quantity)}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </TableScroller>
       {canSeeCosts && <p className="text-sm">FIFO value: {formatMoney(document.total_value)}</p>}
       {'disposal_kind' in document && (
         <p className="text-sm">

@@ -35,6 +35,15 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { api } from '@/lib/api-client'
 import { formatDate, formatMoney, formatNumber, formatPercent, toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
@@ -196,58 +205,42 @@ export function GstSummaryTab({
                   : 'No GST figures are available for this period.'}
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <TableScroller label="Output and input tax by component">
+              <Table>
                 <caption className="sr-only">
                   Output and input tax by component from {formatDate(data.date_from)} to{' '}
                   {formatDate(data.date_to)}
                 </caption>
-                <thead>
-                  <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-                    <th scope="col" className="py-2 text-left font-semibold">
-                      Component
-                    </th>
-                    <th scope="col" className="py-2 text-right font-semibold">
-                      Output
-                    </th>
-                    <th scope="col" className="py-2 text-right font-semibold">
-                      Input
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Component</TableHead>
+                    <TableHead align="right">Output</TableHead>
+                    <TableHead align="right">Input</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {COMPONENTS.map((component) => (
-                    <tr key={component.key} className="border-b last:border-0">
+                    <TableRow key={component.key}>
                       <th
                         scope="row"
                         className={cn(
-                          'py-2 text-left font-normal',
+                          'px-3 py-2 text-left font-normal',
                           component.emphasis && 'font-medium',
                         )}
                       >
                         {component.label}
                       </th>
-                      <td
-                        className={cn(
-                          'py-2 text-right tabular',
-                          component.emphasis && 'font-medium',
-                        )}
-                      >
+                      <TableCell align="right" className={cn(component.emphasis && 'font-medium')}>
                         {formatMoney(amountOf(data.output, component.key))}
-                      </td>
-                      <td
-                        className={cn(
-                          'py-2 text-right tabular',
-                          component.emphasis && 'font-medium',
-                        )}
-                      >
+                      </TableCell>
+                      <TableCell align="right" className={cn(component.emphasis && 'font-medium')}>
                         {formatMoney(amountOf(data.input, component.key))}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </TableScroller>
           )}
         </CardContent>
       </Card>
@@ -288,56 +281,39 @@ function SlabTable({ title, section }: { title: string; section: GstSection }) {
             Nothing was reported in this period.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <TableScroller label={title}>
+            <Table>
               <caption className="sr-only">{title}</caption>
-              <thead>
-                <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-                  <th scope="col" className="py-2 text-left font-semibold">
-                    HSN
-                  </th>
-                  <th scope="col" className="py-2 text-right font-semibold">
-                    Rate
-                  </th>
-                  <th scope="col" className="py-2 text-right font-semibold">
-                    Taxable
-                  </th>
-                  <th scope="col" className="py-2 text-right font-semibold">
-                    CGST
-                  </th>
-                  <th scope="col" className="py-2 text-right font-semibold">
-                    SGST
-                  </th>
-                  <th scope="col" className="py-2 text-right font-semibold">
-                    IGST
-                  </th>
-                  <th scope="col" className="py-2 text-right font-semibold">
-                    Documents
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>HSN</TableHead>
+                  <TableHead align="right">Rate</TableHead>
+                  <TableHead align="right">Taxable</TableHead>
+                  <TableHead align="right">CGST</TableHead>
+                  <TableHead align="right">SGST</TableHead>
+                  <TableHead align="right">IGST</TableHead>
+                  <TableHead align="right">Documents</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {rows.map((row) => (
-                  <tr
-                    key={`${row.hsn_code ?? 'none'}-${row.tax_rate}`}
-                    className="border-b last:border-0"
-                  >
-                    <th scope="row" className="py-2 text-left font-mono text-xs font-normal">
+                  <TableRow key={`${row.hsn_code ?? 'none'}-${row.tax_rate}`}>
+                    <th scope="row" className="px-3 py-2 text-left font-mono text-xs font-normal">
                       {row.hsn_code ?? 'Unclassified'}
                     </th>
-                    <td className="py-2 text-right tabular">{formatPercent(row.tax_rate)}</td>
-                    <td className="py-2 text-right tabular">{formatMoney(row.taxable_amount)}</td>
-                    <td className="py-2 text-right tabular">{formatMoney(row.cgst_amount)}</td>
-                    <td className="py-2 text-right tabular">{formatMoney(row.sgst_amount)}</td>
-                    <td className="py-2 text-right tabular">{formatMoney(row.igst_amount)}</td>
-                    <td className="py-2 text-right tabular text-muted-foreground">
+                    <TableCell align="right">{formatPercent(row.tax_rate)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.taxable_amount)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.cgst_amount)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.sgst_amount)}</TableCell>
+                    <TableCell align="right">{formatMoney(row.igst_amount)}</TableCell>
+                    <TableCell align="right" className="text-muted-foreground">
                       {formatNumber(row.document_count)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableScroller>
         )}
       </CardContent>
     </Card>

@@ -76,6 +76,15 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { BatchSelect, SerialPicker } from '@/features/dispatch/stock-pickers'
 import { useItemFacts, type DispatchRow } from '@/features/dispatch/dispatch-types'
@@ -905,7 +914,7 @@ function CartonCard({
             Nothing packed in this carton yet.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <TableScroller label={`Contents of carton ${carton.carton_number}`}>
             <table className="w-full text-sm">
               <caption className="sr-only">Contents of carton {carton.carton_number}</caption>
               <thead>
@@ -988,7 +997,7 @@ function CartonCard({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         )}
 
         {canManage && open && orderPackable && (
@@ -1633,43 +1642,23 @@ export function PackingOrderDialog({
               {/* -------------------------------------------------- lines --- */}
               <div>
                 <h3 className="mb-2 text-sm font-medium">Lines</h3>
-                <div className="overflow-x-auto rounded-lg border">
-                  <table className="w-full text-sm">
+                <TableScroller label="Lines on this packing order" className="rounded-lg border">
+                  <Table>
                     <caption className="sr-only">Lines on this packing order</caption>
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th
-                          scope="col"
-                          className="h-9 px-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Line
-                        </th>
-                        <th
-                          scope="col"
-                          className="h-9 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          To pack
-                        </th>
-                        <th
-                          scope="col"
-                          className="h-9 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Packed
-                        </th>
-                        <th
-                          scope="col"
-                          className="h-9 px-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Still to pack
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Line</TableHead>
+                        <TableHead align="right">To pack</TableHead>
+                        <TableHead align="right">Packed</TableHead>
+                        <TableHead align="right">Still to pack</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {lines.map((line) => {
                         const pending = pendingOf(line)
                         return (
-                          <tr key={line.id} className="border-t">
-                            <td className="px-3 py-2">
+                          <TableRow key={line.id}>
+                            <TableCell>
                               <span className="block font-medium">Line {line.line_number}</span>
                               <span
                                 className="block max-w-[min(18rem,45vw)] truncate font-mono text-xs text-muted-foreground"
@@ -1696,14 +1685,14 @@ export function PackingOrderDialog({
                                     <ReinspectLine order={data} line={line} />
                                   </div>
                                 )}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right">
                               {formatQuantity(line.quantity_to_pack)}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right">
                               {formatQuantity(line.packed_quantity)}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right">
                               {toDecimal(pending).isZero() ? (
                                 <span className="text-success">Complete</span>
                               ) : (
@@ -1711,13 +1700,13 @@ export function PackingOrderDialog({
                                   {formatQuantity(pending)}
                                 </span>
                               )}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         )
                       })}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </TableScroller>
               </div>
 
               {/* ------------------------------------------------ cartons --- */}

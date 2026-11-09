@@ -56,6 +56,15 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import type { CustomerRow } from '@/features/customers/customer-types'
@@ -808,35 +817,20 @@ export function PaymentDetailDialog({
                       : 'Nothing is settled from this payment yet. Approve it, then settle it against the vendor invoices it pays.'}
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                  <TableScroller label={`Invoices settled by ${payment.code}`}>
+                    <Table>
                       <caption className="sr-only">Invoices settled by {payment.code}</caption>
-                      <thead>
-                        <tr className="border-b">
-                          <th
-                            scope="col"
-                            className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                          >
-                            Invoice
-                          </th>
-                          <th
-                            scope="col"
-                            className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                          >
-                            Note
-                          </th>
-                          <th
-                            scope="col"
-                            className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                          >
-                            Settled
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Invoice</TableHead>
+                          <TableHead>Note</TableHead>
+                          <TableHead align="right">Settled</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {allocations.map((allocation) => (
-                          <tr key={allocation.id} className="border-b last:border-0">
-                            <td className="py-1.5">
+                          <TableRow key={allocation.id}>
+                            <TableCell>
                               <span className="block break-all">
                                 {allocation.vendor_invoice_number ?? allocation.invoice_code ?? '-'}
                               </span>
@@ -848,18 +842,18 @@ export function PaymentDetailDialog({
                                     '-'
                                   ).slice(0, 8)}
                               </span>
-                            </td>
-                            <td className="py-1.5 text-xs text-muted-foreground">
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
                               {allocation.notes ?? '-'}
-                            </td>
-                            <td className="whitespace-nowrap py-1.5 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right" className="whitespace-nowrap">
                               {formatMoney(allocation.amount, { currency })}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </TableBody>
+                    </Table>
+                  </TableScroller>
                 )}
               </section>
             </>
@@ -1291,7 +1285,7 @@ export function PaymentAllocationDialog({
                     fills itself in to whatever this payment has left.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <TableScroller label="Invoices this payment will settle">
                     <table className="w-full min-w-[32rem] text-sm">
                       <caption className="sr-only">
                         Invoices this payment will settle when saved
@@ -1397,7 +1391,7 @@ export function PaymentAllocationDialog({
                         })}
                       </tbody>
                     </table>
-                  </div>
+                  </TableScroller>
                 )}
               </section>
 

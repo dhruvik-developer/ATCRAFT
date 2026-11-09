@@ -27,6 +27,15 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useListQuery } from '@/hooks/use-list-query'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -345,30 +354,34 @@ function NewSalesReturnDialog({
 /** What came back: each line's item, quantity, units with their verdicts, and its credit. */
 function ReturnLines({ lines }: { lines: SalesReturnLine[] }) {
   return (
-    <div className="overflow-x-auto" role="region" aria-label="Returned lines" tabIndex={0}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-muted-foreground">
-            <th className="whitespace-nowrap p-2">Item</th>
-            <th className="whitespace-nowrap p-2 text-right">Quantity</th>
-            <th className="whitespace-nowrap p-2">Serials</th>
-            <th className="whitespace-nowrap p-2">Reason</th>
-            <th className="whitespace-nowrap p-2 text-right">Credited</th>
-          </tr>
-        </thead>
-        <tbody>
+    <TableScroller label="Returned lines">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="whitespace-nowrap">Item</TableHead>
+            <TableHead align="right" className="whitespace-nowrap">
+              Quantity
+            </TableHead>
+            <TableHead className="whitespace-nowrap">Serials</TableHead>
+            <TableHead className="whitespace-nowrap">Reason</TableHead>
+            <TableHead align="right" className="whitespace-nowrap">
+              Credited
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {lines.map((line) => (
-            <tr key={line.id} className="border-b align-top">
-              <td className="p-2">
+            <TableRow key={line.id} className="[&>td]:align-top">
+              <TableCell>
                 <span className="block font-medium">{line.item_code ?? EMPTY_VALUE}</span>
                 {line.item_name && (
                   <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
                     {line.item_name}
                   </span>
                 )}
-              </td>
-              <td className="p-2 text-right tabular">{formatQuantity(line.quantity)}</td>
-              <td className="p-2">
+              </TableCell>
+              <TableCell align="right">{formatQuantity(line.quantity)}</TableCell>
+              <TableCell>
                 {line.serial_ids.length === 0 ? (
                   EMPTY_VALUE
                 ) : (
@@ -388,14 +401,14 @@ function ReturnLines({ lines }: { lines: SalesReturnLine[] }) {
                     })}
                   </ul>
                 )}
-              </td>
-              <td className="p-2">{reasonLabel(line.reason_code)}</td>
-              <td className="p-2 text-right tabular">{formatQuantity(line.credited_quantity)}</td>
-            </tr>
+              </TableCell>
+              <TableCell>{reasonLabel(line.reason_code)}</TableCell>
+              <TableCell align="right">{formatQuantity(line.credited_quantity)}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableScroller>
   )
 }
 

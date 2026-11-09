@@ -49,6 +49,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import { TableScroller } from '@/components/ui/table'
 import { api } from '@/lib/api-client'
 import { NOTIFICATION_POLL_MS, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
@@ -533,11 +534,9 @@ function PreferencesTab() {
       )}
 
       {/* Keep absolute screen-reader labels inside the scrolling table's bounds. */}
-      <div
-        className="relative w-full min-w-0 max-w-full overflow-x-auto rounded-lg border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        role="region"
-        aria-label="Notification channel preferences"
-        tabIndex={0}
+      <TableScroller
+        label="Notification channel preferences"
+        className="relative w-full min-w-0 max-w-full rounded-lg border"
       >
         <table className="w-full min-w-[36rem] text-sm">
           <caption className="sr-only">Notification channels per event type</caption>
@@ -641,7 +640,7 @@ function PreferencesTab() {
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
     </div>
   )
 }

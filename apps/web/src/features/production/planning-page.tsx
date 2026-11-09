@@ -33,6 +33,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import { TableScroller } from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -82,7 +83,7 @@ function HeatStrip({
   groups: ReturnType<typeof groupCapacityByCentre>
 }) {
   return (
-    <div className="overflow-x-auto rounded-md border">
+    <TableScroller label="Capacity by work centre and day" className="rounded-md border">
       <table className="w-full min-w-[42rem] border-collapse text-xs">
         <thead>
           <tr className="bg-muted/50">
@@ -124,7 +125,7 @@ function HeatStrip({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroller>
   )
 }
 
@@ -343,7 +344,10 @@ export default function PlanningPage() {
                     : 'Rescheduling needs the work-order management right.'}
                 </span>
               </h2>
-              <div className="overflow-x-auto rounded-md border">
+              <TableScroller
+                label={view === 'centre' ? 'Operations by work centre' : 'Operations by machine'}
+                className="rounded-md border"
+              >
                 <table className="w-full min-w-[42rem] border-collapse text-xs">
                   <thead>
                     <tr className="bg-muted/50">
@@ -446,7 +450,7 @@ export default function PlanningPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
+              </TableScroller>
             </section>
 
             {unscheduled.length > 0 && (

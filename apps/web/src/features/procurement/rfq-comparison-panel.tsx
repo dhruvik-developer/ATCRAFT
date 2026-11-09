@@ -40,6 +40,7 @@ import { useMemo, useState } from 'react'
 import { EmptyState, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle, Badge, Skeleton } from '@/components/ui/primitives'
+import { TableScroller } from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import {
@@ -174,7 +175,7 @@ export function RfqComparisonPanel({
         <AlertDescription>{board.recommendation_reason}</AlertDescription>
       </Alert>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <TableScroller label="Vendor offers by item" className="rounded-lg border">
         <table className="w-full min-w-[48rem] border-collapse text-sm">
           <caption className="sr-only">
             Every vendor&rsquo;s offer for every item on {board.rfq_code}
@@ -417,7 +418,7 @@ export function RfqComparisonPanel({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroller>
 
       <QuotationDecisionDialog
         quotation={pending?.quotation ?? null}

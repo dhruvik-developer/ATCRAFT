@@ -70,6 +70,15 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useCategoryOptions } from '@/features/items/item-model'
@@ -1659,45 +1668,38 @@ function ParameterTable({ parameters }: { parameters: QcTemplateParameter[] }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full text-sm">
+    <TableScroller
+      label="Characteristics measured by this specification"
+      className="rounded-md border"
+    >
+      <Table>
         <caption className="sr-only">Characteristics measured by this specification</caption>
-        <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              #
-            </th>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              Characteristic
-            </th>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              Type
-            </th>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              Specification
-            </th>
-            <th scope="col" className="px-3 py-2 text-left font-medium">
-              Judgement
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
+        <TableHeader>
+          <TableRow>
+            <TableHead>#</TableHead>
+            <TableHead>Characteristic</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Specification</TableHead>
+            <TableHead>Judgement</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {parameters.map((parameter) => {
             const band = specLabel(parameter)
             const answers = parameter.allowed_values ?? []
             return (
-              <tr key={parameter.id}>
-                <td className="px-3 py-2 tabular text-muted-foreground">{parameter.sequence}</td>
-                <td className="px-3 py-2">
+              <TableRow key={parameter.id}>
+                <TableCell className="text-muted-foreground">{parameter.sequence}</TableCell>
+                <TableCell>
                   <span className="font-medium">{parameter.parameter_name}</span>
                   {parameter.unit && (
                     <span className="ml-1 text-xs text-muted-foreground">({parameter.unit})</span>
                   )}
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">
+                </TableCell>
+                <TableCell className="text-muted-foreground">
                   {PARAMETER_TYPE_LABEL[parameter.parameter_type]}
-                </td>
-                <td className="px-3 py-2">
+                </TableCell>
+                <TableCell>
                   {band && <span className="tabular">{band}</span>}
                   {parameter.target_value !== null && (
                     <span className="block text-xs text-muted-foreground">
@@ -1713,8 +1715,8 @@ function ParameterTable({ parameters }: { parameters: QcTemplateParameter[] }) {
                   {!band && parameter.target_value === null && answers.length === 0 && (
                     <span className="text-muted-foreground">Recorded, not judged</span>
                   )}
-                </td>
-                <td className="px-3 py-2">
+                </TableCell>
+                <TableCell>
                   <div className="flex flex-wrap gap-1">
                     {parameter.is_critical && (
                       <Badge variant="destructive">
@@ -1728,13 +1730,13 @@ function ParameterTable({ parameters }: { parameters: QcTemplateParameter[] }) {
                       <Badge variant="muted">Optional</Badge>
                     )}
                   </div>
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )
           })}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableScroller>
   )
 }
 
