@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
 from src.core.config import settings
+from src.core.database_errors import schema_name_of, sqlstate_of
 from src.core.errors import AppError, ErrorCode, is_refusal
 from src.core.logging import get_logger, get_request_id, mark_traceback_logged
 from src.core.messages import (
@@ -158,37 +159,6 @@ _ROSTER_OVERLAP = (ErrorCode.CONFLICT, SHIFT_ASSIGNMENT_OVERLAP, 409)
 _OVERLAP = (ErrorCode.CONFLICT, "This overlaps an existing record for the same period.", 409)
 
 
-def _sqlstate(exc: BaseException) -> str | None:
-    """The five-character SQLSTATE the driver attached, if any."""
-    original = getattr(exc, "orig", None)
-    for candidate in (original, getattr(original, "__cause__", None)):
-        if candidate is None:
-            continue
-        code = getattr(candidate, "sqlstate", None) or getattr(candidate, "pgcode", None)
-        if code:
-            return str(code)
-    return None
-
-
-def _schema_name(exc: BaseException, field: str) -> str | None:
-    """A schema identifier the server reported with the error - never a value.
-
-    PostgreSQL names the constraint, table and column a violation hit as
-    separate fields: asyncpg exposes them on its error, which SQLAlchemy's
-    adapted error keeps as ``__cause__``; psycopg exposes them on ``diag``.
-    """
-    original = getattr(exc, "orig", None)
-    for candidate in (original, getattr(original, "__cause__", None)):
-        if candidate is None:
-            continue
-        value = getattr(candidate, field, None) or getattr(
-            getattr(candidate, "diag", None), field, None
-        )
-        if value:
-            return str(value)
-    return None
-
-
 def _foreign_key_outcome(lowered: str) -> tuple[ErrorCode, str, int]:
     """PostgreSQL raises two different FK violations under one SQLSTATE.
 
@@ -211,7 +181,7 @@ def classify_integrity_error(exc: BaseException) -> tuple[ErrorCode, str, int]:
     """
     raw = str(getattr(exc, "orig", exc))
     lowered = raw.lower()
-    sqlstate = _sqlstate(exc)
+    sqlstate = sqlstate_of(exc)
 
     if sqlstate == SQLSTATE_EXCLUSION_VIOLATION:
         return _ROSTER_OVERLAP if _ROSTER_EXCLUSION_PREFIX in lowered else _OVERLAP
@@ -247,10 +217,10 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
     log.warning(
         "error.integrity",
         path=request.url.path,
-        sqlstate=_sqlstate(exc),
-        constraint=_schema_name(exc, "constraint_name"),
-        table=_schema_name(exc, "table_name"),
-        column=_schema_name(exc, "column_name"),
+        sqlstate=sqlstate_of(exc),
+        constraint=schema_name_of(exc, "constraint_name"),
+        table=schema_name_of(exc, "table_name"),
+        column=schema_name_of(exc, "column_name"),
     )
 
     code, message, status = classify_integrity_error(exc)
@@ -274,7 +244,7 @@ async def stale_data_handler(request: Request, exc: StaleDataError) -> JSONRespo
 async def operational_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """Lock timeouts, statement timeouts and connection loss."""
     raw = str(getattr(exc, "orig", exc)).lower()
-    sqlstate = _sqlstate(exc)
+    sqlstate = sqlstate_of(exc)
 
     if sqlstate == SQLSTATE_LOCK_NOT_AVAILABLE or ("lock" in raw and "timeout" in raw):
         log.warning("error.lock_timeout", path=request.url.path)
@@ -320,8 +290,14 @@ async def operational_error_handler(request: Request, exc: SQLAlchemyError) -> J
 
 
 async def sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
-    """Separate transient database failures from implementation defects."""
-    sqlstate = _sqlstate(exc)
+    """Separate transient database failures from implementation defects.
+
+    A defect is logged with its traceback, from which the logging pipeline
+    withholds what a data error quotes of the value it refused - ``invalid
+    input for query argument $1: 'priya@example.com'`` - naming it by SQLSTATE
+    instead (:mod:`src.core.database_errors`).
+    """
+    sqlstate = sqlstate_of(exc)
     if (
         isinstance(exc, SQLAlchemyTimeoutError)
         or (isinstance(exc, DBAPIError) and exc.connection_invalidated)

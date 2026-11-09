@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+import traceback
 import uuid
 from contextvars import ContextVar
 from ipaddress import ip_address as parse_ip_address
@@ -22,6 +23,7 @@ import structlog
 
 from src.core.config import AppEnv, settings
 from src.core.constants import MAX_REQUEST_ID_LENGTH
+from src.core.database_errors import database_error_redactor
 
 # --- Request-scoped context ---------------------------------------------------
 
@@ -174,6 +176,56 @@ def _redact(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str,
     return scrub(event_dict)
 
 
+def _logged_exception(
+    exc_info: Any,
+) -> tuple[type[BaseException], BaseException, Any] | None:
+    """The ``(type, value, traceback)`` a record's ``exc_info`` stands for, if any.
+
+    An exception, a stdlib record's tuple, or ``True`` - "the exception being
+    handled", which this processor still runs inside, as ``format_exc_info``
+    would read it.
+    """
+    if exc_info is True:
+        exc_info = sys.exc_info()
+    if isinstance(exc_info, BaseException):
+        return type(exc_info), exc_info, exc_info.__traceback__
+    if (
+        isinstance(exc_info, tuple)
+        and len(exc_info) == 3
+        and isinstance(exc_info[1], BaseException)
+    ):
+        return exc_info[0], exc_info[1], exc_info[2]
+    return None
+
+
+def _withhold_database_error_text(
+    _logger: Any, _method: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Keep what a database error quotes of its row out of the record.
+
+    A driver's text quotes values - an integrity violation's ``DETAIL``, a data
+    error's rejected input - and SQLAlchemy embeds it in its own, so it reached
+    every traceback and every ``error=str(exc)`` logged beside one, where the
+    key-based redaction above cannot see it. For a record whose exception chain
+    holds such an error, the traceback is rendered here, as ``format_exc_info``
+    renders it, with that text replaced by the SQLSTATE and the constraint,
+    table and column (:mod:`src.core.database_errors`), and so is every string
+    field that repeats it. Any other record is left for ``format_exc_info``.
+    """
+    logged = _logged_exception(event_dict.get("exc_info"))
+    redact = database_error_redactor(logged[1] if logged else None)
+    if logged is None or redact is None:
+        return event_dict
+    for key, value in event_dict.items():
+        if isinstance(value, str):
+            event_dict[key] = redact(value)
+    del event_dict["exc_info"]
+    # format_exc_info's own shape: the stdlib rendering, less its final newline.
+    rendered = "".join(traceback.format_exception(*logged)).removesuffix("\n")
+    event_dict["exception"] = redact(rendered)
+    return event_dict
+
+
 def _add_request_context(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
     """Stamp every record with the identifiers of the current request."""
     for key, var in (
@@ -249,6 +301,7 @@ def configure_logging() -> None:
         structlog.processors.StackInfoRenderer(),
         _add_request_context,
         _redact,
+        _withhold_database_error_text,
     ]
 
     renderer: Any = (

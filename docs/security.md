@@ -544,6 +544,23 @@ and path, not by its sentence, which names what the person typed: an address, a
 PAN, a GSTIN. A constraint violation is logged by the constraint, table and
 column the server named, not by the driver's `DETAIL`, which quotes the row.
 
+The driver's own text quotes values as well, and SQLAlchemy embeds it in its
+message: an integrity violation's `DETAIL` (`Key (company_id, email)=(...,
+priya@example.com) already exists`, or `Failing row contains (...)` - the whole
+row), a data error's rejected input (`invalid input syntax for type uuid:
+"..."`), and asyncpg's refusal to encode an argument (`invalid input for query
+argument $1: '...'`). For any record whose exception chain holds an error of
+SQLSTATE class 22 or 23, the logging pipeline renders the traceback itself and
+replaces each such error's text - there and in every string field that repeats
+it, such as `error=str(exc)` - with `[database error text withheld: SQLSTATE
+23505, constraint ..., table ..., column ...]`; the SQL and every other error in
+the chain keep their text. Celery's failure line and the error tracker's
+exception values get the same rewrite. Any other database error - a connection
+refused, a missing column, a lock timeout - binds no value and keeps its text,
+which is the diagnosis. One rule in `core/database_errors.py`
+(`database_error_redactor`), used by `core/logging.py`, `core/observability.py`
+and `workers/celery_app.py`.
+
 Incoming request IDs are accepted only when they are at most 64 ASCII
 alphanumeric, hyphen, underscore or dot characters; otherwise the server
 generates an ID. Client IP candidates must parse as an IP address before they

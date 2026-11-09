@@ -31,6 +31,7 @@ from celery.signals import (
 from prometheus_client import start_http_server
 
 from src.core.config import settings
+from src.core.database_errors import database_error_redactor
 from src.core.errors import AppError, is_refusal
 from src.core.logging import (
     bind_request_context,
@@ -404,12 +405,19 @@ class _TraceFilter(logging.Filter):
       which :mod:`src.core.mail` keeps out of the log. Every mail task is
       covered, whatever it raised: ``task.failed`` already says it, by type for
       a transport failure and with its traceback for a defect.
+    * Any other task's failure line keeps its exception, less what a database
+      error quotes of its row - ``IntegrityError('... DETAIL:  Key (email)=(
+      priya@example.com) already exists')`` - which it names by SQLSTATE and
+      constraint instead (:mod:`src.core.database_errors`). The line holds the
+      exception's ``repr``, whose escaped text no rewrite of the plain text
+      matches, so it is written again from the rewritten text.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         context = record.args
         if not isinstance(context, Mapping) or "exc" not in context:
             return True
+        exception = record.exc_info[1] if record.exc_info else None
         if "traceback" in context:
             record.exc_info = None
             record.exc_text = None
@@ -418,12 +426,28 @@ class _TraceFilter(logging.Filter):
             withheld["exc"] = MAIL_EXCEPTION_WITHHELD
             if "traceback" in withheld:
                 withheld["traceback"] = MAIL_EXCEPTION_WITHHELD
-            record.args = withheld
-            if getattr(record, "data", None) is context:
-                record.data = withheld
+            _replace_context(record, context, withheld)
             record.exc_info = None
             record.exc_text = None
+            return True
+        redact = database_error_redactor(exception)
+        if exception is not None and redact is not None:
+            withheld = dict(context)
+            withheld["exc"] = f"{type(exception).__name__}({redact(str(exception))!r})"
+            trace_text = withheld.get("traceback")
+            if isinstance(trace_text, str):
+                withheld["traceback"] = redact(trace_text)
+            _replace_context(record, context, withheld)
         return True
+
+
+def _replace_context(
+    record: logging.LogRecord, context: Mapping[str, Any], withheld: dict[str, Any]
+) -> None:
+    """Format ``record`` from ``withheld``, and attach it where Celery attached ``context``."""
+    record.args = withheld
+    if getattr(record, "data", None) is context:
+        record.data = withheld
 
 
 _TRACE_FILTER = _TraceFilter()

@@ -27,6 +27,7 @@ from prometheus_client import (
 from prometheus_client.openmetrics.exposition import CONTENT_TYPE_LATEST
 
 from src.core.config import settings
+from src.core.database_errors import database_error_redactor
 from src.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -225,7 +226,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from sentry_sdk.types import Event, Hint
 
 
-def _scrub_sentry_event(event: Event, _hint: Hint) -> Event | None:
+def _scrub_sentry_event(event: Event, hint: Hint) -> Event | None:
     """Remove request-adjacent data before an exception leaves the deployment.
 
     ``send_default_pii=False`` is necessary but does not mean "send no request
@@ -244,6 +245,14 @@ def _scrub_sentry_event(event: Event, _hint: Hint) -> Event | None:
     scrubbed = cast(dict[str, Any], event)
     for key in ("request", "user", "breadcrumbs", "extra"):
         scrubbed.pop(key, None)
+    # The exception's own text is kept, except what a database error quotes of
+    # the row it was writing (src.core.database_errors).
+    exc_info = hint.get("exc_info") if hint else None
+    redact = database_error_redactor(exc_info[1] if exc_info else None)
+    if redact is not None:
+        for value in (scrubbed.get("exception") or {}).get("values") or ():
+            if isinstance(value.get("value"), str):
+                value["value"] = redact(value["value"])
     return event
 
 
