@@ -266,6 +266,13 @@ their transport prefix (`query.search`, `path.item_id`). Whole-body failures
 use `_root`. Raw submitted values, parser offsets and validator context are not
 copied into error metadata.
 
+A partial update applies only the keys a request sends: an omitted key keeps
+the stored value. An explicit `null` on a field that cannot be empty is refused
+before any service runs, as a **422** naming the field (`reject_null` in
+`core/validation.py`), never written through to a NOT NULL column or handed to
+a calculation. Assembly and job-work draft edits instead ignore such a null and
+keep the stored value, as their services document.
+
 The body-size ceiling applies to bytes actually received, including chunked
 requests and bodies larger than their declared `Content-Length`. Exceeding it
 returns **413** with the standard error envelope; partially parsed upload files

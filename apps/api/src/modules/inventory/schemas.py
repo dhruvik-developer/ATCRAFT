@@ -37,6 +37,7 @@ from pydantic import (
 
 from src.common.codes import clean_text
 from src.core.constants import MAX_LINE_NOTES_LENGTH, MAX_NOTES_LENGTH, MAX_SERIAL_BULK
+from src.core.validation import reject_null
 from src.modules.inventory.models import (
     MAX_SERIALS_PER_BIN_MOVE_LINE,
     MAX_SERIALS_PER_COUNT_REQUEST,
@@ -542,13 +543,19 @@ class StockTransferCreate(BaseModel):
 
 
 class StockTransferUpdate(BaseModel):
-    """Header edits, allowed only while the transfer is still a draft."""
+    """Header edits, allowed only while the transfer is still a draft.
+
+    ``expected_date`` and ``notes`` clear on an explicit null; ``reason`` is
+    NOT NULL, so a null on it is refused with the field named.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     reason: Reason | None = None
     expected_date: date | None = None
     notes: Notes | None = None
+
+    _reason = field_validator("reason")(reject_null)
 
 
 class StockTransferLineRead(BaseModel):

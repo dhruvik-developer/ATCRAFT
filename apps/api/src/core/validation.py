@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Literal, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationInfo
 from pydantic import ValidationError as PydanticValidationError
 
 from src.core.errors import ValidationError
-from src.core.messages import FIELDS_NEED_ATTENTION, INVALID_VALUE, MALFORMED_JSON
+from src.core.messages import FIELDS_NEED_ATTENTION, INVALID_VALUE, MALFORMED_JSON, cannot_be_null
 
 _PYDANTIC_MESSAGE_PREFIXES = ("Value error, ", "Assertion failed, ")
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -56,6 +56,22 @@ def validation_field_errors(
     return fields
 
 
+def reject_null(value: object, info: ValidationInfo) -> object:
+    """Refuse an explicit ``null`` on an update field whose column is NOT NULL.
+
+    Bind it on an update schema as ``field_validator("a", "b")(reject_null)``.
+    Update schemas are applied with ``exclude_unset=True``, so an omitted key
+    keeps the stored value and pydantic never runs this for it: it runs only
+    when the client sent the field. A null let through is written to a NOT NULL
+    column, which the integrity handler answers with a 422 naming no field, or
+    is handed to a service's arithmetic, which is a 500. Refused here, the 422
+    names the field before any service runs.
+    """
+    if value is None:
+        raise ValueError(cannot_be_null(info.field_name or "This value"))
+    return value
+
+
 def bind_request_model(
     model: type[ModelT],
     values: Mapping[str, object],
@@ -75,4 +91,4 @@ def bind_request_model(
         raise ValidationError(FIELDS_NEED_ATTENTION, details={"fields": fields}) from exc
 
 
-__all__ = ["bind_request_model", "validation_field_errors"]
+__all__ = ["bind_request_model", "reject_null", "validation_field_errors"]

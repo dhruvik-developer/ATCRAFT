@@ -448,40 +448,7 @@ class TestUpdateOrder:
 
     @pytest.mark.parametrize(
         "field",
-        [
-            pytest.param(
-                "planned_quantity",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="DEFECT: PATCH /production/{id} planned_quantity null answers 500 "
-                    "(to_quantity(None) raises TypeError)",
-                ),
-            ),
-            pytest.param(
-                "priority",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="DEFECT: PATCH /production/{id} priority null reaches the NOT NULL "
-                    "constraint and answers a 422 that names no field",
-                ),
-            ),
-            pytest.param(
-                "planned_end_date",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="DEFECT: PATCH /production/{id} planned_end_date null answers 500 "
-                    "(None compared with the start date)",
-                ),
-            ),
-            pytest.param(
-                "warehouse_id",
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="DEFECT: PATCH /production/{id} warehouse_id null answers 404 "
-                    "'Warehouse not found' for a record nobody named",
-                ),
-            ),
-        ],
+        ["planned_quantity", "priority", "planned_start_date", "planned_end_date", "warehouse_id"],
     )
     async def test_an_explicit_null_on_a_required_field_is_refused_or_ignored(
         self, lenient_client: AsyncClient, session, tenant, principal, plant, field
@@ -499,6 +466,20 @@ class TestUpdateOrder:
             error = refused(response, 422, "VALIDATION_ERROR")
             assert field in ((error.get("details") or {}).get("fields") or {}), error
         assert await column(session, attribute, order_id) == before
+
+    async def test_a_null_hold_flag_asks_for_the_default_again(
+        self, api_client: AsyncClient, session, tenant, principal, plant
+    ) -> None:
+        # Not one of the refused nulls: on ``requires_qc`` it means "decide it
+        # from the item and the routing", exactly as omitting it on create does.
+        order_id = await walked(session, tenant, principal, plant, ProductionOrderStatus.DRAFT)
+        default = await column(session, ProductionOrder.requires_qc, order_id)
+        ok(await api_client.patch(f"/production/{order_id}", json={"requires_qc": not default}))
+
+        data = ok(await api_client.patch(f"/production/{order_id}", json={"requires_qc": None}))
+
+        assert data["requires_qc"] is default
+        assert await column(session, ProductionOrder.requires_qc, order_id) is default
 
 
 # -----------------------------------------------------------------------------

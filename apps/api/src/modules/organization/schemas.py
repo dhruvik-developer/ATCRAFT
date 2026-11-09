@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Callable
 from datetime import date, datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -35,6 +34,7 @@ from src.common.banking import validate_optional_ifsc
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
 from src.core.constants import MAX_NOTES_LENGTH
+from src.core.validation import reject_null
 from src.modules.organization.models import CostCentreType
 
 #: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
@@ -57,23 +57,6 @@ Name = Annotated[str, Field(min_length=1, max_length=255)]
 
 def _optional_code(value: str | None) -> str | None:
     return None if value is None else validate_code(value)
-
-
-def _reject_null(label: str) -> Callable[[object], object]:
-    """Refuse an explicit null on a NOT NULL column when the key is present.
-
-    Update schemas use ``exclude_unset=True``: omitted keys keep the stored
-    value, so this validator only runs when the client sent the field. Returning
-    null here would write through to a NOT NULL column and surface as a
-    field-less 422 from the IntegrityError handler.
-    """
-
-    def _check(value: object) -> object:
-        if value is None:
-            raise ValueError(f"{label} cannot be null. Omit it to leave it unchanged.")
-        return value
-
-    return _check
 
 
 def _upper_optional(value: str | None) -> str | None:
@@ -306,7 +289,7 @@ class BranchUpdate(BaseModel):
     is_head_office: bool | None = None
 
     _name = field_validator("name")(clean_name)
-    _is_active = field_validator("is_active")(_reject_null("is_active"))
+    _is_active = field_validator("is_active")(reject_null)
     _gstin = field_validator("gstin")(validate_optional_gstin)
     _strip = field_validator(
         "address_line1", "city", "state", "state_code", "postal_code", "phone"
@@ -364,7 +347,7 @@ class PlantUpdate(BaseModel):
     is_active: bool | None = None
 
     _name = field_validator("name")(clean_name)
-    _is_active = field_validator("is_active")(_reject_null("is_active"))
+    _is_active = field_validator("is_active")(reject_null)
     _strip = field_validator("address_line1", "city", "state")(strip_optional)
 
 
@@ -415,7 +398,7 @@ class DepartmentUpdate(BaseModel):
     is_active: bool | None = None
 
     _name = field_validator("name")(clean_name)
-    _is_active = field_validator("is_active")(_reject_null("is_active"))
+    _is_active = field_validator("is_active")(reject_null)
 
 
 class DepartmentRead(BaseModel):
@@ -482,8 +465,8 @@ class CostCentreUpdate(BaseModel):
     is_active: bool | None = None
 
     _name = field_validator("name")(clean_name)
-    _is_active = field_validator("is_active")(_reject_null("is_active"))
-    _cost_centre_type = field_validator("cost_centre_type")(_reject_null("cost_centre_type"))
+    _is_active = field_validator("is_active")(reject_null)
+    _cost_centre_type = field_validator("cost_centre_type")(reject_null)
     _description = field_validator("description")(strip_optional)
 
 
@@ -542,9 +525,9 @@ class FinancialYearUpdate(BaseModel):
     is_active: bool | None = None
     notes: Notes | None = None
 
-    _start_date = field_validator("start_date")(_reject_null("start_date"))
-    _end_date = field_validator("end_date")(_reject_null("end_date"))
-    _is_active = field_validator("is_active")(_reject_null("is_active"))
+    _start_date = field_validator("start_date")(reject_null)
+    _end_date = field_validator("end_date")(reject_null)
+    _is_active = field_validator("is_active")(reject_null)
     _notes = field_validator("notes")(strip_optional)
 
 

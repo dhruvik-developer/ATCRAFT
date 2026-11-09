@@ -23,8 +23,9 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.core.validation import reject_null
 from src.modules.production.models import (
     DEFAULT_PRODUCTION_PRIORITY,
     MaterialIssueStatus,
@@ -95,7 +96,13 @@ class ProductionOrderCreate(BaseModel):
 
 
 class ProductionOrderUpdate(BaseModel):
-    """Partial update of a draft. Only the keys actually sent are applied."""
+    """Partial update of a draft. Only the keys actually sent are applied.
+
+    An explicit null on a field whose column is NOT NULL is refused with the
+    field named; omitting the key is how the stored value is kept. Null on
+    ``requires_qc`` is not one of those: it asks for the default again - the
+    item's flag, or a routing operation's QC gate - which the service resolves.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -113,6 +120,10 @@ class ProductionOrderUpdate(BaseModel):
     #: orphan inspections already raised, or strand output already held.
     requires_qc: bool | None = None
     notes: str | None = Field(default=None, max_length=4000)
+
+    _required = field_validator(
+        "planned_quantity", "warehouse_id", "planned_start_date", "planned_end_date", "priority"
+    )(reject_null)
 
 
 class ProductionOrderFilters(BaseModel):

@@ -31880,6 +31880,11 @@ export interface components {
         /**
          * ProductionOrderUpdate
          * @description Partial update of a draft. Only the keys actually sent are applied.
+         *
+         *     An explicit null on a field whose column is NOT NULL is refused with the
+         *     field named; omitting the key is how the stored value is kept. Null on
+         *     ``requires_qc`` is not one of those: it asks for the default again - the
+         *     item's flag, or a routing operation's QC gate - which the service resolves.
          */
         ProductionOrderUpdate: {
             /** Bom Id */
@@ -38558,6 +38563,9 @@ export interface components {
         /**
          * StockTransferUpdate
          * @description Header edits, allowed only while the transfer is still a draft.
+         *
+         *     ``expected_date`` and ``notes`` clear on an explicit null; ``reason`` is
+         *     NOT NULL, so a null on it is refused with the field named.
          */
         StockTransferUpdate: {
             /** Expected Date */

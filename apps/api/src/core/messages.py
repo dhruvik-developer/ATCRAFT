@@ -104,6 +104,17 @@ UNEXPECTED_ERROR = "An unexpected error occurred. Quote the request id when repo
 #: A PATCH/PUT whose body, after ``exclude_unset``, changes nothing.
 NO_FIELDS_TO_UPDATE = "No fields were supplied to update."
 
+
+def cannot_be_null(field: str) -> str:
+    """``"is_active cannot be null. Omit it to leave it unchanged."``
+
+    The refusal of an explicit null on an update field whose column is NOT
+    NULL - see :func:`src.core.validation.reject_null`. Omitting the key is how
+    a client says "keep the stored value".
+    """
+    return f"{field} cannot be null. Omit it to leave it unchanged."
+
+
 # --- authentication -----------------------------------------------------------
 
 CURRENT_PASSWORD_INCORRECT = "The current password is incorrect."  # noqa: S105 - a sentence
@@ -177,6 +188,7 @@ __all__ = [
     "SHIFT_ASSIGNMENT_OVERLAP",
     "UNEXPECTED_ERROR",
     "SuccessAction",
+    "cannot_be_null",
     "date_before",
     "held_for_inspection",
     "inactive_record",

@@ -51533,7 +51533,7 @@
       },
       "ProductionOrderUpdate": {
         "additionalProperties": false,
-        "description": "Partial update of a draft. Only the keys actually sent are applied.",
+        "description": "Partial update of a draft. Only the keys actually sent are applied.\n\nAn explicit null on a field whose column is NOT NULL is refused with the\nfield named; omitting the key is how the stored value is kept. Null on\n``requires_qc`` is not one of those: it asks for the default again - the\nitem's flag, or a routing operation's QC gate - which the service resolves.",
         "properties": {
           "bom_id": {
             "anyOf": [
@@ -70935,7 +70935,7 @@
       },
       "StockTransferUpdate": {
         "additionalProperties": false,
-        "description": "Header edits, allowed only while the transfer is still a draft.",
+        "description": "Header edits, allowed only while the transfer is still a draft.\n\n``expected_date`` and ``notes`` clear on an explicit null; ``reason`` is\nNOT NULL, so a null on it is refused with the field named.",
         "properties": {
           "expected_date": {
             "anyOf": [

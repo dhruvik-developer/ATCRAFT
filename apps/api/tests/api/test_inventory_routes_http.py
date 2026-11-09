@@ -1380,14 +1380,6 @@ class TestUpdateTransfer:
         )
         assert await column(session, StockTransfer.notes, theirs) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: an explicit null reason passes StockTransferUpdate (Reason | None) and is "
-            "refused only by the NOT NULL constraint - a 422 with no field errors "
-            "(inventory/schemas.py StockTransferUpdate.reason)"
-        ),
-    )
     async def test_a_null_reason_is_refused_as_a_field_error(
         self, api_client, session, tenant, unique_code
     ) -> None:
@@ -1401,6 +1393,28 @@ class TestUpdateTransfer:
         assert "reason" in (response.json()["error"].get("details") or {}).get("fields", {}), (
             f"no field error for the null reason: {response.text}"
         )
+        assert await column(session, StockTransfer.reason, transfer_id) == "Feed the assembly store"
+
+    async def test_a_null_clears_the_optional_header_fields(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        transfer_id = await draft_transfer(session, tenant, unique_code)
+        ok(
+            await api_client.patch(
+                f"/inventory/transfers/{transfer_id}",
+                json={"expected_date": today().isoformat(), "notes": "Second lorry"},
+            )
+        )
+
+        data = ok(
+            await api_client.patch(
+                f"/inventory/transfers/{transfer_id}",
+                json={"expected_date": None, "notes": None},
+            )
+        )
+
+        assert (data["expected_date"], data["notes"]) == (None, None)
+        assert await column(session, StockTransfer.notes, transfer_id) is None
         assert await column(session, StockTransfer.reason, transfer_id) == "Feed the assembly store"
 
 
