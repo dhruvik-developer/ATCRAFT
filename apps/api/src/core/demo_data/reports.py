@@ -226,7 +226,12 @@ def run_reports(admin_email: str, company_code: str | None) -> int:
         print(f"  Demonstration invoice/credit PDFs completed: {len(jobs)}")
         return 0
     except Exception as exc:
-        log.error("demo.report_generation_failed", error_type=type(exc).__name__)
+        log.error(
+            "demo.report_generation_failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            exc_info=exc,
+        )
         return 1
     finally:
         loop.run_until_complete(engine.dispose())

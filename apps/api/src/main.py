@@ -19,6 +19,7 @@ from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
 from starlette.types import Message, Receive, Scope, Send
 
 from src.api.router import api_router, register_module_routers
+from src.core import readiness
 from src.core.cache import check_redis_ready, close_redis
 from src.core.config import settings
 from src.core.database import check_database_ready, dispose_engine
@@ -129,17 +130,22 @@ and dispatch.
 
 
 async def _dependency_readiness() -> tuple[bool, bool]:
-    """Check Postgres and Redis concurrently, with a bound on each check."""
+    """Check Postgres and Redis concurrently, with a bound on each check.
 
-    async def bounded(check: Callable[[], Awaitable[bool]]) -> bool:
+    A check that runs out of time cannot say why itself - it is cancelled - so
+    the timeout is noted here, under the same dependency name.
+    """
+
+    async def bounded(dependency: str, check: Callable[[], Awaitable[bool]]) -> bool:
         try:
             return await asyncio.wait_for(check(), timeout=DEPENDENCY_CHECK_TIMEOUT_SECONDS)
-        except TimeoutError:
+        except TimeoutError as exc:
+            readiness.note_unready(dependency, exc)
             return False
 
     database_ok, redis_ok = await asyncio.gather(
-        bounded(check_database_ready),
-        bounded(check_redis_ready),
+        bounded(readiness.DATABASE, check_database_ready),
+        bounded(readiness.REDIS, check_redis_ready),
     )
     return database_ok, redis_ok
 

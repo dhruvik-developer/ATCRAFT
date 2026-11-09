@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
+from src.core import readiness
 from src.core.config import AppEnv, settings
 
 
@@ -257,13 +258,19 @@ async def set_lock_timeout(session: AsyncSession, milliseconds: int) -> None:
 
 
 async def check_database_ready() -> bool:
-    """Readiness probe: can we actually round-trip a query?"""
+    """Readiness probe: can we actually round-trip a query?
+
+    A failure is logged on the transition to not ready, with what refused
+    (:mod:`src.core.readiness`); the answer stays a plain boolean.
+    """
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-        return True
-    except Exception:
+    except Exception as exc:
+        readiness.note_unready(readiness.DATABASE, exc)
         return False
+    readiness.note_ready(readiness.DATABASE)
+    return True
 
 
 async def dispose_engine() -> None:

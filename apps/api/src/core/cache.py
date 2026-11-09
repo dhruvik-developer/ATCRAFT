@@ -27,6 +27,7 @@ from typing import Any, cast
 import redis.asyncio as aioredis
 from redis.asyncio.client import Redis
 
+from src.core import readiness
 from src.core.config import settings
 from src.core.logging import get_logger
 
@@ -116,18 +117,23 @@ async def check_redis_ready() -> bool:
     with the application serving traffic correctly the whole time.
 
     Dropping the client on any failure means the next probe reconnects, which is
-    what makes the endpoint recover on its own.
+    what makes the endpoint recover on its own. The failure itself is logged on
+    the transition to not ready (:mod:`src.core.readiness`).
     """
     try:
         client = await get_redis()
-        return bool(await client.ping())
+        answered = bool(await client.ping())
     except asyncio.CancelledError:
         discard_redis()
         # Cancellation is not an outcome to report; it belongs to the caller.
         raise
-    except Exception:
+    except Exception as exc:
         discard_redis()
+        readiness.note_unready(readiness.REDIS, exc)
         return False
+    if answered:
+        readiness.note_ready(readiness.REDIS)
+    return answered
 
 
 def make_key(namespace: str, company_id: uuid.UUID | str | None, *parts: Any) -> str:

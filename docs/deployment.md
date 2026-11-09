@@ -48,7 +48,10 @@ git pull --ff-only origin main
    against a populated pre-squash database.
 6. Start the new release only after migration succeeds and wait for all health
    checks. The backend health check uses `/health/ready`, which checks both
-   PostgreSQL and Redis.
+   PostgreSQL and Redis. When it answers 503, the API's log says why: a
+   `health.dependency_unready` line names the dependency, the error type and
+   the address that refused, once per transition, and
+   `health.dependency_ready` follows when it answers again.
 
 If migration fails, application traffic remains stopped and the script prints
 the backup path. Inspect or restore deliberately; do not start new code against

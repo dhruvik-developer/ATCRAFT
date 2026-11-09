@@ -198,7 +198,8 @@ def setup_tracing(app: Any) -> None:
     except ImportError:
         log.warning("otel.unavailable", hint='install the optional extra: pip install ".[otel]"')
     except Exception as exc:
-        log.warning("otel.setup_failed", error=str(exc))
+        # Still tolerant, but a bug in the setup must be diagnosable from its line.
+        log.warning("otel.setup_failed", error=str(exc), exc_info=exc)
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
