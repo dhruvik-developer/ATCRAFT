@@ -70,6 +70,11 @@ export function ChartTooltip({
  * coloured bar is not information anybody can act on if they cannot see it.
  * Each row's first cell heads its row, as the first column heads the chart's
  * categories.
+ *
+ * `sr-only` sits on a wrapping div, not on the table: a table is never narrower
+ * than its content, whatever its width, and `overflow` does not clip it, so a
+ * visually hidden table still widened a 320px page by its full width
+ * (tests/e2e/specs/ui-layout.spec.ts, the ageing chart).
  */
 export function ChartDataTable({
   caption,
@@ -81,28 +86,30 @@ export function ChartDataTable({
   rows: string[][]
 }) {
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          {headers.map((header) => (
-            <th key={header} scope="col">
-              {header}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([first, ...rest], index) => (
-          // Two parties can share a name, so the position keeps the keys apart.
-          <tr key={`${index}-${first}`}>
-            <th scope="row">{first}</th>
-            {rest.map((cell, cellIndex) => (
-              <td key={cellIndex}>{cell}</td>
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
+            {headers.map((header) => (
+              <th key={header} scope="col">
+                {header}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map(([first, ...rest], index) => (
+            // Two parties can share a name, so the position keeps the keys apart.
+            <tr key={`${index}-${first}`}>
+              <th scope="row">{first}</th>
+              {rest.map((cell, cellIndex) => (
+                <td key={cellIndex}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

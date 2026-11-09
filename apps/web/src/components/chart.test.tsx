@@ -57,7 +57,10 @@ describe('ChartDataTable', () => {
     const table = screen.getByRole('table', {
       name: 'Outstanding amount by party and age bucket, in INR',
     })
-    expect(table).toHaveClass('sr-only')
+    // Hidden by a wrapping block: a table itself cannot be clipped narrower than
+    // its content, so `sr-only` on the table still widened a phone page.
+    expect(table).not.toHaveClass('sr-only')
+    expect(table.parentElement).toHaveClass('sr-only')
     expect(
       within(table)
         .getAllByRole('columnheader')
