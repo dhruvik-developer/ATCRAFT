@@ -4851,42 +4851,57 @@ holder file against an item again. If some uploads against an item must stay
 internal for people who may edit items, the catalogue needs a typed link, as
 the vendor portal has (§C1-3), rather than a wider upload right.
 
-## §DOC-2. A file filed against an item or an inspection names one this company holds
+## §DOC-2. A file filed against a record names one this company holds
 
 **Assumed.** `POST /documents` reads `entity_id` through the owning module's
 tenant-scoped repository for each entity type a module registers a resolver
-for - `item` (products) and `qc_inspection` (quality) - and answers
-`404 NOT_FOUND` naming the record (`Item not found: <id>.`,
-`QC inspection not found: <id>.`) for another company's record, an unknown id or
-another kind of record's id, before any byte is read or stored. It runs after
-the attach policy (§DOC-1), so a caller without `item.update` is refused 403
-first. Any other entity type is stored as given, as before. Modules that file
-against their own typed record (a purchase order's shared files, a generated
-PDF) call the upload without a principal, against a record they have just
-read, and are not checked again. Files filed before the rule stay where they
-are.
+for, and answers `404 NOT_FOUND` naming the record (`Item not found: <id>.`,
+`Vendor not found: <id>.`) for another company's record, an unknown id or
+another kind of record's id, before any byte is read or stored. The resolved
+types are the ones a person files documents under: `item` (products) and
+`qc_inspection` (quality), which the screens file through the upload; the
+record types the Documents page suggests, `packing_order` (packing) and
+`report_snapshot` (reports); and the records people attach their own paperwork
+to, which the demo loader files as a person would - `purchase_order` and
+`goods_receipt` (procurement), `vendor`, `sales_order` and `warehouse`. The
+repository is the one every read of that record goes through, so a scope it
+applies holds here too: a warehouse outside the caller's own assignment is as
+absent as on the warehouse list. It runs after the attach policy (§DOC-1), so a caller without `item.update` is
+refused 403 first. A type only a worker files under - a sales invoice, a credit
+note, a purchase return's debit note, a valuation workbook, a job-work challan
+- and any type no module knows are stored as given, as before. Modules that
+file against their own typed record (a purchase order's shared files, a
+generated PDF) call the upload without a principal, against a record they have
+just read, and are not checked again; the worker files a packing list, a report
+and a purchase order PDF under the owning module's own type. Files filed before
+the rule stay where they are.
 
 **Why.** `documents.entity_id` is polymorphic and has no foreign key, so a
 mistyped id or another company's satisfied every constraint and the file was
-stored with 201 against nothing - listed under no item or inspection, so
-nobody looking for it would find it. A UUID is globally unique: only a read
-through the tenant-scoped repository says which company a record belongs to
-(§REF-1). The owning module registers its reader, as it registers an attach
-policy, so the documents module imports none of the modules whose records it
-can be filed against.
+stored with 201 against nothing - listed under no record, so nobody looking for
+it would find it. The Documents page takes the type as free text and suggests
+some, and the list shows the types the demo loader used, so every one of those
+was a type a person could type with a foreign or unknown id. A UUID is globally
+unique: only a read through the tenant-scoped repository says which company a
+record belongs to (§REF-1). The owning module registers its reader, as it
+registers an attach policy, so the documents module imports none of the
+modules whose records it can be filed against.
 
 **Where.** `src/common/document_access.py` - `register_document_entity_resolver`,
-`assert_entity_held`; `src/modules/products/service.py` and
-`src/modules/quality/service.py` - the registrations for `ITEM_DOCUMENT_ENTITY`
-and `INSPECTION_DOCUMENT_ENTITY`; `src/modules/documents/service.py` -
-`DocumentService.upload(principal=...)`. `tests/unit/test_document_entity_resolvers.py`
-lists the entity types the code base files documents under with no resolver,
-and fails if a type the screens file through the upload loses its resolver or
-a resolver is registered for a type it does not list.
+`assert_entity_held`; the registrations beside each `*_DOCUMENT_ENTITY` in
+`src/modules/{products,quality,packing,reports,procurement,vendors,sales,warehouses}/service.py`;
+`src/modules/documents/service.py` - `DocumentService.upload(principal=...)`;
+`src/modules/documents/router.py` - `upload_document`, whose description names
+the resolved types. `tests/unit/test_document_entity_resolvers.py` lists the
+types filed through the upload and the worker-only types, and fails if a listed
+type loses its resolver, a resolver is registered for a type it does not list,
+a type the Documents page suggests has none, or the route's description names
+a different set.
 
 **Impact if wrong.** Remove a registration to accept any id under that type
 again. To hold another entity type to its records, register its owner's
-`get_or_404` and move the type from the guard's unresolved list.
+`get_or_404`, move the type from the guard's unresolved list and name it in the
+route's description.
 
 ## §PROMO-1. A banner whose image has lapsed is not shown to dealers
 

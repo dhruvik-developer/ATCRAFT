@@ -30,6 +30,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.document_access import register_document_entity_resolver
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -68,6 +69,20 @@ log = get_logger(__name__)
 
 AUDIT_ENTITY_WAREHOUSE = "warehouse"
 AUDIT_ENTITY_LOCATION = "storage_location"
+
+#: ``documents.entity_type`` of a file filed against a warehouse - a stock
+#: extract, a licence.
+WAREHOUSE_DOCUMENT_ENTITY = "warehouse"
+
+# A file filed against a warehouse is one of this company's that the caller
+# may see - not another company's, not one outside the caller's warehouse
+# assignment, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    WAREHOUSE_DOCUMENT_ENTITY,
+    lambda session, tenant, warehouse_id: WarehouseRepository(session, tenant).get_or_404(
+        warehouse_id
+    ),
+)
 
 # ASSUMPTION: a warehouse (or bin) hierarchy deeper than five levels is a data
 # entry mistake, not a real layout - plant > store > sub-store > rack-group is
@@ -860,6 +875,7 @@ __all__ = [
     "AUDIT_ENTITY_WAREHOUSE",
     "LOCATION_LIFECYCLE",
     "MAX_HIERARCHY_DEPTH",
+    "WAREHOUSE_DOCUMENT_ENTITY",
     "WAREHOUSE_LIFECYCLE",
     "MasterLifecycleState",
     "StorageLocationService",

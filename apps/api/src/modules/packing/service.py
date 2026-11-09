@@ -81,6 +81,7 @@ from typing import Any, Protocol, TypedDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.core.actors import actor_id
 from src.core.clock import today, utcnow
 from src.core.database import transaction
@@ -175,6 +176,17 @@ log = get_logger(__name__)
 
 AUDIT_PACKING_ORDER = "packing_order"
 AUDIT_CARTON = "carton"
+
+#: ``documents.entity_type`` of a file filed against a packing order - its
+#: generated packing list, and what a person files from the Documents screen.
+PACKING_ORDER_DOCUMENT_ENTITY = "packing_order"
+
+# A file filed against a packing order is one of this company's - not another
+# company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    PACKING_ORDER_DOCUMENT_ENTITY,
+    lambda session, tenant, order_id: PackingOrderRepository(session, tenant).get_or_404(order_id),
+)
 
 #: What the ledger rows this module posts point back at. A bare string, matching
 #: ``inventory_transactions.reference_type`` - the ledger outlives its source, so
@@ -3540,6 +3552,7 @@ __all__ = [
     "MOVEMENT_REFERENCE_CARTON",
     "PACKING_LIST_QUEUE",
     "PACKING_LIST_TASK_NAME",
+    "PACKING_ORDER_DOCUMENT_ENTITY",
     "PACKING_ORDER_LIFECYCLE",
     "AssemblyHandover",
     "AssemblyHandoverPort",

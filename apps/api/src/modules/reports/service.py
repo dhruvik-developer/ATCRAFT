@@ -43,7 +43,10 @@ from sqlalchemy import ColumnElement, Select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
-from src.common.document_access import register_document_read_policy
+from src.common.document_access import (
+    register_document_entity_resolver,
+    register_document_read_policy,
+)
 from src.core.cache import CacheNamespace, cache_get, cache_set, make_key
 from src.core.clock import utcnow
 from src.core.database import transaction
@@ -184,6 +187,10 @@ JOB_DOWNLOAD_URL_TEMPLATE = "/reports/jobs/{job_id}/download"
 
 AUDIT_ENTITY = "report_snapshot"
 SUMMARY_AUDIT_ENTITY = "inventory_summary"
+
+#: ``documents.entity_type`` of a file filed against a report job - the
+#: generated file itself, and what a person files from the Documents screen.
+REPORT_DOCUMENT_ENTITY = "report_snapshot"
 
 PERCENT_QUANTUM = Decimal("0.01")
 QUANTITY_QUANTUM = Decimal("0.0001")
@@ -2476,7 +2483,7 @@ def catalogue_report_document_read_policy(
         document_id,
         scope_key=REPORT_WAREHOUSE_SCOPE_PARAMETER,
         report_keys=tuple(REPORT_WAREHOUSE_SCOPED_KEYS),
-        entity_type="report_snapshot",
+        entity_type=REPORT_DOCUMENT_ENTITY,
     )
 
 
@@ -2511,6 +2518,15 @@ register_document_read_policy(
 register_document_read_policy("production_cost_permission", production_cost_document_read_policy)
 register_document_read_policy("job_work_cost_permission", job_work_cost_document_read_policy)
 
+# A file filed against a report job is one of this company's jobs - not another
+# company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    REPORT_DOCUMENT_ENTITY,
+    lambda session, tenant, snapshot_id: ReportSnapshotRepository(session, tenant).get_or_404(
+        snapshot_id
+    ),
+)
+
 
 __all__ = [
     "ABANDONED_JOB_BATCH",
@@ -2530,6 +2546,7 @@ __all__ = [
     "OVER_AGE_BUCKET",
     "REPORT_CALCULATION_VERSION_PARAMETER",
     "REPORT_CATALOGUE",
+    "REPORT_DOCUMENT_ENTITY",
     "REPORT_EXPORT_FORMATS",
     "REPORT_FORMAT_PARAMETER",
     "REPORT_INLINE_ROW_LIMIT",

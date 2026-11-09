@@ -101,6 +101,7 @@ from src.modules.notifications.models import NotificationSeverity, NotificationT
 from src.modules.notifications.service import notify
 from src.modules.packing import service as packing_service
 from src.modules.procurement import purchase_return_debit_note_pdf_repository
+from src.modules.procurement.inbound_repository import ORDER_DOCUMENT_ENTITY
 from src.modules.procurement.purchase_return_debit_note_pdf import (
     render_purchase_return_debit_note_pdf,
 )
@@ -116,7 +117,7 @@ XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sh
 
 #: What the generated document is filed against, so "every artefact for this
 #: packing order" is one indexed lookup on ``documents``.
-PACKING_LIST_ENTITY = "packing_order"
+PACKING_LIST_ENTITY = packing_service.PACKING_ORDER_DOCUMENT_ENTITY
 SALES_INVOICE_ENTITY = "sales_invoice"
 CREDIT_NOTE_ENTITY = "credit_note"
 PURCHASE_RETURN_ENTITY = "purchase_return"
@@ -320,7 +321,7 @@ def render_packing_list_pdf(data: dict[str, Any]) -> bytes:
 
 #: The ``documents.entity_type`` a PO PDF is filed under - the purchase order
 #: itself, so the vendor portal and the PO's file list both find it.
-PURCHASE_ORDER_ENTITY = "purchase_order"
+PURCHASE_ORDER_ENTITY = ORDER_DOCUMENT_ENTITY
 
 #: Two decimals, rounded half-up the way a printed rupee amount is.
 _PAISE = Decimal("0.01")
@@ -1665,7 +1666,7 @@ async def inventory_valuation(
 
 #: What a generated report artefact is filed against, so "the file for this job"
 #: is one indexed lookup on ``documents`` rather than a guess from the filename.
-GENERATED_REPORT_ENTITY = "report_snapshot"
+GENERATED_REPORT_ENTITY = reports_service.REPORT_DOCUMENT_ENTITY
 
 #: Widest a generated column is allowed to be. Auto-sizing to the longest value
 #: would let one 500-character note column push every useful column off the

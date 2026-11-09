@@ -1,5 +1,5 @@
 """``POST /documents`` against an item needs the right to change the item, and
-against an item or an inspection, one this company holds.
+against a record of a type its module resolves, one this company holds.
 
 The dealer catalogue shows and serves every JPEG, PNG or WebP filed against a
 sellable item to every dealer (docs/assumptions.md §DOC-1). Before the attach
@@ -9,8 +9,9 @@ enough to put a defect photo or an internal drawing in front of every dealer
 from the Documents screen. These drive the route end to end: the refusal
 stores nothing, an item editor's image reaches the catalogue, and an image filed
 under any other entity type stays inside the company. A file filed against an
-item or an inspection that is another company's, or no record at all, is
-refused before a byte is stored (docs/assumptions.md §DOC-2).
+item, an inspection, a vendor or a warehouse that is another company's, or no
+record at all, is refused before a byte is stored, and so is a warehouse
+outside the caller's own assignment (docs/assumptions.md §DOC-2).
 
 Fixtures hand back ids, never ORM rows: an expected failure rolls its savepoint
 back and expires what was loaded before it (CLAUDE.md).
@@ -19,6 +20,7 @@ back and expires what was loaded before it (CLAUDE.md).
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -105,6 +107,18 @@ async def raised_inspection(
         ),
     )
     return raised.id
+
+
+async def seeded(session: AsyncSession, company_id: uuid.UUID, entity_type: str) -> uuid.UUID:
+    """A vendor or a warehouse of ``company_id``'s, by the document entity type naming it."""
+    code = f"DOC-{uuid.uuid4().hex[:8].upper()}"
+    if entity_type == "vendor":
+        return (await seed_support.seed_vendor(session, company_id=company_id, code=code)).id
+    return (await seed_support.seed_warehouse(session, company_id=company_id, code=code)).id
+
+
+#: What a 404 calls each record type, as its repository's ``get_or_404`` words it.
+RECORD_LABELS = {"vendor": "Vendor", "warehouse": "Warehouse"}
 
 
 def preset(base: Principal, name: str) -> Principal:
@@ -292,3 +306,71 @@ async def test_an_entity_type_no_module_resolves_is_filed_as_given(
 
     assert (filed["entity_type"], filed["entity_id"]) == ("drawing_register", str(named))
     assert await filed_against(session, named) == 1
+
+
+@pytest.mark.parametrize("entity_type", sorted(RECORD_LABELS))
+@pytest.mark.parametrize("whose", ["another-company", "no-such-record"])
+async def test_filing_against_a_vendor_or_a_warehouse_this_company_does_not_hold_is_not_found(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    principal: Principal,
+    foreign: TenantContext,
+    storage: Path,
+    entity_type: str,
+    whose: str,
+) -> None:
+    # Types only the demo loader filed under until now - a person typing one
+    # into the Documents page's "Attach to" fields filed against nothing.
+    named = (
+        await seeded(session, foreign.company_id, entity_type)
+        if whose == "another-company"
+        else uuid.uuid4()
+    )
+    sign_in(holding(principal, Permission.DOCUMENT_UPLOAD))
+
+    error = error_of(await upload(api_client, entity_type, named, "licence.png"), 404, "NOT_FOUND")
+
+    assert error["message"] == f"{RECORD_LABELS[entity_type]} not found: {named}."
+    assert await filed_against(session, named) == 0
+    assert stored_files(storage) == []
+
+
+@pytest.mark.parametrize("entity_type", sorted(RECORD_LABELS))
+async def test_a_file_is_filed_against_this_companys_vendor_or_warehouse(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    storage: Path,
+    entity_type: str,
+) -> None:
+    named = await seeded(session, tenant.company_id, entity_type)
+    sign_in(holding(principal, Permission.DOCUMENT_UPLOAD))
+
+    filed = data_of(await upload(api_client, entity_type, named, "licence.png"), 201)
+
+    assert (filed["entity_type"], filed["entity_id"]) == (entity_type, str(named))
+    assert await filed_against(session, named) == 1
+    assert len(stored_files(storage)) == 1
+
+
+async def test_a_warehouse_outside_the_callers_assignment_is_not_found(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    storage: Path,
+) -> None:
+    # This company's store, but one the caller is not assigned to: the resolver
+    # reads through the warehouse repository, which every read of a warehouse
+    # is held to, so it is as absent here as on the warehouse list.
+    own = await seeded(session, tenant.company_id, "warehouse")
+    other = await seeded(session, tenant.company_id, "warehouse")
+    sign_in(replace(holding(principal, Permission.DOCUMENT_UPLOAD), allowed_warehouse_ids=(own,)))
+
+    error = error_of(await upload(api_client, "warehouse", other, "licence.png"), 404, "NOT_FOUND")
+    filed = data_of(await upload(api_client, "warehouse", own, "licence.png"), 201)
+
+    assert error["message"] == f"Warehouse not found: {other}."
+    assert await filed_against(session, other) == 0
+    assert filed["entity_id"] == str(own)

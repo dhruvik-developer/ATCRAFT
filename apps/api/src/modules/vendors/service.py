@@ -42,6 +42,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.banking import ACCOUNT_NUMBER_VISIBLE_DIGITS, mask_account_number
+from src.common.document_access import register_document_entity_resolver
 from src.core.clock import utcnow
 from src.core.database import affected_rows, transaction
 from src.core.deps import TenantContext
@@ -113,6 +114,17 @@ AUDIT_ENTITY_VENDOR = "vendor"
 AUDIT_ENTITY_CONTACT = "vendor_contact"
 AUDIT_ENTITY_CATEGORY = "vendor_category"
 AUDIT_ENTITY_TRANSPORTER = "transporter"
+
+#: ``documents.entity_type`` of a file filed against a vendor - a registration
+#: certificate, a signed agreement.
+VENDOR_DOCUMENT_ENTITY = "vendor"
+
+# A file filed against a vendor is one of this company's vendors - not another
+# company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    VENDOR_DOCUMENT_ENTITY,
+    lambda session, tenant, vendor_id: VendorRepository(session, tenant).get_or_404(vendor_id),
+)
 VENDOR_APPROVAL_URL = "/vendors"
 
 # ASSUMPTION: a vendor may not be approved by the person who created the record.
@@ -1922,6 +1934,7 @@ __all__ = [
     "QUALITY_WEIGHT",
     "REQUIRE_SEPARATE_APPROVER",
     "TRANSPORTER_LIFECYCLE",
+    "VENDOR_DOCUMENT_ENTITY",
     "VENDOR_LIFECYCLE",
     "TransporterService",
     "TransporterState",

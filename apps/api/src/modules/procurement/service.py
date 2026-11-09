@@ -47,6 +47,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.common.repository import labels_by_id
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.actors import actor_id
@@ -87,7 +88,7 @@ from src.modules.procurement import duplicate_search
 from src.modules.procurement import purchase_order_sources as order_sources
 from src.modules.procurement.demand_provenance import canonical_demand_refs
 from src.modules.procurement.demand_reference_service import validate_source_demand_refs
-from src.modules.procurement.inbound_repository import po_is_late
+from src.modules.procurement.inbound_repository import ORDER_DOCUMENT_ENTITY, po_is_late
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     EDITABLE_PO_STATUSES,
@@ -280,6 +281,27 @@ AUDIT_QUOTATION = "vendor_quotation"
 AUDIT_PURCHASE_ORDER = "purchase_order"
 AUDIT_GOODS_RECEIPT = "goods_receipt"
 AUDIT_PURCHASE_RETURN = "purchase_return"
+
+#: ``documents.entity_type`` of a file filed against a goods receipt - the
+#: carrier's delivery challan, a weighbridge slip. A purchase order's files are
+#: filed under ``ORDER_DOCUMENT_ENTITY``.
+RECEIPT_DOCUMENT_ENTITY = "goods_receipt"
+
+# A file filed against a purchase order or a goods receipt is one of this
+# company's - not another company's, and not an id naming none, which no order
+# or receipt would ever list. A vendor's shared files are filed against the
+# order the portal has just read, and are not checked again.
+# docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    ORDER_DOCUMENT_ENTITY,
+    lambda session, tenant, order_id: PurchaseOrderRepository(session, tenant).get_or_404(order_id),
+)
+register_document_entity_resolver(
+    RECEIPT_DOCUMENT_ENTITY,
+    lambda session, tenant, receipt_id: GoodsReceiptRepository(session, tenant).get_or_404(
+        receipt_id
+    ),
+)
 
 #: Reference type written onto every inventory ledger row this module posts, so
 #: "what did this GRN move?" is one indexed lookup (database.md section 4.2).
@@ -6080,6 +6102,7 @@ __all__ = [
     "AUDIT_QUOTATION",
     "AUDIT_REQUISITION",
     "AUDIT_RFQ",
+    "RECEIPT_DOCUMENT_ENTITY",
     "IncomingInspectionVerdict",
     "QualityPort",
     "awaiting_incoming_inspections",

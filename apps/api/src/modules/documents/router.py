@@ -96,8 +96,10 @@ FilterDep = Annotated[DocumentFilters, Depends(document_filters)]
         "generated server-side and never derives from the submitted file name. Filing "
         "against an `item` also needs `item.update`, because the dealer catalogue publishes "
         "the images filed against a sellable item (403 otherwise). An `entity_id` of a type "
-        "its module resolves (`item`, `qc_inspection`) must be a record this company holds "
-        "(404 otherwise); any other entity type is stored as given."
+        "its module resolves (`item`, `qc_inspection`, `purchase_order`, `goods_receipt`, "
+        "`vendor`, `sales_order`, `warehouse`, `packing_order`, `report_snapshot`) must be a "
+        "record this company holds and the caller may see (404 otherwise); any other entity "
+        "type is stored as given."
     ),
     dependencies=[
         require_permission(Permission.DOCUMENT_UPLOAD),

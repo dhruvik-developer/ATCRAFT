@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.currency import assert_customer_currency
@@ -129,6 +130,17 @@ from src.modules.sales.schemas import (
 log = get_logger(__name__)
 
 AUDIT_SALES_ORDER = "sales_order"
+
+#: ``documents.entity_type`` of a file filed against a sales order - the
+#: customer's own purchase order, a signed drawing.
+SALES_ORDER_DOCUMENT_ENTITY = "sales_order"
+
+# A file filed against a sales order is one of this company's orders - not
+# another company's, and not an id naming none. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    SALES_ORDER_DOCUMENT_ENTITY,
+    lambda session, tenant, order_id: SalesOrderRepository(session, tenant).get_or_404(order_id),
+)
 
 #: Header fields snapshotted around an edit so the audit diff names what moved
 #: rather than reprinting the whole row.
@@ -3249,6 +3261,7 @@ async def at_risk_alert_candidates(
 __all__ = [
     "AUDIT_SALES_ORDER",
     "AUDIT_SALES_SETTINGS",
+    "SALES_ORDER_DOCUMENT_ENTITY",
     "SALES_ORDER_LIFECYCLE",
     "TOP_UP_STATUSES",
     "AllocationPort",
