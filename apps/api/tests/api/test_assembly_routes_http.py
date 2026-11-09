@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +42,7 @@ from src.modules.assembly.schemas import IssueComponentsRequest
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.packing import service as packing_service
+from src.modules.packing.models import PackingOrder
 from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
 from src.workers import celery_app as celery_module
 from tests import seed_support
@@ -607,6 +608,107 @@ class TestMarkPacked:
 
         refused(response, 404, "NOT_FOUND")
         assert await column(session, AssemblyOrder.packing_order_id, order_id) is None
+
+    async def test_a_cancelled_packing_order_cannot_take_back_what_it_gave_up(
+        self, api_client: AsyncClient, session, tenant, kit
+    ) -> None:
+        order_id = await completed_order(session, tenant, kit)
+        packing_order_id = await packing_order_for(session, tenant, kit)
+        await service.mark_packed(
+            session, tenant, order_id, packing_order_id=packing_order_id, reason=REASON
+        )
+        await packing_service.cancel_order(
+            session, tenant, packing_order_id, reason="Customer withdrew"
+        )
+        assert str(order_id) in await ready_for_packing(api_client, kit)
+
+        response = await api_client.post(
+            f"/assembly/{order_id}/pack",
+            json={"packing_order_id": str(packing_order_id), "reason": "Typed from a label"},
+        )
+
+        error = refused(response, 422, "BUSINESS_RULE_VIOLATION")
+        assert error["details"] == {
+            "packing_order_id": str(packing_order_id),
+            "status": "CANCELLED",
+        }
+        assert " is CANCELLED " in error["message"]
+        assert await column(session, AssemblyOrder.packing_order_id, order_id) is None
+        assert str(order_id) in await ready_for_packing(api_client, kit)
+        # One step further: the output is still there for an order that can pack it.
+        live = await packing_order_for(session, tenant, kit)
+        data = ok(
+            await api_client.post(
+                f"/assembly/{order_id}/pack",
+                json={"packing_order_id": str(live), "reason": "Packed for dispatch"},
+            )
+        )
+        assert data["packing_order_id"] == str(live)
+
+    @pytest.mark.parametrize("status", ["PACKED", "HANDED_OVER", "CLOSED"])
+    async def test_a_packing_order_past_packing_cannot_take_the_output(
+        self, api_client: AsyncClient, session, tenant, kit, status
+    ) -> None:
+        order_id = await completed_order(session, tenant, kit)
+        packing_order_id = await packing_order_for(session, tenant, kit)
+        # Walking a packing order this far takes boxes in stock, cartons and a
+        # seal; the status is all a claim reads, so it is arranged directly.
+        await session.execute(
+            update(PackingOrder).where(PackingOrder.id == packing_order_id).values(status=status)
+        )
+
+        response = await api_client.post(
+            f"/assembly/{order_id}/pack",
+            json={"packing_order_id": str(packing_order_id), "reason": "Packed for dispatch"},
+        )
+
+        error = refused(response, 422, "BUSINESS_RULE_VIOLATION")
+        assert error["details"]["status"] == status
+        assert await column(session, AssemblyOrder.packing_order_id, order_id) is None
+        assert str(order_id) in await ready_for_packing(api_client, kit)
+
+    async def test_a_packing_order_on_the_bench_can_take_the_output(
+        self, api_client: AsyncClient, session, tenant, kit
+    ) -> None:
+        order_id = await completed_order(session, tenant, kit)
+        packing_order_id = await packing_order_for(session, tenant, kit)
+        await session.execute(
+            update(PackingOrder)
+            .where(PackingOrder.id == packing_order_id)
+            .values(status="IN_PROGRESS")
+        )
+
+        data = ok(
+            await api_client.post(
+                f"/assembly/{order_id}/pack",
+                json={"packing_order_id": str(packing_order_id), "reason": "Packed for dispatch"},
+            )
+        )
+
+        assert data["packing_order_id"] == str(packing_order_id)
+        assert str(order_id) not in await ready_for_packing(api_client, kit)
+
+    async def test_a_claim_already_held_is_not_re_checked_once_its_order_is_packed(
+        self, api_client: AsyncClient, session, tenant, kit
+    ) -> None:
+        """Packing the output since is what the claim was for, so re-sending it stays a no-op."""
+        order_id = await completed_order(session, tenant, kit)
+        packing_order_id = await packing_order_for(session, tenant, kit)
+        await service.mark_packed(
+            session, tenant, order_id, packing_order_id=packing_order_id, reason=REASON
+        )
+        await session.execute(
+            update(PackingOrder).where(PackingOrder.id == packing_order_id).values(status="PACKED")
+        )
+
+        data = ok(
+            await api_client.post(
+                f"/assembly/{order_id}/pack",
+                json={"packing_order_id": str(packing_order_id), "reason": "Packed for dispatch"},
+            )
+        )
+
+        assert data["packing_order_id"] == str(packing_order_id)
 
     @pytest.mark.parametrize(
         ("body", "field"),

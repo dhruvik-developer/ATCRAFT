@@ -1661,16 +1661,43 @@ async def _release_assembly_claims(
         await port.release_claims(session, tenant, packing_order_id, reason=reason)
 
 
-async def packing_order_exists(
+#: ASSUMPTION: a packing order can take an assembly's output only while it can
+#: still pack it - as a DRAFT or IN_PROGRESS. Those are also the only statuses
+#: a cancel leaves from, and the cancel is what gives a claim back
+#: (``_release_assembly_claims``): a claim by a packed, handed-over, closed or
+#: cancelled order would take the output off the ready-for-packing feed with
+#: nothing ever able to offer it again. docs/assumptions.md §E4-8.
+CLAIMING_STATUSES: tuple[PackingOrderStatus, ...] = CANCELLABLE_STATUSES
+
+
+@dataclass(frozen=True, slots=True)
+class PackingClaimHolder:
+    """The packing order an assembly's hand-over claim names, as assembly reads it."""
+
+    code: str
+    status: str
+    #: Whether the order can still take an assembly's output (``CLAIMING_STATUSES``).
+    can_claim: bool
+
+
+async def packing_claim_holder(
     session: AsyncSession, tenant: TenantContext, packing_order_id: uuid.UUID
-) -> bool:
-    """Whether this company holds the packing order - assembly's hand-over claim check.
+) -> PackingClaimHolder | None:
+    """The packing order a hand-over claim names - assembly's check before it claims.
 
     ``assembly_orders.packing_order_id`` is a bare UUID this module owns the
     target of, so assembly asks here (``resolve_packing_order_reader_port``)
-    rather than trusting the id it was sent.
+    rather than trusting the id it was sent. ``None`` when this company holds no
+    such order; otherwise its code and status, and whether that status can
+    still take the output.
     """
-    return await PackingOrderRepository(session, tenant).exists(id=packing_order_id)
+    order = await PackingOrderRepository(session, tenant).get(packing_order_id)
+    if order is None:
+        return None
+    status = PackingOrderStatus(order.status)
+    return PackingClaimHolder(
+        code=order.code, status=str(status), can_claim=status in CLAIMING_STATUSES
+    )
 
 
 def resolve_assembly_port() -> AssemblyHandoverPort | None:
@@ -3501,6 +3528,7 @@ __all__ = [
     "AUDIT_CARTON",
     "AUDIT_PACKING_ORDER",
     "BARCODE_ALPHABET",
+    "CLAIMING_STATUSES",
     "MOVEMENT_REFERENCE_CARTON",
     "PACKING_LIST_QUEUE",
     "PACKING_LIST_TASK_NAME",
@@ -3509,6 +3537,7 @@ __all__ = [
     "AssemblyHandoverPort",
     "DispatchLoadingPort",
     "LineFacts",
+    "PackingClaimHolder",
     "PlannedContent",
     "add_carton",
     "barcode_body",
@@ -3534,9 +3563,9 @@ __all__ = [
     "list_ready_for_dispatch",
     "net_weight_of",
     "order_detail",
+    "packing_claim_holder",
     "packing_list_data",
     "packing_list_parameters",
-    "packing_order_exists",
     "plan_contents",
     "queue_packing_list",
     "ready_for_dispatch",

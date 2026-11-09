@@ -873,28 +873,46 @@ def resolve_inspection_reader_port() -> InspectionReaderPort | None:
     return reader if callable(reader) else None
 
 
+class PackingClaimHolder(Protocol):
+    """What :func:`mark_packed` reads of the packing order a claim names.
+
+    Packing's own ``PackingClaimHolder``, read by attribute so this module
+    imports nothing of packing's.
+    """
+
+    @property
+    def code(self) -> str: ...
+
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def can_claim(self) -> bool: ...
+
+
 class PackingOrderReaderPort(Protocol):
-    """The packing module's answer to "does this company hold that packing order?"."""
+    """The packing module's answer to "which packing order is that, and can it take output?"."""
 
     async def __call__(
         self, session: AsyncSession, tenant: TenantContext, packing_order_id: uuid.UUID
-    ) -> bool: ...
+    ) -> PackingClaimHolder | None: ...
 
 
 def resolve_packing_order_reader_port() -> PackingOrderReaderPort | None:
-    """The packing module's ``packing_order_exists``, if it is deployed.
+    """The packing module's ``packing_claim_holder``, if it is deployed.
 
     Read by :func:`mark_packed`. ``packing_order_id`` is a bare UUID with no
     foreign key, so this tenant-scoped read is the only check that a claim names
     a packing order at all - and a foreign key would not have been a tenant check
-    anyway.
+    anyway. It also says whether that order can still take output, which only
+    packing knows.
     """
     try:
         from src.modules.packing import service as packing_service
     except ImportError:
         return None
 
-    reader = getattr(packing_service, "packing_order_exists", None)
+    reader = getattr(packing_service, "packing_claim_holder", None)
     return reader if callable(reader) else None
 
 
@@ -2749,7 +2767,10 @@ async def mark_packed(
     The packing order must be one this company holds. A typed id that names
     nothing - or another company's order - would otherwise take the output off
     the feed with no packing order behind it, and nothing would ever offer it
-    again. No packing module deployed means no packing order can exist.
+    again. No packing module deployed means no packing order can exist. A new
+    claim must also name an order that can still take output: one already
+    packed, handed over, closed or cancelled never packs it, and nothing would
+    give the claim back (docs/assumptions.md §E4-8).
     """
     repo = AssemblyOrderRepository(session, tenant)
 
@@ -2759,8 +2780,18 @@ async def mark_packed(
             raise NotFoundError("Assembly order", order_id)
         _assert_packable(order, packing_order_id=packing_order_id)
         reader = resolve_packing_order_reader_port()
-        if reader is None or not await reader(session, tenant, packing_order_id):
+        holder = None if reader is None else await reader(session, tenant, packing_order_id)
+        if holder is None:
             raise NotFoundError("Packing order", packing_order_id)
+        # Only a new claim is held to the status. Re-sending the claim this
+        # order already holds names the packing order that took it while it
+        # could, and packing it since is what the claim was for (§REF-1).
+        if order.packing_order_id is None and not holder.can_claim:
+            raise BusinessRuleError(
+                f"Packing order {holder.code} is {holder.status} and can no longer take "
+                f"{order.code}'s output.",
+                details={"packing_order_id": str(packing_order_id), "status": holder.status},
+            )
 
         order.packing_order_id = packing_order_id
         order.packed_at = order.packed_at or utcnow()
@@ -2922,6 +2953,7 @@ __all__ = [
     "InspectionVerdict",
     "KitShortageError",
     "Lateness",
+    "PackingClaimHolder",
     "PackingHandoverFacts",
     "PackingOrderReaderPort",
     "QualityPort",

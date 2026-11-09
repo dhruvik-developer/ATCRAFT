@@ -2246,16 +2246,24 @@ assembly's source when it was raised for a sales order - a named customer must
 then be that customer, and a named sales order that order - otherwise the
 customer must be named. The sales-order *line* is not guessed. Cancelling or
 deleting the packing order gives the assembly back: its claim is cleared, with
-an audit row, and it is offered for packing again.
+an audit row, and it is offered for packing again. A new claim through
+`POST /assembly/{id}/pack` must name a packing order that can still pack the
+output - a DRAFT or IN_PROGRESS one, the statuses a cancel leaves from; a
+packed, handed-over, closed or cancelled order is refused with 422 naming its
+status, and the assembly stays on the feed. Re-sending the claim the assembly
+already holds is not re-checked.
 
 **Why.** Guessing the line would attach the packing to the wrong promise when
 an order has several; the packer names it on the packing order itself, where
 the choice is visible. A claim left naming a withdrawn packing order would keep
 the output off the hand-over feed for good, and refuse every later hand-over as
-already taken.
+already taken. Only a cancel or a delete gives a claim back, so a claim by an
+order already past packing - or by a cancelled one, after its cancel released
+what it held - could never be given back.
 
 **Where.** `src/modules/packing/service.py` - `create_order_from_assembly`,
-`cancel_order`, `delete_draft_order`; `src/modules/assembly/service.py` -
+`cancel_order`, `delete_draft_order`, `packing_claim_holder` and
+`CLAIMING_STATUSES`; `src/modules/assembly/service.py` - `mark_packed`,
 `release_packing_claims`.
 
 **Impact if wrong.** If one assembly always covers exactly one sales-order
