@@ -105,6 +105,32 @@ async def columns_present(session: AsyncSession, table_name: str, required: Sequ
     return set(required).issubset(available)
 
 
+async def present_columns(
+    session: AsyncSession, table_names: Sequence[str]
+) -> dict[str, frozenset[str]]:
+    """The columns of each named ``public`` table, for several tables in one read.
+
+    The batch form of :func:`table_exists` plus :func:`columns_present`: a table
+    that does not exist is absent from the result, one whose shape has moved on
+    is present without the columns a caller needs. One catalog round trip for
+    every source an adapter reads, where the pair cost two per table.
+    """
+    wanted = list(dict.fromkeys(table_names))
+    if not wanted:
+        return {}
+    found = await session.execute(
+        text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = ANY(:table_names)"
+        ),
+        {"table_names": wanted},
+    )
+    columns: dict[str, set[str]] = {}
+    for table_name, column_name in found.all():
+        columns.setdefault(table_name, set()).add(column_name)
+    return {table_name: frozenset(names) for table_name, names in columns.items()}
+
+
 class VendorRepository(BaseRepository[Vendor]):
     """Persistence for :class:`~src.modules.vendors.models.Vendor`."""
 
@@ -634,6 +660,7 @@ __all__ = [
     "VendorRepository",
     "approved_and_active",
     "columns_present",
+    "present_columns",
     "table_exists",
     "vendor_type_predicate",
 ]

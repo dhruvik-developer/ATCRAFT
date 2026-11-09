@@ -82,6 +82,7 @@ from src.modules.vendors.service import (
 from src.modules.warehouses.models import StorageLocation, Warehouse
 from tests import seed_support
 from tests.schema_support import report_database_setup_failure
+from tests.statement_support import counted
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -1251,6 +1252,21 @@ class TestRatingAdapter:
         assert preview.rating is None
         assert preview.is_sufficient is False
         assert preview.applied is False
+
+    async def test_the_sources_are_probed_in_one_catalog_read(self, session: AsyncSession) -> None:
+        """Three sources, one catalog statement: it was two per source, every read."""
+        tenant, _ = await _seed_tenant(session)
+        vendor = await VendorService(session, tenant).create_vendor(_payload("VEND-001"))
+
+        with counted(session.bind) as statements:
+            window = await load_performance(session, tenant, vendor.id)
+
+        assert window is not None
+        assert window.receipt_count == 0
+        probes = [
+            text for text in statements if "information_schema" in text or "to_regclass" in text
+        ]
+        assert len(probes) == 1, probes
 
     async def test_reads_receipts_and_inspections_when_they_exist(
         self, session: AsyncSession

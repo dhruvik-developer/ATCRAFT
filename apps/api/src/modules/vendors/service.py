@@ -79,8 +79,7 @@ from src.modules.vendors.repository import (
     VendorCategoryRepository,
     VendorContactRepository,
     VendorRepository,
-    columns_present,
-    table_exists,
+    present_columns,
 )
 from src.modules.vendors.schemas import (
     TRACKING_PLACEHOLDER,
@@ -146,15 +145,13 @@ _PERCENT_QUANTUM = Decimal("0.01")
 _RATING_QUANTUM = Decimal("0.01")
 _HUNDRED = Decimal("100")
 
-# Tables the rating adapter reads once the owning modules exist, with the
+# Tables the rating adapter reads, owned by procurement and quality, with the
 # columns it needs from each. Probed at runtime (see :func:`load_performance`)
-# so a schema that has not been created yet - or has moved on - degrades to
-# "insufficient data" rather than raising UndefinedTable/UndefinedColumn.
-#
-# The procurement names below are the ones that module actually shipped. Quality
-# is still being built, so its names remain an ASSUMPTION - which is why the
-# adapter verifies every column before relying on it and logs a warning when the
-# assumption does not hold, rather than rating nobody in silence.
+# so a schema without them - or one that has moved on - degrades to
+# "insufficient data" rather than raising UndefinedTable/UndefinedColumn. The
+# names are the ones those modules shipped (quality/models.py documents the
+# inspection columns this reads); a mismatch is logged, rather than rating
+# nobody in silence.
 _GOODS_RECEIPTS_TABLE = "goods_receipts"
 _GOODS_RECEIPTS_COLUMNS = ("company_id", "vendor_id", "purchase_order_id", "receipt_date", "status")
 #: The date the vendor promised is recorded once, on the order; a receipt only
@@ -626,13 +623,13 @@ async def load_performance(
 ) -> VendorPerformanceWindow | None:
     """Assemble a performance window from goods receipts and QC inspections.
 
-    This is the seam between the vendors module and procurement/quality. Quality
-    does not exist yet, so every source is probed with ``to_regclass`` *and* for
-    the columns this function reads: a missing table returns ``None``, which the
-    caller renders as "insufficient data", instead of an UndefinedTable error
-    reaching the request. A schema that exists but has moved on is logged, so
-    the mismatch is noticed rather than silently producing unrated vendors
-    forever.
+    This is the seam between the vendors module and procurement/quality. Every
+    source is probed for the columns this function reads, all three in one
+    catalog read: a missing table returns ``None``, which the caller renders as
+    "insufficient data", instead of an UndefinedTable error reaching the
+    request. A schema that exists but has moved on is logged, so the mismatch is
+    noticed rather than silently producing unrated vendors forever. The probe
+    was two round trips per table, six per rating read, before it was folded.
 
     Deliberately raw SQL rather than an import of the procurement models: master
     data sits *below* procurement in the dependency order, and inverting that
@@ -644,13 +641,17 @@ async def load_performance(
     """
     since = utcnow() - timedelta(days=window_days)
 
+    sources = await present_columns(
+        session, (_GOODS_RECEIPTS_TABLE, _PURCHASE_ORDERS_TABLE, _QC_INSPECTIONS_TABLE)
+    )
     for table, columns in (
         (_GOODS_RECEIPTS_TABLE, _GOODS_RECEIPTS_COLUMNS),
         (_PURCHASE_ORDERS_TABLE, _PURCHASE_ORDERS_COLUMNS),
     ):
-        if not await table_exists(session, table):
+        present = sources.get(table)
+        if present is None:
             return None
-        if not await columns_present(session, table, columns):
+        if not present.issuperset(columns):
             log.warning(
                 "vendors.rating_source_schema_mismatch",
                 table=table,
@@ -686,9 +687,7 @@ async def load_performance(
 
     inspected = Decimal("0")
     rejected = Decimal("0")
-    if await table_exists(session, _QC_INSPECTIONS_TABLE) and await columns_present(
-        session, _QC_INSPECTIONS_TABLE, _QC_INSPECTIONS_COLUMNS
-    ):
+    if sources.get(_QC_INSPECTIONS_TABLE, frozenset()).issuperset(_QC_INSPECTIONS_COLUMNS):
         quality = (
             await session.execute(
                 text(
