@@ -113,7 +113,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id, persisted_actor
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record, line_not_serial_tracked
 from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
 from src.core.permissions import Permission
@@ -6962,8 +6962,7 @@ class PhysicalCountService:
                 if not item.is_serial_tracked:
                     if entry.serial_numbers is not None:
                         raise BusinessRuleError(
-                            f"Line {line.line_number}: {item.code} is not serial tracked; "
-                            "remove the serial numbers."
+                            line_not_serial_tracked(line.line_number, item.code)
                         )
                     continue
                 if entry.serial_numbers is None:

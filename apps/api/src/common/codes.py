@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.clock import today
-from src.core.messages import cannot_be_null
+from src.core.messages import NAME_BLANK, cannot_be_null
 from src.core.models import TenantEntity
 
 
@@ -204,7 +204,7 @@ def clean_name(value: str | None) -> str:
         raise ValueError(cannot_be_null("Name"))
     cleaned = " ".join(value.split())
     if not cleaned:
-        raise ValueError("Name cannot be blank.")
+        raise ValueError(NAME_BLANK)
     return cleaned
 
 

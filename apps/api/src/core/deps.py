@@ -40,6 +40,7 @@ from src.core.errors import (
     PermissionDeniedError,
 )
 from src.core.logging import bind_request_context, get_logger
+from src.core.messages import DEALER_ACCOUNT_REQUIRED, SESSION_REVOKED, VENDOR_ACCOUNT_REQUIRED
 from src.core.permissions import Permission, resolve_role_grants
 from src.core.ratelimit import enforce_policy
 from src.core.security import TokenPayload, decode_token
@@ -335,7 +336,7 @@ async def get_current_principal(
     payload = decode_token(credentials.credentials, expected_type="access")
 
     if not await _session_is_live(session, payload):
-        raise AuthenticationError("Session has been revoked.", code=ErrorCode.TOKEN_REVOKED)
+        raise AuthenticationError(SESSION_REVOKED, code=ErrorCode.TOKEN_REVOKED)
 
     principal = await _load_principal(session, payload)
 
@@ -458,7 +459,7 @@ def forbid_vendor_users(principal: CurrentUser) -> Principal:
 def require_vendor_user(principal: CurrentUser) -> Principal:
     """A portal permission never lets an internal administrator impersonate a vendor."""
     if not principal.is_vendor_user:
-        raise AuthorizationError("A vendor account is required.", code=ErrorCode.SCOPE_DENIED)
+        raise AuthorizationError(VENDOR_ACCOUNT_REQUIRED, code=ErrorCode.SCOPE_DENIED)
     return principal
 
 
@@ -485,7 +486,7 @@ def require_dealer_user(principal: CurrentUser) -> Principal:
     carries a customer id.
     """
     if not principal.is_dealer_user:
-        raise AuthorizationError("A dealer account is required.", code=ErrorCode.SCOPE_DENIED)
+        raise AuthorizationError(DEALER_ACCOUNT_REQUIRED, code=ErrorCode.SCOPE_DENIED)
     return principal
 
 

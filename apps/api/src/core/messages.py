@@ -162,6 +162,27 @@ def cannot_be_null(field: str) -> str:
 
 # --- document lines -------------------------------------------------------------
 
+#: A priced line's arithmetic, refused alike on a purchase and a sales document.
+LINE_QUANTITY_NOT_POSITIVE = "Line quantity must be greater than zero."
+LINE_UNIT_PRICE_NEGATIVE = "Line unit price cannot be negative."
+TAX_RATE_NEGATIVE = "Tax rate cannot be negative."
+LINE_DISCOUNT_EXCEEDS_VALUE = "Line discount is larger than the line value."
+DISCOUNT_EITHER_NOT_BOTH = "Give either a discount percentage or a flat discount amount, not both."
+PRICE_QUANTITY_NOT_POSITIVE = "Quantity must be greater than zero to resolve a price."
+
+
+def no_price_configured(price_type: str, item_code: str) -> str:
+    """A channel with no price list entry for the item - sales and the price resolver."""
+    return (
+        f"No {price_type} price is configured for item {item_code}. "
+        "Add a price list entry for this channel."
+    )
+
+
+def line_not_serial_tracked(line_number: int, item_code: str) -> str:
+    """Serial numbers keyed against an item that has none."""
+    return f"Line {line_number}: {item_code} is not serial tracked; remove the serial numbers."
+
 
 def duplicate_line_numbers(numbers: Sequence[int], document: str | None = None) -> str:
     """``"Duplicate line numbers: 3, 5."`` or ``"Duplicate line number on the purchase order: 3."``
@@ -183,6 +204,16 @@ def duplicate_operation_sequences(sequences: Sequence[int]) -> str:
 # --- authentication -----------------------------------------------------------
 
 CURRENT_PASSWORD_INCORRECT = "The current password is incorrect."  # noqa: S105 - a sentence
+INVALID_AUTH_TOKEN = "Invalid authentication token."  # noqa: S105 - a sentence
+MFA_UNAVAILABLE = "Multi-factor authentication is not available for this account."
+SESSION_REVOKED = "Session has been revoked."
+
+# --- the portals ----------------------------------------------------------------
+
+#: A portal route reached by a principal of the other kind - raised by the
+#: route gate in core/deps.py and by each portal's own service.
+VENDOR_ACCOUNT_REQUIRED = "A vendor account is required."
+DEALER_ACCOUNT_REQUIRED = "A dealer account is required."
 INVALID_MFA_CHALLENGE = "Invalid multi-factor challenge."
 SESSION_ENDED_FOR_SECURITY = (
     "This session has been ended for security reasons. Please sign in again."
@@ -196,6 +227,28 @@ SESSION_ENDED_FOR_SECURITY = (
 SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operator or machine."
 
 # --- masters ------------------------------------------------------------------
+
+NAME_BLANK = "Name cannot be blank."
+
+
+def inactive(entity: str, code: str) -> str:
+    """``"Customer C-001 is inactive."`` - :func:`inactive_record` also names what is refused."""
+    return f"{entity} {code} is inactive."
+
+
+def own_parent(entity: str) -> str:
+    """``"A department cannot be its own parent."`` - organisation and warehouse trees."""
+    return f"A {entity} cannot be its own parent."
+
+
+def parent_below(entity: str) -> str:
+    """The move that would turn a tree into a loop."""
+    return f"That parent is already below this {entity}; the hierarchy must stay a tree."
+
+
+def hierarchy_too_deep(entity: str, max_depth: int) -> str:
+    """``"Department hierarchy may not be deeper than 8 levels."``"""
+    return f"{entity.capitalize()} hierarchy may not be deeper than {max_depth} levels."
 
 
 def inactive_record(entity: str, code: str, consequence: str) -> str:
@@ -245,6 +298,51 @@ def self_approval_refused(
     return f"{subject} must be {decision} by someone other than the person who {origin} it."
 
 
+# --- orders -------------------------------------------------------------------
+
+SOURCE_DOCUMENT_REQUIRED = (
+    "Name the source document this order covers, or leave the source type MANUAL."
+)
+OUTPUT_SERIAL_LENGTH = "Every output serial must be 1-64 characters."
+OUTPUT_SERIAL_REPEATED = "An output serial is repeated."
+
+
+def output_not_serial_tracked(item_code: str) -> str:
+    """Output serials named for an item that tracks none - assembly and production."""
+    return f"{item_code} is not serial tracked; remove the output serials."
+
+
+def other_customer_order(code: str) -> str:
+    """One customer's order packed or dispatched in another's shipment."""
+    return f"Sales order {code} belongs to a different customer."
+
+
+def cancel_not_delete(code: str, status: str) -> str:
+    """A document past draft is cancelled, never deleted - its record survives."""
+    return (
+        f"{code} is {status} and must be cancelled rather than deleted, "
+        "so the record of it survives."
+    )
+
+
+def obsolete_not_delete(code: str, status: str) -> str:
+    """A BOM or routing past draft is made obsolete, never deleted."""
+    return f"{code} is {status}. Only a draft can be deleted; make it obsolete instead."
+
+
+def draft_only_delete(code: str, status: str) -> str:
+    """A packing or production order past draft is cancelled instead."""
+    return f"{code} is {status}; only a draft may be deleted. Cancel it instead."
+
+
+# --- notification channels ------------------------------------------------------
+
+
+def channel_not_enabled(channel: str) -> str:
+    """``"WHATSAPP notifications are not enabled."``"""
+    return f"{channel} notifications are not enabled."
+
+
 # --- quality ------------------------------------------------------------------
 
 
@@ -273,30 +371,57 @@ def verdict_differs_from_inspection(document: str, inspections: str) -> str:
 
 __all__ = [
     "CURRENT_PASSWORD_INCORRECT",
+    "DEALER_ACCOUNT_REQUIRED",
+    "DISCOUNT_EITHER_NOT_BOTH",
     "FIELDS_NEED_ATTENTION",
+    "INVALID_AUTH_TOKEN",
     "INVALID_MFA_CHALLENGE",
     "INVALID_VALUE",
     "JOB_QUEUED",
+    "LINE_DISCOUNT_EXCEEDS_VALUE",
+    "LINE_QUANTITY_NOT_POSITIVE",
+    "LINE_UNIT_PRICE_NEGATIVE",
     "MALFORMED_JSON",
+    "MFA_UNAVAILABLE",
+    "NAME_BLANK",
     "NO_FIELDS_TO_UPDATE",
     "OPERATION_COMPLETED",
+    "OUTPUT_SERIAL_LENGTH",
+    "OUTPUT_SERIAL_REPEATED",
+    "PRICE_QUANTITY_NOT_POSITIVE",
     "RATE_LIMITED",
     "REASON_TOO_SHORT",
     "RECORD_REFERENCE_PAIR",
     "SERVICE_UNAVAILABLE",
     "SESSION_ENDED_FOR_SECURITY",
+    "SESSION_REVOKED",
     "SHIFT_ASSIGNMENT_OVERLAP",
+    "SOURCE_DOCUMENT_REQUIRED",
+    "TAX_RATE_NEGATIVE",
     "UNEXPECTED_ERROR",
+    "VENDOR_ACCOUNT_REQUIRED",
     "SuccessAction",
+    "cancel_not_delete",
     "cannot_be_null",
+    "channel_not_enabled",
     "date_before",
+    "draft_only_delete",
     "duplicate_line_numbers",
     "duplicate_operation_sequences",
     "failed_unexpectedly",
     "held_for_inspection",
+    "hierarchy_too_deep",
+    "inactive",
     "inactive_record",
+    "line_not_serial_tracked",
     "listed",
     "needs_time_zone",
+    "no_price_configured",
+    "obsolete_not_delete",
+    "other_customer_order",
+    "output_not_serial_tracked",
+    "own_parent",
+    "parent_below",
     "plural",
     "self_approval_refused",
     "success_message",

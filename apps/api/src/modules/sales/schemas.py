@@ -26,7 +26,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.messages import date_before, duplicate_line_numbers
+from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, date_before, duplicate_line_numbers
 from src.modules.sales.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -90,9 +90,7 @@ class SalesOrderLineIn(BaseModel):
     @model_validator(mode="after")
     def _one_discount_form(self) -> SalesOrderLineIn:
         if self.discount_percentage is not None and self.discount_amount is not None:
-            raise ValueError(
-                "Give either a discount percentage or a flat discount amount, not both."
-            )
+            raise ValueError(DISCOUNT_EITHER_NOT_BOTH)
         return self
 
 

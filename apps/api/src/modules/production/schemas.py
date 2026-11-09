@@ -25,7 +25,12 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.core.messages import date_before, duplicate_line_numbers
+from src.core.messages import (
+    OUTPUT_SERIAL_LENGTH,
+    OUTPUT_SERIAL_REPEATED,
+    date_before,
+    duplicate_line_numbers,
+)
 from src.core.validation import reject_null
 from src.modules.production.models import (
     DEFAULT_PRODUCTION_PRIORITY,
@@ -325,9 +330,9 @@ class CompleteRequest(BaseModel):
             raise ValueError("Give a rejection reason when rejecting output.")
         cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
         if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError("Every output serial must be 1-64 characters.")
+            raise ValueError(OUTPUT_SERIAL_LENGTH)
         if len(set(cleaned)) != len(cleaned):
-            raise ValueError("An output serial is repeated.")
+            raise ValueError(OUTPUT_SERIAL_REPEATED)
         if cleaned and Decimal(len(cleaned)) != self.produced_quantity:
             raise ValueError("Name one output serial per produced unit.")
         self.output_serial_numbers = cleaned
@@ -603,9 +608,9 @@ class ProductionEntryCreate(BaseModel):
             raise ValueError("Give a rejection reason when rejecting output.")
         cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
         if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError("Every output serial must be 1-64 characters.")
+            raise ValueError(OUTPUT_SERIAL_LENGTH)
         if len(set(cleaned)) != len(cleaned):
-            raise ValueError("An output serial is repeated.")
+            raise ValueError(OUTPUT_SERIAL_REPEATED)
         if cleaned and Decimal(len(cleaned)) != self.produced_quantity:
             raise ValueError("Name one output serial per produced unit.")
         self.output_serial_numbers = cleaned

@@ -150,7 +150,9 @@ def test_unknown_fields_are_refused_rather_than_silently_dropped() -> None:
 
 
 def test_an_effectivity_window_cannot_end_before_it_starts() -> None:
-    with pytest.raises(ValidationError, match="end before it starts"):
+    with pytest.raises(
+        ValidationError, match="effective-to date cannot be before the effective-from date"
+    ):
         routing_payload(effective_from=date(2026, 6, 1), effective_to=date(2026, 5, 1))
 
 

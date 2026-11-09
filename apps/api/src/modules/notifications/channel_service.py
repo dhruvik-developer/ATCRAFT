@@ -12,6 +12,7 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError
 from src.core.ids import new_id
+from src.core.messages import channel_not_enabled
 from src.core.messaging import (
     MessagingOutcome,
     WhatsAppCloudProvider,
@@ -109,7 +110,7 @@ class NotificationChannelService:
             else settings.sms_enabled
         )
         if not enabled:
-            raise BusinessRuleError(f"{channel} notifications are not enabled.")
+            raise BusinessRuleError(channel_not_enabled(channel))
 
         profile = await self.repo.own_messaging_profile()
         if profile is None:

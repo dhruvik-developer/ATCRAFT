@@ -80,6 +80,7 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, ValidationError
 from src.core.logging import get_logger
+from src.core.messages import inactive, other_customer_order
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -1299,7 +1300,7 @@ async def _validate_header(
             raise NotFoundError("Customer", customer_id)
         if not customer.is_active:
             raise BusinessRuleError(
-                f"Customer {customer.code} is inactive.",
+                inactive("Customer", customer.code),
                 details={"customer_id": str(customer_id)},
             )
         if customer.is_blocked:
@@ -1340,7 +1341,7 @@ async def _validate_header(
             raise NotFoundError("Transporter", transporter_id)
         if not transporter[2]:
             raise BusinessRuleError(
-                f"Transporter {transporter[0]} is inactive.",
+                inactive("Transporter", transporter[0]),
                 details={"transporter_id": str(transporter_id)},
             )
 
@@ -1360,7 +1361,7 @@ async def _validate_header(
             # Loading one customer's order onto another's lorry is how goods
             # reach the wrong address, and no later check catches it.
             raise BusinessRuleError(
-                f"Sales order {header.code} belongs to a different customer.",
+                other_customer_order(header.code),
                 details={"sales_order_id": str(sales_order_id)},
             )
         if dispatch_type is not DispatchType.SALES:

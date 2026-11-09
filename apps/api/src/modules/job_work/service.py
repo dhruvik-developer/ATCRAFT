@@ -164,8 +164,10 @@ from src.core.errors import (
 from src.core.ids import persisted_actor
 from src.core.logging import get_logger
 from src.core.messages import (
+    cancel_not_delete,
     date_before,
     held_for_inspection,
+    inactive,
     inactive_record,
     verdict_differs_from_inspection,
 )
@@ -2094,8 +2096,7 @@ async def delete_draft_order(
         order = await repo.get_or_404(order_id)
         if JobWorkOrderStatus(order.status) is not JobWorkOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status} and must be cancelled rather than deleted, "
-                "so the record of it survives.",
+                cancel_not_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -2368,7 +2369,7 @@ async def issue_order(
                 raise NotFoundError("Transporter", payload.transporter_id)
             if not transporter[1]:
                 raise BusinessRuleError(
-                    f"Transporter {transporter[0]} is inactive.",
+                    inactive("Transporter", transporter[0]),
                     details={"transporter_id": str(payload.transporter_id)},
                 )
 

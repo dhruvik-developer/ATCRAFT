@@ -92,6 +92,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import draft_only_delete, inactive, other_customer_order
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1491,7 +1492,7 @@ async def create_order(
             raise NotFoundError("Customer", payload.customer_id)
         if not customer.is_active:
             raise BusinessRuleError(
-                f"Customer {customer.code} is inactive.",
+                inactive("Customer", customer.code),
                 details={"customer_id": str(customer.id)},
             )
         if customer.is_blocked:
@@ -1520,7 +1521,7 @@ async def create_order(
                 # Packing one customer's order into another's shipment is how
                 # goods reach the wrong address, and no later check catches it.
                 raise BusinessRuleError(
-                    f"Sales order {header[0]} belongs to a different customer.",
+                    other_customer_order(header[0]),
                     details={"sales_order_id": str(payload.sales_order_id)},
                 )
 
@@ -1886,7 +1887,7 @@ async def update_order(
                     raise NotFoundError("Sales order", order.sales_order_id)
                 if header[1] != order.customer_id:
                     raise BusinessRuleError(
-                        f"Sales order {header[0]} belongs to a different customer.",
+                        other_customer_order(header[0]),
                         details={"sales_order_id": str(order.sales_order_id)},
                     )
             parsed = [PackingOrderLineIn.model_validate(line) for line in new_lines]
@@ -1940,7 +1941,7 @@ async def delete_draft_order(
         order = await _lock_order(repo, order_id)
         if PackingOrderStatus(order.status) is not PackingOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft may be deleted. Cancel it instead.",
+                draft_only_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 

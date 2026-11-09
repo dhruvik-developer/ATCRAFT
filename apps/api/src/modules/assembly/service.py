@@ -107,7 +107,12 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import held_for_inspection, verdict_differs_from_inspection
+from src.core.messages import (
+    cancel_not_delete,
+    held_for_inspection,
+    output_not_serial_tracked,
+    verdict_differs_from_inspection,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1708,8 +1713,7 @@ async def delete_draft_order(
         order = await repo.get_or_404(order_id)
         if AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status} and must be cancelled rather than deleted, "
-                "so the record of it survives.",
+                cancel_not_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -2245,7 +2249,7 @@ async def complete_assembly(
                 )
             elif payload.output_serial_numbers:
                 raise BusinessRuleError(
-                    f"{output_item.code} is not serial tracked; remove the output serials.",
+                    output_not_serial_tracked(output_item.code),
                     details={"item_code": output_item.code, "order_code": order.code},
                 )
             order.output_batch_id = payload.output_batch_id

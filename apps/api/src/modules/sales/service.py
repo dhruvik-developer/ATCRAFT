@@ -60,6 +60,14 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import (
+    LINE_DISCOUNT_EXCEEDS_VALUE,
+    LINE_QUANTITY_NOT_POSITIVE,
+    LINE_UNIT_PRICE_NEGATIVE,
+    TAX_RATE_NEGATIVE,
+    cancel_not_delete,
+    no_price_configured,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -354,11 +362,11 @@ def compute_line_amounts(
     and the total is what falls out.
     """
     if quantity <= 0:
-        raise ValidationError("Line quantity must be greater than zero.")
+        raise ValidationError(LINE_QUANTITY_NOT_POSITIVE)
     if unit_price < 0:
-        raise ValidationError("Line unit price cannot be negative.")
+        raise ValidationError(LINE_UNIT_PRICE_NEGATIVE)
     if tax_rate < 0:
-        raise ValidationError("Tax rate cannot be negative.")
+        raise ValidationError(TAX_RATE_NEGATIVE)
 
     gross = to_money(Decimal(quantity) * Decimal(unit_price))
 
@@ -371,7 +379,7 @@ def compute_line_amounts(
 
     if discount > gross:
         raise ValidationError(
-            "Line discount is larger than the line value.",
+            LINE_DISCOUNT_EXCEEDS_VALUE,
             details={"gross_amount": str(gross), "discount_amount": str(discount)},
         )
 
@@ -1338,8 +1346,7 @@ def resolve_unit_price(
     fallback_field = ITEM_MASTER_FALLBACK_FIELD[price_type]
     if fallback_field is None:
         raise BusinessRuleError(
-            f"No {price_type} price is configured for item {item.code}. "
-            "Add a price list entry for this channel.",
+            no_price_configured(str(price_type), item.code),
             details={"item_code": item.code, "price_type": str(price_type)},
         )
     base = Decimal(getattr(item, fallback_field))
@@ -2579,8 +2586,7 @@ async def delete_draft_order(
         order = await repo.get_or_404(order_id)
         if SalesOrderStatus(order.status) is not SalesOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status} and must be cancelled rather than deleted, "
-                "so the record of it survives.",
+                cancel_not_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
         if str(order.source) == "DEALER_PORTAL":

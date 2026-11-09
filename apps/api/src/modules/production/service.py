@@ -60,6 +60,7 @@ from src.core.errors import (
     SelfApprovalError,
     ValidationError,
 )
+from src.core.messages import draft_only_delete, output_not_serial_tracked
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1688,7 +1689,7 @@ async def delete_draft_order(
         order = await _lock_order(session, tenant, order_id)
         if not is_editable(ProductionOrderStatus(order.status)):
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft may be deleted. Cancel it instead.",
+                draft_only_delete(order.code, order.status),
                 details={"status": str(order.status)},
             )
         code = order.code
@@ -3733,7 +3734,7 @@ async def _post_output_receipt(
         )
     if not item.is_serial_tracked and serial_numbers:
         raise BusinessRuleError(
-            f"{item.code} is not serial tracked; remove the output serials.",
+            output_not_serial_tracked(item.code),
             details={"item_code": item.code, "order_code": order.code},
         )
     if item.is_serial_tracked and Decimal(len(serial_numbers)) != quantity:

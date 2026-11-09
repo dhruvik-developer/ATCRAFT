@@ -33,6 +33,7 @@ from cryptography.fernet import InvalidToken as InvalidEncryptedToken
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.errors import AuthenticationError, ErrorCode, TokenExpiredError, ValidationError
+from src.core.messages import INVALID_AUTH_TOKEN, MFA_UNAVAILABLE
 
 # -----------------------------------------------------------------------------
 # Password hashing
@@ -328,9 +329,7 @@ def decode_token(token: str, *, expected_type: TokenType | None = None) -> Token
     except jwt.ExpiredSignatureError as exc:
         raise TokenExpiredError() from exc
     except jwt.InvalidTokenError as exc:
-        raise AuthenticationError(
-            "Invalid authentication token.", code=ErrorCode.TOKEN_INVALID
-        ) from exc
+        raise AuthenticationError(INVALID_AUTH_TOKEN, code=ErrorCode.TOKEN_INVALID) from exc
 
     token_type = claims.get("typ")
     if expected_type and token_type != expected_type:
@@ -427,10 +426,7 @@ def decrypt_totp_secret(ciphertext: str) -> str:
     try:
         return _decrypt_credential(ciphertext, purpose="mfa")
     except CredentialDecryptionError as exc:
-        raise AuthenticationError(
-            "Multi-factor authentication is not available for this account.",
-            code=ErrorCode.MFA_INVALID,
-        ) from exc
+        raise AuthenticationError(MFA_UNAVAILABLE, code=ErrorCode.MFA_INVALID) from exc
 
 
 def encrypt_password_reset_delivery_token(token: str) -> str:

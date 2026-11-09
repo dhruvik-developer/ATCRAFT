@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import strip_optional, validate_code
 from src.core.constants import MAX_NOTES_LENGTH
+from src.core.messages import NAME_BLANK
 from src.modules.warehouses.models import StorageLocationType, WarehouseType
 
 #: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
@@ -87,7 +88,7 @@ class WarehouseCreate(WarehouseAddress):
     def _clean_name(cls, value: str) -> str:
         cleaned = " ".join(value.split())
         if not cleaned:
-            raise ValueError("Name cannot be blank.")
+            raise ValueError(NAME_BLANK)
         return cleaned
 
 
@@ -132,7 +133,7 @@ class WarehouseUpdate(BaseModel):
             return None
         cleaned = " ".join(value.split())
         if not cleaned:
-            raise ValueError("Name cannot be blank.")
+            raise ValueError(NAME_BLANK)
         return cleaned
 
 
@@ -222,7 +223,7 @@ class StorageLocationCreate(BaseModel):
     def _clean_name(cls, value: str) -> str:
         cleaned = " ".join(value.split())
         if not cleaned:
-            raise ValueError("Name cannot be blank.")
+            raise ValueError(NAME_BLANK)
         return cleaned
 
 
@@ -250,7 +251,7 @@ class StorageLocationUpdate(BaseModel):
             return None
         cleaned = " ".join(value.split())
         if not cleaned:
-            raise ValueError("Name cannot be blank.")
+            raise ValueError(NAME_BLANK)
         return cleaned
 
 

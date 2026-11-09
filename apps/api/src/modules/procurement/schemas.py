@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
 from src.core.demand_provenance import DemandReference
-from src.core.messages import duplicate_line_numbers, listed
+from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, duplicate_line_numbers, listed
 from src.core.validation import reject_null
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
@@ -401,9 +401,7 @@ class QuotationLineIn(BaseModel):
     @model_validator(mode="after")
     def _one_discount_form(self) -> QuotationLineIn:
         if self.discount_percentage is not None and self.discount is not None:
-            raise ValueError(
-                "Give either a discount percentage or a flat discount amount, not both."
-            )
+            raise ValueError(DISCOUNT_EITHER_NOT_BOTH)
         return self
 
 
@@ -679,9 +677,7 @@ class PurchaseOrderLineIn(BaseModel):
             self.source_allocations, self.quantity, self.requisition_line_id
         )
         if self.discount_percentage is not None and self.discount is not None:
-            raise ValueError(
-                "Give either a discount percentage or a flat discount amount, not both."
-            )
+            raise ValueError(DISCOUNT_EITHER_NOT_BOTH)
         return self
 
 

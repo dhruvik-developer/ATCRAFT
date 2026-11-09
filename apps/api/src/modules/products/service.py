@@ -49,7 +49,14 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.ids import new_id
-from src.core.messages import NO_FIELDS_TO_UPDATE, date_before, inactive_record, listed
+from src.core.messages import (
+    NO_FIELDS_TO_UPDATE,
+    PRICE_QUANTITY_NOT_POSITIVE,
+    date_before,
+    inactive_record,
+    listed,
+    no_price_configured,
+)
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -2668,7 +2675,7 @@ async def resolve_price(
     dated price list and its quantity slabs actually take effect.
     """
     if quantity <= 0:
-        raise ValidationError("Quantity must be greater than zero to resolve a price.")
+        raise ValidationError(PRICE_QUANTITY_NOT_POSITIVE)
 
     effective_date = on_date or today()
     item = await ItemRepository(session, tenant).get_or_404(item_id)
@@ -2708,8 +2715,7 @@ async def resolve_price(
     fallback_field = ITEM_MASTER_FALLBACK_FIELD[price_type]
     if fallback_field is None:
         raise BusinessRuleError(
-            f"No {price_type} price is configured for item {item.code}. "
-            "Add a price list entry for this channel.",
+            no_price_configured(str(price_type), item.code),
             details={"item_code": item.code, "price_type": str(price_type)},
         )
 

@@ -24,6 +24,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.messages import OUTPUT_SERIAL_LENGTH, OUTPUT_SERIAL_REPEATED, SOURCE_DOCUMENT_REQUIRED
 from src.modules.assembly.models import (
     ASSEMBLY_LINE_LENGTH,
     DEFAULT_ASSEMBLY_PRIORITY,
@@ -94,9 +95,7 @@ class AssemblyOrderCreate(BaseModel):
         ):
             raise ValueError("The planned end cannot be before the planned start.")
         if (self.source_type is AssemblySourceType.MANUAL) != (self.source_id is None):
-            raise ValueError(
-                "Name the source document this order covers, or leave the source type MANUAL."
-            )
+            raise ValueError(SOURCE_DOCUMENT_REQUIRED)
         return self
 
 
@@ -313,9 +312,9 @@ class CompleteRequest(BaseModel):
             raise ValueError("A component line may only be given one serial set.")
         cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
         if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError("Every output serial must be 1-64 characters.")
+            raise ValueError(OUTPUT_SERIAL_LENGTH)
         if len(set(cleaned)) != len(cleaned):
-            raise ValueError("An output serial is repeated.")
+            raise ValueError(OUTPUT_SERIAL_REPEATED)
         if cleaned and Decimal(len(cleaned)) != self.assembled_quantity:
             raise ValueError("Name one output serial per assembled unit.")
         self.output_serial_numbers = cleaned

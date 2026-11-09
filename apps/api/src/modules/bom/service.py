@@ -39,6 +39,7 @@ from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, SelfApprovalError
 from src.core.logging import get_logger
+from src.core.messages import date_before, obsolete_not_delete
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -707,7 +708,7 @@ async def update_bom(
 
         if bom.effective_to is not None and bom.effective_to < bom.effective_from:
             raise BusinessRuleError(
-                "The effectivity window would end before it starts.",
+                date_before("effective-to date", "effective-from date"),
                 details={
                     "effective_from": bom.effective_from.isoformat(),
                     "effective_to": bom.effective_to.isoformat(),
@@ -1031,8 +1032,7 @@ async def delete_draft_bom(
         bom = await repo.get_or_404(bom_id)
         if BomStatus(bom.status) is not BomStatus.DRAFT:
             raise BusinessRuleError(
-                f"{bom.code} is {bom.status}. Only a draft can be deleted; make it "
-                "obsolete instead.",
+                obsolete_not_delete(bom.code, bom.status),
                 details={"bom_id": str(bom.id), "status": str(bom.status)},
             )
         if await repo.has_alternates(bom.id):
@@ -1090,7 +1090,7 @@ async def copy_as_new_version(
         effective_from = payload.effective_from or today()
         if payload.effective_to is not None and payload.effective_to < effective_from:
             raise BusinessRuleError(
-                "The effectivity window would end before it starts.",
+                date_before("effective-to date", "effective-from date"),
                 details={"effective_from": effective_from.isoformat()},
             )
 

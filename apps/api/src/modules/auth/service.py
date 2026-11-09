@@ -64,8 +64,11 @@ from src.core.errors import (
 from src.core.logging import get_logger
 from src.core.messages import (
     CURRENT_PASSWORD_INCORRECT,
+    INVALID_AUTH_TOKEN,
     INVALID_MFA_CHALLENGE,
+    MFA_UNAVAILABLE,
     SESSION_ENDED_FOR_SECURITY,
+    SESSION_REVOKED,
 )
 from src.core.pagination import PageParams
 from src.core.ratelimit import RateLimitPolicy, enforce_policy, reset_rate_limit
@@ -359,10 +362,7 @@ class AuthService:
                     user_id=str(account.id),
                     company_id=str(account.company_id),
                 )
-                raise AuthenticationError(
-                    "Multi-factor authentication is not available for this account.",
-                    code=ErrorCode.MFA_INVALID,
-                )
+                raise AuthenticationError(MFA_UNAVAILABLE, code=ErrorCode.MFA_INVALID)
 
             # The MFA completion request intentionally does not carry the
             # password. Upgrade a legacy hash now, after it was verified, rather
@@ -587,9 +587,7 @@ class AuthService:
         async with transaction(self.session):
             record = await sessions.get_by_session_id(payload.session_id, for_update=True)
             if record is None or record.user_id != payload.subject:
-                raise AuthenticationError(
-                    "Invalid authentication token.", code=ErrorCode.TOKEN_INVALID
-                )
+                raise AuthenticationError(INVALID_AUTH_TOKEN, code=ErrorCode.TOKEN_INVALID)
 
             state = session_state(record)
             # A digest that does not match, on a session that otherwise exists,
@@ -604,9 +602,7 @@ class AuthService:
                 await self._handle_replay(sessions, record, detail=replay)
             else:
                 if state is SessionState.REVOKED:
-                    raise AuthenticationError(
-                        "Session has been revoked.", code=ErrorCode.TOKEN_REVOKED
-                    )
+                    raise AuthenticationError(SESSION_REVOKED, code=ErrorCode.TOKEN_REVOKED)
                 if state is SessionState.EXPIRED:
                     raise TokenExpiredError()
 

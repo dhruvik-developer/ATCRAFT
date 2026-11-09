@@ -33,6 +33,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
+from src.core.messages import DEALER_ACCOUNT_REQUIRED, PRICE_QUANTITY_NOT_POSITIVE
 from src.core.pagination import OffsetPagination, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.types import to_money, to_quantity, to_unit_price
@@ -217,7 +218,7 @@ class DealerPortalService:
         not reported as a missing record (docs/assumptions.md §C3-1).
         """
         if self.tenant.customer_id is None:  # pragma: no cover - the gate owns this
-            raise AuthorizationError("A dealer account is required.", code=ErrorCode.SCOPE_DENIED)
+            raise AuthorizationError(DEALER_ACCOUNT_REQUIRED, code=ErrorCode.SCOPE_DENIED)
         customer = await self.catalog.customer(self.tenant.customer_id)
         if (
             customer is None
@@ -633,7 +634,7 @@ class DealerPortalService:
         self, item_id: uuid.UUID, quantity: Decimal, variant_id: uuid.UUID | None
     ) -> DealerPriceQuote:
         if quantity <= 0:
-            raise ValidationError("Quantity must be greater than zero to resolve a price.")
+            raise ValidationError(PRICE_QUANTITY_NOT_POSITIVE)
         customer = await self._customer()
         context = await self._pricing(customer, today())
         item = await self.catalog.sellable_item(item_id)

@@ -53,7 +53,13 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, SHIFT_ASSIGNMENT_OVERLAP, inactive_record
+from src.core.messages import (
+    NO_FIELDS_TO_UPDATE,
+    SHIFT_ASSIGNMENT_OVERLAP,
+    date_before,
+    inactive_record,
+    obsolete_not_delete,
+)
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1367,7 +1373,7 @@ class RoutingService:
 
             if routing.effective_to is not None and routing.effective_to < routing.effective_from:
                 raise BusinessRuleError(
-                    "The effectivity window would end before it starts.",
+                    date_before("effective-to date", "effective-from date"),
                     details={
                         "effective_from": routing.effective_from.isoformat(),
                         "effective_to": routing.effective_to.isoformat(),
@@ -1499,8 +1505,7 @@ class RoutingService:
             routing = await self.repo.get_or_404(routing_id)
             if RoutingStatus(routing.status) is not RoutingStatus.DRAFT:
                 raise BusinessRuleError(
-                    f"{routing.code} is {routing.status}. Only a draft can be deleted; "
-                    "make it obsolete instead.",
+                    obsolete_not_delete(routing.code, routing.status),
                     details={"routing_id": str(routing.id), "status": str(routing.status)},
                 )
 

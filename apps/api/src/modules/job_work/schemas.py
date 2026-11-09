@@ -25,6 +25,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import MAX_SERIAL_BULK
+from src.core.messages import SOURCE_DOCUMENT_REQUIRED
 from src.modules.job_work.models import (
     VEHICLE_NUMBER_LENGTH,
     JobWorkOrderStatus,
@@ -134,9 +135,7 @@ class JobWorkOrderCreate(BaseModel):
         if len(set(numbers)) != len(numbers):
             raise ValueError("Line numbers must be unique within a job work order.")
         if (self.source_type is JobWorkSourceType.MANUAL) != (self.source_id is None):
-            raise ValueError(
-                "Name the source document this order covers, or leave the source type MANUAL."
-            )
+            raise ValueError(SOURCE_DOCUMENT_REQUIRED)
         rework_links = [line.source_receipt_line_id for line in self.lines]
         if self.source_type is JobWorkSourceType.REWORK:
             if any(line_id is None for line_id in rework_links):

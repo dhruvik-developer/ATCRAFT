@@ -31,7 +31,7 @@ from pydantic import (
 )
 
 from src.common.codes import normalise_code
-from src.core.messages import duplicate_operation_sequences, listed
+from src.core.messages import date_before, duplicate_operation_sequences, listed
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
     MAX_WORKING_HOURS_PER_DAY,
@@ -379,7 +379,7 @@ class RoutingCreate(BaseModel):
             and self.effective_to is not None
             and self.effective_to < self.effective_from
         ):
-            raise ValueError("The effectivity window would end before it starts.")
+            raise ValueError(date_before("effective-to date", "effective-from date"))
         return self
 
 

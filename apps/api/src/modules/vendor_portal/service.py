@@ -26,7 +26,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
-from src.core.messages import needs_time_zone
+from src.core.messages import VENDOR_ACCOUNT_REQUIRED, needs_time_zone
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination, api_path
@@ -111,7 +111,7 @@ class VendorPortalService:
         if tenant.vendor_id is None:
             # The router's ``require_vendor_user`` refuses first; this is the
             # second line, for any caller that reaches the service another way.
-            raise AuthorizationError("A vendor account is required.", code=ErrorCode.SCOPE_DENIED)
+            raise AuthorizationError(VENDOR_ACCOUNT_REQUIRED, code=ErrorCode.SCOPE_DENIED)
         self.session, self.tenant = session, tenant
         self.vendor_id: uuid.UUID = tenant.vendor_id
         self.repo = VendorPortalRepository(session, tenant)
@@ -811,7 +811,7 @@ async def vendor_rating(session: AsyncSession, tenant: TenantContext) -> VendorR
     from src.modules.vendors.service import VendorService
 
     if tenant.vendor_id is None:
-        raise AuthorizationError("A vendor account is required.", code=ErrorCode.SCOPE_DENIED)
+        raise AuthorizationError(VENDOR_ACCOUNT_REQUIRED, code=ErrorCode.SCOPE_DENIED)
     return await VendorService(session, tenant).preview_rating(tenant.vendor_id)
 
 

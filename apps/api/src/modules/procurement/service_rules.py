@@ -23,7 +23,13 @@ from typing import Protocol
 
 from src.core.demand_provenance import DemandReference
 from src.core.errors import BusinessRuleError, ErrorCode, ValidationError
-from src.core.messages import plural
+from src.core.messages import (
+    LINE_DISCOUNT_EXCEEDS_VALUE,
+    LINE_QUANTITY_NOT_POSITIVE,
+    LINE_UNIT_PRICE_NEGATIVE,
+    TAX_RATE_NEGATIVE,
+    plural,
+)
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, Money, to_money, to_quantity, to_unit_price
@@ -541,11 +547,11 @@ def compute_line_amounts(
     ):
         raise ValidationError("Amounts and quantities must be finite decimal values.")
     if quantity <= 0:
-        raise ValidationError("Line quantity must be greater than zero.")
+        raise ValidationError(LINE_QUANTITY_NOT_POSITIVE)
     if unit_price < 0:
-        raise ValidationError("Line unit price cannot be negative.")
+        raise ValidationError(LINE_UNIT_PRICE_NEGATIVE)
     if tax_rate < 0:
-        raise ValidationError("Tax rate cannot be negative.")
+        raise ValidationError(TAX_RATE_NEGATIVE)
 
     gross = _stored_money(Decimal(quantity) * Decimal(unit_price))
 
@@ -558,7 +564,7 @@ def compute_line_amounts(
 
     if discount > gross:
         raise ValidationError(
-            "Line discount is larger than the line value.",
+            LINE_DISCOUNT_EXCEEDS_VALUE,
             details={"gross_amount": str(gross), "discount_amount": str(discount)},
         )
 

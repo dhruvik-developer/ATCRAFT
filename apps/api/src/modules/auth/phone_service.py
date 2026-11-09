@@ -21,6 +21,7 @@ from src.core.errors import (
     NotFoundError,
     RateLimitedError,
 )
+from src.core.messages import channel_not_enabled
 from src.core.messaging import MessagingOutcome, assert_allowed_url, sms_provider
 from src.core.ratelimit import RateLimitPolicy, enforce_policy
 from src.modules.audit.models import AuditAction
@@ -295,7 +296,7 @@ class PhoneProfileService:
                 else settings.sms_enabled
             )
             if payload.opt_in and not enabled:
-                raise BusinessRuleError(f"{payload.channel} notifications are not enabled.")
+                raise BusinessRuleError(channel_not_enabled(payload.channel))
             if payload.opt_in and (account.phone_e164 is None or account.phone_verified_at is None):
                 raise BusinessRuleError("Verify your mobile number before opting in.")
             setattr(account, field_name, moment if payload.opt_in else None)

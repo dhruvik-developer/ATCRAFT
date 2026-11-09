@@ -64,6 +64,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import line_not_serial_tracked
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission, resolve_role_grants
 from src.core.responses import OffsetPagination
@@ -4699,8 +4700,7 @@ async def create_goods_receipt(
                 )
             if not item.is_serial_tracked and payload_line.serial_numbers:
                 raise BusinessRuleError(
-                    f"Line {payload_line.line_number}: {item.code} is not serial tracked; "
-                    "remove the serial numbers.",
+                    line_not_serial_tracked(payload_line.line_number, item.code),
                     details={"item_code": item.code, "line_number": payload_line.line_number},
                 )
             if item.is_batch_tracked and not (payload_line.batch_number or "").strip():

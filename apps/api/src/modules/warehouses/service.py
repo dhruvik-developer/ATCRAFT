@@ -40,7 +40,7 @@ from src.core.errors import (
     NotFoundError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.messages import NO_FIELDS_TO_UPDATE, hierarchy_too_deep, own_parent, parent_below
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -230,11 +230,11 @@ def assert_parent_allowed(
     * the resulting chain would be deeper than :data:`MAX_HIERARCHY_DEPTH`.
     """
     if node_id is not None and parent_id == node_id:
-        raise BusinessRuleError(f"A {entity} cannot be its own parent.")
+        raise BusinessRuleError(own_parent(entity))
 
     if node_id is not None and node_id in parent_ancestor_ids:
         raise BusinessRuleError(
-            f"That parent is already below this {entity}; the hierarchy must stay a tree.",
+            parent_below(entity),
             details={"parent_id": str(parent_id)},
         )
 
@@ -242,7 +242,7 @@ def assert_parent_allowed(
     depth = len(parent_ancestor_ids) + 1
     if depth > max_depth:
         raise BusinessRuleError(
-            f"{entity.capitalize()} hierarchy may not be deeper than {max_depth} levels.",
+            hierarchy_too_deep(entity, max_depth),
             details={"depth": depth, "max_depth": max_depth},
         )
 
