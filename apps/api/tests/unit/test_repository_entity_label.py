@@ -1,6 +1,6 @@
 """``get_or_404`` names a record the way a person would, not the way a class is.
 
-``NotFoundError`` renders ``"{entity} not found: {id}"``. The base repository
+``NotFoundError`` renders ``"{entity} not found: {id}."``. The base repository
 used to pass ``self.model.__name__`` there, so a missing physical count was
 reported as "PhysicalCount not found" while the same module's own messages said
 "Physical count". The default is now the class name split into words in
@@ -84,7 +84,7 @@ class TestTheDefaultSplit:
 
         with pytest.raises(NotFoundError) as excinfo:
             await _Repository(_NoRowSession(), _tenant()).get_or_404(missing)  # type: ignore[arg-type]
-        assert excinfo.value.message == f"Physical count not found: {missing}"
+        assert excinfo.value.message == f"Physical count not found: {missing}."
 
 
 class TestTheRealRepositories:
@@ -108,7 +108,7 @@ class TestTheRealRepositories:
         missing = uuid.uuid4()
         with pytest.raises(NotFoundError) as excinfo:
             await repository(_NoRowSession(), _tenant()).get_or_404(missing)
-        assert excinfo.value.message == f"{entity} not found: {missing}"
+        assert excinfo.value.message == f"{entity} not found: {missing}."
 
     def test_no_repository_still_answers_with_a_class_name(self) -> None:
         """Every concrete repository's label reads as words, not as an identifier.

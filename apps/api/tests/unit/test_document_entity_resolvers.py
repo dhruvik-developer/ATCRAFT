@@ -117,7 +117,7 @@ async def test_a_resolved_entity_type_refuses_an_id_its_reader_cannot_find(monke
         await assert_entity_held(session, tenant, "test_drawing", missing)
 
     assert refused.value.status_code == 404
-    assert refused.value.message == f"Test drawing not found: {missing}"
+    assert refused.value.message == f"Test drawing not found: {missing}."
     # The owning module's reader is handed the caller's tenant: it decides.
     assert seen == [(session, tenant, missing)]
 

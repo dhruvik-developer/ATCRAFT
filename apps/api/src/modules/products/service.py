@@ -49,7 +49,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.ids import new_id
-from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
+from src.core.messages import NO_FIELDS_TO_UPDATE, date_before, inactive_record, listed
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -248,6 +248,21 @@ REQUIRE_AT_LEAST_ONE_CAPABILITY = True
 # can_job_work. Without this, MRP would raise a MANUFACTURE suggestion for an
 # item no production order may be created for. Note this reads production_type,
 # never item_group.
+#: How the item form labels each capability (``CAPABILITY_META`` in the
+#: frontend's ``features/items/item-model.ts``), so a refusal names the box
+#: to tick rather than the column behind it.
+CAPABILITY_LABELS: dict[str, str] = {
+    "can_purchase": "Purchasable",
+    "can_manufacture": "Manufacturable",
+    "can_sell": "Sellable",
+    "can_be_bom_component": "BOM component",
+    "can_be_assembly_component": "Assembly component",
+    "can_be_spare": "Spare part",
+    "can_job_work": "Job work",
+    "can_return": "Returnable",
+    "can_scrap": "Scrappable",
+}
+
 PRODUCTION_TYPE_REQUIRED_CAPABILITIES: dict[ProductionType, tuple[str, ...]] = {
     ProductionType.MAKE: ("can_manufacture",),
     ProductionType.BUY: ("can_purchase",),
@@ -406,7 +421,8 @@ def validate_capabilities(production_type: ProductionType, flags: dict[str, bool
     missing = [name for name in required if not flags.get(name)]
     if missing:
         raise BusinessRuleError(
-            f"production_type '{production_type}' requires {', '.join(missing)} to be enabled.",
+            f"Production type '{str(production_type).replace('_', ' ').capitalize()}' "
+            f"needs these capabilities: {listed(CAPABILITY_LABELS[name] for name in missing)}.",
             details={"production_type": str(production_type), "missing_capabilities": missing},
         )
 
@@ -2561,7 +2577,7 @@ async def update_price(
                 setattr(price, field, value)
 
         if price.valid_to is not None and price.valid_to < price.valid_from:
-            raise ValidationError("valid_to must not be earlier than valid_from.")
+            raise ValidationError(date_before("valid-to date", "valid-from date"))
 
         if (
             price.is_active

@@ -1642,7 +1642,7 @@ class TestOrderSource:
         response = await api_client.post("/production", json=raised_for(plant, **source))
 
         error = refused(response, 404, "NOT_FOUND")
-        assert error["message"] == f"Sales order line not found: {line_id}"
+        assert error["message"] == f"Sales order line not found: {line_id}."
         assert await jobs_for(session, plant) == 0
 
     async def test_this_companys_order_and_its_line_are_kept_as_the_source(

@@ -19,6 +19,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import MAX_INTEGER_COLUMN
+from src.core.messages import needs_time_zone
 from src.modules.documents.schemas import DocumentRead
 from src.modules.procurement.models import PurchaseOrderStatus
 from src.modules.procurement.schemas import NonNegativeMoney, NonNegativeQuantity
@@ -83,7 +84,7 @@ class InboundShipmentCreate(BaseModel):
         if self.transporter_id is None and not (self.courier_name or "").strip():
             raise ValueError("A transporter or courier name is required.")
         if self.shipped_at.tzinfo is None:
-            raise ValueError("shipped_at must include a timezone offset.")
+            raise ValueError(needs_time_zone("shipping time"))
         self.shipped_at = self.shipped_at.astimezone(UTC)
         if self.expected_delivery_date and self.expected_delivery_date < self.shipped_at.date():
             raise ValueError("Expected delivery cannot precede dispatch.")

@@ -21,6 +21,7 @@ from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
+from src.core.messages import needs_time_zone
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -292,7 +293,7 @@ async def mark_delivered(
         repo = ShipmentRepository(session, tenant)
         moment = delivered_at or utcnow()
         if moment.tzinfo is None:
-            raise ValidationError("delivered_at must include a timezone offset.")
+            raise ValidationError(needs_time_zone("delivery time"))
         moment = moment.astimezone(UTC)
         if moment < shipment.shipped_at:
             raise ValidationError("Delivery cannot precede dispatch.")

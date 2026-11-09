@@ -28,6 +28,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.messages import date_before
 from src.modules.quality.models import (
     ALLOWED_VALUE_LENGTH,
     MAX_PARAMETERS_PER_TEMPLATE,
@@ -196,13 +197,13 @@ class TemplateCreate(BaseModel):
                 "would resolve differently depending on which is looked at first."
             )
         if self.sampling_plan is SamplingPlan.PERCENTAGE and self.sample_percentage is None:
-            raise ValueError("A PERCENTAGE sampling plan needs sample_percentage.")
+            raise ValueError("A percentage sampling plan needs a sample percentage.")
         if self.sampling_plan is SamplingPlan.FIXED_SAMPLE and self.sample_size is None:
-            raise ValueError("A FIXED_SAMPLE sampling plan needs sample_size.")
+            raise ValueError("A fixed-sample plan needs a sample size.")
         if self.sampling_plan is not SamplingPlan.PERCENTAGE and self.sample_percentage is not None:
-            raise ValueError("sample_percentage applies to the PERCENTAGE plan only.")
+            raise ValueError("A sample percentage applies to the percentage plan only.")
         if self.sampling_plan is not SamplingPlan.FIXED_SAMPLE and self.sample_size is not None:
-            raise ValueError("sample_size applies to the FIXED_SAMPLE plan only.")
+            raise ValueError("A sample size applies to the fixed-sample plan only.")
 
         _assert_sheet_is_distinct(self.parameters)
         return self
@@ -415,7 +416,7 @@ class InspectionFilters(BaseModel):
             and self.inspected_to is not None
             and self.inspected_to < self.inspected_from
         ):
-            raise ValueError("inspected_to cannot be before inspected_from.")
+            raise ValueError(date_before("end of the period", "start of the period"))
         return self
 
 

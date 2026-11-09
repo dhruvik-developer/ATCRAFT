@@ -42,7 +42,7 @@ from src.core.constants import (
     MAX_SERIAL_BULK,
     REASON_MIN_LENGTH,
 )
-from src.core.messages import REASON_TOO_SHORT
+from src.core.messages import REASON_TOO_SHORT, date_before
 from src.core.validation import reject_null
 from src.modules.inventory.models import (
     MAX_SERIALS_PER_BIN_MOVE_LINE,
@@ -259,7 +259,7 @@ class LedgerFilters(BaseModel):
         if (value.tzinfo is None) != (lower.tzinfo is None):
             return value
         if value < lower:
-            raise ValueError("occurred_to must not be earlier than occurred_from.")
+            raise ValueError(date_before("end of the period", "start of the period"))
         return value
 
 

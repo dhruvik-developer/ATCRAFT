@@ -27,7 +27,12 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.messages import duplicate_line_numbers, duplicate_operation_sequences, listed
+from src.core.messages import (
+    date_before,
+    duplicate_line_numbers,
+    duplicate_operation_sequences,
+    listed,
+)
 from src.modules.bom.models import BomStatus, BomType
 
 # --- reusable constrained scalars --------------------------------------------
@@ -234,7 +239,7 @@ class BomCreate(BaseModel):
             and self.effective_from is not None
             and self.effective_to < self.effective_from
         ):
-            raise ValueError("effective_to cannot precede effective_from.")
+            raise ValueError(date_before("effective-to date", "effective-from date"))
         _validate_line_set(self.lines)
         _validate_operation_set(self.operations)
         if self.bom_type is BomType.ALTERNATE and self.parent_bom_id is None:

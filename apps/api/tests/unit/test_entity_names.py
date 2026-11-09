@@ -1,6 +1,6 @@
 """One user-facing name per record, across every path that can name it.
 
-``NotFoundError`` renders ``"{entity} not found: {id}"`` and
+``NotFoundError`` renders ``"{entity} not found: {id}."`` and
 ``InvalidStateTransitionError`` renders ``"{entity} cannot move from ..."``, so a
 service that says "Work centre" in one message while ``get_or_404`` says
 "WorkCenter" and the state machine says "WorkCenter" answers three spellings for
@@ -52,7 +52,7 @@ async def test_get_or_404_names_the_record_the_way_the_service_does(
     missing = uuid.uuid4()
     with pytest.raises(NotFoundError) as excinfo:
         await repository(_NoRowSession(), _tenant()).get_or_404(missing)
-    assert excinfo.value.message == f"{entity} not found: {missing}"
+    assert excinfo.value.message == f"{entity} not found: {missing}."
 
 
 def test_the_human_names_are_not_class_names() -> None:

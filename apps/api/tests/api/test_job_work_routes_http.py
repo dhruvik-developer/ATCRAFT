@@ -483,7 +483,7 @@ class TestCreateOrder:
 
         error = refused(response, 404, "NOT_FOUND")
         label = "Production order" if source_type == "PRODUCTION_ORDER" else "Assembly order"
-        assert error["message"] == f"{label} not found: {named}"
+        assert error["message"] == f"{label} not found: {named}."
         assert await count_orders(session, tenant.company_id) == 0
 
     @pytest.mark.parametrize("source_type", ["PRODUCTION_ORDER", "ASSEMBLY_ORDER"])

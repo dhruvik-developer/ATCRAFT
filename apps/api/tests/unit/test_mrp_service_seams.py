@@ -317,6 +317,6 @@ async def test_get_or_404_and_the_lock_path_use_the_same_human_name(
     missing = uuid.uuid4()
     with pytest.raises(NotFoundError) as excinfo:
         await repository(_NoRowSession(), _tenant()).get_or_404(missing)
-    assert excinfo.value.message == f"{entity} not found: {missing}"
+    assert excinfo.value.message == f"{entity} not found: {missing}."
     assert "Mrp" not in excinfo.value.message
     assert entity in (service.RUN_LIFECYCLE.entity, service.SUGGESTION_LIFECYCLE.entity)

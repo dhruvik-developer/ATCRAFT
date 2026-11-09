@@ -212,6 +212,25 @@ def date_before(later: str, earlier: str) -> str:
     return f"The {later} cannot be before the {earlier}."
 
 
+def too_long(subject: str, limit: int) -> str:
+    """``"The record type cannot be longer than 64 characters."``"""
+    return f"{subject} cannot be longer than {limit} characters."
+
+
+def needs_time_zone(subject: str) -> str:
+    """``"Include a time-zone offset in the expiry time."``
+
+    A timestamp without one is ambiguous - the server would have to guess the
+    sender's zone - so every module that takes one refuses a naive one.
+    """
+    return f"Include a time-zone offset in the {subject}."
+
+
+#: A reference to a record names its type and the record together, or neither:
+#: half a reference files something against what no query can express.
+RECORD_REFERENCE_PAIR = "Give the record type and the record together, or neither."
+
+
 # --- approvals ------------------------------------------------------------------
 
 
@@ -263,6 +282,7 @@ __all__ = [
     "OPERATION_COMPLETED",
     "RATE_LIMITED",
     "REASON_TOO_SHORT",
+    "RECORD_REFERENCE_PAIR",
     "SERVICE_UNAVAILABLE",
     "SESSION_ENDED_FOR_SECURITY",
     "SHIFT_ASSIGNMENT_OVERLAP",
@@ -276,8 +296,10 @@ __all__ = [
     "held_for_inspection",
     "inactive_record",
     "listed",
+    "needs_time_zone",
     "plural",
     "self_approval_refused",
     "success_message",
+    "too_long",
     "verdict_differs_from_inspection",
 ]

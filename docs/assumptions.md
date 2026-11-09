@@ -4839,8 +4839,8 @@ the vendor portal has (§C1-3), rather than a wider upload right.
 **Assumed.** `POST /documents` reads `entity_id` through the owning module's
 tenant-scoped repository for each entity type a module registers a resolver
 for - `item` (products) and `qc_inspection` (quality) - and answers
-`404 NOT_FOUND` naming the record (`Item not found: <id>`,
-`QC inspection not found: <id>`) for another company's record, an unknown id or
+`404 NOT_FOUND` naming the record (`Item not found: <id>.`,
+`QC inspection not found: <id>.`) for another company's record, an unknown id or
 another kind of record's id, before any byte is read or stored. It runs after
 the attach policy (§DOC-1), so a caller without `item.update` is refused 403
 first. Any other entity type is stored as given, as before. Modules that file

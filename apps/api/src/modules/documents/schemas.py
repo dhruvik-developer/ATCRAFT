@@ -22,6 +22,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.clock import utcnow
+from src.core.messages import RECORD_REFERENCE_PAIR, needs_time_zone
 from src.modules.documents.models import DocumentCategory
 
 # ``entity_type`` is a stable snake_case module noun (``goods_receipt``,
@@ -58,20 +59,23 @@ class DocumentUploadRequest(BaseModel):
         # Half a reference is worse than none: the file is filed against
         # something no query can express, so it is invisible for ever.
         if (entity_type is None) != (self.entity_id is None):
-            raise ValueError("entity_type and entity_id must be supplied together.")
+            raise ValueError(RECORD_REFERENCE_PAIR)
         if entity_type is not None and not ENTITY_TYPE_PATTERN.match(entity_type):
-            raise ValueError("entity_type must be lowercase snake_case, e.g. 'goods_receipt'.")
+            raise ValueError(
+                "The record type must be lower-case words joined by underscores, "
+                "such as 'goods_receipt'."
+            )
         object.__setattr__(self, "entity_type", entity_type)
 
         if self.expires_at is not None:
             if self.expires_at.tzinfo is None:
-                raise ValueError("expires_at must include a timezone offset.")
+                raise ValueError(needs_time_zone("expiry time"))
             now = utcnow()
             if self.expires_at <= now:
-                raise ValueError("expires_at must be in the future.")
+                raise ValueError("The expiry time must be in the future.")
             if (self.expires_at - now).days > MAX_RETENTION_DAYS:
                 raise ValueError(
-                    f"expires_at cannot be more than {MAX_RETENTION_DAYS} days away; "
+                    f"The expiry time cannot be more than {MAX_RETENTION_DAYS} days away; "
                     "omit it for a document that is kept indefinitely."
                 )
         return self
@@ -124,7 +128,7 @@ class DocumentFilters(BaseModel):
         # is ambiguous besides: ids are unique but the pair is the addressable
         # unit everywhere else in the API.
         if self.entity_id is not None and not self.entity_type:
-            raise ValueError("entity_id can only be used together with entity_type.")
+            raise ValueError("Choose a record type to filter by one of its records.")
         return self
 
 

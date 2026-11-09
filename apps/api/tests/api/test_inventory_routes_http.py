@@ -1375,7 +1375,7 @@ class TestCreateTransfer:
         )
 
         label = "Sales order" if source_type == "SALES_ORDER" else "Reallocation request"
-        assert error["message"] == f"{label} not found: {named}"
+        assert error["message"] == f"{label} not found: {named}."
         assert (
             await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
             == 0
@@ -1449,7 +1449,7 @@ class TestCreateTransfer:
 
         error = refused(await api_client.post("/inventory/transfers", json=body), 404, "NOT_FOUND")
 
-        assert error["message"] == f"Sales order line not found: {line_id}"
+        assert error["message"] == f"Sales order line not found: {line_id}."
         assert (
             await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
             == 0

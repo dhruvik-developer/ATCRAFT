@@ -58,6 +58,7 @@ from src.core.deps import TenantContext
 from src.core.errors import NotFoundError, ValidationError
 from src.core.ids import new_id
 from src.core.logging import get_logger, get_request_id
+from src.core.messages import RECORD_REFERENCE_PAIR, too_long
 from src.core.pagination import CursorParams
 from src.core.responses import CursorPagination
 from src.core.state_machine import StateMachine, Transition
@@ -240,14 +241,14 @@ def normalise_action_url(raw: str | None) -> str | None:
         return None
     if not url.startswith("/") or url.startswith("//"):
         raise ValidationError(
-            "action_url must be a site-relative path such as '/purchase-orders/<id>'.",
+            "The action link must be a path within the site, such as '/purchase-orders/<id>'.",
             details={"action_url": raw},
         )
     if len(url) > MAX_ACTION_URL_LENGTH:
         # Truncating produces a link to the wrong place, which is worse than no
         # link at all - and it is always a caller bug, never user input.
         raise ValidationError(
-            f"action_url exceeds {MAX_ACTION_URL_LENGTH} characters.",
+            too_long("The action link", MAX_ACTION_URL_LENGTH),
             details={"length": len(url)},
         )
     return url
@@ -266,7 +267,7 @@ def normalise_group_key(raw: str | None) -> str | None:
         return None
     if len(key) > MAX_GROUP_KEY_LENGTH:
         raise ValidationError(
-            f"group_key exceeds {MAX_GROUP_KEY_LENGTH} characters.",
+            too_long("The group key", MAX_GROUP_KEY_LENGTH),
             details={"length": len(key)},
         )
     return key
@@ -280,9 +281,9 @@ def normalise_entity_reference(
     if not normalised:
         normalised = None
     if (normalised is None) != (entity_id is None):
-        raise ValidationError("entity_type and entity_id must be supplied together.")
+        raise ValidationError(RECORD_REFERENCE_PAIR)
     if normalised is not None and len(normalised) > MAX_ENTITY_TYPE_LENGTH:
-        raise ValidationError(f"entity_type exceeds {MAX_ENTITY_TYPE_LENGTH} characters.")
+        raise ValidationError(too_long("The record type", MAX_ENTITY_TYPE_LENGTH))
     return normalised, entity_id
 
 

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.errors import NotFoundError
 from src.core.security import encrypt_courier_webhook_secret, hash_secret_token
 from src.modules.courier_tracking.models import (
     CourierAccount,
@@ -84,6 +85,39 @@ async def test_each_account_change_names_what_changed(api_client: AsyncClient) -
     assert updated.json()["message"] == "Courier account updated"
     assert rotated.json()["message"] == "Webhook secret reset"
     assert tested.json()["message"] == "Courier connection verified"
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_account_or_consignment_is_named_once_in_its_404(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 404 names the record in the shared sentence - not 'not found. not found'."""
+    monkeypatch.setattr(settings, "courier_tracking_enabled", True)
+    missing = uuid.uuid4()
+    account = f"/integrations/courier/accounts/{missing}"
+
+    responses = {
+        "Courier account": [
+            await api_client.patch(account, json={"display_name": "Generic courier"}),
+            await api_client.post(f"{account}/rotate-webhook"),
+            await api_client.post(f"{account}/test"),
+        ],
+        "Tracked dispatch": [
+            await api_client.post(
+                "/integrations/courier/refresh", json={"dispatch_id": str(missing)}
+            )
+        ],
+        "Tracked inbound shipment": [
+            await api_client.post(
+                "/integrations/courier/refresh", json={"shipment_id": str(missing)}
+            )
+        ],
+    }
+
+    for entity, answers in responses.items():
+        for response in answers:
+            assert response.status_code == 404, response.text
+            assert response.json()["error"]["message"] == NotFoundError(entity, missing).message
 
 
 @pytest.mark.asyncio

@@ -9,11 +9,13 @@ names no internals. Two shapes broke that and shipped past review:
 * three copies of the background-job sanitiser wrote "failed with an
   unexpected KeyError" onto the job row, which the MRP and report screens show
   verbatim. The exception's class belongs in the log line;
-  :func:`src.core.errors.failure_message` writes the row.
-
+  :func:`src.core.errors.failure_message` writes the row;
 * two refusals spelled the reason floor out - "at least three characters" -
   beside a ``min_length=3`` that could move without them. A sentence states the
-  floor by interpolating ``REASON_MIN_LENGTH``, as ``REASON_TOO_SHORT`` does.
+  floor by interpolating ``REASON_MIN_LENGTH``, as ``REASON_TOO_SHORT`` does;
+* ``NotFoundError`` takes an entity *label* and words the sentence itself, and
+  the courier module handed it whole sentences - every 404 there read
+  "Courier account not found. not found".
 
 Every rule is a function over source text, and each has a self-test that feeds
 it the violation it exists to catch.
@@ -191,6 +193,249 @@ def test_the_minimum_rule_flags_a_spelled_floor_and_ignores_the_constant() -> No
     )
 
     assert spelled_reason_minimums(source, 3) == ["line 3", "line 4"]
+
+
+#: Raises read by an operator at start-up, not by a user - each with its reason.
+FORMAT_RAISES_ALLOWED: dict[str, str] = {
+    "core/config.py": (
+        "settings validation stops the process at boot and names the environment "
+        "variable to fix; its reader is whoever deploys, and the variable name is the point"
+    ),
+}
+
+_SNAKE_CASE_START = re.compile(r"^[a-z]+_[a-z0-9_]+\b")
+_SENTENCE_START = re.compile(r"^[A-Z0-9'\"({]")
+_SENTENCE_END = re.compile(r"[.?!)]$")
+_VALIDATOR_DECORATORS = frozenset({"field_validator", "model_validator"})
+
+
+def _error_classes(trees: list[ast.Module]) -> tuple[set[str], set[str]]:
+    """``(message_classes, label_classes)`` among the AppError subclasses in ``trees``.
+
+    A label class's first argument is not the message - ``NotFoundError(entity)``,
+    ``SelfApprovalError(subject)`` - because it words the sentence itself.
+    """
+    bases: dict[str, list[str]] = {}
+    first_parameter: dict[str, str | None] = {}
+    for tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            bases[node.name] = [b.id for b in node.bases if isinstance(b, ast.Name)]
+            init = next(
+                (
+                    item
+                    for item in node.body
+                    if isinstance(item, ast.FunctionDef) and item.name == "__init__"
+                ),
+                None,
+            )
+            if init is not None:
+                arguments = init.args.args[1:]
+                first_parameter[node.name] = arguments[0].arg if arguments else None
+    errors = {"AppError"}
+    changed = True
+    while changed:
+        changed = False
+        for name, parents in bases.items():
+            if name not in errors and any(parent in errors for parent in parents):
+                errors.add(name)
+                changed = True
+
+    def takes_label(name: str) -> bool:
+        if name in first_parameter:
+            return first_parameter[name] not in {"message", None}
+        return any(takes_label(parent) for parent in bases.get(name, []) if parent in errors)
+
+    labels = {name for name in errors if takes_label(name)}
+    return errors - labels, labels
+
+
+def _template(node: ast.expr) -> str | None:
+    """A message argument with each placeholder written ``{}``; None if not literal."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            part.value if isinstance(part, ast.Constant) else "{}" for part in node.values
+        )
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _template(node.left), _template(node.right)
+        return None if left is None or right is None else left + right
+    return None
+
+
+def misformatted_messages(source: str, *, message_classes: set[str], schemas: bool) -> list[str]:
+    """``line N: problem`` for each user-facing refusal outside the house format.
+
+    User-facing: an AppError that takes its message first, or a ValueError a
+    pydantic validator raises (``core.validation`` hands its sentence to the
+    client as a field error). ``schemas`` marks a schemas module, whose
+    ValueErrors are all validators'.
+    """
+    found: list[tuple[int, str]] = []
+    for function in ast.walk(ast.parse(source)):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        validator = schemas or any(
+            isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Name)
+            and decorator.func.id in _VALIDATOR_DECORATORS
+            for decorator in function.decorator_list
+        )
+        for node in ast.walk(function):
+            if not (
+                isinstance(node, ast.Raise)
+                and isinstance(node.exc, ast.Call)
+                and isinstance(node.exc.func, ast.Name)
+                and node.exc.args
+            ):
+                continue
+            raised = node.exc.func.id
+            if raised not in message_classes and not (raised == "ValueError" and validator):
+                continue
+            text = _template(node.exc.args[0])
+            if not text or not text.strip():
+                continue
+            text = text.strip()
+            if _SNAKE_CASE_START.match(text):
+                found.append((node.lineno, "opens with an identifier"))
+            elif not _SENTENCE_START.match(text):
+                found.append((node.lineno, "opens in lower case"))
+            if not text.endswith("{}") and not _SENTENCE_END.search(text):
+                found.append((node.lineno, "has no closing punctuation"))
+    return [f"line {line}: {problem}" for line, problem in sorted(set(found))]
+
+
+def test_every_user_facing_refusal_reads_as_a_sentence() -> None:
+    files = _python_files()
+    trees = [ast.parse(path.read_text(encoding="utf-8")) for path in files]
+    message_classes, _ = _error_classes(trees)
+    failures = [
+        f"  {path.relative_to(SRC).as_posix()}: {hit}"
+        for path in files
+        if path.relative_to(SRC).as_posix() not in FORMAT_RAISES_ALLOWED
+        for hit in misformatted_messages(
+            path.read_text(encoding="utf-8"),
+            message_classes=message_classes,
+            schemas=path.name.endswith("schemas.py"),
+        )
+    ]
+
+    assert not failures, (
+        f"{len(failures)} refusal(s) do not read as a sentence:\n"
+        + "\n".join(failures)
+        + "\n\nOpen with a capital and a word a person uses - 'The expiry time', not "
+        "'expires_at' - and close with a full stop. Date pairs go through "
+        "messages.date_before, lengths through messages.too_long."
+    )
+
+
+def test_the_format_rule_flags_the_shapes_that_shipped() -> None:
+    source = "\n".join(
+        [
+            "class PriceCreate:",
+            "    @model_validator(mode='after')",
+            "    def _window(self):",
+            "        raise ValueError('valid_to must not be earlier than valid_from.')",
+            "        raise ValueError('each component may appear on only one line')",
+            "        raise ValueError(f'Line {n} needs a reason')",
+            "        raise ValueError(date_before('valid-to date', 'valid-from date'))",
+            "        raise ValueError(f'{label}: {reason}')",
+            "def service():",
+            "    raise ValidationError('action_url must be a site-relative path.')",
+            "    raise NotFoundError('Courier account', account_id)",
+            "    raise ValueError('internal: not a validator, not a schemas module')",
+            "    raise BusinessRuleError('The order is closed (since Monday).')",
+        ]
+    )
+    flagged = misformatted_messages(
+        source, message_classes={"ValidationError", "BusinessRuleError"}, schemas=False
+    )
+
+    assert flagged == [
+        "line 4: opens with an identifier",
+        "line 5: has no closing punctuation",
+        "line 5: opens in lower case",
+        "line 6: has no closing punctuation",
+        "line 10: opens with an identifier",
+    ]
+
+
+def test_the_label_classes_are_derived_not_listed() -> None:
+    tree = ast.parse(
+        "\n".join(
+            [
+                "class AppError(Exception): pass",
+                "class ValidationError(AppError): pass",
+                "class NotFoundError(AppError):",
+                "    def __init__(self, entity, identifier=None): pass",
+                "class TrackedNotFound(NotFoundError): pass",
+                "class KitShortageError(AppError):",
+                "    def __init__(self, message, *, rows): pass",
+            ]
+        )
+    )
+
+    messages, labels = _error_classes([tree])
+
+    assert labels == {"NotFoundError", "TrackedNotFound"}
+    assert {"ValidationError", "KitShortageError"} <= messages
+
+
+_SENTENCE_LABEL = re.compile(r"not found|[.!?]\s*$", re.IGNORECASE)
+
+
+def sentence_entity_labels(source: str) -> list[str]:
+    """``line N`` for each ``NotFoundError`` whose entity label is already a sentence."""
+    lines: set[int] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "NotFoundError"
+        ):
+            continue
+        labels = node.args[:1] + [k.value for k in node.keywords if k.arg == "entity"]
+        for label in labels:
+            text = "".join(
+                part.value
+                for part in ast.walk(label)
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+            if _SENTENCE_LABEL.search(text):
+                lines.add(node.lineno)
+    return [f"line {line}" for line in sorted(lines)]
+
+
+def test_every_not_found_names_an_entity_not_a_sentence() -> None:
+    failures = [
+        f"  {path.relative_to(SRC).as_posix()}: {hit}"
+        for path in _python_files()
+        for hit in sentence_entity_labels(path.read_text(encoding="utf-8"))
+    ]
+
+    assert not failures, (
+        f"{len(failures)} NotFoundError(s) hand a sentence where the entity goes:\n"
+        + "\n".join(failures)
+        + "\n\nPass the label and the id - NotFoundError('Courier account', account_id) - "
+        "and the error words the sentence."
+    )
+
+
+def test_the_label_rule_flags_a_sentence_and_passes_a_label() -> None:
+    source = "\n".join(
+        [
+            "raise NotFoundError('Courier account not found.')",
+            "raise NotFoundError('Courier account is not active.')",
+            "raise NotFoundError(entity='Tracked dispatch not found')",
+            "raise NotFoundError('Courier account', account_id)",
+            "raise NotFoundError(f'{label}', identifier)",
+            "raise NotFoundError()",
+        ]
+    )
+
+    assert sentence_entity_labels(source) == ["line 1", "line 2", "line 3"]
 
 
 def test_no_refusal_formats_a_collection_whole() -> None:

@@ -26,7 +26,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.messages import duplicate_line_numbers
+from src.core.messages import date_before, duplicate_line_numbers
 from src.modules.sales.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -180,7 +180,7 @@ class SalesOrderCreate(BaseModel):
     def _check(self) -> SalesOrderCreate:
         _validate_line_set(self.lines)
         if self.order_date is not None and self.required_date < self.order_date:
-            raise ValueError("required_date cannot be before order_date.")
+            raise ValueError(date_before("required date", "order date"))
         return self
 
 

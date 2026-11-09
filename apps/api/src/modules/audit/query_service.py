@@ -52,7 +52,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import self_approval_refused
+from src.core.messages import date_before, self_approval_refused, too_long
 from src.core.pagination import CursorParams, PageParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -150,7 +150,7 @@ def resolve_window(
 
     if start > end:
         raise ValidationError(
-            "date_from must not be after date_to (date_to defaults to now).",
+            date_before("end of the period", "start of the period") + " The end defaults to now.",
             details={"date_from": start.isoformat(), "date_to": end.isoformat()},
         )
 
@@ -172,9 +172,9 @@ def normalise_entity_type(value: str) -> str:
     """Fold a path-supplied entity type to the form the recorders write."""
     cleaned = value.strip().lower()
     if not cleaned:
-        raise ValidationError("entity_type is required.")
+        raise ValidationError("Name the record type to read its history.")
     if len(cleaned) > MAX_ENTITY_TYPE_LENGTH:
-        raise ValidationError(f"entity_type exceeds {MAX_ENTITY_TYPE_LENGTH} characters.")
+        raise ValidationError(too_long("The record type", MAX_ENTITY_TYPE_LENGTH))
     return cleaned
 
 

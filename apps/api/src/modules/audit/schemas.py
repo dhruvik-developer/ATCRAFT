@@ -35,6 +35,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.constants import MAX_REQUEST_ID_LENGTH
+from src.core.messages import too_long
 from src.core.types import IpAddress
 from src.modules.audit.models import AuditAction
 
@@ -144,7 +145,7 @@ class AuditLogFilters(BaseModel):
         if not cleaned:
             return None
         if len(cleaned) > MAX_ENTITY_TYPE_LENGTH:
-            raise ValueError(f"entity_type exceeds {MAX_ENTITY_TYPE_LENGTH} characters.")
+            raise ValueError(too_long("The record type", MAX_ENTITY_TYPE_LENGTH))
         return cleaned
 
     @field_validator("request_id")
@@ -156,7 +157,7 @@ class AuditLogFilters(BaseModel):
         if not cleaned:
             return None
         if len(cleaned) > MAX_REQUEST_ID_LENGTH:
-            raise ValueError(f"request_id exceeds {MAX_REQUEST_ID_LENGTH} characters.")
+            raise ValueError(too_long("The request id", MAX_REQUEST_ID_LENGTH))
         return cleaned
 
 
@@ -226,7 +227,7 @@ class ApprovalFilters(BaseModel):
         if not cleaned:
             return None
         if len(cleaned) > MAX_ENTITY_TYPE_LENGTH:
-            raise ValueError(f"entity_type exceeds {MAX_ENTITY_TYPE_LENGTH} characters.")
+            raise ValueError(too_long("The record type", MAX_ENTITY_TYPE_LENGTH))
         return cleaned
 
 

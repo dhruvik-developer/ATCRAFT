@@ -543,7 +543,7 @@ class RoleFilters(BaseModel):
     def _known_permission(cls, value: str | None) -> str | None:
         cleaned = strip_optional(value)
         if cleaned is not None and cleaned not in _VALID_PERMISSIONS:
-            raise ValueError(f"Unknown permission: {cleaned}")
+            raise ValueError(f"Unknown permission: {cleaned}.")
         return cleaned
 
 

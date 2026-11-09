@@ -22,6 +22,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.core.constants import MAX_INTEGER_COLUMN
+from src.core.messages import needs_time_zone
 from src.core.responses import OffsetPagination
 from src.core.validation import bind_request_model
 from src.modules.finance.models import MatchStatus, PaymentMethod, PaymentStatus
@@ -87,7 +88,7 @@ class VendorJobWorkUpdateCreate(BaseModel):
     @classmethod
     def validate_event_time(cls, value: datetime) -> datetime:
         if value.tzinfo is None:
-            raise ValueError("event_time must include a timezone offset.")
+            raise ValueError(needs_time_zone("event time"))
         return value.astimezone(UTC)
 
     @field_validator("note")
@@ -97,7 +98,7 @@ class VendorJobWorkUpdateCreate(BaseModel):
             return None
         normalized = value.strip()
         if not normalized:
-            raise ValueError("note must not be blank.")
+            raise ValueError("Write a note, or leave it out.")
         return normalized
 
 

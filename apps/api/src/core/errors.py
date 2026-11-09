@@ -161,7 +161,9 @@ class NotFoundError(AppError):
     message = "The requested record does not exist."
 
     def __init__(self, entity: str = "Record", identifier: object = None, **kw: Any) -> None:
-        msg = f"{entity} not found" + (f": {identifier}" if identifier is not None else "")
+        # ``entity`` is a label ("Purchase order"); this words the sentence. The
+        # identifier is what the caller sent, so naming it tells them which one.
+        msg = f"{entity} not found" + (f": {identifier}" if identifier is not None else "") + "."
         super().__init__(msg, **kw)
 
 
@@ -211,7 +213,7 @@ class PermissionDeniedError(AuthorizationError):
 
     def __init__(self, permission: str, **kw: Any) -> None:
         super().__init__(
-            f"Missing required permission: {permission}",
+            f"You need the {permission} permission to do this.",
             details={"required_permission": permission},
             **kw,
         )
@@ -343,7 +345,7 @@ class BomCycleError(BusinessRuleError):
 
     def __init__(self, path: list[str]) -> None:
         super().__init__(
-            "The bill of materials contains a cycle: " + " -> ".join(path),
+            "The bill of materials contains a cycle: " + " -> ".join(path) + ".",
             details={"cycle_path": path},
         )
 

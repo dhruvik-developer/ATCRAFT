@@ -85,7 +85,10 @@ def test_inverted_range_is_rejected():
         resolve_window(NOW, NOW - timedelta(days=1), now=NOW)
 
     assert excinfo.value.code is ErrorCode.VALIDATION_ERROR
-    assert "date_from" in excinfo.value.message
+    assert excinfo.value.message == (
+        "The end of the period cannot be before the start of the period. The end defaults to now."
+    )
+    assert set(excinfo.value.details) == {"date_from", "date_to"}
 
 
 def test_date_from_in_the_future_is_rejected_because_date_to_defaults_to_now():

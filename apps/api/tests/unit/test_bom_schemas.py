@@ -133,7 +133,7 @@ def test_more_lines_than_the_cap_are_refused() -> None:
 
 
 def test_an_effectivity_window_that_ends_before_it_starts_is_refused() -> None:
-    with pytest.raises(ValidationError, match="effective_to cannot precede"):
+    with pytest.raises(ValidationError, match="effective-to date cannot be before"):
         BomCreate(**bom(effective_from=date(2026, 6, 1), effective_to=date(2026, 5, 1)))
 
 

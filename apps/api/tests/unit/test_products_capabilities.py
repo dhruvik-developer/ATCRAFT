@@ -97,6 +97,10 @@ def test_make_requires_the_manufacture_capability() -> None:
         validate_capabilities(ProductionType.MAKE, flags)
 
     assert excinfo.value.details["missing_capabilities"] == ["can_manufacture"]
+    # Named as the item form labels the box, not as the column behind it.
+    assert (
+        excinfo.value.message == "Production type 'Make' needs these capabilities: Manufacturable."
+    )
 
 
 def test_make_or_buy_requires_both_capabilities() -> None:
@@ -107,6 +111,9 @@ def test_make_or_buy_requires_both_capabilities() -> None:
         validate_capabilities(ProductionType.MAKE_OR_BUY, flags)
 
     assert excinfo.value.details["missing_capabilities"] == ["can_purchase"]
+    assert excinfo.value.message == (
+        "Production type 'Make or buy' needs these capabilities: Purchasable."
+    )
 
 
 def test_job_work_requires_the_job_work_capability() -> None:

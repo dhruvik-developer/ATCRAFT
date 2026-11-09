@@ -112,7 +112,7 @@ def test_everything_else_is_refused(path: str) -> None:
 
 
 def test_vendor_job_work_progress_requires_timezone_and_normalizes_note() -> None:
-    with pytest.raises(ValueError, match="timezone offset"):
+    with pytest.raises(ValueError, match="time-zone offset in the event time"):
         VendorJobWorkUpdateCreate(
             update_type="IN_PROCESS",
             event_time=datetime.fromisoformat("2026-11-02T09:00:00"),
@@ -501,7 +501,7 @@ def test_po_late(
 def test_a_consignment_needs_a_carrier_and_a_zoned_dispatch_time() -> None:
     with pytest.raises(ValueError, match="transporter or courier"):
         InboundShipmentCreate(shipped_at=datetime(2026, 1, 1, tzinfo=UTC))
-    with pytest.raises(ValueError, match="timezone"):
+    with pytest.raises(ValueError, match="time-zone offset in the shipping time"):
         InboundShipmentCreate(courier_name="Blue Dart", shipped_at=datetime(2026, 1, 1))  # noqa: DTZ001
     with pytest.raises(ValueError, match="precede dispatch"):
         InboundShipmentCreate(

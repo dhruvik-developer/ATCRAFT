@@ -1737,7 +1737,7 @@ async def test_moving_a_channel_price_needs_price_manage(
             item.id,
             ItemUpdate(sale_price=Decimal("120"), dealer_price=Decimal("100")),
         )
-    assert excinfo.value.message == "Missing required permission: price.manage"
+    assert excinfo.value.message == "You need the price.manage permission to do this."
     assert excinfo.value.details == {"required_permission": "price.manage"}
 
 

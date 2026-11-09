@@ -47,20 +47,22 @@ class TestUploadRequest:
         self, entity_type: str | None, entity_id: uuid.UUID | None
     ) -> None:
         # A file attached to a type but no id is filed against nothing findable.
-        with pytest.raises(ValidationError, match="must be supplied together"):
+        with pytest.raises(
+            ValidationError, match="record type and the record together, or neither"
+        ):
             DocumentUploadRequest(entity_type=entity_type, entity_id=entity_id)
 
     @pytest.mark.parametrize(
         "entity_type", ["Goods Receipt", "goods-receipt", "1_receipt", "goods.receipt", "../etc"]
     )
     def test_entity_type_must_be_a_module_noun(self, entity_type: str) -> None:
-        with pytest.raises(ValidationError, match="snake_case"):
+        with pytest.raises(ValidationError, match="lower-case words joined by underscores"):
             DocumentUploadRequest(entity_type=entity_type, entity_id=uuid.uuid4())
 
     def test_naive_expiry_is_refused(self) -> None:
         # A naive timestamp would be compared against UTC and silently shift the
         # retention date by the server's offset (section 28).
-        with pytest.raises(ValidationError, match="timezone"):
+        with pytest.raises(ValidationError, match="time-zone offset in the expiry time"):
             DocumentUploadRequest(expires_at=datetime(2030, 1, 1))  # noqa: DTZ001
 
     def test_past_expiry_is_refused(self) -> None:
@@ -83,7 +85,9 @@ class TestFilters:
     def test_entity_id_alone_is_refused(self) -> None:
         # It would ignore the leading columns of the (company_id, entity_type,
         # entity_id) index and scan the table.
-        with pytest.raises(ValidationError, match="together with entity_type"):
+        with pytest.raises(
+            ValidationError, match="Choose a record type to filter by one of its records"
+        ):
             DocumentFilters(entity_id=uuid.uuid4())
 
     def test_entity_type_alone_is_a_valid_filter(self) -> None:

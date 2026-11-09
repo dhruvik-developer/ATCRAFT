@@ -449,7 +449,9 @@ def test_explicit_discount_above_the_threshold_without_the_right_is_refused():
     with pytest.raises(PermissionDeniedError) as excinfo:
         price_line(payload, context_for(item, []), principal_with(Permission.SALES_ORDER_CREATE))
 
-    assert excinfo.value.message == "Missing required permission: sales_order.discount_override"
+    assert excinfo.value.message == (
+        "You need the sales_order.discount_override permission to do this."
+    )
     assert excinfo.value.details == {"required_permission": "sales_order.discount_override"}
 
 

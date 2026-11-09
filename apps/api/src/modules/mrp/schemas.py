@@ -37,6 +37,7 @@ from pydantic import (
 
 from src.common.codes import clean_text
 from src.core.demand_provenance import RootDemandProvenance, project_demand_provenance
+from src.core.messages import date_before
 from src.core.types import to_quantity
 from src.modules.mrp.models import (
     DEFAULT_HORIZON_DAYS,
@@ -232,7 +233,7 @@ class MrpRunFilters(BaseModel):
         # and the frontend can attach it to the control that produced it.
         lower = info.data.get("created_from")
         if value is not None and lower is not None and value < lower:
-            raise ValueError("created_to cannot be before created_from")
+            raise ValueError(date_before("end of the period", "start of the period"))
         return value
 
 

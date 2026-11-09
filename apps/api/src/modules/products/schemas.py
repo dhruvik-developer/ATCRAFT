@@ -31,6 +31,7 @@ from src.core.constants import (
     MAX_INTEGER_COLUMN,
     MAX_NOTES_LENGTH,
 )
+from src.core.messages import date_before
 from src.core.pagination import bind_query_filters
 from src.modules.products.models import (
     DEFAULT_MANUFACTURER_COUNTRY,
@@ -771,7 +772,7 @@ class PriceCreate(_Base):
     @model_validator(mode="after")
     def _window_ordered(self) -> PriceCreate:
         if self.valid_to is not None and self.valid_to < self.valid_from:
-            raise ValueError("valid_to must not be earlier than valid_from.")
+            raise ValueError(date_before("valid-to date", "valid-from date"))
         return self
 
 

@@ -18,18 +18,30 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from src.core.errors import BusinessRuleError, failure_message
+from src.core.errors import (
+    BomCycleError,
+    BusinessRuleError,
+    NotFoundError,
+    PermissionDeniedError,
+    failure_message,
+)
 from src.core.messages import (
+    RECORD_REFERENCE_PAIR,
     duplicate_line_numbers,
     duplicate_operation_sequences,
     failed_unexpectedly,
     listed,
+    needs_time_zone,
     plural,
+    too_long,
 )
 from src.modules.bom.schemas import BomCreate
+from src.modules.mrp.schemas import MrpRunFilters
 from src.modules.procurement.schemas import RequisitionConversionRequest, _validate_line_numbers
+from src.modules.production.schemas import MaterialIssueCreate, ProductionEntryCreate
 from src.modules.routing.schemas import RoutingCreate
 from src.modules.sales.schemas import SalesOrderCreate
+from src.modules.vendor_portal.schemas import VendorJobWorkUpdateCreate
 
 pytestmark = pytest.mark.unit
 
@@ -217,3 +229,100 @@ def test_a_refusal_persists_its_own_sentence() -> None:
         failure_message(refusal, "The planning run", logged_against="worker log")
         == "Warehouse WH-01 is inactive and cannot receive stock."
     )
+
+
+# --- the shared refusals close their sentences -----------------------------------------
+
+
+def test_a_not_found_names_the_record_and_closes_its_sentence() -> None:
+    missing = uuid.uuid4()
+
+    assert NotFoundError("Purchase order", missing).message == (
+        f"Purchase order not found: {missing}."
+    )
+    assert NotFoundError("Courier account").message == "Courier account not found."
+
+
+def test_a_missing_permission_names_the_one_to_ask_for() -> None:
+    refused = PermissionDeniedError("price.manage")
+
+    assert refused.message == "You need the price.manage permission to do this."
+    assert refused.details == {"required_permission": "price.manage"}
+
+
+def test_a_bom_cycle_closes_its_sentence() -> None:
+    assert BomCycleError(["A", "B", "A"]).message == (
+        "The bill of materials contains a cycle: A -> B -> A."
+    )
+
+
+def test_lengths_time_zones_and_record_references_are_worded_once() -> None:
+    assert too_long("The record type", 64) == (
+        "The record type cannot be longer than 64 characters."
+    )
+    assert needs_time_zone("expiry time") == "Include a time-zone offset in the expiry time."
+    assert RECORD_REFERENCE_PAIR == "Give the record type and the record together, or neither."
+
+
+# --- a field error names the field as the form does, on that field ---------------------
+
+
+def _field_error(error: pytest.ExceptionInfo[ValidationError]) -> tuple[tuple[object, ...], str]:
+    [problem] = error.value.errors()
+    return problem["loc"], str(problem["ctx"]["error"])
+
+
+def test_an_inverted_filter_window_is_refused_on_its_end_in_words() -> None:
+    with pytest.raises(ValidationError) as error:
+        MrpRunFilters(created_from=date(2026, 5, 2), created_to=date(2026, 5, 1))
+
+    assert _field_error(error) == (
+        ("created_to",),
+        "The end of the period cannot be before the start of the period.",
+    )
+
+
+def test_a_sales_order_due_before_it_was_placed_says_so_in_words() -> None:
+    line = {"line_number": 1, "item_id": str(uuid.uuid4()), "quantity": "1"}
+    with pytest.raises(ValidationError) as error:
+        SalesOrderCreate(
+            customer_id=uuid.uuid4(),
+            order_date=date(2026, 5, 2),
+            required_date=date(2026, 5, 1),
+            warehouse_id=uuid.uuid4(),
+            lines=[line],
+        )
+
+    assert _field_error(error)[1] == "The required date cannot be before the order date."
+
+
+def test_a_material_issue_names_its_repeated_line_number() -> None:
+    component = str(uuid.uuid4())
+    line = {"line_number": 2, "component_id": component, "quantity": "1"}
+    with pytest.raises(ValidationError) as error:
+        MaterialIssueCreate(
+            reason="Kit the press",
+            lines=[line, {**line, "component_id": str(uuid.uuid4())}],
+        )
+
+    assert _field_error(error)[1] == "Duplicate line number: 2."
+
+
+def test_an_empty_booking_says_what_it_must_record() -> None:
+    with pytest.raises(ValidationError) as error:
+        ProductionEntryCreate()
+
+    assert _field_error(error)[1] == (
+        "A booking must record a produced quantity, a rejected quantity or downtime."
+    )
+
+
+def test_a_blank_vendor_note_is_refused_on_the_note() -> None:
+    with pytest.raises(ValidationError) as error:
+        VendorJobWorkUpdateCreate(
+            update_type="IN_PROCESS",
+            event_time="2026-11-02T09:00:00+05:30",
+            note="   ",
+        )
+
+    assert _field_error(error) == (("note",), "Write a note, or leave it out.")

@@ -227,7 +227,7 @@ async def test_filing_against_an_item_this_company_does_not_hold_is_not_found(
 
     error = error_of(await upload(api_client, "item", named), 404, "NOT_FOUND")
 
-    assert error["message"] == f"Item not found: {named}"
+    assert error["message"] == f"Item not found: {named}."
     # Refused before a byte was read: no row, and nothing left on disk.
     assert await filed_against(session, named) == 0
     assert stored_files(storage) == []
@@ -257,7 +257,7 @@ async def test_filing_against_an_inspection_this_company_does_not_hold_is_not_fo
 
     error = error_of(await upload(api_client, "qc_inspection", named, "dent.png"), 404, "NOT_FOUND")
 
-    assert error["message"] == f"QC inspection not found: {named}"
+    assert error["message"] == f"QC inspection not found: {named}."
     assert await filed_against(session, named) == 0
     assert stored_files(storage) == []
 

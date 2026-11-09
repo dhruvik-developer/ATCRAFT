@@ -782,7 +782,7 @@ async def where_used(
     """
     if levels < 1 or levels > MAX_WHERE_USED_LEVELS:
         raise BusinessRuleError(
-            f"where-used supports 1 to {MAX_WHERE_USED_LEVELS} levels.",
+            f"Where-used looks 1 to {MAX_WHERE_USED_LEVELS} levels up.",
             details={"levels": levels, "max_levels": MAX_WHERE_USED_LEVELS},
         )
 

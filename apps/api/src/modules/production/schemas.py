@@ -25,6 +25,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.core.messages import date_before, duplicate_line_numbers
 from src.core.validation import reject_null
 from src.modules.production.models import (
     DEFAULT_PRODUCTION_PRIORITY,
@@ -91,7 +92,7 @@ class ProductionOrderCreate(BaseModel):
     @model_validator(mode="after")
     def _dates_ordered(self) -> ProductionOrderCreate:
         if self.planned_end_date < self.planned_start_date:
-            raise ValueError("planned_end_date cannot be before planned_start_date")
+            raise ValueError(date_before("planned end date", "planned start date"))
         return self
 
 
@@ -321,7 +322,7 @@ class CompleteRequest(BaseModel):
     @model_validator(mode="after")
     def _rejection_has_a_reason(self) -> CompleteRequest:
         if self.rejected_quantity > 0 and not self.rejection_reason:
-            raise ValueError("rejection_reason is required when rejecting output")
+            raise ValueError("Give a rejection reason when rejecting output.")
         cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
         if any(not value or len(value) > 64 for value in cleaned):
             raise ValueError("Every output serial must be 1-64 characters.")
@@ -448,12 +449,13 @@ class MaterialIssueCreate(BaseModel):
     def _lines_are_distinct(self) -> MaterialIssueCreate:
         numbers = [line.line_number for line in self.lines]
         if len(set(numbers)) != len(numbers):
-            raise ValueError("line_number must be unique within the document")
+            duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
+            raise ValueError(duplicate_line_numbers(duplicates))
         components = [line.component_id for line in self.lines]
         if len(set(components)) != len(components):
             # Two lines for one component would need two balance locks on the
             # same position and make the issue variance ambiguous.
-            raise ValueError("each component may appear on only one line")
+            raise ValueError("Each component may appear on only one line.")
         return self
 
 
@@ -469,7 +471,7 @@ class MaterialIssuePostRequest(BaseModel):
     @model_validator(mode="after")
     def _override_is_explained(self) -> MaterialIssuePostRequest:
         if self.allow_partial_issue and not self.override_reason:
-            raise ValueError("override_reason is required to force a partial issue")
+            raise ValueError("Give an override reason to force a partial issue.")
         return self
 
 
@@ -595,10 +597,10 @@ class ProductionEntryCreate(BaseModel):
         recorded = self.produced_quantity + self.rejected_quantity + self.downtime_minutes
         if recorded <= 0:
             raise ValueError(
-                "a booking must record produced quantity, rejected quantity or downtime"
+                "A booking must record a produced quantity, a rejected quantity or downtime."
             )
         if self.rejected_quantity > 0 and not self.rejection_reason:
-            raise ValueError("rejection_reason is required when rejecting output")
+            raise ValueError("Give a rejection reason when rejecting output.")
         cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
         if any(not value or len(value) > 64 for value in cleaned):
             raise ValueError("Every output serial must be 1-64 characters.")

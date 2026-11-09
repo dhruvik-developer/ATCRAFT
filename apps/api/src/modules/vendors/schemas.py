@@ -119,7 +119,7 @@ def _validate_tracking_template(value: str | None) -> str | None:
     if stripped is None:
         return None
     if not stripped.lower().startswith("https://"):
-        raise ValueError("Tracking URL template must start with https://")
+        raise ValueError("A tracking URL template must start with 'https://'.")
     if TRACKING_PLACEHOLDER not in stripped:
         raise ValueError(
             f"Tracking URL template must contain the {TRACKING_PLACEHOLDER} placeholder."

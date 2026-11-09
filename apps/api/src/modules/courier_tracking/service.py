@@ -178,7 +178,7 @@ async def update_account(
     async with transaction(session):
         account = await repo.get_account(account_id, lock=True)
         if account is None:
-            raise NotFoundError("Courier account not found.")
+            raise NotFoundError("Courier account", account_id)
         old_values = {
             "display_name": account.display_name,
             "is_active": account.is_active,
@@ -303,7 +303,7 @@ async def rotate_webhook(
     async with transaction(session):
         account = await repo.get_account(account_id, lock=True)
         if account is None:
-            raise NotFoundError("Courier account not found.")
+            raise NotFoundError("Courier account", account_id)
         account.webhook_token_hash = token_hash
         account.webhook_secret_ciphertext = encrypt_courier_webhook_secret(secret)
         await session.flush()
@@ -328,7 +328,7 @@ async def test_connection(
 ) -> CourierProvider:
     account = await CourierAccountRepository(session, tenant).get_account(account_id)
     if account is None:
-        raise NotFoundError("Courier account not found.")
+        raise NotFoundError("Courier account", account_id)
     if account.provider == CourierProvider.GENERIC_WEBHOOK:
         if account.webhook_token_hash is None or account.webhook_secret_ciphertext is None:
             raise BusinessRuleError("Rotate webhook credentials before testing this account.")
@@ -352,7 +352,7 @@ async def get_account(
 ) -> CourierAccount:
     account = await CourierAccountRepository(session, tenant).get_account(account_id)
     if account is None:
-        raise NotFoundError("Courier account not found.")
+        raise NotFoundError("Courier account", account_id)
     return account
 
 
@@ -442,7 +442,7 @@ async def ingest_events(
     async with transaction(session):
         locked = await repo.get_account(account.id, lock=True)
         if locked is None or not locked.is_active:
-            raise NotFoundError("Courier account is not active.")
+            raise NotFoundError("Courier account", account.id)
         tracking_numbers = tuple(
             dict.fromkeys(str(event["tracking_number"]).strip() for event in provider_events)
         )
@@ -719,7 +719,7 @@ async def refresh_tracking(
             )
         ).scalar_one_or_none()
         if dispatch is None or not dispatch.tracking_id:
-            raise NotFoundError("Tracked dispatch not found.")
+            raise NotFoundError("Tracked dispatch", dispatch_id)
         tracking_number = dispatch.tracking_id
         transporter_id = dispatch.transporter_id
     else:
@@ -732,7 +732,7 @@ async def refresh_tracking(
             )
         ).scalar_one_or_none()
         if shipment is None or not shipment.tracking_reference:
-            raise NotFoundError("Tracked inbound shipment not found.")
+            raise NotFoundError("Tracked inbound shipment", shipment_id)
         tracking_number = shipment.tracking_reference
         transporter_id = shipment.transporter_id
 

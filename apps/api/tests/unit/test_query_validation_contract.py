@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal
 from src.core.exception_handlers import register_exception_handlers
+from src.core.messages import RECORD_REFERENCE_PAIR
 from src.modules.audit.router import audit_log_filters
 from src.modules.audit.router import router as audit_router
 from src.modules.audit.schemas import MAX_ENTITY_TYPE_LENGTH, MAX_REQUEST_ID_LENGTH
@@ -92,14 +93,15 @@ def test_audit_filter_normalization_keeps_accepting_valid_identifiers() -> None:
 @pytest.mark.parametrize(
     ("form", "message"),
     [
-        ({"entity_type": "goods_receipt"}, "entity_type and entity_id must be supplied together."),
-        ({"entity_id": str(uuid.uuid4())}, "entity_type and entity_id must be supplied together."),
+        ({"entity_type": "goods_receipt"}, RECORD_REFERENCE_PAIR),
+        ({"entity_id": str(uuid.uuid4())}, RECORD_REFERENCE_PAIR),
         (
             {"entity_type": "invalid type", "entity_id": str(uuid.uuid4())},
-            "entity_type must be lowercase snake_case, e.g. 'goods_receipt'.",
+            "The record type must be lower-case words joined by underscores, "
+            "such as 'goods_receipt'.",
         ),
-        ({"expires_at": "2100-01-01T00:00:00"}, "expires_at must include a timezone offset."),
-        ({"expires_at": "2000-01-01T00:00:00Z"}, "expires_at must be in the future."),
+        ({"expires_at": "2100-01-01T00:00:00"}, "Include a time-zone offset in the expiry time."),
+        ({"expires_at": "2000-01-01T00:00:00Z"}, "The expiry time must be in the future."),
     ],
 )
 async def test_multipart_model_failures_are_422_with_body_field_errors(
