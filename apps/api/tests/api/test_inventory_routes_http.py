@@ -47,6 +47,7 @@ from src.modules.inventory.models import (
     InventoryTransaction,
     PhysicalCount,
     StockAdjustment,
+    StockAdjustmentLine,
     StockBatch,
     StockSerial,
     StockTransfer,
@@ -742,14 +743,26 @@ class TestCreateBatch:
         )
         assert await rows_where(session, StockBatch, StockBatch.item_id == theirs_id) == 0
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: create_batch stores another company's vendor_id - the vendors FK is "
-            "company-blind and the service never reads the vendor through a tenant-scoped "
-            "repository (inventory/service.py TraceabilityService.create_batch)"
-        ),
-    )
+    async def test_this_companys_vendor_is_recorded_on_the_lot(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        item = await seed_support.seed_item(
+            session, company_id=tenant.company_id, code=unique_code("LOT"), is_batch_tracked=True
+        )
+        item_id = item.id
+        vendor_id = (await seed_support.seed_vendor(session, company_id=tenant.company_id)).id
+
+        data = ok(
+            await api_client.post(
+                "/inventory/batches",
+                json={"item_id": str(item_id), "batch_number": "L-1", "vendor_id": str(vendor_id)},
+            ),
+            201,
+        )
+
+        assert data["vendor_id"] == str(vendor_id)
+        assert await column(session, StockBatch.vendor_id, uuid.UUID(data["id"])) == vendor_id
+
     async def test_another_companys_vendor_is_not_found(
         self, api_client, session, tenant, foreign, unique_code
     ) -> None:
@@ -1223,14 +1236,24 @@ class TestCreateTransfer:
             == 0
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: a transfer line may name another company's lot - create checks a line's "
-            "bins and serials but never its batch_id, whose FK is company-blind "
-            "(inventory/service.py StockTransferService._assert_lines_are_traceable)"
-        ),
-    )
+    async def test_a_line_naming_its_own_lot_keeps_it(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        item_id, source_id, batch_id = await lot(session, tenant, unique_code)
+        destination_id = await warehouse(session, tenant, unique_code)
+
+        data = ok(
+            await api_client.post(
+                "/inventory/transfers",
+                json=transfer_body(
+                    source_id, destination_id, item=item_id, quantity="2", batch_id=str(batch_id)
+                ),
+            ),
+            201,
+        )
+
+        assert data["lines"][0]["batch_id"] == str(batch_id)
+
     async def test_a_line_naming_another_companys_lot_is_not_found(
         self, api_client, session, tenant, foreign, unique_code
     ) -> None:
@@ -1246,6 +1269,34 @@ class TestCreateTransfer:
         )
 
         assert response.status_code == 404, f"another company's lot accepted: {response.text}"
+        assert (
+            await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
+            == 0
+        )
+
+    async def test_a_line_naming_another_items_lot_is_refused_on_that_line(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        item_id, source_id, _ = await lot(session, tenant, unique_code)
+        _, _, other_items_lot = await lot(session, tenant, unique_code, quantity="0")
+        destination_id = await warehouse(session, tenant, unique_code)
+
+        error = refused(
+            await api_client.post(
+                "/inventory/transfers",
+                json=transfer_body(
+                    source_id,
+                    destination_id,
+                    item=item_id,
+                    quantity="2",
+                    batch_id=str(other_items_lot),
+                ),
+            ),
+            422,
+            "BUSINESS_RULE_VIOLATION",
+        )
+
+        assert error["details"] == {"line_number": 1, "batch_id": str(other_items_lot)}
         assert (
             await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
             == 0
@@ -1462,14 +1513,6 @@ class TestUpdateAdjustment:
         )
         assert await column(session, StockAdjustment.warehouse_id, draft_id) == warehouse_id
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: an adjustment line may name another company's lot - _check_header checks "
-            "a line's batch only through its serials, and the batch FK is company-blind "
-            "(inventory/service.py StockAdjustmentService._check_header)"
-        ),
-    )
     async def test_a_line_naming_another_companys_lot_is_not_found(
         self, api_client, session, tenant, foreign, unique_code
     ) -> None:
@@ -1488,6 +1531,41 @@ class TestUpdateAdjustment:
         )
 
         assert response.status_code == 404, f"another company's lot accepted: {response.text}"
+        stored = await session.scalars(
+            select(StockAdjustmentLine.batch_id).where(
+                StockAdjustmentLine.adjustment_id == draft_id
+            )
+        )
+        assert list(stored) == [mine]
+
+    @pytest.mark.parametrize(
+        ("whose", "status", "code"),
+        [
+            pytest.param("foreign", 404, "NOT_FOUND", id="another-companys-lot"),
+            pytest.param("other-item", 422, "BUSINESS_RULE_VIOLATION", id="another-items-lot"),
+        ],
+    )
+    async def test_a_new_draft_naming_a_lot_it_cannot_hold_is_refused(
+        self, api_client, session, tenant, foreign, unique_code, whose, status, code
+    ) -> None:
+        item_id, warehouse_id, _ = await lot(session, tenant, unique_code)
+        owner = foreign if whose == "foreign" else tenant
+        _, _, wrong_lot = await lot(session, owner, unique_code, quantity="0")
+
+        refused(
+            await api_client.post(
+                "/inventory/adjustments",
+                json=adjustment(
+                    warehouse_id, item_id, "2", unit_cost="19", batch_id=str(wrong_lot)
+                ),
+            ),
+            status,
+            code,
+        )
+        assert (
+            await rows_where(session, StockAdjustment, StockAdjustment.warehouse_id == warehouse_id)
+            == 0
+        )
 
 
 # -----------------------------------------------------------------------------

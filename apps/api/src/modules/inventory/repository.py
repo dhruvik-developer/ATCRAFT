@@ -77,6 +77,7 @@ from src.modules.inventory.schemas import (
     TransferFilters,
 )
 from src.modules.products.models import Item
+from src.modules.vendors.models import Vendor
 from src.modules.warehouses.models import StorageLocation, Warehouse
 
 
@@ -790,6 +791,20 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             )
             for row in (await self.session.execute(stmt)).all()
         }
+
+    async def vendor_in_tenant(self, vendor_id: uuid.UUID) -> bool:
+        """Is this a live vendor of this company?
+
+        ``stock_batches.vendor_id`` has a foreign key, and a foreign key to a
+        UUID is not a tenant check: another company's vendor satisfies it. A
+        retired vendor is excluded, as on every vendor screen.
+        """
+        stmt = select(Vendor.id).where(
+            Vendor.company_id == self.tenant.company_id,
+            Vendor.id == vendor_id,
+            Vendor.deleted_at.is_(None),
+        )
+        return (await self.session.execute(stmt.limit(1))).first() is not None
 
     async def batch_owners(
         self, batch_ids: Sequence[uuid.UUID]

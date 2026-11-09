@@ -81,7 +81,7 @@ stock happens to stand beside it (docs/assumptions.md §E8-2).
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -4364,6 +4364,10 @@ class TraceabilityService:
                     f"Batch {payload.batch_number} already exists for item {item.code}.",
                     details={"batch_number": payload.batch_number},
                 )
+            if payload.vendor_id is not None and not await self.inventory.vendor_in_tenant(
+                payload.vendor_id
+            ):
+                raise NotFoundError("Vendor", payload.vendor_id)
 
             batch = StockBatch(
                 item_id=payload.item_id,
@@ -5101,6 +5105,29 @@ async def _adopt_named_serials(
         raise BusinessRuleError("The same unit is named on more than one line of this document.")
 
 
+def _assert_line_batch(
+    number: int,
+    item_id: uuid.UUID,
+    batch_id: uuid.UUID,
+    batches: Mapping[uuid.UUID, tuple[uuid.UUID, str]],
+) -> None:
+    """The lot a document line names is this company's, and this item's.
+
+    ``batches`` is :meth:`InventoryRepository.batch_owners` for the whole
+    document - tenant-scoped, one query. The foreign key on a line's
+    ``batch_id`` is company-blind, so without this a draft can name another
+    company's lot: stored happily, and refused only when it posts.
+    """
+    owner = batches.get(batch_id)
+    if owner is None:
+        raise NotFoundError("Stock batch", batch_id)
+    if owner[0] != item_id:
+        raise BusinessRuleError(
+            f"Line {number}: batch {owner[1]} belongs to a different item.",
+            details={"line_number": number, "batch_id": str(batch_id)},
+        )
+
+
 class StockTransferService:
     """The stock transfer document lifecycle.
 
@@ -5569,9 +5596,14 @@ class StockTransferService:
         missing = [serial_id for serial_id in all_serial_ids if serial_id not in serials]
         if missing:
             raise NotFoundError("Stock serial", missing[0])
+        lots = await self.inventory.batch_owners(
+            [line.batch_id for line in payload.lines if line.batch_id is not None]
+        )
 
         for number, line in enumerate(payload.lines, start=1):
             item = items[line.item_id]
+            if line.batch_id is not None:
+                _assert_line_batch(number, line.item_id, line.batch_id, lots)
             if item.is_batch_tracked and line.batch_id is None:
                 # A serial carries its lot, so a line naming units has already
                 # answered the batch question. Adopt it onto the line so both
@@ -5979,7 +6011,7 @@ class StockAdjustmentService:
             )
 
     async def _check_header(self, payload: StockAdjustmentCreate) -> dict[uuid.UUID, ItemFacts]:
-        """The warehouse and every item the draft names exist in this tenant."""
+        """The warehouse, every item and every named lot the draft names exist in this tenant."""
         warehouses = await self.inventory.warehouse_facts([payload.warehouse_id])
         if payload.warehouse_id not in warehouses:
             raise NotFoundError("Warehouse", payload.warehouse_id)
@@ -5994,9 +6026,14 @@ class StockAdjustmentService:
         missing_serials = [serial_id for serial_id in serial_ids if serial_id not in serials]
         if missing_serials:
             raise NotFoundError("Stock serial", missing_serials[0])
+        lots = await self.inventory.batch_owners(
+            [line.batch_id for line in payload.lines if line.batch_id is not None]
+        )
 
         for number, line in enumerate(payload.lines, start=1):
             item = items[line.item_id]
+            if line.batch_id is not None:
+                _assert_line_batch(number, line.item_id, line.batch_id, lots)
             if item.is_serial_tracked and not line.serial_ids:
                 raise BusinessRuleError(
                     f"Line {number}: {item.code} is serial tracked, so the units being "
@@ -7483,14 +7520,7 @@ async def _assert_document_lines(
                     details={"line_number": number, "item_code": item.code},
                 )
         else:
-            owner = batches.get(position.batch_id)
-            if owner is None:
-                raise NotFoundError("Stock batch", position.batch_id)
-            if owner[0] != position.item_id:
-                raise BusinessRuleError(
-                    f"Line {number}: batch {owner[1]} belongs to a different item.",
-                    details={"line_number": number, "batch_id": str(position.batch_id)},
-                )
+            _assert_line_batch(number, position.item_id, position.batch_id, batches)
         for location_id, receiving in position.locations:
             if location_id is None:
                 continue
