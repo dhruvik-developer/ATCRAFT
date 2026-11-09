@@ -77,7 +77,7 @@ from src.core.permissions import (
     resolve_role_grants,
 )
 from src.core.responses import OffsetPagination
-from src.core.security import hash_password, validate_password_policy
+from src.core.security import hash_password_async, validate_password_policy
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
@@ -958,7 +958,7 @@ class UserService:
                 full_name=payload.full_name,
                 phone=payload.phone,
                 employee_code=payload.employee_code,
-                password_hash=hash_password(payload.password),
+                password_hash=await hash_password_async(payload.password),
                 password_changed_at=utcnow(),
                 must_change_password=payload.must_change_password,
                 is_active=payload.is_active,
@@ -1150,7 +1150,7 @@ class UserService:
                 revoked = len(revoked_session_ids)
             if password is not None:
                 validate_password_policy(password, email=user.email, field="password")
-                user.password_hash = hash_password(password)
+                user.password_hash = await hash_password_async(password)
                 user.password_changed_at = utcnow()
                 # An administrator-chosen password has been read aloud or typed
                 # into a chat window unless the caller says otherwise.
@@ -1357,7 +1357,7 @@ class UserService:
                 generated = generate_temporary_password(user.email)
                 new_password = generated
 
-            user.password_hash = hash_password(new_password)
+            user.password_hash = await hash_password_async(new_password)
             user.password_changed_at = utcnow()
             user.must_change_password = True
             user.failed_login_attempts = 0

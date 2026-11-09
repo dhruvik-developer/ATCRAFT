@@ -87,6 +87,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, TypeVar
 
+import anyio
 from sqlalchemy import func, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import DBAPIError
@@ -4571,7 +4572,13 @@ class TraceabilityService:
         if missing:
             raise NotFoundError("Stock serial", missing[0])
         serials = [serials_by_id[serial_id] for serial_id in serial_ids]
-        return render_serial_labels_pdf(await self._serial_reads(serials))
+        reads = await self._serial_reads(serials)
+        # reportlab draws every label's QR code in pure Python, about 29 ms a
+        # label: a full sheet is seconds of CPU. Rendered on the event loop, it
+        # froze every request on this worker - health probes included - for that
+        # long. A worker thread yields the loop between bytecodes; the bytes are
+        # the same.
+        return await anyio.to_thread.run_sync(render_serial_labels_pdf, reads)
 
     async def resolve_serial_ids(
         self,
