@@ -4332,6 +4332,15 @@ contexts use an empty assignment; user-driven operations retain the caller's
 assignment. This clarifies existing assignment semantics without changing the
 database schema.
 
+The serial register follows the same policy. A restricted user lists, opens and
+prints labels only for units positioned in an assigned warehouse, and may
+register a unit only at an assigned warehouse or at a bin inside one (403
+`SCOPE_DENIED` otherwise). A unit with no warehouse yet - a label registered
+ahead of the goods - is in no store and stays visible to everyone in the
+company. The movement engine and the documents' own unit checks resolve units
+under their own rules and are not narrowed by the reader's assignment
+(`StockSerialRepository._visible`).
+
 ## §D1-3. Planning provenance records causes, not quantity allocations
 
 Aggregate MRP netting does not decide which originating sales line was covered

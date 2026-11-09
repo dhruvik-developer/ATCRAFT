@@ -1592,6 +1592,36 @@ class StockSerialRepository(BaseRepository[StockSerial]):
     model = StockSerial
     searchable_fields = ("serial_number",)
 
+    def _visible(self) -> Select[tuple[StockSerial]]:
+        """``_scoped`` narrowed to the reader's warehouse assignment.
+
+        For the register's own reads - the list, one unit, its labels - so a user
+        assigned to one store cannot read which units sit in which bins of
+        another, the position the balance screens already hide from them.
+        Deliberately not folded into ``_scoped``: ``lock_serials`` and the
+        documents' unit checks resolve ids under their own warehouse rules, and
+        the movement engine must never lose a unit to a reader's scope.
+
+        ASSUMPTION: a unit with no warehouse yet (a label registered ahead of
+        the goods) is in nobody's store and stays visible to everyone in the
+        company (docs/assumptions.md, warehouse assignment policy).
+        """
+        scope = warehouse_scope(self.tenant, StockSerial.warehouse_id)
+        if not scope:
+            return self._scoped()
+        return self._scoped().where(or_(StockSerial.warehouse_id.is_(None), *scope))
+
+    async def get_visible(self, serial_id: uuid.UUID) -> StockSerial | None:
+        stmt = self._visible().where(StockSerial.id == serial_id)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def visible_by_ids(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, StockSerial]:
+        wanted = list(dict.fromkeys(serial_ids))
+        if not wanted:
+            return {}
+        stmt = self._visible().where(StockSerial.id.in_(wanted))
+        return {row.id: row for row in (await self.session.execute(stmt)).scalars().all()}
+
     async def lock_serials(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, StockSerial]:
         """Take the row locks for a set of serials and re-read them.
 
@@ -1751,7 +1781,7 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         job_work_outstanding_only: bool = False,
         qc_inspection_id: uuid.UUID | None = None,
     ) -> Select[tuple[StockSerial]]:
-        stmt = self._scoped()
+        stmt = self._visible()
         if serial_ids is not None:
             stmt = stmt.where(StockSerial.id.in_(serial_ids))
         if job_work_order_line_id is not None:

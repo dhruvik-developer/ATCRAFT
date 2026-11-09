@@ -4464,45 +4464,12 @@ class TraceabilityService:
                     f"Serial {payload.serial_number} already exists for item {item.code}.",
                     details={"serial_number": payload.serial_number},
                 )
-            if payload.batch_id is not None:
-                owners = await self.inventory.batch_owners([payload.batch_id])
-                owner = owners.get(payload.batch_id)
-                if owner is None:
-                    raise NotFoundError("Stock batch", payload.batch_id)
-                if owner[0] != payload.item_id:
-                    raise BusinessRuleError("That batch belongs to a different item.")
-
-            # A registration may say where the unit is expected to land, and
-            # that position has to be real and ours. The foreign keys on
-            # stock_serials are company-blind, exactly like the one on a
-            # balance row, so without this a unit can be registered against
-            # another tenant's bin - the same phantom position a movement
-            # naming one would create, written a day earlier.
-            if payload.warehouse_id is not None:
-                warehouses = await self.inventory.warehouse_facts([payload.warehouse_id])
-                if payload.warehouse_id not in warehouses:
-                    raise NotFoundError("Warehouse", payload.warehouse_id)
-            if payload.location_id is not None:
-                locations = await self.inventory.location_facts([payload.location_id])
-                location = locations.get(payload.location_id)
-                if location is None:
-                    raise NotFoundError("Storage location", payload.location_id)
-                # ASSUMPTION: a bin named without a warehouse is accepted as
-                # given rather than used to infer one. The bin is real and
-                # belongs to this tenant, which is what the phantom-position
-                # rule is about; inferring the warehouse from it would be this
-                # service deciding a fact the caller did not state.
-                if (
-                    payload.warehouse_id is not None
-                    and location.warehouse_id != payload.warehouse_id
-                ):
-                    raise BusinessRuleError(
-                        f"Storage location {location.code} is not in that warehouse.",
-                        details={
-                            "location_id": str(payload.location_id),
-                            "warehouse_id": str(payload.warehouse_id),
-                        },
-                    )
+            await self._validate_serial_position(
+                item_id=payload.item_id,
+                batch_id=payload.batch_id,
+                warehouse_id=payload.warehouse_id,
+                location_id=payload.location_id,
+            )
 
             serial = StockSerial(
                 item_id=payload.item_id,
@@ -4595,8 +4562,8 @@ class TraceabilityService:
             return await self._serial_reads(serials)
 
     async def serial_labels_pdf(self, serial_ids: Sequence[uuid.UUID]) -> bytes:
-        """Render registered, tenant-scoped serials in the caller's requested order."""
-        serials_by_id = await self.serials.by_ids(serial_ids)
+        """Render registered serials the caller may see, in the order they were asked for."""
+        serials_by_id = await self.serials.visible_by_ids(serial_ids)
         missing = [serial_id for serial_id in serial_ids if serial_id not in serials_by_id]
         if missing:
             raise NotFoundError("Stock serial", missing[0])
@@ -4692,6 +4659,16 @@ class TraceabilityService:
         warehouse_id: uuid.UUID | None,
         location_id: uuid.UUID | None,
     ) -> None:
+        """Where a registration says a unit will land: real, ours, and the caller's.
+
+        Shared by the single and the bulk registration. The foreign keys on
+        ``stock_serials`` are company-blind, exactly like the one on a balance
+        row, so without this a unit can be registered against another tenant's
+        bin - the same phantom position a movement naming one would create,
+        written a day earlier. The position must also be in a store the caller
+        is assigned to: the register hides every other store's units from them,
+        so a unit they placed there is one they could never read back.
+        """
         if batch_id is not None:
             facts = await self.inventory.batch_facts([batch_id])
             owner = facts.get(batch_id)
@@ -4700,6 +4677,7 @@ class TraceabilityService:
             if owner.item_id != item_id:
                 raise BusinessRuleError("That batch belongs to a different item.")
         if warehouse_id is not None:
+            assert_warehouse_scope(self.tenant, warehouse_id)
             warehouses = await self.inventory.warehouse_facts([warehouse_id])
             if warehouse_id not in warehouses:
                 raise NotFoundError("Warehouse", warehouse_id)
@@ -4708,6 +4686,11 @@ class TraceabilityService:
             location = locations.get(location_id)
             if location is None:
                 raise NotFoundError("Storage location", location_id)
+            # ASSUMPTION: a bin named without a warehouse is accepted as given
+            # rather than used to infer one. The bin is real and belongs to this
+            # tenant, which is what the phantom-position rule is about; inferring
+            # the warehouse from it would be this service deciding a fact the
+            # caller did not state. Its store's assignment still applies.
             if warehouse_id is not None and location.warehouse_id != warehouse_id:
                 raise BusinessRuleError(
                     f"Storage location {location.code} is not in that warehouse.",
@@ -4716,6 +4699,7 @@ class TraceabilityService:
                         "warehouse_id": str(warehouse_id),
                     },
                 )
+            assert_warehouse_scope(self.tenant, location.warehouse_id)
 
     async def list_serials(
         self,
@@ -4776,7 +4760,7 @@ class TraceabilityService:
         return reads
 
     async def get_serial(self, serial_id: uuid.UUID) -> StockSerialDetail:
-        serial = await self.serials.get(serial_id)
+        serial = await self.serials.get_visible(serial_id)
         if serial is None:
             raise NotFoundError("Stock serial", serial_id)
         read = (await self._serial_reads([serial]))[0]
