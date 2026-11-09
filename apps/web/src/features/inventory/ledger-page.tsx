@@ -57,8 +57,9 @@ const STOCK_STATE_TONE: Partial<Record<StockState, 'secondary' | 'warning' | 'de
 /** The append-only ledger uses the client's validated cursor envelope. */
 async function fetchLedgerPage(
   params: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<CursorEnvelope<InventoryLedgerRow>> {
-  return api.getCursorPage<InventoryLedgerRow>('/inventory/ledger', { params })
+  return api.getCursorPage<InventoryLedgerRow>('/inventory/ledger', { params, signal })
 }
 
 /**
@@ -150,8 +151,8 @@ export default function InventoryLedgerPage() {
 
   const ledger = useInfiniteQuery({
     queryKey: queryKeys.inventory.ledger(filters),
-    queryFn: ({ pageParam }) =>
-      fetchLedgerPage({ ...filters, ...(pageParam ? { cursor: pageParam } : {}) }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchLedgerPage({ ...filters, ...(pageParam ? { cursor: pageParam } : {}) }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.pagination.has_next ? (lastPage.pagination.next_cursor ?? undefined) : undefined,

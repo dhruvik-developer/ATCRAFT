@@ -138,7 +138,8 @@ export function describeLimit(value: string | null, unit: string): string | null
 export function useLocationDetail(locationId: string | null, enabled = true) {
   return useQuery({
     queryKey: locationKeys.detail(locationId ?? ''),
-    queryFn: () => api.get<StorageLocationRow>(`/warehouses/locations/${locationId}`),
+    queryFn: ({ signal }) =>
+      api.get<StorageLocationRow>(`/warehouses/locations/${locationId}`, { signal }),
     enabled: enabled && Boolean(locationId),
     staleTime: staleTimes.master,
   })

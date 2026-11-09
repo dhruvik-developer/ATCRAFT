@@ -76,12 +76,13 @@ export default function ShiftRosterPage() {
   })
   const refs = useQuery({
     queryKey: [...queryKeys.routing.all, 'roster', 'assets'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const read = async <T,>(path: string) => {
         try {
           return (
             await api.getPage<T>(path, {
               params: { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: false },
+              signal,
             })
           ).data
         } catch (error) {

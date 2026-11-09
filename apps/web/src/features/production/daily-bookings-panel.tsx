@@ -89,7 +89,8 @@ export function DailyBookingsPanel() {
   )
   const dayBookings = useQuery({
     queryKey: [...queryKeys.production.all, 'entries', 'day', entryParams],
-    queryFn: () => api.getPage<ProductionEntryRow>('/production/entries', { params: entryParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<ProductionEntryRow>('/production/entries', { params: entryParams, signal }),
     staleTime: staleTimes.transactional,
     refetchOnWindowFocus: true,
   })

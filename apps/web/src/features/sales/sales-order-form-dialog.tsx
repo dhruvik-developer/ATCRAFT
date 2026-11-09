@@ -166,7 +166,8 @@ function CustomerAddressSelect({
   const params = { address_type: addressType, is_active: true, limit: 100, with_total: false }
   const addresses = useQuery({
     queryKey: [...queryKeys.customers.detail(customerId), 'addresses', params],
-    queryFn: () => api.getPage<CustomerAddress>(`/customers/${customerId}/addresses`, { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<CustomerAddress>(`/customers/${customerId}/addresses`, { params, signal }),
     enabled: Boolean(customerId) && can(P.CUSTOMER_VIEW),
     staleTime: staleTimes.master,
   })

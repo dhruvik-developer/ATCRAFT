@@ -161,7 +161,8 @@ function PostedReceiptPicker({
 
   const results = useQuery({
     queryKey: queryKeys.procurement.grns(params),
-    queryFn: () => api.getPage<GoodsReceiptRow>('/procurement/goods-receipts', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<GoodsReceiptRow>('/procurement/goods-receipts', { params, signal }),
     enabled: open && !disabled,
     staleTime: staleTimes.transactional,
   })
@@ -401,7 +402,8 @@ export function PurchaseReturnFormDialog({
 
   const detail = useQuery({
     queryKey: goodsReceiptDetailKey(receipt?.id ?? ''),
-    queryFn: () => api.get<GoodsReceiptDetail>(`/procurement/goods-receipts/${receipt?.id}`),
+    queryFn: ({ signal }) =>
+      api.get<GoodsReceiptDetail>(`/procurement/goods-receipts/${receipt?.id}`, { signal }),
     enabled: open && canReadReceipts && Boolean(receipt),
     staleTime: staleTimes.transactional,
   })
@@ -810,7 +812,8 @@ export function PurchaseReturnDetailDialog({
 
   const query = useQuery({
     queryKey: purchaseReturnKeys.detail(returnId ?? ''),
-    queryFn: () => api.get<PurchaseReturnDetail>(`/procurement/purchase-returns/${returnId}`),
+    queryFn: ({ signal }) =>
+      api.get<PurchaseReturnDetail>(`/procurement/purchase-returns/${returnId}`, { signal }),
     enabled: Boolean(returnId),
     staleTime: staleTimes.transactional,
   })
@@ -1130,8 +1133,10 @@ export function PurchaseReturnPostDialog({
 
   const detail = useQuery({
     queryKey: purchaseReturnKeys.detail(purchaseReturn?.id ?? ''),
-    queryFn: () =>
-      api.get<PurchaseReturnDetail>(`/procurement/purchase-returns/${purchaseReturn?.id}`),
+    queryFn: ({ signal }) =>
+      api.get<PurchaseReturnDetail>(`/procurement/purchase-returns/${purchaseReturn?.id}`, {
+        signal,
+      }),
     enabled: Boolean(purchaseReturn),
     staleTime: staleTimes.transactional,
   })

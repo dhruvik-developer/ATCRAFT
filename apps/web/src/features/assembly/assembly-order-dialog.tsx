@@ -174,9 +174,10 @@ export function AssemblyOrderFormDialog({
   // structures, never a catalogue.
   const boms = useQuery({
     queryKey: [...queryKeys.bom.all, 'for-item', itemId] as const,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<BomRow>('/bom', {
         params: { item_id: itemId, status: 'APPROVED', limit: 50, with_total: false },
+        signal,
       }),
     enabled: open && !editing && Boolean(itemId),
     staleTime: staleTimes.master,

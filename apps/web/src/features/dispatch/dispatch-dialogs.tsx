@@ -351,7 +351,7 @@ function SalesOrderSelect({
   }
   const orders = useQuery({
     queryKey: queryKeys.sales.list(params),
-    queryFn: () => api.getPage<SalesOrderRow>('/sales', { params }),
+    queryFn: ({ signal }) => api.getPage<SalesOrderRow>('/sales', { params, signal }),
     enabled: Boolean(customerId),
     staleTime: staleTimes.transactional,
   })
@@ -703,7 +703,8 @@ export function CreateDispatchDialog({
   // The same read, under the same key, as the order page's allocation panel.
   const allocation = useQuery({
     queryKey: [...queryKeys.sales.detail(salesOrderId), 'allocation-status'],
-    queryFn: () => api.get<SalesOrderAllocation>(`/sales/${salesOrderId}/allocation-status`),
+    queryFn: ({ signal }) =>
+      api.get<SalesOrderAllocation>(`/sales/${salesOrderId}/allocation-status`, { signal }),
     enabled: open && againstOrder,
     staleTime: staleTimes.live,
   })
@@ -1422,7 +1423,7 @@ export function EditDispatchDialog({
   const dispatchId = dispatch?.id ?? null
   const detail = useQuery({
     queryKey: dispatchKeys.detail(dispatchId ?? ''),
-    queryFn: () => api.get<DispatchDetail>(`/dispatch/${dispatchId}`),
+    queryFn: ({ signal }) => api.get<DispatchDetail>(`/dispatch/${dispatchId}`, { signal }),
     enabled: open && dispatchId !== null,
     staleTime: staleTimes.transactional,
   })
@@ -1781,16 +1782,17 @@ export function DispatchTimelineDialog({
   // detail and what is actually on the lorry come from the consignment itself.
   const detail = useQuery({
     queryKey: dispatchKeys.detail(dispatchId),
-    queryFn: () => api.get<DispatchDetail>(`/dispatch/${dispatchId}`),
+    queryFn: ({ signal }) => api.get<DispatchDetail>(`/dispatch/${dispatchId}`, { signal }),
     enabled: open && Boolean(dispatchId),
     staleTime: staleTimes.transactional,
   })
 
   const events = useQuery({
     queryKey: dispatchKeys.events(dispatchId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<DispatchTrackingEvent[]>(`/dispatch/${dispatchId}/tracking-events`, {
         params: { limit: 50 },
+        signal,
       }),
     enabled: open && Boolean(dispatchId),
     staleTime: staleTimes.transactional,

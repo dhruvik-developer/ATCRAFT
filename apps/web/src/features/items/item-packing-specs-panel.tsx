@@ -199,9 +199,10 @@ export function ItemPackingSpecsPanel({ itemId }: { itemId: string }) {
 
   const query = useQuery({
     queryKey: [...queryKeys.items.detail(itemId), 'packing-specs', page],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<PackingSpec>(`/packing/items/${itemId}/packing-specs`, {
         params: { page, limit: LOOKUP_LIST_LIMIT },
+        signal,
       }),
   })
   const invalidate = () =>

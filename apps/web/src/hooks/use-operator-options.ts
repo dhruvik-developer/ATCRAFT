@@ -9,11 +9,12 @@ export type ShiftOperator = SchemaOf<'RosterOperatorRead'>
 export function useOperatorOptions({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...queryKeys.routing.all, 'roster', 'operators'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
         return (
           await api.getPage<ShiftOperator>('/routing/roster/operators', {
             params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
+            signal,
           })
         ).data
       } catch (error) {

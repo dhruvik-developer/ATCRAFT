@@ -211,9 +211,10 @@ function VendorRatingDialog({
     // sharing one key would put the last window's evidence under this window's
     // heading for as long as the query stays fresh.
     queryKey: [...queryKeys.vendors.detail(vendor?.id ?? ''), 'rating', windowDays] as const,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<VendorRating>(`/vendors/${vendor?.id}/rating`, {
         params: { window_days: windowDays },
+        signal,
       }),
     enabled: Boolean(vendor),
     staleTime: staleTimes.master,

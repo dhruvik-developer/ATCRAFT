@@ -80,7 +80,8 @@ export default function CreditNotesPage() {
   const [reasonTouched, setReasonTouched] = useState(false)
   const detail = useQuery({
     queryKey: financeKeys.creditNote(selected?.id ?? ''),
-    queryFn: () => api.get<CreditNoteDetail>(`/finance/credit-notes/${selected?.id}`),
+    queryFn: ({ signal }) =>
+      api.get<CreditNoteDetail>(`/finance/credit-notes/${selected?.id}`, { signal }),
     enabled: Boolean(selected),
   })
   const job = useReportJob()

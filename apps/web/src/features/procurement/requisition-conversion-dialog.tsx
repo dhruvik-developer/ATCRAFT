@@ -179,12 +179,14 @@ function plain(value: string): string {
 function previewConversion(
   target: RequisitionConversionTarget,
   lines: RequisitionConversionOverride[],
+  signal?: AbortSignal,
 ): Promise<RequisitionConversionResult> {
   const body: RequisitionConversionPayload = { lines, acknowledge_duplicates: false }
   if (target.kind === 'single') {
     return api.post<RequisitionConversionResult>(
       `/procurement/purchase-requisitions/${target.requisition.id}/conversion-preview`,
       body,
+      { signal },
     )
   }
   const batch: RequisitionBatchConversionPayload = {
@@ -194,6 +196,7 @@ function previewConversion(
   return api.post<RequisitionConversionResult>(
     '/procurement/purchase-requisitions/conversion-preview',
     batch,
+    { signal },
   )
 }
 
@@ -278,7 +281,8 @@ export default function RequisitionConversionDialog({
 
   const preview = useQuery({
     queryKey: requisitionKeys.conversion(requisitionIds, settledOverrides),
-    queryFn: () => previewConversion(target, settledOverrides),
+    // A preview the next keystroke has superseded is abandoned, not awaited.
+    queryFn: ({ signal }) => previewConversion(target, settledOverrides, signal),
     enabled: open,
     // The proposal being corrected stays on screen while the next one is
     // computed, instead of collapsing to a skeleton on every keystroke.
@@ -1089,7 +1093,8 @@ export function RequisitionBatchPicker({
 
   const list = useQuery({
     queryKey: requisitionKeys.convertible(params),
-    queryFn: () => api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params, signal }),
     enabled: open,
     placeholderData: keepPreviousData,
     staleTime: staleTimes.transactional,

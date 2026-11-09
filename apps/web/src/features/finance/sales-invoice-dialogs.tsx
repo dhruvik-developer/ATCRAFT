@@ -236,9 +236,10 @@ export function RaiseSalesInvoiceDialog({
   const queryClient = useQueryClient()
   const preview = useQuery({
     queryKey: salesInvoiceKeys.preview(dispatchId ?? '', date),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<SalesInvoicePreview>('/finance/sales-invoices/preview', {
         params: { dispatch_id: dispatchId, ...(date ? { invoice_date: date } : {}) },
+        signal,
       }),
     enabled: Boolean(dispatchId) && can(P.SALES_INVOICE_VIEW),
     staleTime: 0,
@@ -353,7 +354,8 @@ export function SalesInvoiceDetailDialog({
   const queryClient = useQueryClient()
   const detail = useQuery({
     queryKey: salesInvoiceKeys.detail(invoiceId ?? ''),
-    queryFn: () => api.get<SalesInvoiceDetail>(`/finance/sales-invoices/${invoiceId}`),
+    queryFn: ({ signal }) =>
+      api.get<SalesInvoiceDetail>(`/finance/sales-invoices/${invoiceId}`, { signal }),
     enabled: Boolean(invoiceId) && can(P.SALES_INVOICE_VIEW),
   })
   const [cancelOpen, setCancelOpen] = useState(false)

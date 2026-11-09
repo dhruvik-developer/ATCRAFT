@@ -218,7 +218,7 @@ export default function ReportsPage() {
    */
   const catalogue = useQuery({
     queryKey: queryKeys.reports.catalogue,
-    queryFn: () => api.get<ReportDescriptor[]>('/reports/catalogue'),
+    queryFn: ({ signal }) => api.get<ReportDescriptor[]>('/reports/catalogue', { signal }),
     staleTime: staleTimes.reference,
   })
 
@@ -1000,8 +1000,9 @@ function WorkCenterFilter({
   } as const
   const options = useQuery({
     queryKey: queryKeys.routing.workCenters(params),
-    queryFn: async () =>
-      (await api.getPage<SchemaOf<'WorkCenterRead'>>('/routing/work-centers', { params })).data,
+    queryFn: async ({ signal }) =>
+      (await api.getPage<SchemaOf<'WorkCenterRead'>>('/routing/work-centers', { params, signal }))
+        .data,
     staleTime: staleTimes.reference,
   })
 

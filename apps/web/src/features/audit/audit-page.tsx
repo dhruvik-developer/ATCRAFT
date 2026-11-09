@@ -464,11 +464,12 @@ function EntityHistory({
 
   const trail = useInfiniteQuery({
     queryKey: queryKeys.audit.entity(entityType, entityId),
-    queryFn: ({ pageParam }) =>
-      fetchAuditPage(`/audit/entity/${entityType}/${entityId}`, {
-        limit: PAGE_SIZE,
-        ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchAuditPage(
+        `/audit/entity/${entityType}/${entityId}`,
+        { limit: PAGE_SIZE, ...(pageParam ? { cursor: pageParam } : {}) },
+        signal,
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.pagination.has_next ? (lastPage.pagination.next_cursor ?? undefined) : undefined,
@@ -639,8 +640,12 @@ export default function AuditPage() {
 
   const logs = useInfiniteQuery({
     queryKey: queryKeys.audit.logs(filters),
-    queryFn: ({ pageParam }) =>
-      fetchAuditPage('/audit/logs', { ...filters, ...(pageParam ? { cursor: pageParam } : {}) }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchAuditPage(
+        '/audit/logs',
+        { ...filters, ...(pageParam ? { cursor: pageParam } : {}) },
+        signal,
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.pagination.has_next ? (lastPage.pagination.next_cursor ?? undefined) : undefined,

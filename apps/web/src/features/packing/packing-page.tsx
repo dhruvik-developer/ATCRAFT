@@ -89,8 +89,12 @@ function CartonScanHistory() {
   }, [])
   const history = useInfiniteQuery({
     queryKey: queryKeys.audit.logs(filters),
-    queryFn: ({ pageParam }) =>
-      fetchAuditPage('/audit/logs', { ...filters, ...(pageParam ? { cursor: pageParam } : {}) }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchAuditPage(
+        '/audit/logs',
+        { ...filters, ...(pageParam ? { cursor: pageParam } : {}) },
+        signal,
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.pagination.has_next ? (lastPage.pagination.next_cursor ?? undefined) : undefined,

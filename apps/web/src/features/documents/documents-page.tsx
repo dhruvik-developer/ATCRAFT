@@ -475,7 +475,7 @@ function DocumentDetailDialog({
 
   const detail = useQuery({
     queryKey: documentKeys.detail(doc?.id ?? ''),
-    queryFn: () => api.get<DocumentRow>(`/documents/${doc?.id}`),
+    queryFn: ({ signal }) => api.get<DocumentRow>(`/documents/${doc?.id}`, { signal }),
     // An expired document 404s on this route by design, and the row in hand
     // already carries everything the route would return.
     enabled: Boolean(doc) && !expired && canView,

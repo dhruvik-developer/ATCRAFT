@@ -132,6 +132,7 @@ export interface MarkAllReadResult {
 /** Notifications use the client's validated cursor envelope. */
 export async function fetchNotificationPage(
   params: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<CursorEnvelope<NotificationRow>> {
-  return api.getCursorPage<NotificationRow>('/notifications', { params })
+  return api.getCursorPage<NotificationRow>('/notifications', { params, signal })
 }

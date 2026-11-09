@@ -1056,9 +1056,10 @@ export function ConfirmPhysicalCountDialog({
   const params = { limit: COUNT_LINE_PREVIEW_LIMIT, with_total: true }
   const lines = useQuery({
     queryKey: queryKeys.inventory.physicalCountLines(count.id, params),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<PhysicalCountLineRow>('/inventory/physical-counts/' + count.id + '/lines', {
         params,
+        signal,
       }),
     // What is about to be posted against live stock (master rules 34).
     staleTime: staleTimes.live,
@@ -1447,9 +1448,10 @@ export function EnterCountsDialog({
   const params = { page, limit, with_total: true }
   const lines = useQuery({
     queryKey: queryKeys.inventory.physicalCountLines(count.id, params),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<PhysicalCountLineRow>('/inventory/physical-counts/' + count.id + '/lines', {
         params,
+        signal,
       }),
     placeholderData: keepPreviousData,
     // A figure a colleague saved a moment ago must show (master rules 34).

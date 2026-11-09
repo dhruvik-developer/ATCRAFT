@@ -69,9 +69,9 @@ function useOrganisationOptions<T>(
 ) {
   return useQuery({
     queryKey: key,
-    queryFn: async (): Promise<T[]> => {
+    queryFn: async ({ signal }): Promise<T[]> => {
       try {
-        const page = await api.getPage<T>(path, { params: { ...params } })
+        const page = await api.getPage<T>(path, { params: { ...params }, signal })
         return page.data
       } catch (error) {
         return emptyOnPermissionError<T>(error)

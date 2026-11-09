@@ -126,7 +126,8 @@ function OpenPurchaseOrderPicker({
 
   const results = useQuery({
     queryKey: queryKeys.procurement.purchaseOrders(params),
-    queryFn: () => api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params, signal }),
     enabled: open,
     staleTime: staleTimes.transactional,
   })
@@ -434,7 +435,8 @@ export function GrnReceiveDialog({
 
   const detail = useQuery({
     queryKey: queryKeys.procurement.purchaseOrder(order?.id ?? ''),
-    queryFn: () => api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${order?.id}`),
+    queryFn: ({ signal }) =>
+      api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${order?.id}`, { signal }),
     enabled: open && Boolean(order),
     staleTime: staleTimes.transactional,
   })

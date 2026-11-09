@@ -137,8 +137,10 @@ function PartyName({ partyType, partyId }: { partyType: PaymentPartyType; partyI
 
   const party = useQuery({
     queryKey: isVendor ? queryKeys.vendors.detail(partyId) : queryKeys.customers.detail(partyId),
-    queryFn: () =>
-      api.get<VendorRow | CustomerRow>(`${isVendor ? '/vendors' : '/customers'}/${partyId}`),
+    queryFn: ({ signal }) =>
+      api.get<VendorRow | CustomerRow>(`${isVendor ? '/vendors' : '/customers'}/${partyId}`, {
+        signal,
+      }),
     enabled: allowed && Boolean(partyId),
     staleTime: staleTimes.master,
   })
@@ -272,7 +274,7 @@ export function PaymentFormDialog({
 
   const detail = useQuery({
     queryKey: paymentKeys.detail(paymentId ?? ''),
-    queryFn: () => api.get<PaymentDetail>(`/finance/payments/${paymentId}`),
+    queryFn: ({ signal }) => api.get<PaymentDetail>(`/finance/payments/${paymentId}`, { signal }),
     enabled: open && isEdit,
     staleTime: staleTimes.transactional,
   })
@@ -709,7 +711,7 @@ export function PaymentDetailDialog({
 }) {
   const detail = useQuery({
     queryKey: paymentKeys.detail(paymentId ?? ''),
-    queryFn: () => api.get<PaymentDetail>(`/finance/payments/${paymentId}`),
+    queryFn: ({ signal }) => api.get<PaymentDetail>(`/finance/payments/${paymentId}`, { signal }),
     enabled: Boolean(paymentId),
     staleTime: staleTimes.transactional,
   })
@@ -965,7 +967,7 @@ export function PaymentAllocationDialog({
 
   const detail = useQuery({
     queryKey: paymentKeys.detail(paymentId ?? ''),
-    queryFn: () => api.get<PaymentDetail>(`/finance/payments/${paymentId}`),
+    queryFn: ({ signal }) => api.get<PaymentDetail>(`/finance/payments/${paymentId}`, { signal }),
     enabled: Boolean(paymentId),
     // Settlement is decided against figures that move, so this is never served
     // from a cache that could predate this morning's allocation.
@@ -1010,8 +1012,11 @@ export function PaymentAllocationDialog({
 
   const invoices = useQuery({
     queryKey: paymentKeys.settleable(paymentId ?? '', invoiceParams),
-    queryFn: () =>
-      api.getPage<VendorInvoiceSummary>('/finance/vendor-invoices', { params: invoiceParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<VendorInvoiceSummary>('/finance/vendor-invoices', {
+        params: invoiceParams,
+        signal,
+      }),
     enabled:
       Boolean(payment) && payment?.payment_type === 'PAYMENT' && settles && canBrowseInvoices,
     staleTime: staleTimes.transactional,

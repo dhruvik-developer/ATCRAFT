@@ -176,7 +176,7 @@ export function BomFormDialog({
   }
   const alternatives = useQuery({
     queryKey: queryKeys.bom.list(alternativeParams),
-    queryFn: () => api.getPage<BomRow>('/bom', { params: alternativeParams }),
+    queryFn: ({ signal }) => api.getPage<BomRow>('/bom', { params: alternativeParams, signal }),
     enabled: open && bomType === 'ALTERNATE' && Boolean(itemId),
     staleTime: staleTimes.master,
   })

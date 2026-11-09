@@ -61,9 +61,10 @@ export function PurchaseReturnDebitAllocation({
 
   const allocations = useQuery({
     queryKey: resultKey,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<PurchaseReturnDebitAllocationResult>(
         `/finance/purchase-returns/${purchaseReturn.id}/debit-allocations`,
+        { signal },
       ),
     staleTime: staleTimes.transactional,
   })
@@ -83,9 +84,10 @@ export function PurchaseReturnDebitAllocation({
   )
   const invoices = useQuery({
     queryKey: financeKeys.vendorInvoices(invoiceParams),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<VendorInvoiceSummary>('/finance/vendor-invoices', {
         params: invoiceParams,
+        signal,
       }),
     staleTime: staleTimes.transactional,
   })

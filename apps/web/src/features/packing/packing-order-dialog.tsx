@@ -179,7 +179,7 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
 
   const materials = useQuery({
     queryKey: packingKeys.materials(order.warehouse_id, debouncedMaterialSearch),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<PackingMaterialRow>('/packing/packing-materials', {
         params: {
           warehouse_id: order.warehouse_id,
@@ -187,6 +187,7 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
           with_total: false,
           ...(debouncedMaterialSearch ? { search: debouncedMaterialSearch } : {}),
         },
+        signal,
       }),
     staleTime: staleTimes.transactional,
   })
@@ -728,7 +729,8 @@ function CartonCard({
 
   const label = useQuery({
     queryKey: packingKeys.cartonLabel(order.id, carton.id),
-    queryFn: () => api.get<CartonLabel>(`/packing/${order.id}/cartons/${carton.id}/label`),
+    queryFn: ({ signal }) =>
+      api.get<CartonLabel>(`/packing/${order.id}/cartons/${carton.id}/label`, { signal }),
     enabled: labelOpen,
     staleTime: staleTimes.transactional,
   })
@@ -1219,7 +1221,8 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
   }
   const dispatches = useQuery({
     queryKey: queryKeys.dispatch.list(dispatchParams),
-    queryFn: () => api.getPage<DispatchRow>('/dispatch', { params: dispatchParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<DispatchRow>('/dispatch', { params: dispatchParams, signal }),
     enabled: action === 'hand-over',
     staleTime: staleTimes.transactional,
   })
@@ -1498,7 +1501,7 @@ export function PackingOrderDialog({
 
   const detail = useQuery({
     queryKey: packingKeys.detail(orderId),
-    queryFn: () => api.get<PackingOrderDetail>(`/packing/${orderId}`),
+    queryFn: ({ signal }) => api.get<PackingOrderDetail>(`/packing/${orderId}`, { signal }),
     enabled: open && Boolean(orderId),
     staleTime: staleTimes.transactional,
   })
@@ -1506,9 +1509,10 @@ export function PackingOrderDialog({
   // Cartons are their own paged endpoint - they are not part of the order.
   const cartonsQuery = useQuery({
     queryKey: packingKeys.cartons(orderId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<Carton>(`/packing/${orderId}/cartons`, {
         params: { limit: CARTON_PAGE, sort_by: 'carton_number', sort_dir: 'asc' },
+        signal,
       }),
     enabled: open && Boolean(orderId),
     staleTime: staleTimes.transactional,

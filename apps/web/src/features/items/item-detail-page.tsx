@@ -122,7 +122,8 @@ function usePanelQuery<T>({
 
   const query = useQuery({
     queryKey: [...queryKey, page],
-    queryFn: () => api.getPage<T>(path, { params: { page, limit: LOOKUP_LIST_LIMIT, ...params } }),
+    queryFn: ({ signal }) =>
+      api.getPage<T>(path, { params: { page, limit: LOOKUP_LIST_LIMIT, ...params }, signal }),
     placeholderData: keepPreviousData,
     enabled,
     staleTime,
@@ -921,10 +922,13 @@ function VendorsPanel({
     // A vendor name is a label on someone else's screen. If this account may
     // not read vendors the cell falls back to the vendor's own item name rather
     // than replacing a working panel with an error; any other failure is one.
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
         return (
-          await api.getPage<VendorOption>('/vendors', { params: { limit: LOOKUP_LIST_LIMIT } })
+          await api.getPage<VendorOption>('/vendors', {
+            params: { limit: LOOKUP_LIST_LIMIT },
+            signal,
+          })
         ).data
       } catch (error) {
         return emptyOnPermissionError<VendorOption>(error)
@@ -1160,7 +1164,7 @@ export default function ItemDetailPage() {
 
   const itemQuery = useQuery({
     queryKey: queryKeys.items.detail(itemId),
-    queryFn: () => api.get<ItemDetail>(`/products/items/${itemId}`),
+    queryFn: ({ signal }) => api.get<ItemDetail>(`/products/items/${itemId}`, { signal }),
     staleTime: staleTimes.master,
     enabled: Boolean(itemId),
   })

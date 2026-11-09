@@ -716,8 +716,11 @@ export function UomConversionCheckDialog({
 
   const answer = useQuery({
     queryKey: mastersKeys.conversionCheck(asked),
-    queryFn: () =>
-      api.get<ConversionResult>('/products/uom-conversions/convert', { params: asked ?? {} }),
+    queryFn: ({ signal }) =>
+      api.get<ConversionResult>('/products/uom-conversions/convert', {
+        params: asked ?? {},
+        signal,
+      }),
     enabled: open && Boolean(asked),
     staleTime: staleTimes.reference,
     // A pair with no defined conversion is a business answer, not a transient

@@ -216,9 +216,10 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
 
   const availability = useQuery({
     queryKey: queryKeys.allocation.atp(itemId, warehouseId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<AvailableToPromise>('/allocation/available-to-promise', {
         params: { item_id: itemId, warehouse_id: warehouseId },
+        signal,
       }),
     enabled: canSeeAvailability && Boolean(itemId) && Boolean(warehouseId),
     staleTime: staleTimes.live,

@@ -179,7 +179,7 @@ export function AgeingTab() {
 
   const report = useQuery({
     queryKey: financeKeys.ageing(params),
-    queryFn: () => api.get<AgeingReport>('/finance/ageing', { params }),
+    queryFn: ({ signal }) => api.get<AgeingReport>('/finance/ageing', { params, signal }),
     staleTime: staleTimes.transactional,
   })
 

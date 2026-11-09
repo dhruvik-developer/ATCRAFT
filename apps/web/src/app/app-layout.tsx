@@ -102,7 +102,8 @@ export function AppLayout() {
   const maySearchItems = can(P.ITEM_VIEW)
   const unread = useQuery({
     queryKey: queryKeys.notifications.unreadCount,
-    queryFn: () => api.get<SchemaOf<'UnreadCountRead'>>('/notifications/unread-count'),
+    queryFn: ({ signal }) =>
+      api.get<SchemaOf<'UnreadCountRead'>>('/notifications/unread-count', { signal }),
     enabled: maySeeNotifications,
     refetchInterval: NOTIFICATION_POLL_MS,
     staleTime: NOTIFICATION_POLL_MS / 2,

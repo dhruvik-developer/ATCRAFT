@@ -17,17 +17,19 @@ export function CustomerCollectionsPanel({ customerId }: { customerId: string })
   const filters = { customer_id: customerId }
   const worklist = useQuery({
     queryKey: queryKeys.collections.worklist(filters),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<WorklistRow>('/collections/worklist', {
         params: { ...filters, limit: CURSOR_PAGE_SIZE },
+        signal,
       }),
     staleTime: staleTimes.transactional,
   })
   const followUps = useQuery({
     queryKey: queryKeys.collections.followUps({ ...filters, live_only: true }),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<FollowUpSummary>('/collections/follow-ups', {
         params: { ...filters, live_only: true, limit: CURSOR_PAGE_SIZE },
+        signal,
       }),
     staleTime: staleTimes.transactional,
   })

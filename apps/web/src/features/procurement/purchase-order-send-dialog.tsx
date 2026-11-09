@@ -91,9 +91,10 @@ export function PurchaseOrderSendDialog({
 
   const assignees = useQuery({
     queryKey: purchaseOrderKeys.vendorAssignees(order.id),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<PurchaseOrderVendorAssignee[]>(
         `/procurement/purchase-orders/${order.id}/vendor-assignees`,
+        { signal },
       ),
     enabled: open,
     // Who can take the order changes when somebody at the vendor is added,

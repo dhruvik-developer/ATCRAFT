@@ -125,9 +125,10 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
 
   const contacts = useQuery({
     queryKey: [...queryKeys.vendors.detail(vendorId), 'contacts'],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<VendorContact>(`/vendors/${vendorId}/contacts`, {
         params: { limit: RELATION_LIMIT, sort_by: 'name', sort_dir: 'asc' },
+        signal,
       }),
   })
 
@@ -452,9 +453,10 @@ export function VendorCategoriesPanel({
 
   const links = useQuery({
     queryKey: [...queryKeys.vendors.detail(vendorId), 'categories'],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<VendorCategoryLink>(`/vendors/${vendorId}/categories`, {
         params: { limit: RELATION_LIMIT },
+        signal,
       }),
   })
 

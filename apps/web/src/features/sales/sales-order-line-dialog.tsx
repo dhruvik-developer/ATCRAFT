@@ -161,9 +161,10 @@ export function SalesOrderLineDialog({
   const variantParams = { page: 1, limit: LOOKUP_LIST_LIMIT, with_total: false }
   const variantsQuery = useQuery({
     queryKey: queryKeys.items.variants(itemId, variantParams),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<ItemVariant>(`/products/items/${itemId}/variants`, {
         params: variantParams,
+        signal,
       }),
     enabled: open && Boolean(itemId),
     staleTime: staleTimes.master,

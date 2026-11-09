@@ -192,7 +192,7 @@ export function WorkOrderAssignDialog({
       shiftId,
       rosterDate,
     ],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<SchemaOf<'ShiftAssignmentRead'>>('/routing/roster/assignments', {
         params: {
           date_from: rosterDate,
@@ -204,6 +204,7 @@ export function WorkOrderAssignDialog({
           limit: LOOKUP_LIST_LIMIT,
           with_total: false,
         },
+        signal,
       }),
     enabled:
       Boolean(workOrder) &&

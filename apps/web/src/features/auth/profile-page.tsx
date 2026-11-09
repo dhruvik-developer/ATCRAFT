@@ -64,7 +64,7 @@ function MessagingProfileCard() {
 
   const channels = useQuery({
     queryKey: queryKeys.notifications.channels,
-    queryFn: () => api.get<MessagingChannelStatus>('/notifications/channels'),
+    queryFn: ({ signal }) => api.get<MessagingChannelStatus>('/notifications/channels', { signal }),
   })
 
   useEffect(() => {
@@ -707,8 +707,11 @@ function SessionsCard() {
 
   const sessions = useQuery({
     queryKey: [...queryKeys.auth.sessions, page] as const,
-    queryFn: () =>
-      api.getPage<SessionRow>('/auth/sessions', { params: { page, limit: SESSION_PAGE_SIZE } }),
+    queryFn: ({ signal }) =>
+      api.getPage<SessionRow>('/auth/sessions', {
+        params: { page, limit: SESSION_PAGE_SIZE },
+        signal,
+      }),
     placeholderData: keepPreviousData,
     // A session list that is minutes stale defeats the purpose of showing it.
     staleTime: 0,

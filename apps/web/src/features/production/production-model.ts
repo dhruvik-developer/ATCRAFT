@@ -556,11 +556,12 @@ export function useMachineOptions(enabled: boolean) {
     // and only a shared factory makes the two provably distinct - these params
     // carry no `work_center_id`, so the keys cannot collide.
     queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
         return (
           await api.getPage<MachineOption>('/routing/machines', {
             params: { ...MACHINE_REGISTER_PARAMS },
+            signal,
           })
         ).data
       } catch (error) {

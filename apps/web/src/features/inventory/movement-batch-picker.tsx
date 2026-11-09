@@ -18,7 +18,7 @@ export default function MovementBatchPicker({
 }) {
   const item = useQuery({
     queryKey: queryKeys.items.detail(itemId),
-    queryFn: () => api.get<ItemDetail>('/products/items/' + itemId),
+    queryFn: ({ signal }) => api.get<ItemDetail>('/products/items/' + itemId, { signal }),
     enabled: Boolean(itemId),
     staleTime: staleTimes.master,
   })

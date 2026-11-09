@@ -725,7 +725,7 @@ const operationCostColumns: ColumnDef<ProductionCostOperationLine, unknown>[] = 
 function CostingPanel({ order }: { order: ProductionOrderDetail }) {
   const cost = useQuery({
     queryKey: [...queryKeys.production.detail(order.id), 'cost'] as const,
-    queryFn: () => api.get<ProductionCost>(`/production/${order.id}/cost`),
+    queryFn: ({ signal }) => api.get<ProductionCost>(`/production/${order.id}/cost`, { signal }),
     staleTime: staleTimes.transactional,
   })
 
@@ -939,7 +939,7 @@ export default function ProductionDetailPage() {
 
   const orderQuery = useQuery({
     queryKey: queryKeys.production.detail(orderId),
-    queryFn: () => api.get<ProductionOrderDetail>(`/production/${orderId}`),
+    queryFn: ({ signal }) => api.get<ProductionOrderDetail>(`/production/${orderId}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: Boolean(orderId),
   })
@@ -952,7 +952,7 @@ export default function ProductionDetailPage() {
     queryKey: [...queryKeys.production.detail(orderId), 'components'] as const,
     // The kit list is bounded at release and the issue dialog needs it whole, so
     // this one asks for a single large page rather than paging the table.
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<ProductionComponent[]>(`/production/${orderId}/components`, {
         params: {
           limit: LOOKUP_LIST_LIMIT,
@@ -960,6 +960,7 @@ export default function ProductionDetailPage() {
           sort_by: 'line_number',
           sort_dir: 'asc',
         },
+        signal,
       }),
     // Availability is never served stale (master rules 34).
     staleTime: staleTimes.live,

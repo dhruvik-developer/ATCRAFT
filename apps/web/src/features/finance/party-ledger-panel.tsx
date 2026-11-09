@@ -99,7 +99,8 @@ export function PartyLedgerPanel({ kind, partyId, className }: PartyLedgerPanelP
 
   const statement = useQuery({
     queryKey: ledgerKeys.statement(kind, partyId, params),
-    queryFn: () => api.get<LedgerStatement>(statementPath(kind, partyId), { params }),
+    queryFn: ({ signal }) =>
+      api.get<LedgerStatement>(statementPath(kind, partyId), { params, signal }),
     enabled: canViewLedger && Boolean(partyId),
     staleTime: staleTimes.transactional,
     // Hold the current page on screen while the next one loads. Without it

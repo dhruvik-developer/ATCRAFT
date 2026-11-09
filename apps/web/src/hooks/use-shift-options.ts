@@ -12,7 +12,7 @@ export function shiftLabel(shift: ShiftOption) {
 export function useShiftOptions(enabled = true) {
   return useQuery({
     queryKey: [...queryKeys.routing.all, 'shifts', 'options'],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
         return (
           await api.getPage<ShiftOption>('/routing/shifts', {
@@ -22,6 +22,7 @@ export function useShiftOptions(enabled = true) {
               sort_by: 'sort_order',
               with_total: false,
             },
+            signal,
           })
         ).data
       } catch (error) {

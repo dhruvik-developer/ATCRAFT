@@ -70,14 +70,14 @@ export function VendorPicker({
 
   const results = useQuery({
     queryKey: queryKeys.vendors.list(searchParams),
-    queryFn: () => api.getPage<VendorRow>('/vendors', { params: searchParams }),
+    queryFn: ({ signal }) => api.getPage<VendorRow>('/vendors', { params: searchParams, signal }),
     enabled: open && !disabled,
     staleTime: staleTimes.master,
   })
 
   const detail = useQuery({
     queryKey: queryKeys.vendors.detail(value ?? ''),
-    queryFn: () => api.get<VendorRow>(`/vendors/${value}`),
+    queryFn: ({ signal }) => api.get<VendorRow>(`/vendors/${value}`, { signal }),
     enabled: Boolean(value) && picked?.id !== value,
     staleTime: staleTimes.master,
   })

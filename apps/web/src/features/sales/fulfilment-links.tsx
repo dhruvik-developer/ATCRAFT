@@ -106,7 +106,8 @@ export function FulfilmentLinks({ orderId }: { orderId: string }) {
   const { can } = useAuth()
   const trail = useQuery({
     queryKey: [...queryKeys.sales.detail(orderId), 'fulfilment'],
-    queryFn: () => api.get<SalesOrderFulfilment>(`/sales/${orderId}/fulfilment`),
+    queryFn: ({ signal }) =>
+      api.get<SalesOrderFulfilment>(`/sales/${orderId}/fulfilment`, { signal }),
     enabled: can(P.SALES_ORDER_VIEW),
     staleTime: staleTimes.transactional,
   })

@@ -40,10 +40,11 @@ const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: f
 export function useItemAttributeOptions(attribute: ItemAttributeType, enabled = true) {
   return useQuery({
     queryKey: itemAttributeOptionKeys.ofType(attribute),
-    queryFn: async (): Promise<ItemAttributeOption[]> => {
+    queryFn: async ({ signal }): Promise<ItemAttributeOption[]> => {
       try {
         const page = await api.getPage<ItemAttributeOption>('/products/attributes', {
           params: { ...OPTION_PARAMS, attribute },
+          signal,
         })
         return page.data
       } catch (error) {

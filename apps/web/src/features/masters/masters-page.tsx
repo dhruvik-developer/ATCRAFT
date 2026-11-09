@@ -169,7 +169,7 @@ function CategoriesTab() {
   // "children of 0192f3c1-..." tells the user nothing.
   const parent = useQuery({
     queryKey: mastersKeys.category(parentId),
-    queryFn: () => api.get<CategoryRow>(`/products/categories/${parentId}`),
+    queryFn: ({ signal }) => api.get<CategoryRow>(`/products/categories/${parentId}`, { signal }),
     enabled: Boolean(parentId),
     staleTime: staleTimes.reference,
   })

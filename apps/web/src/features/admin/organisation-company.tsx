@@ -136,7 +136,7 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
 
   const company = useQuery({
     queryKey: orgKeys.company,
-    queryFn: () => api.get<CompanyRecord>('/organization/company'),
+    queryFn: ({ signal }) => api.get<CompanyRecord>('/organization/company', { signal }),
   })
 
   const {

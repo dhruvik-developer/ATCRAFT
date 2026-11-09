@@ -11,7 +11,8 @@ import { CreateAdjustmentDialog } from './movement-dialogs'
 export default function EditAdjustmentDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const detail = useQuery({
     queryKey: [...queryKeys.inventory.all, 'adjustment', id],
-    queryFn: () => api.get<SchemaOf<'StockAdjustmentRead'>>('/inventory/adjustments/' + id),
+    queryFn: ({ signal }) =>
+      api.get<SchemaOf<'StockAdjustmentRead'>>('/inventory/adjustments/' + id, { signal }),
     staleTime: staleTimes.transactional,
   })
   if (!detail.data)

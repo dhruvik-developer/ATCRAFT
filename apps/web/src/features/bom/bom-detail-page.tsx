@@ -215,9 +215,10 @@ function StructurePanel({ bom }: { bom: BomDetail }) {
 
   const names = useQuery({
     queryKey: queryKeys.bom.explosion(bom.id, bom.output_quantity),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<BomExplosion>(`/bom/${bom.id}/explode`, {
         params: { quantity: bom.output_quantity },
+        signal,
       }),
     enabled: lines.length > 0,
     staleTime: staleTimes.master,
@@ -459,7 +460,8 @@ function ExplosionPanel({ bom }: { bom: BomDetail }) {
 
   const explosion = useQuery({
     queryKey: queryKeys.bom.explosion(bom.id, quantity),
-    queryFn: () => api.get<BomExplosion>(`/bom/${bom.id}/explode`, { params: { quantity } }),
+    queryFn: ({ signal }) =>
+      api.get<BomExplosion>(`/bom/${bom.id}/explode`, { params: { quantity }, signal }),
     enabled: isValid,
     placeholderData: keepPreviousData,
     staleTime: staleTimes.master,
@@ -657,7 +659,7 @@ function ExplosionPanel({ bom }: { bom: BomDetail }) {
 function CostPanel({ bomId }: { bomId: string }) {
   const cost = useQuery({
     queryKey: [...queryKeys.bom.detail(bomId), 'cost'],
-    queryFn: () => api.get<BomCost>(`/bom/${bomId}/cost`),
+    queryFn: ({ signal }) => api.get<BomCost>(`/bom/${bomId}/cost`, { signal }),
     staleTime: staleTimes.master,
   })
 
@@ -808,9 +810,10 @@ function WhereUsedPanel({ itemId }: { itemId: string }) {
   // explosion quantity.
   const query = useQuery({
     queryKey: [...queryKeys.bom.whereUsed(itemId), page],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<BomWhereUsedRow>(`/bom/where-used/${itemId}`, {
         params: { page, limit: LOOKUP_LIST_LIMIT },
+        signal,
       }),
     placeholderData: keepPreviousData,
     staleTime: staleTimes.master,
@@ -933,7 +936,7 @@ export default function BomDetailPage() {
 
   const bomQuery = useQuery({
     queryKey: queryKeys.bom.detail(bomId),
-    queryFn: () => api.get<BomDetail>(`/bom/${bomId}`),
+    queryFn: ({ signal }) => api.get<BomDetail>(`/bom/${bomId}`, { signal }),
     staleTime: staleTimes.master,
     enabled: Boolean(bomId),
   })

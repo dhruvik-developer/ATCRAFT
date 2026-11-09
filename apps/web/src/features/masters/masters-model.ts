@@ -168,9 +168,10 @@ export interface ReferenceSet<T> {
 export function useUomReference(enabled: boolean) {
   return useQuery({
     queryKey: mastersKeys.uomReference(),
-    queryFn: async (): Promise<ReferenceSet<UomRow>> => {
+    queryFn: async ({ signal }): Promise<ReferenceSet<UomRow>> => {
       const page = await api.getPage<UomRow>('/products/uoms', {
         params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
+        signal,
       })
       return { rows: page.data, truncated: page.pagination.has_next }
     },
@@ -190,9 +191,10 @@ export function useUomReference(enabled: boolean) {
 export function useCategoryReference(enabled: boolean) {
   return useQuery({
     queryKey: mastersKeys.categoryReference(),
-    queryFn: async (): Promise<ReferenceSet<CategoryRow>> => {
+    queryFn: async ({ signal }): Promise<ReferenceSet<CategoryRow>> => {
       const page = await api.getPage<CategoryRow>('/products/categories', {
         params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
+        signal,
       })
       return { rows: page.data, truncated: page.pagination.has_next }
     },
@@ -212,10 +214,11 @@ export function useCategoryReference(enabled: boolean) {
 export function useVariantOptions(itemId: string, enabled: boolean) {
   return useQuery({
     queryKey: mastersKeys.variants(itemId),
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await api.getPage<VariantRow>(`/products/items/${itemId}/variants`, {
           params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
+          signal,
         })
       ).data,
     staleTime: staleTimes.master,

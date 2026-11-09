@@ -162,14 +162,20 @@ const BOARD_PAGE_LIMIT = LOOKUP_LIST_LIMIT
  * The board cannot page honestly - page two of the operations is still this
  * week's work - so it reads to the end. Bounded in practice: one week of one
  * cell is a handful of rows, and the loop gives up after ten pages rather
- * than following a runaway cursor.
+ * than following a runaway cursor. A cancelled query's `signal` stops the
+ * page in flight, and with it the loop.
  */
-export async function fetchAllPages<T>(path: string, params: Record<string, unknown>) {
+export async function fetchAllPages<T>(
+  path: string,
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+) {
   const rows: T[] = []
   let page = 1
   for (;;) {
     const response = await api.getPage<T>(path, {
       params: { ...params, page, limit: BOARD_PAGE_LIMIT },
+      signal,
     })
     rows.push(...response.data)
     if (!response.pagination.has_next || page >= 10) return rows
@@ -202,7 +208,7 @@ export function groupCapacityByCentre(
 export function useCapacityBoard(params: Record<string, unknown>, enabled = true) {
   return useQuery({
     queryKey: planningKeys.capacity(params),
-    queryFn: () => fetchAllPages<CapacityDay>('/production/capacity', params),
+    queryFn: ({ signal }) => fetchAllPages<CapacityDay>('/production/capacity', params, signal),
     staleTime: staleTimes.transactional,
     refetchOnWindowFocus: true,
     enabled,
@@ -213,7 +219,7 @@ export function useCapacityBoard(params: Record<string, unknown>, enabled = true
 export function useBoardWorkOrders(params: Record<string, unknown>, enabled = true) {
   return useQuery({
     queryKey: planningKeys.board(params),
-    queryFn: () => fetchAllPages<WorkOrder>('/production/work-orders', params),
+    queryFn: ({ signal }) => fetchAllPages<WorkOrder>('/production/work-orders', params, signal),
     staleTime: staleTimes.transactional,
     refetchOnWindowFocus: true,
     enabled,
@@ -239,7 +245,8 @@ const MACHINE_REGISTER_PARAMS = {
 export function useBoardMachines(enabled = true) {
   return useQuery({
     queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
-    queryFn: () => fetchAllPages<Machine>('/routing/machines', { ...MACHINE_REGISTER_PARAMS }),
+    queryFn: ({ signal }) =>
+      fetchAllPages<Machine>('/routing/machines', { ...MACHINE_REGISTER_PARAMS }, signal),
     staleTime: staleTimes.reference,
     enabled,
   })

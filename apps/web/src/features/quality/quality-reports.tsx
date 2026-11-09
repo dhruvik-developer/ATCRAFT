@@ -195,8 +195,8 @@ function ItemQualityHistory({ windowDays }: { windowDays: string }) {
   const params = { window_days: Number(windowDays) }
   const history = useQuery({
     queryKey: queryKeys.reports.report('quality-item', { itemId, ...params }),
-    queryFn: () =>
-      api.get<ItemQualityHistoryPayload>(`/quality/reports/item/${itemId}`, { params }),
+    queryFn: ({ signal }) =>
+      api.get<ItemQualityHistoryPayload>(`/quality/reports/item/${itemId}`, { params, signal }),
     enabled: Boolean(itemId),
     staleTime: staleTimes.dashboard,
   })
@@ -363,8 +363,11 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
   const params = { window_days: Number(windowDays) }
   const summary = useQuery({
     queryKey: queryKeys.reports.report('quality-vendor', { vendorId, ...params }),
-    queryFn: () =>
-      api.get<VendorQualitySummaryPayload>(`/quality/reports/vendor/${vendorId}`, { params }),
+    queryFn: ({ signal }) =>
+      api.get<VendorQualitySummaryPayload>(`/quality/reports/vendor/${vendorId}`, {
+        params,
+        signal,
+      }),
     enabled: Boolean(vendorId),
     staleTime: staleTimes.dashboard,
   })

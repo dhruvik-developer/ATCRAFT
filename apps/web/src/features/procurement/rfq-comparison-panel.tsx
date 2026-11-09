@@ -101,7 +101,8 @@ export function RfqComparisonPanel({
 
   const comparison = useQuery({
     queryKey: quotationKeys.comparison(rfqId),
-    queryFn: () => api.get<QuotationComparison>(`/procurement/rfqs/${rfqId}/comparison`),
+    queryFn: ({ signal }) =>
+      api.get<QuotationComparison>(`/procurement/rfqs/${rfqId}/comparison`, { signal }),
     enabled: Boolean(rfqId),
     staleTime: staleTimes.transactional,
   })

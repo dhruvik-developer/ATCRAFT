@@ -126,7 +126,8 @@ export function InventoryValuationTab() {
 
   const valuation = useQuery({
     queryKey: financeKeys.valuation(params),
-    queryFn: () => api.get<InventoryValuationPage>('/finance/inventory-valuation', { params }),
+    queryFn: ({ signal }) =>
+      api.get<InventoryValuationPage>('/finance/inventory-valuation', { params, signal }),
     staleTime: staleTimes.transactional,
     // Hold the current page on screen while the next one loads. Without it
     // the table collapses to a skeleton on every page click - `useListQuery`

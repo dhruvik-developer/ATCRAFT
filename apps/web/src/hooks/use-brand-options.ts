@@ -33,9 +33,12 @@ const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: f
 export function useBrandOptions(enabled = true) {
   return useQuery({
     queryKey: brandOptionKeys.all,
-    queryFn: async (): Promise<BrandOption[]> => {
+    queryFn: async ({ signal }): Promise<BrandOption[]> => {
       try {
-        const page = await api.getPage<BrandOption>('/products/brands', { params: OPTION_PARAMS })
+        const page = await api.getPage<BrandOption>('/products/brands', {
+          params: OPTION_PARAMS,
+          signal,
+        })
         return page.data
       } catch (error) {
         return emptyOnPermissionError<BrandOption>(error)

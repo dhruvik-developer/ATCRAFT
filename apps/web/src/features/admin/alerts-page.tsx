@@ -99,7 +99,7 @@ export default function AlertsPage() {
 
   const rules = useQuery({
     queryKey: queryKeys.notifications.alertRules,
-    queryFn: () => api.get<AlertRule[]>('/notifications/alert-rules'),
+    queryFn: ({ signal }) => api.get<AlertRule[]>('/notifications/alert-rules', { signal }),
     staleTime: staleTimes.master,
   })
 

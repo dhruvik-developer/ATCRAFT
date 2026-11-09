@@ -224,7 +224,7 @@ export default function TrialBalancePage() {
 
   const report = useQuery({
     queryKey: ledgerKeys.trialBalance(params),
-    queryFn: () => api.get<TrialBalance>('/finance/trial-balance', { params }),
+    queryFn: ({ signal }) => api.get<TrialBalance>('/finance/trial-balance', { params, signal }),
     staleTime: staleTimes.transactional,
     enabled: canViewLedger,
   })

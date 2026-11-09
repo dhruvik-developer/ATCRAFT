@@ -261,7 +261,7 @@ export function TransporterFormDialog({
 
   const detail = useQuery({
     queryKey: transporterKeys.detail(transporterId ?? ''),
-    queryFn: () => api.get<Transporter>(`/transporters/${transporterId}`),
+    queryFn: ({ signal }) => api.get<Transporter>(`/transporters/${transporterId}`, { signal }),
     enabled: open && Boolean(transporterId),
     staleTime: staleTimes.master,
   })
@@ -753,9 +753,10 @@ export function TrackingLinkDialog({
 
   const link = useQuery({
     queryKey: transporterKeys.trackingLink(transporter?.id ?? '', submitted),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<TrackingLink>(`/transporters/${transporter?.id}/tracking-url`, {
         params: { tracking_id: submitted },
+        signal,
       }),
     enabled: Boolean(transporter) && submitted !== '',
     staleTime: staleTimes.master,

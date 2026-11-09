@@ -71,7 +71,8 @@ export function InspectionDetailDialog({
 
   const detail = useQuery({
     queryKey: queryKeys.quality.detail(inspectionId),
-    queryFn: () => api.get<QcInspectionDetail>(`/quality/inspections/${inspectionId}`),
+    queryFn: ({ signal }) =>
+      api.get<QcInspectionDetail>(`/quality/inspections/${inspectionId}`, { signal }),
     enabled: open && Boolean(inspectionId),
     staleTime: staleTimes.transactional,
   })

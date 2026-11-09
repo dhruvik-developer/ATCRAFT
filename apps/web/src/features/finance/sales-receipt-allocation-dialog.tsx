@@ -74,7 +74,8 @@ export function SalesReceiptAllocationDialog({
   }
   const candidates = useQuery({
     queryKey: salesInvoiceKeys.list(params),
-    queryFn: () => api.getPage<SalesInvoiceSummary>('/finance/sales-invoices', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<SalesInvoiceSummary>('/finance/sales-invoices', { params, signal }),
     enabled: can(P.SALES_INVOICE_VIEW),
     staleTime: 0,
   })

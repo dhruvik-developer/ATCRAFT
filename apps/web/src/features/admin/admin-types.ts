@@ -197,7 +197,7 @@ export function useDepartmentTreeOptions(enabled = true) {
 export function useRoleOptions(enabled = true) {
   return useQuery({
     queryKey: queryKeys.users.roles,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const page = await api.getPage<RoleRow>('/roles', {
         params: {
           limit: LOOKUP_LIST_LIMIT,
@@ -206,6 +206,7 @@ export function useRoleOptions(enabled = true) {
           sort_dir: 'asc',
           with_total: false,
         },
+        signal,
       })
       return page.data
     },
@@ -217,7 +218,8 @@ export function useRoleOptions(enabled = true) {
 export function usePermissionCatalogue(enabled = true) {
   return useQuery({
     queryKey: queryKeys.users.permissionCatalogue,
-    queryFn: () => api.get<PermissionCatalogue>('/roles/permissions/catalogue'),
+    queryFn: ({ signal }) =>
+      api.get<PermissionCatalogue>('/roles/permissions/catalogue', { signal }),
     // Compiled into the backend binary; it cannot change while a tab is open.
     staleTime: staleTimes.reference,
     enabled,

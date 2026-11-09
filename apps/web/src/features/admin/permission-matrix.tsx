@@ -60,7 +60,7 @@ export function PermissionMatrix({
 
   const role = useQuery({
     queryKey: [...queryKeys.users.roles, 'detail', roleId] as const,
-    queryFn: () => api.get<RoleDetail>(`/roles/${roleId}`),
+    queryFn: ({ signal }) => api.get<RoleDetail>(`/roles/${roleId}`, { signal }),
     enabled: Boolean(roleId),
     staleTime: staleTimes.master,
   })

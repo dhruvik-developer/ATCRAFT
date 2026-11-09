@@ -98,7 +98,7 @@ export interface WarehouseOption {
 export function useWarehouseOptions(enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.warehouses.all, 'options'],
-    queryFn: () => api.get<WarehouseOption[]>('/warehouses/options'),
+    queryFn: ({ signal }) => api.get<WarehouseOption[]>('/warehouses/options', { signal }),
     staleTime: staleTimes.reference,
     enabled,
   })

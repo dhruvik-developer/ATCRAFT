@@ -177,14 +177,16 @@ export function VendorInvoiceMatchDialog({
 
   const invoiceQuery = useQuery({
     queryKey: financeKeys.vendorInvoice(invoiceId ?? ''),
-    queryFn: () => api.get<VendorInvoiceDetail>(`/finance/vendor-invoices/${invoiceId}`),
+    queryFn: ({ signal }) =>
+      api.get<VendorInvoiceDetail>(`/finance/vendor-invoices/${invoiceId}`, { signal }),
     enabled: Boolean(invoiceId),
     staleTime: staleTimes.transactional,
   })
 
   const matchQuery = useQuery({
     queryKey: financeKeys.vendorInvoiceMatch(invoiceId ?? ''),
-    queryFn: () => api.get<MatchResult>(`/finance/vendor-invoices/${invoiceId}/match`),
+    queryFn: ({ signal }) =>
+      api.get<MatchResult>(`/finance/vendor-invoices/${invoiceId}/match`, { signal }),
     enabled: Boolean(invoiceId),
     // The match is recomputed against live GRN data, so it is never served from
     // a cache that could predate this morning's receipt.

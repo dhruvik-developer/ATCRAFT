@@ -74,8 +74,8 @@ export function WipByOrderPanel() {
 
   const orders = useQuery({
     queryKey: workOrderKeys.wipOrders(params),
-    queryFn: (): Promise<PaginatedEnvelope<WipOrderRow>> =>
-      api.getPage<WipOrderRow>('/production/wip', { params }),
+    queryFn: ({ signal }): Promise<PaginatedEnvelope<WipOrderRow>> =>
+      api.getPage<WipOrderRow>('/production/wip', { params, signal }),
     placeholderData: keepPreviousData,
     staleTime: staleTimes.transactional,
     refetchOnWindowFocus: true,

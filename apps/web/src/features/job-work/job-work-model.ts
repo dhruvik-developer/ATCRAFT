@@ -300,7 +300,7 @@ export type ReportJob = SchemaOf<'ReportJobRead'>
 export function useJobWorkOrder(orderId: string, enabled: boolean) {
   return useQuery({
     queryKey: jobWorkKeys.detail(orderId),
-    queryFn: () => api.get<JobWorkOrderDetail>(`/job-work/${orderId}`),
+    queryFn: ({ signal }) => api.get<JobWorkOrderDetail>(`/job-work/${orderId}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })
@@ -316,7 +316,8 @@ export function useJobWorkOrder(orderId: string, enabled: boolean) {
 export function useBillableLines(orderId: string, enabled: boolean) {
   return useQuery({
     queryKey: jobWorkKeys.billableLines(orderId),
-    queryFn: () => api.get<BillableLine[]>(`/job-work/${orderId}/billable-lines`),
+    queryFn: ({ signal }) =>
+      api.get<BillableLine[]>(`/job-work/${orderId}/billable-lines`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })
@@ -326,7 +327,7 @@ export function useBillableLines(orderId: string, enabled: boolean) {
 export function useOrderChallans(orderId: string, enabled: boolean) {
   return useQuery({
     queryKey: jobWorkKeys.orderChallans(orderId),
-    queryFn: () => api.get<ChallanRow[]>(`/job-work/${orderId}/challans`),
+    queryFn: ({ signal }) => api.get<ChallanRow[]>(`/job-work/${orderId}/challans`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })
@@ -336,7 +337,7 @@ export function useOrderChallans(orderId: string, enabled: boolean) {
 export function useOrderReceipts(orderId: string, enabled: boolean) {
   return useQuery({
     queryKey: jobWorkKeys.receipts(orderId),
-    queryFn: () => api.get<ReceiptRow[]>(`/job-work/${orderId}/receipts`),
+    queryFn: ({ signal }) => api.get<ReceiptRow[]>(`/job-work/${orderId}/receipts`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })
@@ -346,7 +347,8 @@ export function useOrderReceipts(orderId: string, enabled: boolean) {
 export function useReconciliation(orderId: string, enabled: boolean) {
   return useQuery({
     queryKey: jobWorkKeys.reconciliation(orderId),
-    queryFn: () => api.get<ReconciliationReport>(`/job-work/${orderId}/reconciliation`),
+    queryFn: ({ signal }) =>
+      api.get<ReconciliationReport>(`/job-work/${orderId}/reconciliation`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })
@@ -362,9 +364,10 @@ export interface VendorLedgerParams {
 export function useVendorLedger({ vendorId, dateFrom, dateTo }: VendorLedgerParams) {
   return useQuery({
     queryKey: jobWorkKeys.vendorLedger({ vendorId, dateFrom, dateTo }),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<VendorLedgerReport>('/job-work/vendor-ledger', {
         params: { vendor_id: vendorId, date_from: dateFrom, date_to: dateTo },
+        signal,
       }),
     staleTime: staleTimes.transactional,
     enabled: Boolean(vendorId) && Boolean(dateFrom) && Boolean(dateTo),
@@ -383,7 +386,7 @@ export function useReportJob(jobId: string | null) {
     // Keyed by the path it polls, the identity `features/reports/report-jobs.ts`
     // gives the same job, so the two hooks never hold two answers for one job.
     queryKey: queryKeys.reports.job(jobId ? `/reports/jobs/${jobId}` : null),
-    queryFn: () => api.get<ReportJob>(`/reports/jobs/${jobId}`),
+    queryFn: ({ signal }) => api.get<ReportJob>(`/reports/jobs/${jobId}`, { signal }),
     enabled: Boolean(jobId),
     refetchInterval: (query) => {
       const status = query.state.data?.status

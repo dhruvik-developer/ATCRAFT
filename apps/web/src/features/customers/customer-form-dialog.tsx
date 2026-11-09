@@ -376,7 +376,7 @@ export function CustomerFormDialog({
   // the customer rather than editing a half-populated row.
   const detail = useQuery({
     queryKey: queryKeys.customers.detail(customerId ?? ''),
-    queryFn: () => api.get<CustomerDetail>(`/customers/${customerId}`),
+    queryFn: ({ signal }) => api.get<CustomerDetail>(`/customers/${customerId}`, { signal }),
     enabled: open && Boolean(customerId),
     staleTime: staleTimes.master,
   })

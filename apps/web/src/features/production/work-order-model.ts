@@ -309,10 +309,11 @@ const WORK_CENTRE_OPTION_PARAMS = {
 export function useWorkCentreOptions(enabled = true) {
   return useQuery({
     queryKey: queryKeys.routing.workCenters(WORK_CENTRE_OPTION_PARAMS),
-    queryFn: async (): Promise<WorkCentreOption[]> => {
+    queryFn: async ({ signal }): Promise<WorkCentreOption[]> => {
       try {
         const page = await api.getPage<WorkCentreOption>('/routing/work-centers', {
           params: { ...WORK_CENTRE_OPTION_PARAMS },
+          signal,
         })
         return page.data
       } catch (error) {
@@ -350,9 +351,9 @@ export function useWorkCentreMachineOptions(workCentreId: string | null | undefi
   const params = { ...MACHINE_OPTION_PARAMS, work_center_id: workCentreId ?? '' }
   return useQuery({
     queryKey: queryKeys.routing.machines(params),
-    queryFn: async (): Promise<MachineOption[]> => {
+    queryFn: async ({ signal }): Promise<MachineOption[]> => {
       try {
-        const page = await api.getPage<MachineOption>('/routing/machines', { params })
+        const page = await api.getPage<MachineOption>('/routing/machines', { params, signal })
         return page.data
       } catch (error) {
         return emptyOnPermissionError<MachineOption>(error)

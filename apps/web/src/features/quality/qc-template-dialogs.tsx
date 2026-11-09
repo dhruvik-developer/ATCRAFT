@@ -1084,7 +1084,8 @@ export function QcTemplateFormDialog({
 
   const detail = useQuery({
     queryKey: qcTemplateKeys.detail(templateId ?? ''),
-    queryFn: () => api.get<QcTemplateDetail>(`/quality/templates/${templateId}`),
+    queryFn: ({ signal }) =>
+      api.get<QcTemplateDetail>(`/quality/templates/${templateId}`, { signal }),
     enabled: open && templateId !== null,
     staleTime: staleTimes.master,
   })
@@ -1383,7 +1384,8 @@ export function QcTemplateVersionDialog({
 
   const detail = useQuery({
     queryKey: qcTemplateKeys.detail(templateId ?? ''),
-    queryFn: () => api.get<QcTemplateDetail>(`/quality/templates/${templateId}`),
+    queryFn: ({ signal }) =>
+      api.get<QcTemplateDetail>(`/quality/templates/${templateId}`, { signal }),
     enabled: open && templateId !== null,
     staleTime: staleTimes.master,
   })
@@ -1767,7 +1769,7 @@ function VersionHistory({
 
   const history = useQuery({
     queryKey: qcTemplateKeys.versions(template.code),
-    queryFn: () => api.getPage<QcTemplateRow>('/quality/templates', { params }),
+    queryFn: ({ signal }) => api.getPage<QcTemplateRow>('/quality/templates', { params, signal }),
     staleTime: staleTimes.master,
   })
 
@@ -1868,7 +1870,8 @@ export function QcTemplateDetailDialog({
 
   const detail = useQuery({
     queryKey: qcTemplateKeys.detail(templateId ?? ''),
-    queryFn: () => api.get<QcTemplateDetail>(`/quality/templates/${templateId}`),
+    queryFn: ({ signal }) =>
+      api.get<QcTemplateDetail>(`/quality/templates/${templateId}`, { signal }),
     enabled: templateId !== null,
     staleTime: staleTimes.master,
   })

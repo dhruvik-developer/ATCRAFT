@@ -452,7 +452,8 @@ function PurchaseOrderPicker({
 
   const results = useQuery({
     queryKey: queryKeys.procurement.purchaseOrders(params),
-    queryFn: () => api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params, signal }),
     enabled: open && Boolean(vendorId),
     staleTime: staleTimes.transactional,
   })
@@ -613,7 +614,8 @@ function GoodsReceiptPicker({
 
   const results = useQuery({
     queryKey: queryKeys.procurement.grns(params),
-    queryFn: () => api.getPage<GoodsReceiptRow>('/procurement/goods-receipts', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<GoodsReceiptRow>('/procurement/goods-receipts', { params, signal }),
     enabled: open && Boolean(vendorId),
     staleTime: staleTimes.transactional,
   })
@@ -840,14 +842,16 @@ export function VendorInvoiceFormDialog({
    */
   const orderQuery = useQuery({
     queryKey: purchaseOrderDetailKey(purchaseOrderId),
-    queryFn: () => api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${purchaseOrderId}`),
+    queryFn: ({ signal }) =>
+      api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${purchaseOrderId}`, { signal }),
     enabled: open && canReadOrders && Boolean(purchaseOrderId),
     staleTime: staleTimes.transactional,
   })
 
   const receiptQuery = useQuery({
     queryKey: goodsReceiptDetailKey(goodsReceiptId),
-    queryFn: () => api.get<GoodsReceiptDetail>(`/procurement/goods-receipts/${goodsReceiptId}`),
+    queryFn: ({ signal }) =>
+      api.get<GoodsReceiptDetail>(`/procurement/goods-receipts/${goodsReceiptId}`, { signal }),
     enabled: open && canReadReceipts && Boolean(goodsReceiptId),
     staleTime: staleTimes.transactional,
   })

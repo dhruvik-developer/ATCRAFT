@@ -171,8 +171,10 @@ function StatusStepper({ status }: { status: string }) {
 function usePurchaseOrderTracking(orderId: string) {
   return useQuery({
     queryKey: queryKeys.procurement.tracking(orderId),
-    queryFn: () =>
-      api.get<PurchaseOrderTracking>(`/procurement/purchase-orders/${orderId}/tracking`),
+    queryFn: ({ signal }) =>
+      api.get<PurchaseOrderTracking>(`/procurement/purchase-orders/${orderId}/tracking`, {
+        signal,
+      }),
     // A consignment moves while the tab is open; a cached position is worse
     // than none for the person chasing it.
     staleTime: staleTimes.transactional,
@@ -498,7 +500,8 @@ export default function PurchaseOrderDetailPage() {
 
   const orderQuery = useQuery({
     queryKey: queryKeys.procurement.purchaseOrder(poId),
-    queryFn: () => api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${poId}`),
+    queryFn: ({ signal }) =>
+      api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${poId}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: Boolean(poId),
   })

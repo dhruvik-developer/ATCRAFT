@@ -31,10 +31,11 @@ const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: f
 export function useManufacturerOptions(enabled = true) {
   return useQuery({
     queryKey: manufacturerOptionKeys.all,
-    queryFn: async (): Promise<ManufacturerOption[]> => {
+    queryFn: async ({ signal }): Promise<ManufacturerOption[]> => {
       try {
         const page = await api.getPage<ManufacturerOption>('/products/manufacturers', {
           params: OPTION_PARAMS,
+          signal,
         })
         return page.data
       } catch (error) {

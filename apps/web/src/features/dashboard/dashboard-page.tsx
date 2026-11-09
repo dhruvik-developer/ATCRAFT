@@ -393,7 +393,7 @@ export default function DashboardPage() {
 
   const dashboard = useQuery({
     queryKey: queryKeys.reports.dashboard,
-    queryFn: () => api.get<DashboardPayload>('/reports/dashboard'),
+    queryFn: ({ signal }) => api.get<DashboardPayload>('/reports/dashboard', { signal }),
     staleTime: staleTimes.dashboard,
     enabled: canSeeSummary,
   })
@@ -409,7 +409,8 @@ export default function DashboardPage() {
    */
   const trends = useQuery({
     queryKey: queryKeys.reports.trends,
-    queryFn: () => api.get<DashboardTrendsPayload>('/reports/dashboard/trends'),
+    queryFn: ({ signal }) =>
+      api.get<DashboardTrendsPayload>('/reports/dashboard/trends', { signal }),
     staleTime: staleTimes.dashboard,
     enabled: canSeeSummary,
   })
@@ -423,7 +424,8 @@ export default function DashboardPage() {
   const approvals = useQuery({
     queryKey: queryKeys.audit.approvals(approvalsParams),
     // The API scopes the queue to what this user is entitled to decide.
-    queryFn: () => api.getPage<ApprovalRequestRow>('/audit/approvals', { params: approvalsParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<ApprovalRequestRow>('/audit/approvals', { params: approvalsParams, signal }),
     staleTime: staleTimes.dashboard,
     enabled: showApprovals,
   })
@@ -431,7 +433,8 @@ export default function DashboardPage() {
   const activityParams = { limit: 8 }
   const activity = useQuery({
     queryKey: queryKeys.audit.logs(activityParams),
-    queryFn: () => api.getCursorPage<AuditLogRow>('/audit/logs', { params: activityParams }),
+    queryFn: ({ signal }) =>
+      api.getCursorPage<AuditLogRow>('/audit/logs', { params: activityParams, signal }),
     staleTime: staleTimes.dashboard,
     enabled: canSeeActivity,
   })

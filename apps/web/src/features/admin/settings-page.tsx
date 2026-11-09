@@ -143,13 +143,13 @@ export default function SettingsPage() {
 
   const settings = useQuery({
     queryKey: queryKeys.sales.settings,
-    queryFn: () => api.get<SalesSettings>('/sales/settings'),
+    queryFn: ({ signal }) => api.get<SalesSettings>('/sales/settings', { signal }),
     staleTime: staleTimes.master,
   })
 
   const approvalSettings = useQuery({
     queryKey: queryKeys.audit.approvalSettings,
-    queryFn: () => api.get<ApprovalSettings>('/audit/approval-settings'),
+    queryFn: ({ signal }) => api.get<ApprovalSettings>('/audit/approval-settings', { signal }),
     staleTime: staleTimes.master,
   })
 

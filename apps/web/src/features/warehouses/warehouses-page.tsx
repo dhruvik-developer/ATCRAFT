@@ -68,9 +68,10 @@ function LocationsPanel({
 
   const query = useQuery({
     queryKey: [...queryKeys.warehouses.detail(warehouse.id), 'locations', page] as const,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<StorageLocation>(`/warehouses/${warehouse.id}/locations`, {
         params: { page, limit: DEFAULT_PAGE_SIZE },
+        signal,
       }),
     placeholderData: keepPreviousData,
     staleTime: staleTimes.master,

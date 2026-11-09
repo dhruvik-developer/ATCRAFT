@@ -40,7 +40,7 @@ export function LocationPicker({
   const options = useLocationOptions(warehouseId, debounced, open && !disabled && mayRead)
   const defaults = useQuery({
     queryKey: queryKeys.items.detail(itemId),
-    queryFn: () => api.get<ItemDetail>('/products/items/' + itemId),
+    queryFn: ({ signal }) => api.get<ItemDetail>('/products/items/' + itemId, { signal }),
     enabled: Boolean(itemId) && mayRead && can(P.ITEM_VIEW),
     staleTime: staleTimes.master,
   })
@@ -64,7 +64,7 @@ export function LocationPicker({
   }, [defaults.data, itemId, warehouseId, value, onChange])
   const saved = useQuery({
     queryKey: [...queryKeys.warehouses.all, 'location', value],
-    queryFn: () => api.get<LocationOption>('/warehouses/locations/' + value),
+    queryFn: ({ signal }) => api.get<LocationOption>('/warehouses/locations/' + value, { signal }),
     enabled: Boolean(value) && mayRead,
     staleTime: staleTimes.master,
   })

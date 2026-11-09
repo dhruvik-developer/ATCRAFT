@@ -273,8 +273,9 @@ export function formatAuditValue(value: unknown): string {
 export async function fetchAuditPage(
   path: string,
   params: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<CursorEnvelope<AuditLogRow>> {
-  return api.getCursorPage<AuditLogRow>(path, { params })
+  return api.getCursorPage<AuditLogRow>(path, { params, signal })
 }
 
 /**
@@ -287,7 +288,7 @@ export async function fetchAuditPage(
 export function useAuditLogDetail(logId: string | null) {
   return useQuery({
     queryKey: queryKeys.audit.logDetail(logId ?? ''),
-    queryFn: () => api.get<AuditLogDetail>(`/audit/logs/${logId}`),
+    queryFn: ({ signal }) => api.get<AuditLogDetail>(`/audit/logs/${logId}`, { signal }),
     // Audit rows are immutable once written.
     staleTime: staleTimes.reference,
     enabled: Boolean(logId),

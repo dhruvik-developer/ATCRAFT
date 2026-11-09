@@ -547,10 +547,11 @@ export function JobWorkOrderFormDialog({
   const batchLists = useQueries({
     queries: lines.map((line) => ({
       queryKey: queryKeys.inventory.batches({ item_id: line.item_id }),
-      queryFn: async () =>
+      queryFn: async ({ signal }) =>
         (
           await api.getPage<SchemaOf<'StockBatchRead'>>('/inventory/batches', {
             params: { item_id: line.item_id, limit: 100, with_total: false },
+            signal,
           })
         ).data,
       enabled: open && line.is_batch_tracked,

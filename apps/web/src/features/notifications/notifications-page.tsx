@@ -202,8 +202,8 @@ function InboxTab() {
 
   const notifications = useInfiniteQuery({
     queryKey: [...queryKeys.notifications.all, 'list', filters] as const,
-    queryFn: ({ pageParam }) =>
-      fetchNotificationPage({ ...filters, ...(pageParam ? { cursor: pageParam } : {}) }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchNotificationPage({ ...filters, ...(pageParam ? { cursor: pageParam } : {}) }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.pagination.has_next ? (lastPage.pagination.next_cursor ?? undefined) : undefined,
@@ -219,7 +219,7 @@ function InboxTab() {
   // covers unread items beyond the pages loaded here.
   const unread = useQuery({
     queryKey: queryKeys.notifications.unreadCount,
-    queryFn: () => api.get<UnreadCount>('/notifications/unread-count'),
+    queryFn: ({ signal }) => api.get<UnreadCount>('/notifications/unread-count', { signal }),
     // The same key the header bell polls, so the same staleness: half the poll
     // interval, exactly as `app-layout.tsx` declares it.
     staleTime: NOTIFICATION_POLL_MS / 2,
@@ -387,13 +387,16 @@ function PreferencesTab() {
 
   const preferences = useQuery({
     queryKey: [...queryKeys.notifications.all, 'preferences'] as const,
-    queryFn: () => api.get<NotificationPreference[]>('/notifications/preferences'),
+    queryFn: ({ signal }) =>
+      api.get<NotificationPreference[]>('/notifications/preferences', { signal }),
     staleTime: staleTimes.reference,
   })
   const channelStatus = useQuery({
     queryKey: queryKeys.notifications.channels,
-    queryFn: () =>
-      api.get<{ whatsapp_enabled: boolean; sms_enabled: boolean }>('/notifications/channels'),
+    queryFn: ({ signal }) =>
+      api.get<{ whatsapp_enabled: boolean; sms_enabled: boolean }>('/notifications/channels', {
+        signal,
+      }),
   })
 
   const stored = preferences.data ?? []

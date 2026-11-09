@@ -196,7 +196,8 @@ function RfqPicker({
 
   const results = useQuery({
     queryKey: rfqKeys.list(searchParams),
-    queryFn: () => api.getPage<RfqRow>('/procurement/rfqs', { params: searchParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<RfqRow>('/procurement/rfqs', { params: searchParams, signal }),
     enabled: open,
     staleTime: staleTimes.transactional,
   })
@@ -205,7 +206,7 @@ function RfqPicker({
   // resolved by id so the field reads as a code rather than a UUID.
   const detail = useQuery({
     queryKey: rfqKeys.detail(value ?? ''),
-    queryFn: () => api.get<RfqRow>(`/procurement/rfqs/${value}`),
+    queryFn: ({ signal }) => api.get<RfqRow>(`/procurement/rfqs/${value}`, { signal }),
     enabled: Boolean(value) && picked?.id !== value,
     staleTime: staleTimes.transactional,
   })
@@ -371,7 +372,8 @@ export function QuotationDetailDialog({
 
   const quotation = useQuery({
     queryKey: quotationKeys.detail(quotationId ?? ''),
-    queryFn: () => api.get<QuotationDetail>(`/procurement/quotations/${quotationId}`),
+    queryFn: ({ signal }) =>
+      api.get<QuotationDetail>(`/procurement/quotations/${quotationId}`, { signal }),
     enabled: Boolean(quotationId),
     staleTime: staleTimes.transactional,
   })
@@ -672,7 +674,8 @@ export function QuotationDecisionDialog({
 
   const comparison = useQuery({
     queryKey: quotationKeys.comparison(quotation?.rfqId ?? ''),
-    queryFn: () => api.get<QuotationComparison>(`/procurement/rfqs/${quotation?.rfqId}/comparison`),
+    queryFn: ({ signal }) =>
+      api.get<QuotationComparison>(`/procurement/rfqs/${quotation?.rfqId}/comparison`, { signal }),
     enabled: open,
     staleTime: staleTimes.transactional,
   })
@@ -1043,7 +1046,8 @@ export function QuotationFormDialog({
 
   const existing = useQuery({
     queryKey: quotationKeys.detail(quotationId ?? ''),
-    queryFn: () => api.get<QuotationDetail>(`/procurement/quotations/${quotationId}`),
+    queryFn: ({ signal }) =>
+      api.get<QuotationDetail>(`/procurement/quotations/${quotationId}`, { signal }),
     enabled: open && isRevision,
     staleTime: staleTimes.transactional,
   })

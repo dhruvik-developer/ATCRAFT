@@ -102,8 +102,8 @@ export function WipBoardPanel({
 
   const board = useQuery({
     queryKey: workOrderKeys.wipWorkCentres(params),
-    queryFn: (): Promise<PaginatedEnvelope<WipWorkCentreRow>> =>
-      api.getPage<WipWorkCentreRow>('/production/wip/work-centres', { params }),
+    queryFn: ({ signal }): Promise<PaginatedEnvelope<WipWorkCentreRow>> =>
+      api.getPage<WipWorkCentreRow>('/production/wip/work-centres', { params, signal }),
     placeholderData: keepPreviousData,
     staleTime: staleTimes.transactional,
     // A board left open on a wall display must not still be showing the queue

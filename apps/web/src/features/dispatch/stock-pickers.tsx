@@ -74,7 +74,7 @@ export function BatchSelect({
   }
   const batches = useQuery({
     queryKey: queryKeys.inventory.batches(params),
-    queryFn: () => api.getPage<StockBatch>('/inventory/batches', { params }),
+    queryFn: ({ signal }) => api.getPage<StockBatch>('/inventory/batches', { params, signal }),
     enabled: open && Boolean(itemId),
     staleTime: staleTimes.transactional,
   })
@@ -84,9 +84,10 @@ export function BatchSelect({
   const remembered = picked?.item_id === itemId && picked.id === value ? picked : null
   const detail = useQuery({
     queryKey: queryKeys.inventory.batch(itemId, value),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<StockBatch>('/inventory/batches', {
         params: { item_id: itemId, batch_id: value, limit: 1, with_total: false },
+        signal,
       }),
     enabled: Boolean(itemId) && Boolean(value) && !fromPage && !remembered,
     staleTime: staleTimes.transactional,

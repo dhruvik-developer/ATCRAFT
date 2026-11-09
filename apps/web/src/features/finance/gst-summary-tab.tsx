@@ -69,9 +69,10 @@ export function GstSummaryTab({
 
   const summary = useQuery({
     queryKey: financeKeys.gstSummary(bounds?.from ?? '', bounds?.to ?? ''),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<GstSummary>('/finance/gst-summary', {
         params: { date_from: bounds?.from, date_to: bounds?.to },
+        signal,
       }),
     staleTime: staleTimes.transactional,
     enabled: Boolean(bounds),

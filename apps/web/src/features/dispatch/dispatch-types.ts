@@ -16,7 +16,7 @@
  * Weights and money are decimal strings (docs/api.md, "Numbers").
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
 import { daysUntil } from '@/lib/format'
@@ -313,12 +313,13 @@ export interface ItemFacts {
  * {@link useItemFacts} and by the dispatch dialog's per-order-line reads, so
  * both hit one cache entry per item.
  */
-export const itemFactsQuery = (itemId: string, enabled: boolean) => ({
-  queryKey: queryKeys.items.detail(itemId),
-  queryFn: () => api.get<ItemFacts>(`/products/items/${itemId}`),
-  enabled: Boolean(itemId) && enabled,
-  staleTime: staleTimes.master,
-})
+export const itemFactsQuery = (itemId: string, enabled: boolean) =>
+  queryOptions({
+    queryKey: queryKeys.items.detail(itemId),
+    queryFn: ({ signal }) => api.get<ItemFacts>(`/products/items/${itemId}`, { signal }),
+    enabled: Boolean(itemId) && enabled,
+    staleTime: staleTimes.master,
+  })
 
 export function useItemFacts(itemId: string, enabled: boolean) {
   return useQuery(itemFactsQuery(itemId, enabled))

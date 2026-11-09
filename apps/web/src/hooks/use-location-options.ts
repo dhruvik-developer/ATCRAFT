@@ -17,7 +17,8 @@ export function useLocationOptions(warehouseId: string, search: string, enabled:
   }
   return useQuery({
     queryKey: [...queryKeys.warehouses.all, 'location-options', params],
-    queryFn: () => api.getPage<LocationOption>('/warehouses/locations', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<LocationOption>('/warehouses/locations', { params, signal }),
     enabled: enabled && Boolean(warehouseId),
     staleTime: staleTimes.master,
   })

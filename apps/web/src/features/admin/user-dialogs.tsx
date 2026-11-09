@@ -187,7 +187,7 @@ export function UserFormDialog({
 
   const detail = useQuery({
     queryKey: queryKeys.users.detail(userId ?? ''),
-    queryFn: () => api.get<UserDetail>(`/users/${userId}`),
+    queryFn: ({ signal }) => api.get<UserDetail>(`/users/${userId}`, { signal }),
     enabled: open && Boolean(userId),
     staleTime: staleTimes.master,
   })
@@ -840,7 +840,7 @@ export function RoleAssignmentDialog({
   // vendor binding, so the detail is fetched when the dialog opens.
   const detail = useQuery({
     queryKey: queryKeys.users.detail(userId),
-    queryFn: () => api.get<UserDetail>(`/users/${userId}`),
+    queryFn: ({ signal }) => api.get<UserDetail>(`/users/${userId}`, { signal }),
     enabled: open,
     staleTime: staleTimes.master,
   })

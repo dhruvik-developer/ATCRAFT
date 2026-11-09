@@ -168,7 +168,7 @@ export default function MrpPage() {
 
   const watched = useQuery({
     queryKey: queryKeys.mrp.run(watchedRunId ?? ''),
-    queryFn: () => api.get<MrpRunDetail>(`/mrp/runs/${watchedRunId}`),
+    queryFn: ({ signal }) => api.get<MrpRunDetail>(`/mrp/runs/${watchedRunId}`, { signal }),
     enabled: Boolean(watchedRunId),
     staleTime: 0,
     // Poll until the engine reaches a terminal state, then stop dead.

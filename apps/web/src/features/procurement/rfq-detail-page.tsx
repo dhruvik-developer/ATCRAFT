@@ -223,7 +223,7 @@ export default function RfqDetailPage() {
 
   const rfqQuery = useQuery({
     queryKey: rfqKeys.detail(rfqId),
-    queryFn: () => api.get<RfqDetail>(`/procurement/rfqs/${rfqId}`),
+    queryFn: ({ signal }) => api.get<RfqDetail>(`/procurement/rfqs/${rfqId}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: Boolean(rfqId),
   })

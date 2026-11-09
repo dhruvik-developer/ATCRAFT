@@ -40,9 +40,10 @@ export function GstReturnsPanel({ period }: { period: string }) {
 
   const summary = useQuery({
     queryKey: financeKeys.gstr3b(bounds?.from ?? '', bounds?.to ?? ''),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<Gstr3b>('/finance/gstr-3b', {
         params: { date_from: bounds?.from, date_to: bounds?.to },
+        signal,
       }),
     enabled: Boolean(bounds),
     staleTime: staleTimes.transactional,

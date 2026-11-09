@@ -98,10 +98,10 @@ export function PartyLedgerTab() {
 
   const statement = useQuery({
     queryKey: financeKeys.ledger(partyType, partyId, params),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.get<LedgerStatement>(
         `/finance/ledger/${partyType === 'CUSTOMER' ? 'customer' : 'vendor'}/${partyId}`,
-        { params },
+        { params, signal },
       ),
     // A ledger with no party is not a smaller request, it is a different one -
     // and the API would reject the path outright.

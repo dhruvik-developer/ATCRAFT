@@ -181,9 +181,10 @@ export function RaiseInspectionDialog({
   // the item and stage so the list stays short.
   const templates = useQuery({
     queryKey: qcTemplateKeys.raise(itemId, stage),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<TemplateChoice>('/quality/templates', {
         params: { item_id: itemId, qc_stage: stage, is_active: true, limit: 50 },
+        signal,
       }),
     enabled: open && Boolean(itemId),
     staleTime: staleTimes.master,

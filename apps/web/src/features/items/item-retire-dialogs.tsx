@@ -92,12 +92,13 @@ export function RetireItemDialog({
   // sit under the same prefix, so one invalidation still reaches both.
   const stock = useQuery({
     queryKey: [...queryKeys.inventory.itemStock(item.id), 'retire-check'],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await api.getPage<ItemStockSummary>(`/inventory/items/${item.id}/summary`, {
           // The totals on the payload cover the whole item; `limit` only trims
           // the per-warehouse breakdown, which this dialog does not show.
           params: { limit: CHECK_LIMIT },
+          signal,
         })
       ).data[0] ?? null,
     // Availability is never served stale (master rules 34), and a figure that
@@ -108,8 +109,11 @@ export function RetireItemDialog({
 
   const whereUsed = useQuery({
     queryKey: [...queryKeys.bom.whereUsed(item.id), 'retire-check'],
-    queryFn: () =>
-      api.getPage<WhereUsedRow>(`/bom/where-used/${item.id}`, { params: { limit: CHECK_LIMIT } }),
+    queryFn: ({ signal }) =>
+      api.getPage<WhereUsedRow>(`/bom/where-used/${item.id}`, {
+        params: { limit: CHECK_LIMIT },
+        signal,
+      }),
     staleTime: staleTimes.master,
     enabled: open && canCheckBoms,
   })

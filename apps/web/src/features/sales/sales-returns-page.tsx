@@ -85,7 +85,7 @@ function NewSalesReturnDialog({
   const [notes, setNotes] = useState('')
   const detail = useQuery({
     queryKey: dispatchKeys.detail(dispatchId),
-    queryFn: () => api.get<DispatchDetail>(`/dispatch/${dispatchId}`),
+    queryFn: ({ signal }) => api.get<DispatchDetail>(`/dispatch/${dispatchId}`, { signal }),
     enabled: Boolean(dispatchId),
   })
   const warehouses = useWarehouseOptions(open)
@@ -270,7 +270,7 @@ export default function SalesReturnsPage() {
   })
   const selectedDetail = useQuery({
     queryKey: queryKeys.salesReturns.detail(selected ?? ''),
-    queryFn: () => api.get<SalesReturnDetail>(`/sales-returns/${selected}`),
+    queryFn: ({ signal }) => api.get<SalesReturnDetail>(`/sales-returns/${selected}`, { signal }),
     enabled: Boolean(selected),
     staleTime: staleTimes.transactional,
   })

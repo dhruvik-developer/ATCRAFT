@@ -68,14 +68,14 @@ export function CustomerPicker({
 
   const results = useQuery({
     queryKey: queryKeys.customers.list({ ...searchParams, path }),
-    queryFn: () => api.getPage<CustomerRow>(path, { params: searchParams }),
+    queryFn: ({ signal }) => api.getPage<CustomerRow>(path, { params: searchParams, signal }),
     enabled: open && !disabled,
     staleTime: staleTimes.master,
   })
 
   const detail = useQuery({
     queryKey: queryKeys.customers.detail(value ?? ''),
-    queryFn: () => api.get<CustomerRow>(`/customers/${value}`),
+    queryFn: ({ signal }) => api.get<CustomerRow>(`/customers/${value}`, { signal }),
     enabled: Boolean(value) && picked?.id !== value,
     staleTime: staleTimes.master,
   })

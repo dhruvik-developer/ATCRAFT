@@ -499,7 +499,7 @@ export default function OperationTab({ kind }: { kind: Kind }) {
   const selectedId = detailId ?? (reviewRequired ? pending?.row.id : null)
   const detail = useQuery({
     queryKey: [...queryKeys.inventory.all, 'operation-detail', kind, selectedId],
-    queryFn: () => api.get<Operation>(`/inventory/${kind}/${selectedId}`),
+    queryFn: ({ signal }) => api.get<Operation>(`/inventory/${kind}/${selectedId}`, { signal }),
     enabled: Boolean(selectedId),
     staleTime: staleTimes.transactional,
   })

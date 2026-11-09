@@ -45,7 +45,7 @@ function useAttachmentList(inspectionId: string, enabled: boolean) {
   const { can } = useAuth()
   return useQuery({
     queryKey: queryKeys.quality.attachments(inspectionId),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<DocumentRow>('/documents', {
         params: {
           entity_type: 'qc_inspection',
@@ -55,6 +55,7 @@ function useAttachmentList(inspectionId: string, enabled: boolean) {
           limit: 50,
           with_total: false,
         },
+        signal,
       }),
     enabled: enabled && Boolean(inspectionId) && can(P.DOCUMENT_VIEW),
     staleTime: staleTimes.transactional,
@@ -83,7 +84,7 @@ export function PhotoThumb({ documentId, label }: { documentId: string; label: s
 
   const meta = useQuery({
     queryKey: queryKeys.quality.photoMeta(documentId),
-    queryFn: () => api.get<DocumentRow>(`/documents/${documentId}`),
+    queryFn: ({ signal }) => api.get<DocumentRow>(`/documents/${documentId}`, { signal }),
     enabled: Boolean(documentId) && can(P.DOCUMENT_VIEW),
     staleTime: staleTimes.transactional,
   })

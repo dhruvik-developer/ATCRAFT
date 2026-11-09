@@ -277,7 +277,7 @@ export function VendorFormDialog({
 
   const detail = useQuery({
     queryKey: queryKeys.vendors.detail(vendorId ?? ''),
-    queryFn: () => api.get<VendorRow>(`/vendors/${vendorId}`),
+    queryFn: ({ signal }) => api.get<VendorRow>(`/vendors/${vendorId}`, { signal }),
     enabled: open && Boolean(vendorId),
     staleTime: staleTimes.master,
   })

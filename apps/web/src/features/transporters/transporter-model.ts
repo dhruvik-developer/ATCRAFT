@@ -373,10 +373,11 @@ export function useTransporterOptions({
 }: TransporterOptionsInput = {}) {
   return useQuery({
     queryKey: transporterKeys.options(transporterType),
-    queryFn: async (): Promise<TransporterOption[]> => {
+    queryFn: async ({ signal }): Promise<TransporterOption[]> => {
       try {
         return await api.get<TransporterOption[]>('/transporters/options', {
           params: transporterType ? { transporter_type: transporterType } : undefined,
+          signal,
         })
       } catch (error) {
         return emptyOnPermissionError<TransporterOption>(error)

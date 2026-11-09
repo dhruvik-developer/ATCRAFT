@@ -135,17 +135,19 @@ export default function MessagingPage() {
 
   const status = useQuery({
     queryKey: [...queryKeys.notifications.channels, 'admin'] as const,
-    queryFn: () => api.get<ChannelStatus>('/notifications/channel-status'),
+    queryFn: ({ signal }) => api.get<ChannelStatus>('/notifications/channel-status', { signal }),
   })
   const templates = useQuery({
     queryKey: queryKeys.notifications.channelTemplates,
-    queryFn: () => api.get<MessagingTemplate[]>('/notifications/channel-templates'),
+    queryFn: ({ signal }) =>
+      api.get<MessagingTemplate[]>('/notifications/channel-templates', { signal }),
   })
   const deliveries = useQuery({
     queryKey: queryKeys.notifications.messagingDeliveries,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getCursorPage<DeliveryRecord>('/notifications/deliveries', {
         params: { limit: MESSAGING_DELIVERIES_PAGE_SIZE },
+        signal,
       }),
   })
 

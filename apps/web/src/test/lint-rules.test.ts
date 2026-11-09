@@ -223,11 +223,12 @@ describe('the lint rules that replace review comments', () => {
       "export const dealerKeys = { all: ['dealers'] as const, list: (p: unknown) => ['dealers', 'list', p] as const }",
       "const pendingKey = (p: unknown) => ['quality', 'pending', p] as const",
       "const CHANNELS_QUERY_KEY = ['notifications', 'channel-templates'] as const",
+      'const read = async () => null',
       '',
       'export function Screen({ id, kind }: { id: string; kind: string }) {',
       '  const client = useQueryClient()',
-      "  useQuery({ queryKey: ['finance', 'credit-notes', 'detail', id], queryFn: () => id })",
-      "  useQuery({ queryKey: ['quality', 'raise-templates', id] as const, queryFn: () => id })",
+      "  useQuery({ queryKey: ['finance', 'credit-notes', 'detail', id], queryFn: read })",
+      "  useQuery({ queryKey: ['quality', 'raise-templates', id] as const, queryFn: read })",
       "  useListQuery({ path: '/promotions', queryKey: (p) => ['promotions', kind, p] })",
       '  useMutation({ mutationKey: [`packing`, id], mutationFn: async () => id })',
       "  void client.invalidateQueries({ queryKey: ['finance'] })",
@@ -256,11 +257,12 @@ describe('the lint rules that replace review comments', () => {
         '}',
         "const STATUSES = ['DRAFT', 'POSTED'] as const",
         "const filterKeys = [...STATUSES, 'vendor_id']",
+        'const read = async () => null',
         '',
         'export function Screen({ id }: { id: string }) {',
         '  const client = useQueryClient()',
-        '  useQuery({ queryKey: queryKeys.customers.detail(id), queryFn: () => id })',
-        "  useQuery({ queryKey: [...queryKeys.inventory.all, 'serials', id] as const, queryFn: () => id })",
+        '  useQuery({ queryKey: queryKeys.customers.detail(id), queryFn: read })',
+        "  useQuery({ queryKey: [...queryKeys.inventory.all, 'serials', id] as const, queryFn: read })",
         "  useListQuery({ path: '/dealers', queryKey: dealerKeys.list })",
         "  client.setQueryData(queryKeys.sales.settings, ['a', 'b'])",
         '  return filterKeys.length',
@@ -287,6 +289,87 @@ describe('the lint rules that replace review comments', () => {
       'no-restricted-syntax',
       'no-restricted-syntax',
     ])
+  })
+
+  it('refuses a query function that never reads the abort signal', async () => {
+    const code = [
+      "import { useInfiniteQuery, useQuery } from '@tanstack/react-query'",
+      "import { api } from '@/lib/api-client'",
+      "import { queryKeys } from '@/lib/query-client'",
+      '',
+      'export function useReads(id: string, term: string) {',
+      "  useQuery({ queryKey: queryKeys.items.detail(id), queryFn: () => api.get('/products/items/' + id) })",
+      '  useQuery({',
+      '    queryKey: queryKeys.items.list({ term }),',
+      '    queryFn: async () => {',
+      "      const page = await api.getPage('/products/items', { params: { search: term } })",
+      '      return page.data',
+      '    },',
+      '  })',
+      '  useQuery({',
+      '    queryKey: queryKeys.vendors.detail(id),',
+      '    queryFn: function read() {',
+      '      return api.get(`/vendors/${id}`)',
+      '    },',
+      '  })',
+      '  return useInfiniteQuery({',
+      '    queryKey: queryKeys.audit.logs({ id }),',
+      "    queryFn: ({ pageParam }) => api.getCursorPage('/audit/logs', { params: { cursor: pageParam } }),",
+      '    initialPageParam: undefined as string | undefined,',
+      '    getNextPageParam: () => undefined,',
+      '  })',
+      '}',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code)).toEqual([
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+    ])
+    expect(await rulesFiredBy(code, 'src/lib/query-client.ts')).toEqual([
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+    ])
+    // A test's probe may answer a constant with no request to cancel.
+    expect(await rulesFiredBy(code, 'src/features/items/items-page.test.tsx')).toEqual([])
+  })
+
+  it('accepts a query function that hands the signal on, or a named one', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { useInfiniteQuery, useQuery } from '@tanstack/react-query'",
+        "import { api } from '@/lib/api-client'",
+        "import { queryKeys } from '@/lib/query-client'",
+        "import { getPushState } from '@/features/notifications/push'",
+        '',
+        'async function readAll(path: string, signal?: AbortSignal) {',
+        '  return (await api.getPage(path, { signal })).data',
+        '}',
+        '',
+        'export function useReads(id: string) {',
+        '  useQuery({',
+        '    queryKey: queryKeys.items.detail(id),',
+        "    queryFn: ({ signal }) => api.get('/products/items/' + id, { signal }),",
+        '  })',
+        "  useQuery({ queryKey: queryKeys.uoms.all, queryFn: ({ signal }) => readAll('/products/uoms', signal) })",
+        '  useQuery({ queryKey: queryKeys.notifications.pushState, queryFn: getPushState })',
+        '  return useInfiniteQuery({',
+        '    queryKey: queryKeys.audit.logs({ id }),',
+        '    queryFn: ({ pageParam, signal }) =>',
+        "      api.getCursorPage('/audit/logs', { params: { cursor: pageParam }, signal }),",
+        '    initialPageParam: undefined as string | undefined,',
+        '    getNextPageParam: () => undefined,',
+        '  })',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired).toEqual([])
   })
 
   it('refuses bare browser storage outside lib/storage.ts and the tests', async () => {

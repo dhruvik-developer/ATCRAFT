@@ -451,7 +451,7 @@ function SerialPicker({
 
   const results = useQuery({
     queryKey: queryKeys.inventory.serials(params),
-    queryFn: () => api.getPage<StockSerial>('/inventory/serials', { params }),
+    queryFn: ({ signal }) => api.getPage<StockSerial>('/inventory/serials', { params, signal }),
     // A serial another document has just eaten must never be offered from cache.
     staleTime: staleTimes.live,
     enabled: canSearch,
@@ -1022,14 +1022,15 @@ export function AssemblyDetailDialog({
 
   const orderQuery = useQuery({
     queryKey: assemblyKeys.detail(orderId),
-    queryFn: () => api.get<AssemblyOrderDetail>(`/assembly/${orderId}`),
+    queryFn: ({ signal }) => api.get<AssemblyOrderDetail>(`/assembly/${orderId}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: open && Boolean(orderId),
   })
 
   const componentsQuery = useQuery({
     queryKey: assemblyKeys.components(orderId),
-    queryFn: () => api.get<AssemblyComponent[]>(`/assembly/${orderId}/components`),
+    queryFn: ({ signal }) =>
+      api.get<AssemblyComponent[]>(`/assembly/${orderId}/components`, { signal }),
     // Availability is never served stale (master rules 34).
     staleTime: staleTimes.live,
     enabled: open && Boolean(orderId),
@@ -1043,7 +1044,8 @@ export function AssemblyDetailDialog({
   // release dialog shows before the bench is promised anything.
   const availabilityQuery = useQuery({
     queryKey: assemblyKeys.availability(orderId),
-    queryFn: () => api.get<AssemblyComponentAvailability[]>(`/assembly/${orderId}/availability`),
+    queryFn: ({ signal }) =>
+      api.get<AssemblyComponentAvailability[]>(`/assembly/${orderId}/availability`, { signal }),
     staleTime: staleTimes.live,
     enabled: open && Boolean(orderId) && reasonFor === 'release',
   })
@@ -1052,7 +1054,8 @@ export function AssemblyDetailDialog({
   // for its code only; the packing screen owns everything else about it.
   const packingQuery = useQuery({
     queryKey: packingKeys.detail(order?.packing_order_id ?? ''),
-    queryFn: () => api.get<PackingOrderDetail>(`/packing/${order?.packing_order_id}`),
+    queryFn: ({ signal }) =>
+      api.get<PackingOrderDetail>(`/packing/${order?.packing_order_id}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: open && Boolean(order?.packing_order_id),
   })

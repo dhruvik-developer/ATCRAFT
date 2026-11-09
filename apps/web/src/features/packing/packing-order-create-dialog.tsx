@@ -89,7 +89,7 @@ export function PackingOrderCreateDialog({
 
   const salesOrderQuery = useQuery({
     queryKey: queryKeys.sales.detail(salesOrderId ?? ''),
-    queryFn: () => api.get<SalesOrderDetail>(`/sales/${salesOrderId}`),
+    queryFn: ({ signal }) => api.get<SalesOrderDetail>(`/sales/${salesOrderId}`, { signal }),
     enabled: open && Boolean(salesOrderId),
     staleTime: staleTimes.transactional,
   })
@@ -98,7 +98,7 @@ export function PackingOrderCreateDialog({
   const itemFacts = useQueries({
     queries: lines.map((line) => ({
       queryKey: queryKeys.items.detail(line.item_id),
-      queryFn: () => api.get<ItemDetail>(`/products/items/${line.item_id}`),
+      queryFn: ({ signal }) => api.get<ItemDetail>(`/products/items/${line.item_id}`, { signal }),
       enabled: open && !salesOrderId && Boolean(line.item_id),
       staleTime: staleTimes.master,
     })),

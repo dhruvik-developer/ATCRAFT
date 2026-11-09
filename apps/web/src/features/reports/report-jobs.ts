@@ -114,7 +114,7 @@ export function useReportJob(): ReportJobController {
 
   const job = useQuery({
     queryKey: queryKeys.reports.job(statusPath),
-    queryFn: () => api.get<ReportJob>(statusPath ?? ''),
+    queryFn: ({ signal }) => api.get<ReportJob>(statusPath ?? '', { signal }),
     enabled: statusPath !== null,
     staleTime: 0,
     // One failure stops the poll. Retrying a status URL the API will not serve

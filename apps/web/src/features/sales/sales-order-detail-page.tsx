@@ -132,7 +132,8 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
   const canTransfer = can(P.INVENTORY_TRANSFER)
   const allocation = useQuery({
     queryKey: [...queryKeys.sales.detail(order.id), 'allocation-status'],
-    queryFn: () => api.get<SalesOrderAllocation>(`/sales/${order.id}/allocation-status`),
+    queryFn: ({ signal }) =>
+      api.get<SalesOrderAllocation>(`/sales/${order.id}/allocation-status`, { signal }),
     // Availability is never served stale (master rules 34).
     staleTime: staleTimes.live,
   })
@@ -572,7 +573,7 @@ export default function SalesOrderDetailPage() {
 
   const orderQuery = useQuery({
     queryKey: queryKeys.sales.detail(orderId),
-    queryFn: () => api.get<SalesOrderDetail>(`/sales/${orderId}`),
+    queryFn: ({ signal }) => api.get<SalesOrderDetail>(`/sales/${orderId}`, { signal }),
     staleTime: staleTimes.transactional,
     enabled: Boolean(orderId),
   })
@@ -585,8 +586,10 @@ export default function SalesOrderDetailPage() {
   // taken from. Gated on MRP_VIEW because the dates are the planner's output.
   const availability = useQuery({
     queryKey: queryKeys.mrp.salesOrderAvailability(orderId),
-    queryFn: () =>
-      api.get<SalesOrderAvailability>(`/mrp/sales-orders/${orderId}/expected-availability`),
+    queryFn: ({ signal }) =>
+      api.get<SalesOrderAvailability>(`/mrp/sales-orders/${orderId}/expected-availability`, {
+        signal,
+      }),
     enabled: Boolean(orderId) && can(P.MRP_VIEW),
     staleTime: staleTimes.transactional,
   })
@@ -604,7 +607,8 @@ export default function SalesOrderDetailPage() {
   // the customer picker uses, so the record is fetched at most once.
   const customer = useQuery({
     queryKey: queryKeys.customers.detail(order?.customer_id ?? ''),
-    queryFn: () => api.get<CustomerDetail>(`/customers/${order?.customer_id}`),
+    queryFn: ({ signal }) =>
+      api.get<CustomerDetail>(`/customers/${order?.customer_id}`, { signal }),
     enabled: Boolean(order?.customer_id) && can(P.CUSTOMER_VIEW),
     staleTime: staleTimes.master,
   })
@@ -614,7 +618,8 @@ export default function SalesOrderDetailPage() {
     // The one spelling of the lookup, shared with `WarehouseSelect`, so the
     // two read one cache entry rather than fetching the same list twice.
     queryKey: queryKeys.warehouses.list(WAREHOUSE_LOOKUP_PARAMS),
-    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: WAREHOUSE_LOOKUP_PARAMS }),
+    queryFn: ({ signal }) =>
+      api.getPage<WarehouseOption>('/warehouses', { params: WAREHOUSE_LOOKUP_PARAMS, signal }),
     enabled: can(P.WAREHOUSE_VIEW),
     staleTime: staleTimes.master,
   })

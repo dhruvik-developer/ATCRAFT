@@ -47,7 +47,7 @@ export function useUserOptions<T = UserOption>({
 }: UserOptionsInput = {}) {
   return useQuery({
     queryKey: queryKeys.users.options(activeOnly),
-    queryFn: async (): Promise<T[]> => {
+    queryFn: async ({ signal }): Promise<T[]> => {
       try {
         const page = await api.getPage<T>('/users', {
           params: {
@@ -57,6 +57,7 @@ export function useUserOptions<T = UserOption>({
             sort_dir: 'asc',
             with_total: false,
           },
+          signal,
         })
         return page.data
       } catch (error) {

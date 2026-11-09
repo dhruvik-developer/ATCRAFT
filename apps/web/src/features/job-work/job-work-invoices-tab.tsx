@@ -45,9 +45,10 @@ const JobWorkInvoiceDialog = lazy(() =>
 function useOrderCodes() {
   return useQuery({
     queryKey: [...jobWorkKeys.all, 'order-codes'] as const,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<JobWorkOrderRow>('/job-work', {
         params: { limit: LOOKUP_LIST_LIMIT, sort_by: 'created_at', sort_dir: 'desc' },
+        signal,
       }),
     staleTime: staleTimes.live,
   })

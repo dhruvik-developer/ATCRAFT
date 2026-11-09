@@ -266,10 +266,11 @@ export const acceptsRating = (state: VendorState): boolean => state !== 'ARCHIVE
 export function useVendorOptions(enabled = true, approvedOnly = false) {
   return useQuery({
     queryKey: [...queryKeys.vendors.all, 'options', approvedOnly] as const,
-    queryFn: async (): Promise<VendorOption[]> => {
+    queryFn: async ({ signal }): Promise<VendorOption[]> => {
       try {
         return await api.get<VendorOption[]>('/vendors/options', {
           params: { approved_only: approvedOnly },
+          signal,
         })
       } catch (error) {
         return emptyOnPermissionError<VendorOption>(error)
@@ -297,10 +298,11 @@ export type VendorCategoryOption = SchemaOf<'VendorCategoryRead'>
 export function useVendorCategoryOptions(vendorId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.vendors.detail(vendorId ?? ''), 'categories', 'options'] as const,
-    queryFn: async (): Promise<VendorCategoryOption[]> =>
+    queryFn: async ({ signal }): Promise<VendorCategoryOption[]> =>
       (
         await api.getPage<VendorCategoryOption>(`/vendors/${vendorId}/categories`, {
           params: { limit: LOOKUP_LIST_LIMIT },
+          signal,
         })
       ).data,
     staleTime: staleTimes.master,

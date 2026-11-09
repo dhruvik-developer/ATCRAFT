@@ -168,9 +168,10 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
 
   const addresses = useQuery({
     queryKey: [...queryKeys.customers.detail(customerId), 'addresses'],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<CustomerAddress>(`/customers/${customerId}/addresses`, {
         params: { limit: RELATION_LIMIT },
+        signal,
       }),
   })
 
@@ -652,9 +653,10 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
 
   const contacts = useQuery({
     queryKey: [...queryKeys.customers.detail(customerId), 'contacts'],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<CustomerContact>(`/customers/${customerId}/contacts`, {
         params: { limit: RELATION_LIMIT },
+        signal,
       }),
   })
 

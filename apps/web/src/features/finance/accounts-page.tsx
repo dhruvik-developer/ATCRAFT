@@ -124,7 +124,7 @@ const ACCOUNT_TYPE_VARIANT: Record<
 function AccountName({ accountId }: { accountId: string }) {
   const account = useQuery({
     queryKey: ledgerKeys.account(accountId),
-    queryFn: () => api.get<LedgerAccount>(`/finance/accounts/${accountId}`),
+    queryFn: ({ signal }) => api.get<LedgerAccount>(`/finance/accounts/${accountId}`, { signal }),
     staleTime: staleTimes.master,
   })
 
@@ -164,7 +164,7 @@ function AccountDetailDialog({
 
   const detail = useQuery({
     queryKey: ledgerKeys.account(account?.id ?? ''),
-    queryFn: () => api.get<LedgerAccount>(`/finance/accounts/${account?.id}`),
+    queryFn: ({ signal }) => api.get<LedgerAccount>(`/finance/accounts/${account?.id}`, { signal }),
     enabled: Boolean(account),
     staleTime: staleTimes.master,
     placeholderData: account ?? undefined,

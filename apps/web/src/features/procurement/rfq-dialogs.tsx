@@ -448,7 +448,8 @@ function RequisitionPicker({
 
   const results = useQuery({
     queryKey: [...rfqKeys.all, 'requisition-options', params] as const,
-    queryFn: () => api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params }),
+    queryFn: ({ signal }) =>
+      api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params, signal }),
     enabled: open,
     staleTime: staleTimes.transactional,
   })
@@ -668,7 +669,7 @@ export function RfqFormDialog({
 
   const detail = useQuery({
     queryKey: rfqKeys.detail(rfqId ?? ''),
-    queryFn: () => api.get<RfqDetail>(`/procurement/rfqs/${rfqId}`),
+    queryFn: ({ signal }) => api.get<RfqDetail>(`/procurement/rfqs/${rfqId}`, { signal }),
     enabled: open && Boolean(rfqId),
     staleTime: staleTimes.transactional,
   })

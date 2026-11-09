@@ -411,10 +411,11 @@ export interface UomOption {
 export function useCategoryOptions(enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.categories.all, 'options'],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await api.getPage<CategoryOption>('/products/categories', {
           params: { limit: LOOKUP_LIST_LIMIT, is_active: true },
+          signal,
         })
       ).data,
     staleTime: staleTimes.reference,
@@ -425,10 +426,11 @@ export function useCategoryOptions(enabled: boolean) {
 export function useUomOptions(enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.uoms.all, 'options'],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await api.getPage<UomOption>('/products/uoms', {
           params: { limit: LOOKUP_LIST_LIMIT, is_active: true },
+          signal,
         })
       ).data,
     staleTime: staleTimes.reference,

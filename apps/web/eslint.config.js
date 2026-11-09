@@ -74,6 +74,16 @@ const literalQueryKey = {
     'Root a query key in queryKeys (lib/query-client.ts): use its key, or spread one of its roots into a feature factory. A literal root is a cache no known invalidation reaches.',
 }
 
+const queryFnSignal = {
+  // TanStack aborts a query whose function read the signal once no screen
+  // observes it - the search a keystroke superseded, the dialog that closed.
+  // 213 query functions never read it, so every one of those ran to completion.
+  selector:
+    "Property[key.name='queryFn'] > :matches(ArrowFunctionExpression, FunctionExpression):not(:has(Identifier[name='signal']))",
+  message:
+    'Destructure { signal } from the query function context and pass it to the api call (api.get(path, { params, signal })), or to the helper that makes it, so a superseded or abandoned read is cancelled.',
+}
+
 /*
  * `no-restricted-properties` entries, named for the same reason as the syntax
  * ones above.
@@ -159,6 +169,7 @@ export default tseslint.config(
         decimalThroughNumber,
         queryClientConstruction,
         literalQueryKey,
+        queryFnSignal,
       ],
       'no-restricted-properties': ['error', ...localeFormatting, ...browserStorageProperties],
       'no-restricted-globals': ['error', ...browserStorageGlobals],
@@ -175,6 +186,7 @@ export default tseslint.config(
         destructiveButtonClassName,
         queryClientConstruction,
         literalQueryKey,
+        queryFnSignal,
       ],
       'no-restricted-properties': ['error', ...browserStorageProperties],
     },
@@ -188,12 +200,14 @@ export default tseslint.config(
         destructiveButtonClassName,
         utcDateSlice,
         decimalThroughNumber,
+        queryFnSignal,
       ],
     },
   },
   {
-    // A test's probe component keys a cache no screen reads, and a test may
-    // spell a key out to pin its shape.
+    // A test's probe component keys a cache no screen reads, a test may spell
+    // a key out to pin its shape, and a probe's query function may answer a
+    // constant without any request to cancel.
     files: ['src/test/**', '**/*.test.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': [

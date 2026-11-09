@@ -77,7 +77,7 @@ export function MrpScheduleSettingsCard() {
 
   const settings = useQuery({
     queryKey: queryKeys.mrp.scheduleSettings,
-    queryFn: () => api.get<ScheduleSettings>('/mrp/schedule-settings'),
+    queryFn: ({ signal }) => api.get<ScheduleSettings>('/mrp/schedule-settings', { signal }),
     staleTime: staleTimes.master,
   })
 

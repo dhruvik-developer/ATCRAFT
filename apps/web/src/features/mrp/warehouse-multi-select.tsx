@@ -40,7 +40,7 @@ export function WarehouseMultiSelect({
   const params = WAREHOUSE_LOOKUP_PARAMS
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(params),
-    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params }),
+    queryFn: ({ signal }) => api.getPage<WarehouseOption>('/warehouses', { params, signal }),
     enabled: canReadWarehouses,
     staleTime: staleTimes.master,
   })

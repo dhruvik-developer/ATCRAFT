@@ -97,7 +97,7 @@ function useWorkCenterOptions(enabled: boolean) {
   const params = { limit: LOOKUP_LIST_LIMIT, sort_by: 'code', sort_dir: 'asc', with_total: false }
   return useQuery({
     queryKey: queryKeys.routing.workCenters(params),
-    queryFn: () => api.getPage<WorkCenter>('/routing/work-centers', { params }),
+    queryFn: ({ signal }) => api.getPage<WorkCenter>('/routing/work-centers', { params, signal }),
     staleTime: staleTimes.master,
     enabled,
   })
@@ -134,10 +134,11 @@ const MACHINE_REGISTER_PARAMS = {
 function useMachineRegister(enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
-    queryFn: async (): Promise<Machine[]> => {
+    queryFn: async ({ signal }): Promise<Machine[]> => {
       try {
         const page = await api.getPage<Machine>('/routing/machines', {
           params: { ...MACHINE_REGISTER_PARAMS },
+          signal,
         })
         return page.data
       } catch (error) {
@@ -247,7 +248,7 @@ export function RoutingDetailDialog({
   const detail = useQuery({
     queryKey: queryKeys.routing.routing(routingId ?? ''),
     // `/routing/{id}`, not `/routing/routings/{id}`.
-    queryFn: () => api.get<RoutingDetail>(`/routing/${routingId}`),
+    queryFn: ({ signal }) => api.get<RoutingDetail>(`/routing/${routingId}`, { signal }),
     enabled: open,
     staleTime: staleTimes.master,
   })
@@ -259,7 +260,8 @@ export function RoutingDetailDialog({
    */
   const cost = useQuery({
     queryKey: [...queryKeys.routing.routing(routingId ?? ''), 'cost'] as const,
-    queryFn: () => api.get<RoutingCost>(`/routing/${routingId}/cost`, { params: { quantity: 1 } }),
+    queryFn: ({ signal }) =>
+      api.get<RoutingCost>(`/routing/${routingId}/cost`, { params: { quantity: 1 }, signal }),
     enabled: open,
     staleTime: staleTimes.master,
   })
@@ -756,7 +758,7 @@ export function RoutingFormDialog({
    */
   const existing = useQuery({
     queryKey: queryKeys.routing.routing(routing?.id ?? ''),
-    queryFn: () => api.get<RoutingDetail>(`/routing/${routing?.id}`),
+    queryFn: ({ signal }) => api.get<RoutingDetail>(`/routing/${routing?.id}`, { signal }),
     enabled: open && Boolean(routing?.id),
     staleTime: staleTimes.master,
   })

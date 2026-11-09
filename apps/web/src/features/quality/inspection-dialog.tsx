@@ -407,7 +407,8 @@ export function InspectionDialog({
 
   const detail = useQuery({
     queryKey: queryKeys.quality.detail(inspectionId),
-    queryFn: () => api.get<QcInspectionDetail>(`/quality/inspections/${inspectionId}`),
+    queryFn: ({ signal }) =>
+      api.get<QcInspectionDetail>(`/quality/inspections/${inspectionId}`, { signal }),
     enabled: open && Boolean(inspectionId),
     staleTime: staleTimes.transactional,
   })
@@ -418,7 +419,7 @@ export function InspectionDialog({
   const itemId = detail.data?.item_id ?? inspection?.item_id ?? ''
   const item = useQuery({
     queryKey: queryKeys.items.detail(itemId),
-    queryFn: () => api.get<ItemDetail>(`/products/items/${itemId}`),
+    queryFn: ({ signal }) => api.get<ItemDetail>(`/products/items/${itemId}`, { signal }),
     enabled: open && Boolean(itemId) && can(P.ITEM_VIEW),
     staleTime: staleTimes.master,
   })

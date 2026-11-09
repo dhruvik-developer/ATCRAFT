@@ -544,7 +544,7 @@ export function ProductionOrderFormDialog({
   }
   const boms = useQuery({
     queryKey: queryKeys.bom.list(bomParams),
-    queryFn: () => api.getPage<BomChoice>('/bom', { params: bomParams }),
+    queryFn: ({ signal }) => api.getPage<BomChoice>('/bom', { params: bomParams, signal }),
     enabled: open && Boolean(itemId),
     staleTime: staleTimes.master,
   })
@@ -1626,9 +1626,10 @@ export function RecordProductionDialog({
   const operators = useOperatorOptions({ enabled: open })
   const workOrders = useQuery({
     queryKey: [...queryKeys.production.all, 'work-orders', orderId, 'booking'],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<SchemaOf<'WorkOrderRead'>>(`/production/${orderId}/work-orders`, {
         params: { limit: LOOKUP_LIST_LIMIT, open_only: true, with_total: false },
+        signal,
       }),
     enabled: open && can(P.WORK_ORDER_VIEW),
   })
@@ -1669,7 +1670,7 @@ export function RecordProductionDialog({
       operatorId,
       selectedWorkOrder?.work_center_id,
     ],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.getPage<SchemaOf<'ShiftAssignmentRead'>>('/routing/roster/assignments', {
         params: {
           date_from: entryDate,
@@ -1680,6 +1681,7 @@ export function RecordProductionDialog({
           limit: LOOKUP_LIST_LIMIT,
           with_total: false,
         },
+        signal,
       }),
     enabled: open && can(P.SHIFT_ROSTER_VIEW) && Boolean(entryDate && operatorId),
   })

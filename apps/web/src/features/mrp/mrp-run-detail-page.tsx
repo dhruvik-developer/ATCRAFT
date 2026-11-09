@@ -306,7 +306,7 @@ export default function MrpRunDetailPage() {
 
   const runQuery = useQuery({
     queryKey: queryKeys.mrp.run(runId),
-    queryFn: () => api.get<MrpRunDetail>(`/mrp/runs/${runId}`),
+    queryFn: ({ signal }) => api.get<MrpRunDetail>(`/mrp/runs/${runId}`, { signal }),
     enabled: Boolean(runId),
     staleTime: staleTimes.transactional,
     // Opening a run that is still calculating must show it finishing, not a
@@ -354,7 +354,8 @@ export default function MrpRunDetailPage() {
   const warehouseParams = WAREHOUSE_LOOKUP_PARAMS
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(warehouseParams),
-    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: warehouseParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<WarehouseOption>('/warehouses', { params: warehouseParams, signal }),
     enabled:
       (scopedWarehouseIds.length > 0 ||
         convertOpen ||

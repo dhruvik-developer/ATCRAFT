@@ -66,7 +66,7 @@ export function WarehouseSelect({
   const params = WAREHOUSE_LOOKUP_PARAMS
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(params),
-    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params }),
+    queryFn: ({ signal }) => api.getPage<WarehouseOption>('/warehouses', { params, signal }),
     staleTime: staleTimes.master,
   })
 
@@ -164,7 +164,8 @@ export function ItemPicker({
   )
   const results = useQuery({
     queryKey: queryKeys.items.list(searchParams),
-    queryFn: () => api.getPage<ItemOption>('/products/items', { params: searchParams }),
+    queryFn: ({ signal }) =>
+      api.getPage<ItemOption>('/products/items', { params: searchParams, signal }),
     enabled: open && !disabled,
     staleTime: staleTimes.master,
   })
@@ -173,7 +174,7 @@ export function ItemPicker({
   // so the chosen item is resolved from the API rather than shown as a UUID.
   const detail = useQuery({
     queryKey: queryKeys.items.detail(value ?? ''),
-    queryFn: () => api.get<ItemOption>('/products/items/' + value),
+    queryFn: ({ signal }) => api.get<ItemOption>('/products/items/' + value, { signal }),
     enabled: Boolean(value) && picked?.id !== value,
     staleTime: staleTimes.master,
   })

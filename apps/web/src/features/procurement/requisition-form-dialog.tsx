@@ -246,8 +246,8 @@ export function RequisitionFormDialog({
 
   const detail = useQuery({
     queryKey: requisitionKeys.detail(requisitionId ?? ''),
-    queryFn: () =>
-      api.get<RequisitionDetail>(`/procurement/purchase-requisitions/${requisitionId}`),
+    queryFn: ({ signal }) =>
+      api.get<RequisitionDetail>(`/procurement/purchase-requisitions/${requisitionId}`, { signal }),
     enabled: open && Boolean(requisitionId),
     staleTime: staleTimes.transactional,
   })

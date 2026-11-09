@@ -80,9 +80,10 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
 
   const statement = useInfiniteQuery({
     queryKey: ledgerKeys.accountStatement(accountId, filters),
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       api.get<AccountStatement>(accountStatementPath(accountId), {
         params: { ...filters, ...(pageParam ? { cursor: pageParam } : {}) },
+        signal,
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
