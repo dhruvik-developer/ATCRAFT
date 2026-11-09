@@ -8,7 +8,7 @@
  * assembled by committee.
  */
 
-import { describeError, errors, joinValidationMessages, prompts } from '@/lib/messages'
+import { describeError, errors, prompts } from '@/lib/messages'
 
 import { AlertTriangle, ChevronRight, Loader2, X, type LucideIcon } from 'lucide-react'
 import {
@@ -22,6 +22,7 @@ import {
 import { Link } from 'react-router-dom'
 
 import { prefetchRoute } from '@/app/route-loaders'
+import { FieldError } from '@/components/field-error'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -702,15 +703,9 @@ export function DateRangeFilter({
 
 // ------------------------------------------------------------ FieldError ----
 
-export function FieldError({ message }: { message?: string | string[] }) {
-  if (!message) return null
-  const text = Array.isArray(message) ? joinValidationMessages(message) : message
-  return (
-    <p role="alert" className="mt-1 text-xs text-destructive">
-      {text}
-    </p>
-  )
-}
+// Defined in its own module so the eager sign-in screen can use it without
+// this file; re-exported here, where every other screen imports it from.
+export { FieldError }
 
 // ------------------------------------------------------------ EmptyState ----
 

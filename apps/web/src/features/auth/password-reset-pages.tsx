@@ -5,6 +5,8 @@ import { useForm } from 'react-hook-form'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
+// The light module, not '@/components/shared': a pre-sign-in screen.
+import { FieldError } from '@/components/field-error'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -130,16 +132,21 @@ export function ForgotPasswordPage() {
               autoComplete="email"
               autoFocus
               aria-invalid={Boolean(errors.email)}
+              aria-describedby={errors.email ? 'reset-email-error' : undefined}
               {...register('email')}
             />
-            {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+            <FieldError id="reset-email-error" message={errors.email?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="company-code">Company code (if you use more than one)</Label>
-            <Input id="company-code" autoComplete="organization" {...register('company_code')} />
-            {errors.company_code && (
-              <p className="text-xs text-destructive">{errors.company_code.message}</p>
-            )}
+            <Input
+              id="company-code"
+              autoComplete="organization"
+              aria-invalid={Boolean(errors.company_code)}
+              aria-describedby={errors.company_code ? 'company-code-error' : undefined}
+              {...register('company_code')}
+            />
+            <FieldError id="company-code-error" message={errors.company_code?.message} />
           </div>
           <Button type="submit" className="w-full" loading={isSubmitting}>
             Send reset link
@@ -263,11 +270,10 @@ export function ResetPasswordPage() {
               autoComplete="new-password"
               autoFocus
               aria-invalid={Boolean(errors.password)}
+              aria-describedby={errors.password ? 'new-password-error' : undefined}
               {...register('password')}
             />
-            {errors.password && (
-              <p className="text-xs text-destructive">{errors.password.message}</p>
-            )}
+            <FieldError id="new-password-error" message={errors.password?.message} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="confirm-password" required>
@@ -278,11 +284,10 @@ export function ResetPasswordPage() {
               type="password"
               autoComplete="new-password"
               aria-invalid={Boolean(errors.confirmPassword)}
+              aria-describedby={errors.confirmPassword ? 'confirm-password-error' : undefined}
               {...register('confirmPassword')}
             />
-            {errors.confirmPassword && (
-              <p className="text-xs text-destructive">{errors.confirmPassword.message}</p>
-            )}
+            <FieldError id="confirm-password-error" message={errors.confirmPassword?.message} />
           </div>
           <Button type="submit" className="w-full" loading={isSubmitting}>
             Update password

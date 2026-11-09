@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, FileText, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/primitives'
 import { UPLOAD_ACCEPT, fileKindLabel, type DocumentRow } from '@/features/documents/document-model'
@@ -253,9 +254,10 @@ export function InspectionAttachments({ inspectionId }: { inspectionId: string }
           ))}
         </ul>
       )}
-      {upload.error && (
-        <p className="mt-2 text-xs text-destructive">{describeError(upload.error)}</p>
-      )}
+      <FieldError
+        className="mt-2"
+        message={upload.error ? describeError(upload.error) : undefined}
+      />
     </section>
   )
 }

@@ -442,7 +442,7 @@ function CycleCard({ record }: { record: QcReworkRecord }) {
           </Button>
         )}
       </div>
-      {start.error && <p className="mt-2 text-xs text-destructive">{describeError(start.error)}</p>}
+      <FieldError className="mt-2" message={start.error ? describeError(start.error) : undefined} />
       {completing && <CompleteCycleForm record={record} onDone={() => setCompleting(false)} />}
     </li>
   )

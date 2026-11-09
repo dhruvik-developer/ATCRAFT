@@ -32,6 +32,21 @@ describe('password recovery', () => {
     })
   })
 
+  it('announces a missing email and reads it as the description of the email input', async () => {
+    const { user, fetch } = renderScreen(
+      <Routes>
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      </Routes>,
+      { route: '/forgot-password', restoreSession: false, routes: {} },
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
+
+    expect(await screen.findByText('Email is required.')).toHaveAttribute('role', 'alert')
+    expect(screen.getByLabelText(/Email/)).toHaveAccessibleDescription('Email is required.')
+    expect(fetch.calls.some((call) => call.path === '/auth/password-reset/request')).toBe(false)
+  })
+
   it('redeems the token captured from the email link', async () => {
     const { user, fetch } = renderScreen(
       <Routes>

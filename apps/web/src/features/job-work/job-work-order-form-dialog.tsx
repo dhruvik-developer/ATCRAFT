@@ -956,11 +956,13 @@ export function JobWorkOrderFormDialog({
                                     </Select>
                                   )}
                                 />
-                                {batchLists[index]?.error && (
-                                  <p className="mt-1 text-xs text-destructive">
-                                    Could not load batches: {describeError(batchLists[index].error)}
-                                  </p>
-                                )}
+                                <FieldError
+                                  message={
+                                    batchLists[index]?.error
+                                      ? `Could not load batches: ${describeError(batchLists[index].error)}`
+                                      : undefined
+                                  }
+                                />
                                 <FieldError message={errors.lines?.[index]?.batch_id?.message} />
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   This lot is reserved at approval and stays with the order through

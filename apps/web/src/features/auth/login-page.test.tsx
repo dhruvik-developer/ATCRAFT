@@ -162,6 +162,17 @@ describe('what the form sends', () => {
     expect(fetch.calls.some((call) => call.path === '/auth/login')).toBe(false)
   })
 
+  it('announces each missing field and reads it as the description of its input', async () => {
+    // The same FieldError every other form uses: announced as it appears, and
+    // wired to its input so a screen reader on the field hears why it is wrong.
+    const { user } = renderLogin()
+    await user.click(await signInButton())
+
+    expect(await screen.findByText('Email is required.')).toHaveAttribute('role', 'alert')
+    expect(emailField()).toHaveAccessibleDescription('Email is required.')
+    expect(passwordField()).toHaveAccessibleDescription('Password is required.')
+  })
+
   it('rejects a malformed email before it reaches the rate limiter', async () => {
     const { user, fetch } = renderLogin()
     await signIn(user, 'not-an-email', 'whatever')

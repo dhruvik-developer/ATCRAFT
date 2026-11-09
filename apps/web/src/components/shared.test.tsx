@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api-client'
 import { messages } from '@/lib/messages'
 
-import { BadgeDismiss, DateRangeFilter, ReasonDialog, StatusBadge } from './shared'
+import { BadgeDismiss, DateRangeFilter, FieldError, ReasonDialog, StatusBadge } from './shared'
 import { CardTitle } from './ui/primitives'
 
 describe('ReasonDialog', () => {
@@ -245,5 +245,38 @@ describe('DateRangeFilter', () => {
     // Both pairs sit in the same wrapping row.
     expect(fromPair?.parentElement).toBe(toPair?.parentElement)
     expect(fromPair?.parentElement).toHaveClass('flex-wrap')
+  })
+})
+
+describe('FieldError', () => {
+  it('renders nothing without a message, and an announced line with one', () => {
+    const { container, rerender } = render(<FieldError message={undefined} />)
+    expect(container).toBeEmptyDOMElement()
+
+    rerender(<FieldError id="email-error" message="Email is required." />)
+    const line = screen.getByRole('alert')
+    expect(line).toHaveTextContent('Email is required.')
+    expect(line).toHaveAttribute('id', 'email-error')
+  })
+
+  it('can be an input description, joins a list and takes a spacing override', () => {
+    render(
+      <>
+        <input aria-label="Quantity" aria-describedby="quantity-error" />
+        <FieldError
+          id="quantity-error"
+          className="mt-2"
+          message={['Quantity is required.', 'Quantity must be a whole number.']}
+        />
+      </>,
+    )
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveAccessibleDescription(
+      messages.joinValidationMessages([
+        'Quantity is required.',
+        'Quantity must be a whole number.',
+      ]),
+    )
+    expect(screen.getByRole('alert')).toHaveClass('mt-2', 'text-xs', 'text-destructive')
+    expect(screen.getByRole('alert')).not.toHaveClass('mt-1')
   })
 })

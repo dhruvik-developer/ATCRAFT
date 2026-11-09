@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
 import { prefetchRoute } from '@/app/route-loaders'
+// Not '@/components/shared': this screen is in the eager entry chunk.
+import { FieldError } from '@/components/field-error'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
 import {
@@ -312,11 +314,7 @@ export function LoginPage() {
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                   />
-                  {errors.email && (
-                    <p id="email-error" className="text-xs text-destructive">
-                      {errors.email}
-                    </p>
-                  )}
+                  <FieldError id="email-error" message={errors.email} />
                 </div>
 
                 <div className="space-y-1.5">
@@ -344,11 +342,7 @@ export function LoginPage() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                  {errors.password && (
-                    <p id="password-error" className="text-xs text-destructive">
-                      {errors.password}
-                    </p>
-                  )}
+                  <FieldError id="password-error" message={errors.password} />
                 </div>
 
                 <Button

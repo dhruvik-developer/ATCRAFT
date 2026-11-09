@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { FileDown } from 'lucide-react'
 import { useState } from 'react'
 
+import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api-client'
 import { describeError, fileMessages, success } from '@/lib/messages'
@@ -76,9 +77,10 @@ export function ChallanDownload({
         >
           Retry status
         </Button>
-        <p role="alert" className="break-words text-xs text-destructive">
-          Could not check the challan: {describeError(job.error)}
-        </p>
+        <FieldError
+          className="break-words"
+          message={`Could not check the challan: ${describeError(job.error)}`}
+        />
       </div>
     )
   }
@@ -107,11 +109,7 @@ export function ChallanDownload({
         <FileDown />
         {failedMessage ? 'Retry PDF' : queued ? 'Generating...' : 'PDF'}
       </Button>
-      {failedMessage && (
-        <p role="alert" className="break-words text-xs text-destructive">
-          {failedMessage}
-        </p>
-      )}
+      <FieldError className="break-words" message={failedMessage ?? undefined} />
     </div>
   )
 }

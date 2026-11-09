@@ -23,6 +23,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, ScanBarcode, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Label, Badge, Input, Skeleton } from '@/components/ui/primitives'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
@@ -211,11 +212,7 @@ export function BatchSelect({
           </Button>
         )}
       </div>
-      {detail.error && (
-        <p role="alert" className="text-xs text-destructive">
-          {describeError(detail.error)}
-        </p>
-      )}
+      <FieldError message={detail.error ? describeError(detail.error) : undefined} />
     </div>
   )
 }
@@ -422,11 +419,7 @@ export function SerialPicker({
               )
             })}
           </div>
-          {serials.error && (
-            <p className="text-xs text-destructive" role="alert">
-              {describeError(serials.error)}
-            </p>
-          )}
+          <FieldError message={serials.error ? describeError(serials.error) : undefined} />
           {!scope?.serial_ids && (
             <div className="flex items-center justify-between gap-2">
               <Button

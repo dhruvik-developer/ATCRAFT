@@ -165,11 +165,14 @@ export function SerialNumbersField({
             Add range
           </Button>
         </div>
-        {invalidRange && (
-          <p className="mt-2 text-xs text-destructive">
-            Choose whole numbers with To not before From, and at most {SERIAL_BULK_MAX} at a time.
-          </p>
-        )}
+        <FieldError
+          className="mt-2"
+          message={
+            invalidRange
+              ? `Choose whole numbers with To not before From, and at most ${SERIAL_BULK_MAX} at a time.`
+              : undefined
+          }
+        />
       </details>
     </div>
   )

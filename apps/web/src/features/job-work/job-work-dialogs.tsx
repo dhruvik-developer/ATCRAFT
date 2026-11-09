@@ -450,11 +450,13 @@ export function JobWorkIssueDialog({
                                   </Select>
                                 )}
                               />
-                              {batchLists[index]?.error && (
-                                <p className="mt-1 text-xs text-destructive">
-                                  Could not load batches: {describeError(batchLists[index].error)}
-                                </p>
-                              )}
+                              <FieldError
+                                message={
+                                  batchLists[index]?.error
+                                    ? `Could not load batches: ${describeError(batchLists[index].error)}`
+                                    : undefined
+                                }
+                              />
                               <FieldError message={errors.lines?.[index]?.batch_id?.message} />
                             </div>
                           )}
@@ -1282,13 +1284,16 @@ export function JobWorkQcResultDialog({
                   {/* Shown before the request rather than after the refusal: the
                       server enforces this and a person filling the form should
                       not have to press Save to discover the arithmetic. */}
-                  {!shortfall.isZero() && (
-                    <p className="mt-2 text-xs text-destructive">
-                      {shortfall.greaterThan(0)
-                        ? `${formatQuantity(shortfall.toString())} still undecided.`
-                        : `${formatQuantity(shortfall.negated().toString())} more than is held.`}
-                    </p>
-                  )}
+                  <FieldError
+                    className="mt-2"
+                    message={
+                      shortfall.isZero()
+                        ? undefined
+                        : shortfall.greaterThan(0)
+                          ? `${formatQuantity(shortfall.toString())} still undecided.`
+                          : `${formatQuantity(shortfall.negated().toString())} more than is held.`
+                    }
+                  />
                 </div>
               )
             })}
