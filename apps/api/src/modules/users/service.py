@@ -16,6 +16,8 @@ What this module is responsible for, and why each rule exists:
   direct grants *and* role assignment, because all four are ways of moving a
   permission onto an account. Superusers are exempt - that flag is the platform
   escape hatch and is not settable through this API.
+  :func:`assert_can_assign_warehouses` holds the same line for warehouse
+  assignments: a caller assigned to some warehouses moves only those.
 * **The vendor-portal boundary is enforced in both directions.**
   :func:`assert_vendor_role_consistency` refuses a vendor role on an internal
   account and refuses an internal role on a vendor account. Checking only one
@@ -104,6 +106,7 @@ from src.modules.users.schemas import (
     UserSummary,
     UserUpdate,
 )
+from src.modules.warehouses.repository import WarehouseRepository
 
 log = get_logger(__name__)
 
@@ -140,6 +143,27 @@ SUPERUSER_FLAG_IS_API_SETTABLE = False
 # administrator locks out the people who could stop them. Both are refused, so
 # the check runs over the symmetric difference of the before and after sets.
 REQUIRE_AUTHORITY_TO_REVOKE = True
+
+# ASSUMPTION: a warehouse assignment is authority on a second axis - which
+# stores an account reaches - and the privilege guard holds for it as it does
+# for permissions. A caller assigned to some warehouses may give an account only
+# warehouses they are assigned themselves, and (REQUIRE_AUTHORITY_TO_REVOKE)
+# take away only those. An empty assignment means every warehouse, so such a
+# caller can neither leave an account unrestricted nor restrict one that is.
+# Unrestricted callers and platform superusers - the two exemptions
+# ``src.common.warehouse_scope`` makes - are not limited. docs/assumptions.md
+# §WH-1.
+REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN = True
+
+WAREHOUSE_ASSIGNMENT_DENIED = "You can only give or take away warehouses you are assigned to."
+EVERY_WAREHOUSE_GRANT_DENIED = (
+    "You are assigned to some warehouses only, so you cannot give an account every "
+    "warehouse. Choose warehouses from your own assignment."
+)
+EVERY_WAREHOUSE_REVOKE_DENIED = (
+    "This account may use every warehouse. You are assigned to some warehouses only, so "
+    "you cannot limit it; ask an administrator who is not limited to some warehouses."
+)
 
 # ASSUMPTION: only a super-administrator may set a super-administrator's
 # password, by either route a password can be set (``reset_password`` and
@@ -571,6 +595,67 @@ def assert_role_assignment_allowed(
     return frozenset(moved)
 
 
+def warehouse_reach(assignment: Iterable[uuid.UUID] | None) -> frozenset[uuid.UUID] | None:
+    """The warehouses an assignment admits, or ``None`` for every one of them.
+
+    An empty and an absent assignment both mean unrestricted wherever one is
+    read (:mod:`src.common.warehouse_scope`), so both become ``None`` here and
+    :func:`assert_can_assign_warehouses` never tests for two spellings of it.
+    """
+    return frozenset(assignment or ()) or None
+
+
+def assert_can_assign_warehouses(
+    principal: Principal,
+    *,
+    before: frozenset[uuid.UUID] | None,
+    after: frozenset[uuid.UUID] | None,
+) -> None:
+    """Refuse to move warehouse reach the caller does not itself hold.
+
+    :func:`assert_can_grant` for the warehouse axis. ``before`` and ``after``
+    are :func:`warehouse_reach` values, ``None`` meaning every warehouse; an
+    account being created reaches nothing yet, so its ``before`` is the empty
+    set. Without this, a holder of ``user.update`` assigned to one store could
+    clear their own assignment and read every store, or a holder of
+    ``user.create`` could create an unrestricted colleague with a password they
+    chose. See :data:`REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN`.
+    """
+    if not REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN or before == after:
+        return
+    if principal.is_superuser or not principal.allowed_warehouse_ids:
+        return
+
+    outside: list[str] = []
+    if after is None:
+        message = EVERY_WAREHOUSE_GRANT_DENIED
+    elif before is None:
+        if not REQUIRE_AUTHORITY_TO_REVOKE:
+            return
+        message = EVERY_WAREHOUSE_REVOKE_DENIED
+    else:
+        moved = after - before
+        if REQUIRE_AUTHORITY_TO_REVOKE:
+            moved |= before - after
+        outside = sorted(str(value) for value in moved - set(principal.allowed_warehouse_ids))
+        if not outside:
+            return
+        message = WAREHOUSE_ASSIGNMENT_DENIED
+
+    log.info(
+        "authz.warehouse_assignment_blocked",
+        user_id=str(principal.user_id),
+        outside=outside,
+        to_every_warehouse=after is None,
+        from_every_warehouse=before is None,
+    )
+    raise AuthorizationError(
+        message,
+        code=ErrorCode.SCOPE_DENIED,
+        details={"warehouse_ids": outside} if outside else None,
+    )
+
+
 def _temporary_password_pools(email: str | None) -> tuple[str, ...]:
     """Character pools for a generated password, one per policy class.
 
@@ -832,6 +917,13 @@ class UserService:
             before_denied=(),
             after_denied=payload.denied_permissions,
         )
+        # A new account reaches no warehouse yet, so everything it is given is
+        # moved - including "every warehouse" when the list is empty.
+        assert_can_assign_warehouses(
+            principal,
+            before=frozenset(),
+            after=warehouse_reach(payload.allowed_warehouse_ids),
+        )
 
         async with transaction(self.session):
             if await self.repo.email_taken(payload.email):
@@ -852,6 +944,7 @@ class UserService:
                 department_id=payload.department_id,
                 vendor_id=payload.vendor_id,
                 customer_id=payload.customer_id,
+                warehouse_ids=payload.allowed_warehouse_ids,
             )
             self._assert_scope_is_meaningful(payload.vendor_id, payload.allowed_category_ids)
             await self._assert_category_scope(payload.vendor_id, payload.allowed_category_ids)
@@ -982,12 +1075,30 @@ class UserService:
                     after_denied=changes.get("denied_permissions", user.denied_permissions) or (),
                 )
 
+            # Only the warehouses this edit adds are looked up: one the account
+            # already holds stays valid after that store is retired, so re-sending
+            # the assignment unchanged must not fail (docs/assumptions.md §REF-1).
+            added_warehouses: list[uuid.UUID] = []
+            if "allowed_warehouse_ids" in changes:
+                held_now = list(user.allowed_warehouse_ids or ())
+                assert_can_assign_warehouses(
+                    principal,
+                    before=warehouse_reach(held_now),
+                    after=warehouse_reach(changes["allowed_warehouse_ids"]),
+                )
+                added_warehouses = [
+                    value
+                    for value in changes["allowed_warehouse_ids"] or ()
+                    if value not in held_now
+                ]
+
             await self._assert_references(
                 branch_id=changes.get("branch_id"),
                 plant_id=changes.get("plant_id"),
                 department_id=changes.get("department_id"),
                 vendor_id=changes.get("vendor_id"),
                 customer_id=changes.get("customer_id"),
+                warehouse_ids=added_warehouses,
             )
 
             for field, value in changes.items():
@@ -1420,12 +1531,17 @@ class UserService:
         department_id: uuid.UUID | None,
         vendor_id: uuid.UUID | None,
         customer_id: uuid.UUID | None = None,
+        warehouse_ids: Sequence[uuid.UUID] = (),
     ) -> None:
         """Every organisational reference must be a live record of this tenant.
 
         The foreign keys alone are not enough: ``branches.id`` is globally
         unique, so a valid id from another company would satisfy the constraint
-        while breaking tenant isolation (section 40).
+        while breaking tenant isolation (section 40). ``allowed_warehouse_ids``
+        is an array column with no foreign key at all, so its ids are read
+        through the warehouse master's own tenant-scoped lookup - one query
+        however many there are. An inactive store is still a store of this
+        company and may be assigned; a retired one is not found.
         """
         if branch_id is not None and not await self.repo.branch_exists(branch_id):
             raise NotFoundError("Branch", branch_id)
@@ -1437,6 +1553,11 @@ class UserService:
             raise NotFoundError("Vendor", vendor_id)
         if customer_id is not None:
             await self._assert_dealer_customer(customer_id)
+        if warehouse_ids:
+            known = await WarehouseRepository(self.session, self.tenant).ids_in_scope(warehouse_ids)
+            missing = [str(value) for value in warehouse_ids if value not in known]
+            if missing:
+                raise NotFoundError("Warehouse", ", ".join(missing))
 
     async def _assert_dealer_customer(self, customer_id: uuid.UUID) -> None:
         """A portal binding must name a live dealer-channel customer.
@@ -1834,18 +1955,23 @@ __all__ = [
     "AUDIT_USER",
     "BLOCK_ROLE_DELETION_WHILE_HELD",
     "BLOCK_SELF_LIFECYCLE_CHANGE",
+    "EVERY_WAREHOUSE_GRANT_DENIED",
+    "EVERY_WAREHOUSE_REVOKE_DENIED",
     "IMMUTABLE_ROLE_CODES",
     "PROTECT_SUPER_ADMIN_PASSWORDS",
     "REQUIRE_AUTHORITY_TO_REVOKE",
+    "REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN",
     "ROLE_LIFECYCLE",
     "SUPERUSER_FLAG_IS_API_SETTABLE",
     "SUPER_ADMIN_PASSWORD_PROTECTED",
     "SUPER_ADMIN_ROLE_CODES",
     "USER_LIFECYCLE",
+    "WAREHOUSE_ASSIGNMENT_DENIED",
     "AccountState",
     "RoleService",
     "RoleView",
     "UserService",
+    "assert_can_assign_warehouses",
     "assert_can_grant",
     "assert_grant_change_allowed",
     "assert_may_set_password_for",
@@ -1861,4 +1987,5 @@ __all__ = [
     "resolve_effective_permissions",
     "role_permission_map",
     "usable_roles",
+    "warehouse_reach",
 ]

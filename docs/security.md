@@ -747,6 +747,13 @@ grain before it locks or creates a balance. Trusted background/system contexts
 retain their existing empty assignment while still requiring tenant-scoped
 master records. A user's request context is never widened for posting.
 
+An assignment is itself moved only by someone who holds it. A user
+administrator assigned to some warehouses can give or take away only those, so
+they cannot clear their own list, create an unrestricted account, or limit an
+unrestricted one (403 `SCOPE_DENIED`); every warehouse an assignment newly names
+must be a live store of the company (404 otherwise). See
+`docs/assumptions.md` §WH-1.
+
 ## PDF text and external resources
 
 Every untrusted value passed to a ReportLab `Paragraph` is XML-escaped,

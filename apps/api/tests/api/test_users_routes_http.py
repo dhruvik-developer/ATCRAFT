@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
 
@@ -38,7 +38,14 @@ from src.main import app
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.users.models import Role, User, UserSession, user_roles
 from src.modules.users.schemas import RoleCreate, RoleDetail, UserCreate, UserDetail
-from src.modules.users.service import RoleService, UserService
+from src.modules.users.service import (
+    EVERY_WAREHOUSE_GRANT_DENIED,
+    EVERY_WAREHOUSE_REVOKE_DENIED,
+    WAREHOUSE_ASSIGNMENT_DENIED,
+    RoleService,
+    UserService,
+)
+from src.modules.warehouses.models import Warehouse
 from tests import seed_support
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
@@ -992,3 +999,293 @@ class TestUpdateRole:
 
         assert error_of(response, 404)["code"] == "NOT_FOUND"
         assert await session.scalar(select(Role.name).where(Role.id == theirs.id)) == "Stores Role"
+
+
+# -----------------------------------------------------------------------------
+# Warehouse assignments: POST /users and PATCH /users/{user_id}
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Stores:
+    """Warehouse ids only - a refusal expires whatever ORM rows were loaded."""
+
+    a: uuid.UUID
+    b: uuid.UUID
+    c: uuid.UUID
+    inactive: uuid.UUID
+    retired: uuid.UUID
+    theirs: uuid.UUID
+
+
+@pytest.fixture
+async def stores(
+    session: AsyncSession, tenant: TenantContext, foreign: Foreign, unique_code
+) -> Stores:
+    async def store(company_id: uuid.UUID, **overrides: Any) -> uuid.UUID:
+        row = await seed_support.seed_warehouse(
+            session, company_id=company_id, code=unique_code("WH"), **overrides
+        )
+        return row.id
+
+    return Stores(
+        a=await store(tenant.company_id),
+        b=await store(tenant.company_id),
+        c=await store(tenant.company_id),
+        inactive=await store(tenant.company_id, is_active=False),
+        retired=await store(tenant.company_id, deleted_at=utcnow()),
+        theirs=await store(foreign.tenant.company_id),
+    )
+
+
+async def assigned_to(
+    session: AsyncSession, user: User, principal: Principal, *warehouses: uuid.UUID
+) -> Principal:
+    """Make the caller a user administrator assigned to exactly these warehouses.
+
+    Both halves: the row, which a ``PATCH`` of their own account reads as its
+    before-state, and the principal, which the guard measures against.
+    """
+    user.allowed_warehouse_ids = list(warehouses)
+    await session.flush()
+    caller = replace(principal, allowed_warehouse_ids=tuple(warehouses))
+    act_as(caller)
+    return caller
+
+
+async def assignment_of(session: AsyncSession, user_id: uuid.UUID) -> list[uuid.UUID] | None:
+    stmt = select(User.allowed_warehouse_ids).where(User.id == user_id)
+    return (await session.execute(stmt)).scalar_one()
+
+
+def ids(*values: uuid.UUID) -> list[str]:
+    return [str(value) for value in values]
+
+
+class TestWarehouseAssignment:
+    """A caller assigned to some warehouses moves only those (docs/assumptions.md §WH-1).
+
+    An empty assignment means every warehouse, so a restricted administrator who
+    could clear their own list, or create an unrestricted colleague, could read
+    the stock of every store - the escalation ``assert_can_grant`` already
+    refuses on the permission axis.
+    """
+
+    async def test_a_restricted_administrator_cannot_clear_their_own_assignment(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        principal: Principal,
+        user: User,
+        stores: Stores,
+    ) -> None:
+        own_id = user.id
+        await assigned_to(session, user, principal, stores.a)
+
+        for cleared in ([], None):
+            response = await api_client.patch(
+                f"/users/{own_id}", json={"allowed_warehouse_ids": cleared}
+            )
+            error = error_of(response, 403)
+            assert error["code"] == "SCOPE_DENIED"
+            assert error["message"] == EVERY_WAREHOUSE_GRANT_DENIED
+
+        assert await assignment_of(session, own_id) == [stores.a]
+
+    async def test_a_restricted_administrator_cannot_create_an_unrestricted_account(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        user: User,
+        stores: Stores,
+    ) -> None:
+        await assigned_to(session, user, principal, stores.a)
+        email = address("twin")
+
+        unrestricted = await api_client.post(
+            "/users", json={"email": email, "full_name": "Twin", "password": GOOD_PASSWORD}
+        )
+        assert error_of(unrestricted, 403)["message"] == EVERY_WAREHOUSE_GRANT_DENIED
+
+        elsewhere = await api_client.post(
+            "/users",
+            json={
+                "email": email,
+                "full_name": "Twin",
+                "password": GOOD_PASSWORD,
+                "allowed_warehouse_ids": ids(stores.a, stores.b),
+            },
+        )
+        error = error_of(elsewhere, 403)
+        assert error["code"] == "SCOPE_DENIED"
+        assert error["message"] == WAREHOUSE_ASSIGNMENT_DENIED
+        assert error["details"]["warehouse_ids"] == ids(stores.b)
+        assert await users_with_email(session, tenant.company_id, email) == 0
+
+    async def test_a_restricted_administrator_cannot_reach_past_their_own_stores(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        user: User,
+        stores: Stores,
+    ) -> None:
+        unrestricted = (await make_user(session, tenant, principal)).id
+        shared = (await make_user(session, tenant, principal, allowed_warehouse_ids=[stores.a])).id
+        wider = (
+            await make_user(session, tenant, principal, allowed_warehouse_ids=[stores.a, stores.c])
+        ).id
+        await assigned_to(session, user, principal, stores.a)
+
+        added = await api_client.patch(
+            f"/users/{shared}", json={"allowed_warehouse_ids": ids(stores.a, stores.b)}
+        )
+        assert error_of(added, 403)["details"]["warehouse_ids"] == ids(stores.b)
+        stripped = await api_client.patch(
+            f"/users/{wider}", json={"allowed_warehouse_ids": ids(stores.a)}
+        )
+        assert error_of(stripped, 403)["details"]["warehouse_ids"] == ids(stores.c)
+        limited = await api_client.patch(
+            f"/users/{unrestricted}", json={"allowed_warehouse_ids": ids(stores.a)}
+        )
+        assert error_of(limited, 403)["message"] == EVERY_WAREHOUSE_REVOKE_DENIED
+
+        assert await assignment_of(session, shared) == [stores.a]
+        assert await assignment_of(session, wider) == [stores.a, stores.c]
+        assert await assignment_of(session, unrestricted) is None
+
+    async def test_edits_within_the_callers_own_stores_succeed(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        user: User,
+        stores: Stores,
+    ) -> None:
+        wider = (
+            await make_user(session, tenant, principal, allowed_warehouse_ids=[stores.a, stores.c])
+        ).id
+        await assigned_to(session, user, principal, stores.a, stores.b)
+
+        created = data_of(
+            await api_client.post(
+                "/users",
+                json={
+                    "email": address("colleague"),
+                    "full_name": "Colleague",
+                    "password": GOOD_PASSWORD,
+                    "allowed_warehouse_ids": ids(stores.a),
+                },
+            ),
+            201,
+        )
+        assert created["allowed_warehouse_ids"] == ids(stores.a)
+        colleague = uuid.UUID(created["id"])
+
+        widened = await api_client.patch(
+            f"/users/{colleague}", json={"allowed_warehouse_ids": ids(stores.a, stores.b)}
+        )
+        assert data_of(widened)["allowed_warehouse_ids"] == ids(stores.a, stores.b)
+        narrowed = await api_client.patch(
+            f"/users/{colleague}", json={"allowed_warehouse_ids": ids(stores.b)}
+        )
+        assert data_of(narrowed)["allowed_warehouse_ids"] == ids(stores.b)
+        # Re-sending an assignment unchanged moves nothing, even one naming a
+        # store the caller is not assigned to.
+        resent = await api_client.patch(
+            f"/users/{wider}",
+            json={"allowed_warehouse_ids": ids(stores.a, stores.c), "phone": "+91 98200 00001"},
+        )
+        assert data_of(resent)["phone"] == "+91 98200 00001"
+
+        assert await assignment_of(session, colleague) == [stores.b]
+        (widening, *_) = await audit_rows(session, tenant.company_id, colleague, AuditAction.UPDATE)
+        assert widening.old_values["allowed_warehouse_ids"] == ids(stores.a)
+        assert widening.new_values["allowed_warehouse_ids"] == ids(stores.a, stores.b)
+
+    async def test_an_unrestricted_administrator_is_not_limited(
+        self, api_client: AsyncClient, session: AsyncSession, stores: Stores
+    ) -> None:
+        created = data_of(
+            await api_client.post(
+                "/users",
+                json={
+                    "email": address(),
+                    "full_name": "Two Stores",
+                    "password": GOOD_PASSWORD,
+                    # An inactive store is still this company's store.
+                    "allowed_warehouse_ids": ids(stores.a, stores.inactive),
+                },
+            ),
+            201,
+        )
+        user_id = uuid.UUID(created["id"])
+        assert created["allowed_warehouse_ids"] == ids(stores.a, stores.inactive)
+
+        cleared = await api_client.patch(f"/users/{user_id}", json={"allowed_warehouse_ids": []})
+
+        assert data_of(cleared)["allowed_warehouse_ids"] == []
+        # "No restriction" has one encoding.
+        assert await assignment_of(session, user_id) is None
+
+    async def test_a_store_this_company_does_not_hold_is_not_found(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        stores: Stores,
+    ) -> None:
+        existing = (
+            await make_user(session, tenant, principal, allowed_warehouse_ids=[stores.a])
+        ).id
+        email = address()
+
+        for unknown in (stores.theirs, stores.retired, uuid.uuid4()):
+            created = await api_client.post(
+                "/users",
+                json={
+                    "email": email,
+                    "full_name": "Nowhere",
+                    "password": GOOD_PASSWORD,
+                    "allowed_warehouse_ids": ids(stores.a, unknown),
+                },
+            )
+            error = error_of(created, 404)
+            assert error["code"] == "NOT_FOUND"
+            assert str(unknown) in error["message"]
+            updated = await api_client.patch(
+                f"/users/{existing}", json={"allowed_warehouse_ids": ids(stores.a, unknown)}
+            )
+            assert error_of(updated, 404)["code"] == "NOT_FOUND"
+
+        assert await users_with_email(session, tenant.company_id, email) == 0
+        assert await assignment_of(session, existing) == [stores.a]
+
+    async def test_a_store_retired_after_it_was_assigned_does_not_block_an_edit(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        stores: Stores,
+    ) -> None:
+        """Only what an edit adds is looked up (docs/assumptions.md §REF-1)."""
+        user_id = (
+            await make_user(session, tenant, principal, allowed_warehouse_ids=[stores.a, stores.b])
+        ).id
+        store = await session.get(Warehouse, stores.b)
+        assert store is not None
+        store.deleted_at = utcnow()
+        await session.flush()
+
+        kept = await api_client.patch(
+            f"/users/{user_id}", json={"allowed_warehouse_ids": ids(stores.b, stores.c)}
+        )
+
+        assert data_of(kept)["allowed_warehouse_ids"] == ids(stores.b, stores.c)
+        assert await assignment_of(session, user_id) == [stores.b, stores.c]

@@ -13,6 +13,7 @@ functions in different modules.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -22,9 +23,14 @@ from src.core.deps import Principal, _resolve_permissions
 from src.core.errors import AuthorizationError, BusinessRuleError, ErrorCode, PermissionDeniedError
 from src.core.permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, Permission
 from src.modules.users.service import (
+    EVERY_WAREHOUSE_GRANT_DENIED,
+    EVERY_WAREHOUSE_REVOKE_DENIED,
     PROTECT_SUPER_ADMIN_PASSWORDS,
+    REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN,
     SUPER_ADMIN_PASSWORD_PROTECTED,
     SUPER_ADMIN_ROLE_CODES,
+    WAREHOUSE_ASSIGNMENT_DENIED,
+    assert_can_assign_warehouses,
     assert_can_grant,
     assert_grant_change_allowed,
     assert_may_set_password_for,
@@ -36,6 +42,7 @@ from src.modules.users.service import (
     resolve_effective_permissions,
     role_permission_map,
     usable_roles,
+    warehouse_reach,
 )
 
 pytestmark = pytest.mark.unit
@@ -261,6 +268,104 @@ class TestRoleAssignmentGuard:
         removed = [_role("SUPER_ADMIN", Permission.COMPANY_MANAGE)]
         with pytest.raises(PermissionDeniedError):
             assert_role_assignment_allowed(principal, [], removed)
+
+
+# -----------------------------------------------------------------------------
+# Warehouse assignments
+# -----------------------------------------------------------------------------
+
+STORE_A, STORE_B, STORE_C = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+
+def _assigned(*warehouses: uuid.UUID, superuser: bool = False) -> Principal:
+    """A user administrator assigned to exactly these warehouses (none: every one)."""
+    return replace(
+        _principal(Permission.USER_CREATE, Permission.USER_UPDATE, superuser=superuser),
+        allowed_warehouse_ids=warehouses,
+    )
+
+
+def _refusal(
+    caller: Principal, before: frozenset[uuid.UUID] | None, after: frozenset[uuid.UUID] | None
+) -> AuthorizationError:
+    with pytest.raises(AuthorizationError) as refused:
+        assert_can_assign_warehouses(caller, before=before, after=after)
+    assert refused.value.status_code == 403
+    assert refused.value.code == ErrorCode.SCOPE_DENIED
+    return refused.value
+
+
+class TestWarehouseAssignmentGuard:
+    """The privilege guard on its second axis: which stores an account reaches."""
+
+    def test_the_rule_is_switched_on(self) -> None:
+        assert REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN is True
+
+    def test_an_empty_or_absent_assignment_reaches_every_warehouse(self) -> None:
+        assert warehouse_reach(None) is None
+        assert warehouse_reach([]) is None
+        assert warehouse_reach([STORE_B, STORE_A, STORE_B]) == frozenset({STORE_A, STORE_B})
+
+    @pytest.mark.parametrize(
+        ("before", "after"),
+        [
+            (frozenset(), None),
+            (None, frozenset({STORE_C})),
+            (frozenset({STORE_C}), None),
+            (frozenset({STORE_C}), frozenset({STORE_A})),
+        ],
+        ids=["create-unrestricted", "limit-unrestricted", "clear", "swap-unheld"],
+    )
+    def test_unrestricted_callers_and_superusers_are_not_limited(self, before, after) -> None:
+        assert_can_assign_warehouses(_assigned(), before=before, after=after)
+        assert_can_assign_warehouses(_assigned(STORE_A, superuser=True), before=before, after=after)
+
+    def test_a_restricted_caller_may_give_and_take_their_own_warehouses(self) -> None:
+        caller = _assigned(STORE_A, STORE_B)
+        assert_can_assign_warehouses(caller, before=frozenset(), after=frozenset({STORE_A}))
+        assert_can_assign_warehouses(
+            caller, before=frozenset({STORE_A}), after=frozenset({STORE_A, STORE_B})
+        )
+        assert_can_assign_warehouses(
+            caller, before=frozenset({STORE_A, STORE_B}), after=frozenset({STORE_B})
+        )
+
+    def test_an_unchanged_assignment_needs_no_authority(self) -> None:
+        # Re-sending what the account already holds moves nothing, even when it
+        # names a store the caller is not assigned to or means every store.
+        caller = _assigned(STORE_A)
+        assert_can_assign_warehouses(caller, before=None, after=None)
+        held = frozenset({STORE_B, STORE_C})
+        assert_can_assign_warehouses(caller, before=held, after=held)
+
+    def test_clearing_an_assignment_is_refused_because_it_reaches_every_store(self) -> None:
+        # The escalation the guard exists for: limited to store A, clear your own
+        # list and read every store.
+        caller = _assigned(STORE_A)
+        refusal = _refusal(caller, frozenset({STORE_A}), None)
+        assert refusal.message == EVERY_WAREHOUSE_GRANT_DENIED
+        assert refusal.details == {}
+
+    def test_creating_an_unrestricted_account_is_refused(self) -> None:
+        refusal = _refusal(_assigned(STORE_A), frozenset(), None)
+        assert refusal.message == EVERY_WAREHOUSE_GRANT_DENIED
+
+    def test_adding_an_unheld_warehouse_is_refused_and_named(self) -> None:
+        refusal = _refusal(
+            _assigned(STORE_A), frozenset({STORE_A}), frozenset({STORE_A, STORE_B, STORE_C})
+        )
+        assert refusal.message == WAREHOUSE_ASSIGNMENT_DENIED
+        assert refusal.details["warehouse_ids"] == sorted([str(STORE_B), str(STORE_C)])
+
+    def test_removing_an_unheld_warehouse_is_refused(self) -> None:
+        # Symmetric, as for permissions: stripping a store you do not hold is
+        # tampering with an account that reaches further than yours.
+        refusal = _refusal(_assigned(STORE_A), frozenset({STORE_A, STORE_B}), frozenset({STORE_A}))
+        assert refusal.details["warehouse_ids"] == [str(STORE_B)]
+
+    def test_limiting_an_unrestricted_account_is_refused(self) -> None:
+        refusal = _refusal(_assigned(STORE_A), None, frozenset({STORE_A}))
+        assert refusal.message == EVERY_WAREHOUSE_REVOKE_DENIED
 
 
 # -----------------------------------------------------------------------------

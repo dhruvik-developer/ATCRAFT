@@ -4688,3 +4688,37 @@ routes, held to it by `tests/unit/test_route_budgets.py`.
 **Impact if wrong.** Raise the constant. A site with a bulk-printing desk may
 find 60 PDFs in ten minutes tight; a finance team running many exports at
 month-end may find ten tight.
+
+## §WH-1. A warehouse assignment is moved only by someone who holds it
+
+**Assumed.** `users.allowed_warehouse_ids` is authority on a second axis, and
+the privilege guard holds for it as `assert_can_grant` does for permissions. A
+caller assigned to some warehouses may give an account - on `POST /users` or
+`PATCH /users/{id}` - only warehouses they are assigned themselves, and take
+away only those (`REQUIRE_AUTHORITY_TO_REVOKE`). An empty assignment means every
+warehouse, so such a caller can neither create or leave an account unrestricted
+(their own included) nor limit an account that is unrestricted. Each refusal
+answers `403 SCOPE_DENIED` before anything is written; one naming particular
+stores lists them in `details.warehouse_ids`. Callers with no assignment and
+platform superusers - the two exemptions of `src.common.warehouse_scope` - are
+not limited, and an edit that leaves the assignment as it was moves nothing and
+needs no authority. Every warehouse an assignment newly names must be a store of
+this company that is not retired (404 otherwise); an inactive store may be
+assigned, and a store the account already holds is not looked up again
+(§REF-1).
+
+**Why.** Without it a holder of `user.update` limited to one store could clear
+their own list and read every store, and a holder of `user.create` could create
+an unrestricted colleague with a password they chose - defeating the A02/A03
+assignment policy through the endpoints that set it. The array column has no
+foreign key, so another company's warehouse id, or a retired store's, was
+stored silently.
+
+**Where.** `src/modules/users/service.py` - `assert_can_assign_warehouses`,
+`warehouse_reach`, `UserService.create_user`, `update_user` and
+`_assert_references` (through `WarehouseRepository.ids_in_scope`).
+
+**Impact if wrong.** Switch `REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN` off to let
+any `user.create`/`user.update` holder set any assignment. The user screen does
+not edit assignments yet, so an administrator assigned to some warehouses cannot
+create an account from it until it does; one with no assignment still can.
