@@ -1686,9 +1686,70 @@ class TestDecideAdjustment:
         assert await column(session, StockAdjustment.status, draft_id) == "DRAFT"
 
 
+class TestCancelAdjustment:
+    async def test_cancelling_a_pending_adjustment_withdraws_it_from_the_approval_queue(
+        self, api_client, session, tenant, principal, unique_code
+    ) -> None:
+        adjustment_id, item_id, warehouse_id = await pending_adjustment(
+            session, tenant, unique_code
+        )
+
+        data = ok(
+            await api_client.post(
+                f"/inventory/adjustments/{adjustment_id}/cancel",
+                json={"reason": "Found the cartons on another rack"},
+            )
+        )
+
+        assert data["status"] == "CANCELLED"
+        assert await approval_statuses(session, adjustment_id) == ["REJECTED"]
+        (cancel,) = await audit_rows(session, tenant.company_id, adjustment_id, AuditAction.CANCEL)
+        assert (cancel.old_values, cancel.new_values) == (
+            {"status": "PENDING_APPROVAL"},
+            {"status": "CANCELLED"},
+        )
+        assert cancel.created_by_id == principal.user_id
+        assert (await position(session, item_id, warehouse_id)).on_hand_quantity == 20
+
+    async def test_a_draft_is_cancelled_with_no_queue_row_to_close(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        draft_id, _, _, _ = await draft_adjustment(session, tenant, unique_code)
+
+        data = ok(
+            await api_client.post(
+                f"/inventory/adjustments/{draft_id}/cancel",
+                json={"reason": "Keyed against the wrong item"},
+            )
+        )
+
+        assert data["status"] == "CANCELLED"
+        assert await approval_statuses(session, draft_id) == []
+
+
 # -----------------------------------------------------------------------------
-# POST /inventory/internal-issues/{issue_id}/reject | cancel
+# POST /inventory/internal-issues/{issue_id}/approve | reject | cancel
 # -----------------------------------------------------------------------------
+
+
+class TestApproveInternalIssue:
+    async def test_a_second_person_approves_it_and_the_queue_row_closes_approved(
+        self, api_client, session, tenant, principal, maker, unique_code
+    ) -> None:
+        # The queue row's outcome is read off where the issue went, not off the
+        # verb: approving is the one way from PENDING_APPROVAL to POSTED.
+        issue_id, item_id, warehouse_id = await pending_issue(session, maker, unique_code)
+
+        data = ok(await api_client.post(f"/inventory/internal-issues/{issue_id}/approve"))
+
+        assert (data["status"], data["approved_by_id"]) == ("POSTED", str(principal.user_id))
+        assert await approval_statuses(session, issue_id) == ["APPROVED"]
+        (approval,) = await audit_rows(session, tenant.company_id, issue_id, AuditAction.APPROVE)
+        assert (approval.old_values, approval.new_values) == (
+            {"status": "PENDING_APPROVAL"},
+            {"status": "POSTED"},
+        )
+        assert (await position(session, item_id, warehouse_id)).on_hand_quantity == 14
 
 
 class TestRejectInternalIssue:
@@ -1804,14 +1865,6 @@ class TestCancelInternalIssue:
         )
         assert await column(session, InternalIssue.status, theirs) == "DRAFT"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: cancelling a PENDING_APPROVAL internal issue leaves its approval request "
-            "PENDING in the approvers' queue - _record_transition closes it only on APPROVE or "
-            "REJECT (inventory/service.py InternalIssueService.cancel / _record_transition)"
-        ),
-    )
     async def test_cancelling_a_pending_issue_withdraws_it_from_the_approval_queue(
         self, api_client, session, tenant, unique_code
     ) -> None:
@@ -1825,7 +1878,7 @@ class TestCancelInternalIssue:
         )
 
         assert data["status"] == "CANCELLED"
-        assert "PENDING" not in await approval_statuses(session, issue_id), (
+        assert await approval_statuses(session, issue_id) == ["REJECTED"], (
             "the cancelled issue is still waiting in the approval queue"
         )
 
@@ -2073,14 +2126,6 @@ class TestRecount:
         )
         assert await column(session, PhysicalCount.status, theirs) == "COUNTED"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: recount accepts a DRAFT sheet - it asserts only the target IN_PROGRESS, "
-            "which COUNT_FLOW's start edge also reaches - and leaves started_at null "
-            "(inventory/service.py PhysicalCountService.recount)"
-        ),
-    )
     async def test_a_sheet_never_started_cannot_be_recounted(
         self, api_client, session, tenant, unique_code
     ) -> None:
@@ -2091,9 +2136,7 @@ class TestRecount:
             f"/inventory/physical-counts/{count_id}/recount", json={"reason": "Start again"}
         )
 
-        assert response.status_code == 422, f"a DRAFT sheet was 'recounted': {response.text}"
-        assert response.json()["error"]["code"] in {
-            "INVALID_STATE_TRANSITION",
-            "BUSINESS_RULE_VIOLATION",
-        }
+        error = refused(response, 422, "INVALID_STATE_TRANSITION")
+        assert error["details"]["current_status"] == "DRAFT"
         assert await column(session, PhysicalCount.status, count_id) == "DRAFT"
+        assert await column(session, PhysicalCount.started_at, count_id) is None

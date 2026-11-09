@@ -103,6 +103,7 @@ from src.core.errors import (
     DuplicateError,
     ErrorCode,
     InsufficientStockError,
+    InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
     StockLockTimeoutError,
@@ -6506,17 +6507,21 @@ class StockAdjustmentService:
                 action_url="/inventory/movements",
                 amount=adjustment.total_value,
             )
-        elif previous is AdjustmentStatus.PENDING_APPROVAL and target in {
-            AdjustmentStatus.APPROVED,
-            AdjustmentStatus.REJECTED,
-        }:
+        elif previous is AdjustmentStatus.PENDING_APPROVAL:
+            # Every way out of PENDING_APPROVAL closes the queue row - a cancel
+            # as much as a decision, as procurement does. A cancelled adjustment
+            # left PENDING there is an item no approver can ever decide.
             await close_approval(
                 self.session,
                 tenant=self.tenant,
                 entity_type=AUDIT_ENTITY_ADJUSTMENT,
                 entity_id=adjustment.id,
                 requested_action=Permission.INVENTORY_ADJUST_APPROVE,
-                outcome=ApprovalStatus(target.value),
+                outcome=(
+                    ApprovalStatus.APPROVED
+                    if target is AdjustmentStatus.APPROVED
+                    else ApprovalStatus.REJECTED
+                ),
                 decided_by=self.tenant.user_id,
                 decision_note=reason,
                 action_url="/inventory/movements",
@@ -7275,6 +7280,17 @@ class PhysicalCountService:
     async def recount(self, count_id: uuid.UUID, reason: str) -> PhysicalCountRead:
         async with transaction(self.session):
             count = await self._locked(count_id)
+            # Assert the *source* as well as the edge: COUNT_FLOW also has the
+            # DRAFT -> IN_PROGRESS start edge, so checking the edge alone let a
+            # sheet nobody had counted be "reopened", in progress with no
+            # started_at. Only a COUNTED sheet has a count to repeat.
+            if count.status is not PhysicalCountStatus.COUNTED:
+                raise InvalidStateTransitionError(
+                    entity=COUNT_FLOW.entity,
+                    current=str(count.status),
+                    requested="RECOUNT",
+                    allowed=[str(target) for target in COUNT_FLOW.allowed_targets(count.status)],
+                )
             COUNT_FLOW.assert_transition(count.status, PhysicalCountStatus.IN_PROGRESS)
             previous = count.status
             for line in await self.line_repo.all_for_count(count_id):
@@ -8400,10 +8416,10 @@ class InternalIssueService:
                 action_url="/inventory/movements",
                 amount=issue.total_value,
             )
-        elif previous is InternalIssueStatus.PENDING_APPROVAL and action in {
-            AuditAction.APPROVE,
-            AuditAction.REJECT,
-        }:
+        elif previous is InternalIssueStatus.PENDING_APPROVAL:
+            # Every way out of PENDING_APPROVAL closes the queue row - a cancel
+            # as much as a decision, as procurement does. A cancelled issue left
+            # PENDING there is an item no approver can ever decide.
             await close_approval(
                 self.session,
                 tenant=self.tenant,
@@ -8412,7 +8428,7 @@ class InternalIssueService:
                 requested_action=Permission.INTERNAL_ISSUE_APPROVE,
                 outcome=(
                     ApprovalStatus.APPROVED
-                    if action is AuditAction.APPROVE
+                    if target is InternalIssueStatus.POSTED
                     else ApprovalStatus.REJECTED
                 ),
                 decided_by=self.tenant.user_id,
