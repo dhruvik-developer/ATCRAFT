@@ -883,6 +883,70 @@ class TestVendorInvoiceApproval:
 
 
 # -----------------------------------------------------------------------------
+# POST /finance/vendor-invoices/{invoice_id}/submit
+# -----------------------------------------------------------------------------
+
+
+class TestVendorInvoiceSubmit:
+    async def test_a_draft_is_matched_and_queued_for_approval(
+        self, api_client, session, tenant, purchase
+    ):
+        invoice_id = await draft_bill(session, tenant, purchase)
+
+        data = ok(
+            await api_client.post(
+                f"/finance/vendor-invoices/{invoice_id}/submit", json={"reason": REASON}
+            )
+        )
+
+        assert (data["status"], data["match_status"]) == ("PENDING_APPROVAL", "MATCHED")
+        moves = await audit_trail(session, invoice_id, action=AuditAction.STATUS_CHANGE)
+        assert status_moves(moves) == [("DRAFT", "PENDING_APPROVAL")]
+        requests = select(ApprovalRequest.status).where(ApprovalRequest.entity_id == invoice_id)
+        assert list(await session.scalars(requests)) == [ApprovalStatus.PENDING.value]
+
+    async def test_a_bill_already_awaiting_approval_is_not_submitted_again(
+        self, api_client, session, tenant, purchase
+    ):
+        invoice_id = await submitted_bill(session, tenant, purchase)
+        matched_at = await value(session, VendorInvoice.matched_at, invoice_id)
+
+        # Frozen past the first match, so a re-run would leave a later matched_at.
+        with frozen_time(matched_at + timedelta(seconds=1)):
+            response = await api_client.post(f"/finance/vendor-invoices/{invoice_id}/submit")
+
+        error = refused(response, 422, "INVALID_STATE_TRANSITION")
+        assert error["details"]["current_status"] == "PENDING_APPROVAL"
+        assert await value(session, VendorInvoice.matched_at, invoice_id) == matched_at
+        moves = await audit_trail(session, invoice_id, action=AuditAction.STATUS_CHANGE)
+        assert status_moves(moves) == [("DRAFT", "PENDING_APPROVAL")]
+        requests = select(ApprovalRequest.status).where(ApprovalRequest.entity_id == invoice_id)
+        assert list(await session.scalars(requests)) == [ApprovalStatus.PENDING.value]
+
+    async def test_a_bill_disputed_after_approval_is_not_sent_back_to_the_queue(
+        self, api_client, session, tenant, principal, purchase
+    ):
+        invoice_id = await approved_bill(session, tenant, principal, purchase)
+        await finance_service.dispute_invoice(session, tenant, invoice_id, reason="Short supply")
+
+        response = await api_client.post(f"/finance/vendor-invoices/{invoice_id}/submit")
+
+        error = refused(response, 422, "INVALID_STATE_TRANSITION")
+        assert error["details"]["current_status"] == "DISPUTED"
+        assert await value(session, VendorInvoice.status, invoice_id) == (
+            VendorInvoiceStatus.DISPUTED
+        )
+        assert await value(session, VendorInvoice.dispute_reason, invoice_id) == "Short supply"
+        # One step further: no approval can reach it now, so the payable stays posted once.
+        refused(
+            await api_client.post(f"/finance/vendor-invoices/{invoice_id}/approve", json={}),
+            422,
+            "BUSINESS_RULE_VIOLATION",
+        )
+        assert party_net(await ledger_legs(session, invoice_id), PartyType.VENDOR) == BILL_TOTAL
+
+
+# -----------------------------------------------------------------------------
 # POST /finance/vendor-invoices/{invoice_id}/dispute and /resolve-dispute
 # -----------------------------------------------------------------------------
 

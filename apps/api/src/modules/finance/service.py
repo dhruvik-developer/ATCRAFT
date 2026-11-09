@@ -86,6 +86,7 @@ from src.core.errors import (
     AuthorizationError,
     BusinessRuleError,
     ErrorCode,
+    InvalidStateTransitionError,
     NotFoundError,
     ValidationError,
 )
@@ -2930,11 +2931,34 @@ async def submit_invoice(
     Matching here rather than only at approval means the variance is visible to
     the approver before they open the document, which is the difference between
     an approval queue and a rubber stamp.
+
+    Only a draft is submitted, and the state machine alone cannot say so. A bill
+    already awaiting approval is a move to its own status, which
+    :func:`_transition_invoice` accepts silently - the match was re-run and
+    overwritten with 200 and no audit row. And DISPUTED -> PENDING_APPROVAL is
+    the edge :func:`resolve_dispute` takes: submitting a bill disputed after
+    approval sent it back to the queue with its payable already posted, and
+    approving it again posted the payable a second time. Both now get the
+    answer every other non-draft status already got from the machine.
     """
     repo = VendorInvoiceRepository(session, tenant)
 
     async with transaction(session):
-        invoice = await repo.get_or_404(invoice_id)
+        # Locked as dispute, cancel and approval lock it: two submits of one
+        # draft would otherwise both pass and open two approval requests.
+        invoice = await repo.lock_for_update(invoice_id)
+        if invoice is None:
+            raise NotFoundError("Vendor invoice", invoice_id)
+        current = VendorInvoiceStatus(invoice.status)
+        if current is not VendorInvoiceStatus.DRAFT:
+            raise InvalidStateTransitionError(
+                entity=VENDOR_INVOICE_LIFECYCLE.entity,
+                current=str(current),
+                requested=str(VendorInvoiceStatus.PENDING_APPROVAL),
+                allowed=[
+                    str(target) for target in VENDOR_INVOICE_LIFECYCLE.allowed_targets(current)
+                ],
+            )
         await _transition_invoice(
             session, tenant, invoice, VendorInvoiceStatus.PENDING_APPROVAL, reason=reason
         )
