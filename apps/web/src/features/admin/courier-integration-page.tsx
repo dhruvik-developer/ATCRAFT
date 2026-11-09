@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Copy, Pencil, Plus, RefreshCw, RotateCw } from 'lucide-react'
 import { useState } from 'react'
 
-import { PageHeader } from '@/components/shared'
+import { PageHeader, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -301,7 +301,7 @@ export default function CourierIntegrationPage() {
       )}
 
       <section aria-label="Courier accounts" className="space-y-4">
-        <h2 className="text-lg font-semibold">Accounts</h2>
+        <SectionHeader title="Accounts" />
         {accounts.isLoading && <p role="status">Loading courier accounts…</p>}
         {!accounts.isLoading && accounts.data.length === 0 && (
           <p className="rounded-lg border p-6 text-sm text-muted-foreground">

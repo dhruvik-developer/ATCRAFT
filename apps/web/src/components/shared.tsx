@@ -132,6 +132,56 @@ export function PageHeader({
   )
 }
 
+// --------------------------------------------------------- SectionHeader ----
+
+/**
+ * A section's heading inside a page: one size for every section, a muted line
+ * under it, and the section's own actions beside it.
+ *
+ * Forty section headings were drawn by hand at 12, 14, 16 and 18px - sibling
+ * admin and finance screens ranked the same level of content three ways, and a
+ * few were all-caps eyebrows - so the page outline read differently from screen
+ * to screen. The heading is an `h2` by default, under the page's `h1`; `as`
+ * picks `h3` for a section inside one. Spacing is the caller's (`className`), as
+ * it is a layout decision. With neither a description nor actions it renders the
+ * heading alone, so it drops into a flex row where a bare `h2` stood.
+ */
+export function SectionHeader({
+  title,
+  description,
+  actions,
+  as: Heading = 'h2',
+  id,
+  className,
+}: {
+  title: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+  as?: 'h2' | 'h3'
+  id?: string
+  className?: string
+}) {
+  const heading = (
+    <Heading
+      id={id}
+      className={cn('break-words text-base font-semibold', !description && !actions && className)}
+    >
+      {title}
+    </Heading>
+  )
+  if (!description && !actions) return heading
+  return (
+    <div className={cn('flex flex-wrap items-start justify-between gap-2', className)}>
+      <div className="min-w-0">
+        {heading}
+        {description && <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>}
+      </div>
+      {/* No shrink-0: a wrapping group must be allowed to shrink (see PageHeader). */}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  )
+}
+
 // ----------------------------------------------------------- StatusBadge ----
 
 /**

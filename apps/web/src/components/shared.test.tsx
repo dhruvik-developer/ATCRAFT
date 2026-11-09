@@ -13,6 +13,7 @@ import {
   LoadError,
   PanelDenied,
   ReasonDialog,
+  SectionHeader,
   StatusBadge,
 } from './shared'
 import { CardTitle } from './ui/primitives'
@@ -131,6 +132,36 @@ describe('CardTitle', () => {
       </CardTitle>,
     )
     expect(screen.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible()
+  })
+})
+
+describe('SectionHeader', () => {
+  it('heads a section at the one section size, with its description and actions', () => {
+    render(
+      <SectionHeader
+        title="Run history"
+        description="The last fifty runs, newest first."
+        actions={<button type="button">Export</button>}
+        className="mb-3"
+      />,
+    )
+
+    const heading = screen.getByRole('heading', { name: 'Run history', level: 2 })
+    expect(heading).toHaveClass('text-base', 'font-semibold')
+    // The description is said under the heading, not inside its name.
+    expect(screen.getByText('The last fifty runs, newest first.')).toHaveClass(
+      'text-muted-foreground',
+    )
+    expect(screen.getByRole('button', { name: 'Export' })).toBeVisible()
+    expect(heading.closest('.mb-3')).not.toBeNull()
+  })
+
+  it('is the heading alone, at the level asked for, when it has nothing beside it', () => {
+    const { container } = render(<SectionHeader title="Find a carton" as="h3" className="mb-2" />)
+
+    const heading = screen.getByRole('heading', { name: 'Find a carton', level: 3 })
+    expect(container.firstElementChild).toBe(heading)
+    expect(heading).toHaveClass('mb-2', 'text-base')
   })
 })
 

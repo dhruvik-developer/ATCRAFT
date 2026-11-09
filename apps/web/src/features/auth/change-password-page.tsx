@@ -2,6 +2,7 @@ import { LogOut } from 'lucide-react'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/primitives'
 
@@ -26,11 +27,11 @@ export default function ChangePasswordPage() {
     <main className="min-h-dvh bg-muted/20 p-4 sm:p-6">
       <div className="mx-auto max-w-2xl space-y-5 pt-[max(2rem,8vh)]">
         <div>
-          <p className="text-sm font-semibold tracking-wide text-primary">ATCRAFT ERP</p>
-          <h1 className="mt-1 text-2xl font-semibold">Choose a new password</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Finish securing your account before opening the rest of the application.
-          </p>
+          <p className="mb-1 text-sm font-semibold tracking-wide text-primary">ATCRAFT ERP</p>
+          <PageHeader
+            title="Choose a new password"
+            description="Finish securing your account before opening the rest of the application."
+          />
         </div>
 
         <Alert variant="warning">

@@ -37,7 +37,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, Inbox, Zap } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { EmptyState, StatusBadge } from '@/components/shared'
+import { EmptyState, SectionHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle, Badge, Skeleton } from '@/components/ui/primitives'
 import { TableScroller } from '@/components/ui/table'
@@ -156,7 +156,7 @@ export function RfqComparisonPanel({
   return (
     <section aria-label={`Quotation comparison for ${board.rfq_code}`} className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold">Comparison for {board.rfq_code}</h2>
+        <SectionHeader title={`Comparison for ${board.rfq_code}`} />
         <StatusBadge status={board.rfq_status} />
         <span className="text-xs text-muted-foreground">
           {formatNumber(board.vendors.length)} vendor

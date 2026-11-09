@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
-import { EmptyState, FieldError, LoadError, PanelLoader } from '@/components/shared'
+import { EmptyState, FieldError, LoadError, PanelLoader, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -188,11 +188,7 @@ export function CategorySpecificationsPanel() {
         queryKey={queryKeys.specifications.categories}
         onChoose={setCategory}
       />
-      {category && (
-        <h2 className="text-lg font-semibold">
-          {category.code} - {category.name}
-        </h2>
-      )}
+      {category && <SectionHeader title={`${category.code} - ${category.name}`} />}
       {template.isLoading && <PanelLoader />}
       {template.error && (
         <LoadError error={template.error} onRetry={() => void template.refetch()} />

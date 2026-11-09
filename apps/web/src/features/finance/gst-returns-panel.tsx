@@ -10,7 +10,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { FileSpreadsheet } from 'lucide-react'
 
-import { LoadError } from '@/components/shared'
+import { LoadError, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
@@ -67,9 +67,7 @@ export function GstReturnsPanel({ period }: { period: string }) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="gst-returns-title" className="text-base font-semibold">
-            GST return preparation
-          </h2>
+          <SectionHeader title="GST return preparation" id="gst-returns-title" />
           <p className="mt-1 text-sm text-muted-foreground">
             Posted documents for {period || 'the selected return period'}; preparation aids only.
           </p>

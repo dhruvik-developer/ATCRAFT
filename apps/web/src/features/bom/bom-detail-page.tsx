@@ -48,6 +48,7 @@ import {
   LoadError,
   PageHeader,
   PanelDenied,
+  SectionHeader,
   StatTile,
   StatusBadge,
 } from '@/components/shared'
@@ -787,7 +788,7 @@ function CostPanel({ bomId }: { bomId: string }) {
       </div>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Material breakdown</h2>
+        <SectionHeader title="Material breakdown" />
         <DataTable
           columns={componentColumns}
           data={components}

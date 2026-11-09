@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
-import { FieldError, LoadError, PageHeader } from '@/components/shared'
+import { FieldError, LoadError, PageHeader, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -347,9 +347,9 @@ export default function MessagingPage() {
               <CardContent className="space-y-4 pt-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="font-semibold">
-                      {template.channel} · {humanise(template.notification_type)}
-                    </h2>
+                    <SectionHeader
+                      title={`${template.channel} · ${humanise(template.notification_type)}`}
+                    />
                     <p className="text-xs text-muted-foreground">
                       Parameter order must match the provider-approved template.
                     </p>
@@ -490,7 +490,7 @@ export default function MessagingPage() {
       </div>
 
       <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">Recent delivery attempts</h2>
+        <SectionHeader title="Recent delivery attempts" className="mb-3" />
         {deliveries.isError && (
           <Alert variant="warning">
             <AlertTitle>Could not load the delivery history</AlertTitle>

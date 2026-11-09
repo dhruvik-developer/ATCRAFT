@@ -9,6 +9,7 @@ import {
   EmptyState,
   FieldError,
   PageHeader,
+  SectionHeader,
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -583,7 +584,7 @@ export function DealerOrderPage() {
                 </TableBody>
               </Table>
             </TableScroller>
-            <h2 className="font-semibold">Dispatches and tracking</h2>
+            <SectionHeader title="Dispatches and tracking" />
             <DealerResult
               loading={dispatches.isLoading}
               error={dispatches.error}

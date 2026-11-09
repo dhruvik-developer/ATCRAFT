@@ -24,7 +24,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { FieldError, PageHeader, SectionHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -456,9 +456,7 @@ export default function MrpPage() {
         </Card>
       )}
 
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        Run history
-      </h2>
+      <SectionHeader title="Run history" className="mb-3" />
 
       <DataTable
         columns={columns}

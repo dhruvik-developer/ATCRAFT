@@ -37,7 +37,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, EmptyState, PageHeader } from '@/components/shared'
+import { DescriptionList, EmptyState, PageHeader, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -656,7 +656,7 @@ export default function AccountsPage() {
         <section className="mt-8 space-y-4 border-t pt-6" aria-label="Account statement">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="max-w-3xl">
-              <h2 className="text-base font-semibold">Account statement</h2>
+              <SectionHeader title="Account statement" />
               <p className="mt-1 text-sm text-muted-foreground">
                 Every posting against this one account, with the balance after each. The balance is
                 debit-positive: a negative figure is the credit side of the account. The cost centre
@@ -681,9 +681,9 @@ export default function AccountsPage() {
         <section className="mt-8 space-y-4 border-t pt-6" aria-label="Party ledger">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="max-w-3xl">
-              <h2 className="text-base font-semibold">
-                {partyKind === 'customer' ? 'Customer ledger' : 'Vendor ledger'}
-              </h2>
+              <SectionHeader
+                title={partyKind === 'customer' ? 'Customer ledger' : 'Vendor ledger'}
+              />
               <p className="mt-1 text-sm text-muted-foreground">
                 A control account's balance is the sum of its parties, but a statement is scoped by
                 party rather than by account: it carries every posting against the party chosen

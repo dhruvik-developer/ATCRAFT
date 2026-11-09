@@ -4,7 +4,14 @@ import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, FieldError, PageHeader, StatTile, StatusBadge } from '@/components/shared'
+import {
+  DescriptionList,
+  FieldError,
+  PageHeader,
+  SectionHeader,
+  StatTile,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -250,7 +257,7 @@ export function DealerInvoicePage() {
               ]}
             />
             <section>
-              <h2 className="mb-3 font-semibold">Payments</h2>
+              <SectionHeader title="Payments" className="mb-3" />
               {invoice.payments.map((payment) => (
                 <p key={payment.payment_id} className="border-t py-3 text-sm">
                   {payment.payment_code} · {formatDate(payment.payment_date)} ·{' '}
@@ -331,7 +338,7 @@ function DealerCreditNotes({ invoiceId }: { invoiceId?: string }) {
   )
   return (
     <section>
-      <h2 className="mb-3 font-semibold">Credit notes</h2>
+      <SectionHeader title="Credit notes" className="mb-3" />
       <DataTable
         columns={columns}
         data={list.data}
@@ -424,7 +431,7 @@ export function DealerAccountPage() {
         </DealerResult>
         {position && position.overdue_invoices.length > 0 && (
           <section>
-            <h2 className="mb-3 font-semibold">Overdue invoices</h2>
+            <SectionHeader title="Overdue invoices" className="mb-3" />
             <ul className="space-y-2">
               {position.overdue_invoices.map((invoice) => (
                 <li key={invoice.document_id} className="rounded border p-3">
@@ -439,7 +446,7 @@ export function DealerAccountPage() {
           </section>
         )}
         <section>
-          <h2 className="mb-3 font-semibold">Statement</h2>
+          <SectionHeader title="Statement" className="mb-3" />
           <div className="mb-4 grid gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="statement-from">From</Label>

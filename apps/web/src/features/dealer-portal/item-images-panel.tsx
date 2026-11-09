@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { EmptyState, FieldError } from '@/components/shared'
+import { EmptyState, FieldError, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Badge, Card, CardContent, Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -84,7 +84,7 @@ export function ItemImagesPanel({
     <div className="space-y-5">
       {primaryImageId && (
         <section className="max-w-sm space-y-3">
-          <h2 className="font-semibold">Primary catalog image</h2>
+          <SectionHeader title="Primary catalog image" />
           <DealerImage
             path={can(P.DOCUMENT_VIEW) ? `/documents/${primaryImageId}/download` : null}
             label="Primary item image"

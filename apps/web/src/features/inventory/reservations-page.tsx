@@ -20,7 +20,13 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import {
+  ConfirmDialog,
+  FieldError,
+  PageHeader,
+  SectionHeader,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -735,7 +741,7 @@ function ReallocationInbox() {
   return (
     <section className="mb-6 space-y-3">
       <div>
-        <h2 className="text-lg font-semibold">Reallocation approval inbox</h2>
+        <SectionHeader title="Reallocation approval inbox" />
         <p className="text-sm text-muted-foreground">
           Approving releases the donor reservation and links the new reservation to the recipient
           demand line.

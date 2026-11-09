@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState, StatusBadge } from '@/components/shared'
+import { EmptyState, SectionHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -177,7 +177,7 @@ export function WipByOrderPanel() {
   return (
     <div>
       <div className="mb-3">
-        <h2 className="text-sm font-semibold">WIP by order</h2>
+        <SectionHeader title="WIP by order" />
         <p className="text-xs text-muted-foreground">
           Net posted material cost plus operation cost to date. Running operations accrue elapsed
           time.

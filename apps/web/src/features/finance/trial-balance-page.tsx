@@ -27,7 +27,7 @@ import { FileSpreadsheet, Lock, Scale, TriangleAlert } from 'lucide-react'
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { EmptyState, LoadError, PageHeader, StatTile } from '@/components/shared'
+import { EmptyState, LoadError, PageHeader, SectionHeader, StatTile } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -75,7 +75,7 @@ function GroupTable({ group }: { group: TrialBalanceGroup }) {
       aria-label={`${humanise(group.account_type)} accounts`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-2.5">
-        <h2 className="text-sm font-semibold">{humanise(group.account_type)}</h2>
+        <SectionHeader title={humanise(group.account_type)} />
         <span className="text-xs text-muted-foreground">
           {rows.length} {rows.length === 1 ? 'account' : 'accounts'}
         </span>

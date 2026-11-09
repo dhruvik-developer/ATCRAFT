@@ -23,7 +23,7 @@ import { describeError } from '@/lib/messages'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { EmptyState, PageHeader, StatusBadge } from '@/components/shared'
+import { EmptyState, PageHeader, SectionHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -326,24 +326,24 @@ export default function PlanningPage() {
         ) : (
           <div className="space-y-6">
             <section aria-label="Capacity heat strip">
-              <h2 className="mb-2 text-sm font-semibold">
-                Load against capacity
-                <span className="ml-2 font-normal text-muted-foreground">
-                  Planned / available minutes per day. Over marks the days the plan does not fit.
-                </span>
-              </h2>
+              <SectionHeader
+                title="Load against capacity"
+                description="Planned / available minutes per day. Over marks the days the plan does not fit."
+                className="mb-2"
+              />
               <HeatStrip days={week} groups={groups} />
             </section>
 
             <section aria-label="Timeline">
-              <h2 className="mb-2 text-sm font-semibold">
-                {view === 'centre' ? 'Operations by work centre' : 'Operations by machine'}
-                <span className="ml-2 font-normal text-muted-foreground">
-                  {canManage
+              <SectionHeader
+                title={view === 'centre' ? 'Operations by work centre' : 'Operations by machine'}
+                description={
+                  canManage
                     ? 'Select an operation to reschedule it.'
-                    : 'Rescheduling needs the work-order management right.'}
-                </span>
-              </h2>
+                    : 'Rescheduling needs the work-order management right.'
+                }
+                className="mb-2"
+              />
               <TableScroller
                 label={view === 'centre' ? 'Operations by work centre' : 'Operations by machine'}
                 className="rounded-md border"
@@ -455,12 +455,11 @@ export default function PlanningPage() {
 
             {unscheduled.length > 0 && (
               <section aria-label="Unscheduled operations">
-                <h2 className="mb-2 text-sm font-semibold">
-                  Without a planned window
-                  <span className="ml-2 font-normal text-muted-foreground">
-                    Open operations the board cannot place. Give them a window to plan them.
-                  </span>
-                </h2>
+                <SectionHeader
+                  title="Without a planned window"
+                  description="Open operations the board cannot place. Give them a window to plan them."
+                  className="mb-2"
+                />
                 <ul className="divide-y rounded-md border">
                   {unscheduled.map((row) => {
                     const plan = reschedule(row)

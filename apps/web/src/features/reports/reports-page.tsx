@@ -38,7 +38,7 @@ import { useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { EmptyState, FieldError, PageHeader, SectionHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -313,12 +313,11 @@ export default function ReportsPage() {
             <div className="space-y-7">
               {grouped.map((group) => (
                 <section key={group.group} aria-labelledby={`group-${group.group}`}>
-                  <h2
+                  <SectionHeader
+                    title={group.group}
                     id={`group-${group.group}`}
-                    className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    {group.group}
-                  </h2>
+                    className="mb-2.5"
+                  />
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {group.reports.map((report) => (
                       <ReportCard

@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Save, Search, ShieldAlert, Undo2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
-import { EmptyState } from '@/components/shared'
+import { EmptyState, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -173,42 +173,45 @@ export function PermissionMatrix({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold">
+      <SectionHeader
+        title={
+          <span className="flex flex-wrap items-center gap-2">
             {role.data?.name}
             <span className="font-mono text-xs font-normal text-muted-foreground">
               {role.data?.code}
             </span>
             {role.data?.is_system && <Badge variant="secondary">System</Badge>}
             {role.data?.is_vendor_role && <Badge variant="muted">Vendor</Badge>}
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          </span>
+        }
+        description={
+          <>
             {formatNumber(selected.size)} of {formatNumber(catalogue.data?.total ?? 0)} permissions
             selected · held by {plural(role.data?.user_count ?? 0, 'user')}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {dirty && !readOnly && (
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(stored))}>
-              <Undo2 />
-              Discard
-            </Button>
-          )}
-          {!readOnly && (
-            <Button
-              size="sm"
-              disabled={!dirty}
-              loading={mutation.isPending}
-              onClick={() => mutation.mutate([...selected].sort())}
-            >
-              <Save />
-              Save permissions
-            </Button>
-          )}
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          readOnly ? undefined : (
+            <>
+              {dirty && (
+                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(stored))}>
+                  <Undo2 />
+                  Discard
+                </Button>
+              )}
+              <Button
+                size="sm"
+                disabled={!dirty}
+                loading={mutation.isPending}
+                onClick={() => mutation.mutate([...selected].sort())}
+              >
+                <Save />
+                Save permissions
+              </Button>
+            </>
+          )
+        }
+      />
 
       <p className="text-xs text-muted-foreground">
         These checkboxes change what the API allows, not merely what this application shows: every

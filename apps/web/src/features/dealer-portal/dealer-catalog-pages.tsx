@@ -9,6 +9,7 @@ import {
   EmptyState,
   FieldError,
   PageHeader,
+  SectionHeader,
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -140,7 +141,7 @@ export function DealerItemCard({ item }: { item: CatalogItem }) {
           />
           <div>
             <p className="text-xs text-muted-foreground">{item.code}</p>
-            <h2 className="font-semibold">{item.name}</h2>
+            <SectionHeader title={item.name} />
           </div>
         </Link>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -432,7 +433,7 @@ export function DealerItemPage() {
             </div>
             {item.slabs.length > 0 && (
               <section>
-                <h2 className="mb-3 font-semibold">Quantity pricing</h2>
+                <SectionHeader title="Quantity pricing" className="mb-3" />
                 <TableScroller label="Channel price slabs">
                   <Table>
                     <caption className="sr-only">Channel price slabs</caption>
@@ -456,7 +457,7 @@ export function DealerItemPage() {
             )}
             {item.specifications.length > 0 && (
               <section>
-                <h2 className="mb-3 font-semibold">Specifications</h2>
+                <SectionHeader title="Specifications" className="mb-3" />
                 <DescriptionList
                   items={item.specifications.map((specification) => ({
                     label: specification.name,
@@ -467,7 +468,7 @@ export function DealerItemPage() {
             )}
             {item.accessories.length > 0 && (
               <section>
-                <h2 className="mb-3 font-semibold">Accessories and in the box</h2>
+                <SectionHeader title="Accessories and in the box" className="mb-3" />
                 <div className="grid gap-3 sm:grid-cols-2">
                   {item.accessories.map((accessory) => (
                     <Card
@@ -536,7 +537,7 @@ export function DealerHomePage() {
       </DealerResult>
       <DealerHomePromotions />
       <section className="mt-6">
-        <h2 className="mb-3 font-semibold">Shop by category</h2>
+        <SectionHeader title="Shop by category" className="mb-3" />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {categories.data?.map((category) => (
             <Button
@@ -551,7 +552,7 @@ export function DealerHomePage() {
         </div>
       </section>
       <section className="mt-6">
-        <h2 className="mb-3 font-semibold">Brands</h2>
+        <SectionHeader title="Brands" className="mb-3" />
         <div className="flex flex-wrap gap-3">
           {brands.data?.map((brand) => (
             <Button key={brand.id} asChild variant="outline" className="min-h-11">
@@ -680,7 +681,7 @@ function DealerHomePromotions() {
       >
         {offers.data.length > 0 && (
           <section>
-            <h2 className="mb-3 font-semibold">Current offers</h2>
+            <SectionHeader title="Current offers" className="mb-3" />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {offers.data.map((offer) => (
                 <Card key={offer.id}>
@@ -735,7 +736,7 @@ function DealerRecentOrders() {
   })
   return (
     <section className="mt-6">
-      <h2 className="mb-3 font-semibold">Recent orders</h2>
+      <SectionHeader title="Recent orders" className="mb-3" />
       <DealerResult
         loading={orders.isLoading}
         error={orders.error}

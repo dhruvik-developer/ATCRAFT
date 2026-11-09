@@ -16,7 +16,7 @@
 import { CalendarClock, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { LoadError, PageHeader, StatusBadge } from '@/components/shared'
+import { LoadError, PageHeader, SectionHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Badge, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -141,7 +141,7 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
   return (
     <div className="space-y-6">
       <section aria-label="Load per assembly line">
-        <h2 className="mb-2 text-sm font-semibold">Load per line</h2>
+        <SectionHeader title="Load per line" className="mb-2" />
         {lines.isLoading ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[0, 1, 2].map((index) => (
@@ -170,7 +170,7 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
       </section>
 
       <section aria-label="Late open orders">
-        <h2 className="mb-2 text-sm font-semibold">Late orders</h2>
+        <SectionHeader title="Late orders" className="mb-2" />
         {orders.isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : orders.error ? (

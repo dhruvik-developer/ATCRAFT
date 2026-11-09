@@ -51,6 +51,7 @@ import {
   FieldError,
   LoadError,
   PageHeader,
+  SectionHeader,
   StatTile,
   StatusBadge,
 } from '@/components/shared'
@@ -1232,7 +1233,7 @@ export default function MrpRunDetailPage() {
       {isFinished && (
         <section className="space-y-3">
           <div>
-            <h2 className="text-base font-semibold">Shortages and late supply</h2>
+            <SectionHeader title="Shortages and late supply" />
             <p className="text-sm text-muted-foreground">
               Every requirement this run could not cover, with the committed supply that arrives
               after it is needed.

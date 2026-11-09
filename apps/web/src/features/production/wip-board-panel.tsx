@@ -40,7 +40,7 @@ import { Factory } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState } from '@/components/shared'
+import { EmptyState, SectionHeader } from '@/components/shared'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
@@ -228,7 +228,7 @@ export function WipBoardPanel({
   return (
     <div className={className}>
       <div className="mb-3">
-        <h2 className="text-sm font-semibold">Load by work centre</h2>
+        <SectionHeader title="Load by work centre" />
         <p className="text-xs text-muted-foreground">
           Open operations of open jobs, busiest cell first. Time to run counts setup only where the
           operation has not started yet.

@@ -4,7 +4,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError } from '@/components/shared'
+import { ConfirmDialog, FieldError, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -278,7 +278,7 @@ export function ItemPackingSpecsPanel({ itemId }: { itemId: string }) {
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Packing specifications</h2>
+          <SectionHeader title="Packing specifications" />
           <p className="text-sm text-muted-foreground">
             Default recipes drive MRP demand for boxes and other purchasable packing materials.
           </p>

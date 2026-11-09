@@ -24,6 +24,7 @@ import {
   FieldError,
   LoadError,
   PageHeader,
+  SectionHeader,
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -176,9 +177,7 @@ function CartonScanPanel({
   return (
     <section className="mb-5 rounded-lg border bg-card p-4" aria-labelledby="carton-scan-heading">
       <div className="mb-3">
-        <h2 id="carton-scan-heading" className="font-semibold">
-          Find a carton
-        </h2>
+        <SectionHeader title="Find a carton" id="carton-scan-heading" />
         <p className="text-sm text-muted-foreground">
           Scan or enter a carton label to view its packing record.
         </p>

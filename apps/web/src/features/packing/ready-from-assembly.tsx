@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError, LoadError } from '@/components/shared'
+import { FieldError, LoadError, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -252,7 +252,7 @@ export function ReadyFromAssemblyPanel() {
     <section aria-label="Ready from assembly" className="mb-5 rounded-lg border p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h2 className="font-semibold">Ready from assembly</h2>
+          <SectionHeader title="Ready from assembly" />
           <p className="mt-0.5 text-sm text-muted-foreground">
             Completed assemblies whose output is packed nowhere yet. Packing one raises its packing
             order and claims it in one transaction.
