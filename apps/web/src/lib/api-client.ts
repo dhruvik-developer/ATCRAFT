@@ -320,7 +320,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isAbortError(error: unknown): boolean {
+/** A request or operation that was cancelled - superseded, not failed. */
+export function isAbortError(error: unknown): boolean {
   return isRecord(error) && error.name === 'AbortError'
 }
 

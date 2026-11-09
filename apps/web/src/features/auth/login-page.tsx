@@ -21,7 +21,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { authenticationRetryAfter } from '@/features/auth/auth-retry'
 import { SessionRecovery } from '@/features/auth/session-recovery'
-import { ApiError } from '@/lib/api-client'
+import { ApiError, isAbortError } from '@/lib/api-client'
 import { describeError, validation } from '@/lib/messages'
 
 /**
@@ -111,15 +111,16 @@ export function LoginPage() {
   }
 
   const showFailure = (error: unknown) => {
-    if (error instanceof ApiError) {
-      if (error.status === 429) {
-        setRetryAfter(authenticationRetryAfter(error))
-        setFormError(describeError(error) || 'Too many attempts. Wait before trying again.')
-      } else {
-        setFormError(describeError(error))
-      }
+    // Superseded by another sign-in or by a session change in another tab:
+    // nothing failed that this person should act on.
+    if (isAbortError(error)) return
+    if (error instanceof ApiError && error.status === 429) {
+      setRetryAfter(authenticationRetryAfter(error))
+      setFormError(describeError(error) || 'Too many attempts. Wait before trying again.')
     } else {
-      setFormError('Could not reach the server. Check your connection and try again.')
+      // A dropped connection is already an ApiError (NETWORK_ERROR) here, worded
+      // by the API client; anything else is a fault in the page, not the network.
+      setFormError(describeError(error))
     }
   }
 

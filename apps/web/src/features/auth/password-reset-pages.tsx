@@ -20,7 +20,7 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { describeError, validation } from '@/lib/messages'
-import { ApiError, api } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
 
 import { passwordField } from './password-policy'
 
@@ -50,12 +50,6 @@ function AuthCard({ children }: { children: ReactNode }) {
   )
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof ApiError
-    ? describeError(error)
-    : 'Could not reach the server. Check your connection and try again.'
-}
-
 export function ForgotPasswordPage() {
   const [submitted, setSubmitted] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -81,7 +75,7 @@ export function ForgotPasswordPage() {
       )
       setSubmitted(true)
     } catch (error) {
-      setFormError(errorMessage(error))
+      setFormError(describeError(error))
     }
   }
 
@@ -199,7 +193,7 @@ export function ResetPasswordPage() {
       )
       setCompleted(true)
     } catch (error) {
-      setFormError(errorMessage(error))
+      setFormError(describeError(error))
     }
   }
 

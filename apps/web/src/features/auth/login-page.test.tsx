@@ -24,6 +24,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
+import { errors } from '@/lib/messages'
 import { fail, meResponse, ok, renderScreen, type RouteBody, type RouteTable } from '@/test/harness'
 
 import { LoginPage } from './login-page'
@@ -372,6 +373,38 @@ describe('what the server says reaches the user', () => {
     // A dropped connection shown as "incorrect password" sends the user off to
     // reset a password that was never wrong.
     expect(await screen.findByText(/could not reach the service/i)).toBeVisible()
+  })
+
+  it('does not call a fault in the page a connection problem', async () => {
+    // The API client words every dropped connection itself, so what reaches the
+    // form as anything else is a malformed answer or a bug - and "check your
+    // connection" sent people to check one that worked. A null body makes the
+    // sign-in read a property of nothing.
+    const { user } = renderLogin({ 'POST /auth/login': ok(null) })
+
+    await signIn(user, 'ops@atcraft.example', 'correct horse battery')
+
+    expect(await screen.findByText(errors.unexpectedDetail)).toBeVisible()
+    expect(screen.queryByText(/could not reach/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/mfa_required/)).not.toBeInTheDocument()
+  })
+
+  it('says nothing about an attempt that was cancelled', async () => {
+    // Superseded by another sign-in or a session change in another tab: nothing
+    // failed that the person should act on.
+    const { user } = renderLogin({
+      'POST /auth/login': () => {
+        throw new DOMException('The signed-in session changed.', 'AbortError')
+      },
+    })
+
+    await signIn(user, 'ops@atcraft.example', 'correct horse battery')
+
+    // The button is disabled while an attempt is pending, so enabled again
+    // means this one has settled.
+    const submit = await signInButton()
+    await waitFor(() => expect(submit).toBeEnabled())
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 
