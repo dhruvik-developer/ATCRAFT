@@ -8,6 +8,15 @@
  * The job contract carries no progress percentage and no file name, so neither
  * is claimed here. What it does carry - the row count once the file exists, and
  * the reason when it does not - is what the strip reports.
+ *
+ * Its headlines take the application's two shapes rather than one of its own.
+ * A state leads with what is being made ("Packing list is queued", "... is
+ * ready"), as every success headline does - the `success.*` builders, and the
+ * "File queued" toast that queueing raises at the same moment. A failure leads
+ * with "Could not generate the ...", as every failure headline must
+ * (`tests/unit/test_frontend_failure_headlines.py`). One shape for the strip
+ * would make it read unlike the rest of the application in one place or the
+ * other.
  */
 
 import { CheckCircle2, Download, Loader2, TriangleAlert, X } from 'lucide-react'
