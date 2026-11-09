@@ -27,49 +27,18 @@ import { P } from '@/lib/permissions'
 import { ApiError, api } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import type { SchemaOf } from '@/types/api'
 
 import { financeKeys } from './finance-types'
 
 /** CreditNoteCancel permits a longer audit explanation than standard transitions. */
 const CANCEL_REASON_MAX_LENGTH = 500
 
-type CreditNoteRow = {
-  id: string
-  code: string
-  sales_invoice_id: string
-  customer_id: string
-  note_date: string
-  reason_type: string
-  status: 'ISSUED' | 'CANCELLED'
-  currency: string
-  total_amount: string
-  buyer_name: string
-}
+/** One row of `GET /finance/credit-notes`; it names its invoice and return by code. */
+type CreditNoteRow = SchemaOf<'CreditNoteSummary'>
 
-type CreditNoteDetail = CreditNoteRow & {
-  sales_return_id: string | null
-  taxable_amount: string
-  tax_amount: string
-  round_off_amount: string
-  issued_at: string
-  pdf_document_id: string | null
-  cancelled_at: string | null
-  cancellation_reason: string | null
-  lines: Array<{
-    id: string
-    sales_invoice_line_id: string
-    item_id: string
-    hsn_code: string | null
-    quantity: string | null
-    taxable_amount: string
-    tax_rate: string
-    cgst_amount: string
-    sgst_amount: string
-    igst_amount: string
-    tax_amount: string
-    line_total: string
-  }>
-}
+/** `GET /finance/credit-notes/{id}`: the header plus lines that name their items. */
+type CreditNoteDetail = SchemaOf<'CreditNoteDetail'>
 
 export default function CreditNotesPage() {
   const { can } = useAuth()
@@ -245,8 +214,14 @@ export default function CreditNotesPage() {
                     )}
                     <div>
                       <span className="text-muted-foreground">Invoice</span>
-                      <p className="font-mono text-xs">{detail.data.sales_invoice_id}</p>
+                      <p>{detail.data.sales_invoice_code ?? EMPTY_VALUE}</p>
                     </div>
+                    {detail.data.sales_return_id && (
+                      <div>
+                        <span className="text-muted-foreground">Sales return</span>
+                        <p>{detail.data.sales_return_code ?? EMPTY_VALUE}</p>
+                      </div>
+                    )}
                   </div>
                   <div
                     className="overflow-x-auto"
@@ -268,7 +243,16 @@ export default function CreditNotesPage() {
                       <tbody>
                         {detail.data.lines.map((line) => (
                           <tr key={line.id} className="border-b">
-                            <td className="p-2 font-mono text-xs">{line.item_id}</td>
+                            <td className="p-2">
+                              <span className="block font-medium">
+                                {line.item_code ?? EMPTY_VALUE}
+                              </span>
+                              {line.item_name && (
+                                <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+                                  {line.item_name}
+                                </span>
+                              )}
+                            </td>
                             <td className="p-2">{line.hsn_code ?? EMPTY_VALUE}</td>
                             <td className="p-2 tabular">
                               {line.quantity ? formatQuantity(line.quantity) : EMPTY_VALUE}

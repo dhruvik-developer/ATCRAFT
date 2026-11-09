@@ -22,6 +22,9 @@ function creditNote(overrides: Record<string, unknown> = {}) {
     id: 'credit-1',
     code: 'CN-001',
     sales_invoice_id: 'invoice-1',
+    sales_invoice_code: 'SI-0042',
+    sales_return_id: null,
+    sales_return_code: null,
     customer_id: 'customer',
     note_date: '2026-10-25',
     reason_type: 'SALES_RETURN',
@@ -86,6 +89,8 @@ describe('credit note detail', () => {
             id: 'line-1',
             sales_invoice_line_id: 'invoice-line-1',
             item_id: 'item-1',
+            item_code: 'LOCK-01',
+            item_name: 'Mortise lock',
             hsn_code: null,
             quantity: '2.0000',
             taxable_amount: '0.99',
@@ -106,6 +111,56 @@ describe('credit note detail', () => {
     const cells = within(row).getAllByRole('cell')
     expect(cells[1]).toHaveTextContent(/^-$/)
     expect(cells[2]).toHaveTextContent(/^2$/)
+  })
+
+  it('names the invoice, the return and each line item by code, never by id', async () => {
+    // The dialog printed the invoice's UUID and every line's item UUID in full.
+    await openCreditNote({
+      permissions: [P.CREDIT_NOTE_VIEW],
+      detail: creditNote({
+        reason_type: 'RETURN',
+        sales_return_id: 'return-1',
+        sales_return_code: 'SR/2026-007',
+        lines: [
+          {
+            id: 'line-1',
+            sales_invoice_line_id: 'invoice-line-1',
+            item_id: 'item-1',
+            item_code: 'LOCK-01',
+            item_name: 'Mortise lock',
+            hsn_code: '8301',
+            quantity: '1.0000',
+            taxable_amount: '0.99',
+            tax_rate: '18.00',
+            cgst_amount: '0.09',
+            sgst_amount: '0.09',
+            igst_amount: '0.00',
+            tax_amount: '0.18',
+            line_total: '1.17',
+          },
+        ],
+      }),
+    })
+
+    const dialog = screen.getByRole('dialog', { name: 'CN-001' })
+    expect(
+      within(dialog).getByText('Invoice', { selector: 'span' }).nextElementSibling,
+    ).toHaveTextContent(/^SI-0042$/)
+    expect(
+      within(dialog).getByText('Sales return', { selector: 'span' }).nextElementSibling,
+    ).toHaveTextContent(/^SR\/2026-007$/)
+    const item = within(within(dialog).getAllByRole('row')[1]!).getAllByRole('cell')[0]!
+    expect(item).toHaveTextContent('LOCK-01')
+    expect(item).toHaveTextContent('Mortise lock')
+    expect(within(dialog).queryByText(/invoice-1|item-1/)).toBeNull()
+  })
+
+  it('says nothing of a return on a credit raised without one', async () => {
+    await openCreditNote({ permissions: [P.CREDIT_NOTE_VIEW] })
+
+    const dialog = screen.getByRole('dialog', { name: 'CN-001' })
+    expect(within(dialog).getByText('SI-0042')).toBeVisible()
+    expect(within(dialog).queryByText('Sales return')).toBeNull()
   })
 })
 
