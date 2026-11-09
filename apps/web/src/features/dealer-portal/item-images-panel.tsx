@@ -57,6 +57,8 @@ export function ItemImagesPanel({
       toast.success(success.updated('Primary image'))
     },
     onError: (failure) => setError(fieldErrorSummary(failure) || describeError(failure)),
+    // Said under the upload form; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const upload = useMutation({
     mutationFn: async (file: File) => {
@@ -75,6 +77,8 @@ export function ItemImagesPanel({
       toast.success(success.updated('Item image'))
     },
     onError: (failure) => setError(fieldErrorSummary(failure) || describeError(failure)),
+    // Said under the upload form; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   return (
     <div className="space-y-5">

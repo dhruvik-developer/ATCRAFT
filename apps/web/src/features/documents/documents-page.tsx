@@ -74,7 +74,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { fieldErrorSummary } from '@/lib/form-errors'
+import { fieldErrorSummary, partitionFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatFileSize, humanise } from '@/lib/format'
 import { describeError, joinValidationMessages, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -234,6 +234,9 @@ function UploadDialog({
         expires: joined('expires_at'),
       })
     },
+    // The dialog says every refusal - the fields their own, the alert the rest -
+    // so a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   const validate = (): UploadErrors => {
@@ -415,7 +418,12 @@ function UploadDialog({
           {upload.error && (
             <Alert variant="destructive">
               <AlertTitle>The file was not stored</AlertTitle>
-              <AlertDescription>{describeError(upload.error)}</AlertDescription>
+              {/* A model-level 422 belongs to no field, and nothing else would say it. */}
+              <AlertDescription>
+                {(upload.error instanceof ApiError &&
+                  joinValidationMessages(partitionFieldErrors(upload.error).orphans)) ||
+                  describeError(upload.error)}
+              </AlertDescription>
             </Alert>
           )}
         </DialogBody>

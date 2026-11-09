@@ -236,6 +236,9 @@ export function AssemblyOrderFormDialog({
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // The form's own alert says every refusal - a model-level 422 too, which
+    // applyFieldErrors puts on `root` - so a toast would only repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -454,7 +457,9 @@ export function AssemblyOrderFormDialog({
 
             {save.error && (
               <Alert variant="destructive">
-                <AlertDescription>{describeError(save.error)}</AlertDescription>
+                <AlertDescription>
+                  {errors.root?.message || describeError(save.error)}
+                </AlertDescription>
               </Alert>
             )}
           </DialogBody>

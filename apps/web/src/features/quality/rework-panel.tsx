@@ -118,6 +118,9 @@ function OpenCycleForm({
       onDone()
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // The form's own alert says every refusal - a model-level 422 too, which
+    // applyFieldErrors puts on `root` - so a toast would only repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -207,7 +210,7 @@ function OpenCycleForm({
 
       {open.error && (
         <Alert variant="destructive">
-          <AlertDescription>{describeError(open.error)}</AlertDescription>
+          <AlertDescription>{errors.root?.message || describeError(open.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -266,6 +269,9 @@ function CompleteCycleForm({ record, onDone }: { record: QcReworkRecord; onDone:
       onDone()
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // The form's own alert says every refusal - a model-level 422 too, which
+    // applyFieldErrors puts on `root` - so a toast would only repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -343,7 +349,9 @@ function CompleteCycleForm({ record, onDone }: { record: QcReworkRecord; onDone:
 
       {complete.error && (
         <Alert variant="destructive">
-          <AlertDescription>{describeError(complete.error)}</AlertDescription>
+          <AlertDescription>
+            {errors.root?.message || describeError(complete.error)}
+          </AlertDescription>
         </Alert>
       )}
 

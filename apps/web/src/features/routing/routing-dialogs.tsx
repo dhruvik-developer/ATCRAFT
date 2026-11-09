@@ -455,6 +455,8 @@ export function RoutingDetailDialog({
       )
       setStatusAction(null)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
 
   return (

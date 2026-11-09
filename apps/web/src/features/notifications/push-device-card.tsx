@@ -78,6 +78,7 @@ export function PushDeviceCard() {
   })
   const test = useMutation({
     mutationFn: () => api.post<SchemaOf<'PushTestRead'>>('/notifications/push/test'),
+    onMutate: () => setFailure(null),
     onSuccess: (result) =>
       toast.success(
         result.queued > 0
@@ -85,6 +86,8 @@ export function PushDeviceCard() {
           : 'No subscribed devices are available',
       ),
     onError: (error) => setFailure(describeError(error)),
+    // Said on this card; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const current = state.data ?? 'default'
   const available = config.data?.enabled === true

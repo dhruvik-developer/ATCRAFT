@@ -1,14 +1,20 @@
-import { screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { UserFormDialog } from '@/features/admin/user-dialogs'
 import UsersPage from '@/features/admin/users-page'
 import SalesOrdersPage from '@/features/sales/sales-orders-page'
+import * as errorReporting from '@/lib/error-reporting'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
 import { ItemImagesPanel } from './item-images-panel'
 import PromotionsPage from './promotions-page'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const role = {
   id: 'dealer-role',
@@ -219,5 +225,40 @@ describe('catalog images and promotion scope', () => {
     )
     const posts = view.fetch.calls.filter((call) => call.method === 'POST').map((call) => call.path)
     expect(posts).toEqual(['/documents', '/promotions/banners'])
+  })
+
+  it('refuses a banner that is not a JPEG, PNG or WebP in the dialog, before any request', async () => {
+    // The check used to run inside the mutation, where a thrown sentence is a
+    // crash: it was reported as a defect and the dialog said "An unexpected
+    // error occurred." while a toast said "Something went wrong".
+    const reported = vi.spyOn(errorReporting, 'reportError').mockImplementation(() => {})
+    const view = renderScreen(
+      <>
+        <PromotionsPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.PROMOTION_VIEW, P.PROMOTION_MANAGE, P.DOCUMENT_UPLOAD],
+        errorNets: true,
+        routes: { 'GET /promotions/banners': page([]) },
+      },
+    )
+    await view.user.click(await screen.findByRole('button', { name: 'New banner' }))
+    const dialog = screen.getByRole('dialog')
+    await view.user.type(within(dialog).getByLabelText('Code'), 'BANNER-1')
+    await view.user.type(within(dialog).getByLabelText('Title'), 'New collection')
+    // `accept` only steers the picker: "All files" or a drop still hands over a GIF.
+    fireEvent.change(within(dialog).getByLabelText('Banner image'), {
+      target: { files: [new File(['GIF89a'], 'banner.gif', { type: 'image/gif' })] },
+    })
+    await view.user.click(within(dialog).getByRole('button', { name: 'Save banner' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Choose a JPEG, PNG or WebP image.',
+    )
+    expect(view.fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    expect(reported).not.toHaveBeenCalled()
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
 })

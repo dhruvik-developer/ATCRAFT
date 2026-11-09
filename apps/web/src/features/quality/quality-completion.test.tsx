@@ -18,6 +18,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { api } from '@/lib/api-client'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
@@ -25,6 +26,7 @@ import { fail, ok, page, renderScreen } from '@/test/harness'
 import { InspectionDetailDialog } from './inspection-detail-dialog'
 import QualityPage from './quality-page'
 import { RaiseInspectionDialog } from './raise-inspection-dialog'
+import { ReworkPanel } from './rework-panel'
 import type { QcInspectionDetail, QcInspectionRow } from './quality-types'
 
 const ITEM = { id: 'item-fg', code: 'FG-100', name: 'Finished good', is_active: true }
@@ -405,6 +407,54 @@ describe('the rework tab', () => {
     })
 
     expect(await screen.findByRole('tab', { name: /rework/i })).toBeVisible()
+  })
+})
+
+describe('a refused rework cycle', () => {
+  // The form's alert says the refusal and the shell does not say it again: an
+  // error toast never dismisses itself, so a second copy outlives the dialog.
+  async function openCycleRefusedWith(response: ReturnType<typeof fail>) {
+    const view = renderScreen(
+      <>
+        <ReworkPanel inspection={detail({ rework_records: [] })} />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.QC_INSPECT],
+        errorNets: true,
+        routes: { 'GET /routing/work-centers': page([]), 'POST /quality/rework': response },
+      },
+    )
+    await view.user.click(await screen.findByRole('button', { name: 'Open a cycle' }))
+    await view.user.type(screen.getByLabelText('Reason'), 'Scored faces go back to polishing')
+    await view.user.click(screen.getByRole('button', { name: 'Open cycle' }))
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    return { toasts }
+  }
+
+  it('says a refusal once, in the form', async () => {
+    const { toasts } = await openCycleRefusedWith(
+      fail(409, 'CONFLICT', 'The lot was re-decided while this form was open.'),
+    )
+
+    expect(
+      await screen.findByText('The lot was re-decided while this form was open.'),
+    ).toBeVisible()
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
+  })
+
+  it("names a model-level 422 in the form's alert", async () => {
+    const { toasts } = await openCycleRefusedWith(
+      fail(422, 'VALIDATION_ERROR', 'Some fields need attention.', {
+        fields: { _root: ['Rework quantity exceeds what the verdict sent for rework'] },
+      }),
+    )
+
+    expect(
+      await screen.findByText('Rework quantity exceeds what the verdict sent for rework'),
+    ).toBeVisible()
+    expect(screen.queryByText('Some fields need attention.')).not.toBeInTheDocument()
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
 })
 

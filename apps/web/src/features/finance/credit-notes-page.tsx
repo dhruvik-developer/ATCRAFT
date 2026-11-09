@@ -146,6 +146,8 @@ export default function CreditNotesPage() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
       toast.success(success.cancelled('Credit note'))
     },
+    // The confirmation shows the refusal under the reason; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const canCancel =
     can(P.CREDIT_NOTE_CANCEL) && (detail.data?.status ?? selected?.status) === 'ISSUED'

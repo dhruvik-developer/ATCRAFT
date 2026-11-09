@@ -213,6 +213,8 @@ export default function WarehousesPage() {
       )
       setStatusTarget(null)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
 
   const { mutate: setDefaultWarehouse } = useMutation({

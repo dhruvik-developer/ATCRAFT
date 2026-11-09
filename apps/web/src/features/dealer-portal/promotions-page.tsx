@@ -40,6 +40,9 @@ import type { SchemaOf } from '@/types/api'
 import { DealerImage } from './dealer-shared'
 import { bannerPayload, offerPayload } from './promotion-payloads'
 
+/** What a banner image may be: the file input offers these and the submit refuses the rest. */
+const BANNER_IMAGE_TYPES: readonly string[] = ['image/jpeg', 'image/png', 'image/webp']
+
 type Kind = 'banners' | 'offers'
 type Promotion = SchemaOf<'DealerBannerRead'> | SchemaOf<'DealerOfferRead'>
 type Lifecycle = 'activate' | 'deactivate' | 'retire'
@@ -185,8 +188,6 @@ function PromotionForm({
       if (kind === 'banners') {
         const file = fields.get('image')
         if (file instanceof File && file.size) {
-          if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
-            throw new Error('Choose a JPEG, PNG or WebP image.')
           const upload = new FormData()
           upload.set('file', file)
           upload.set('category', 'ATTACHMENT')
@@ -218,6 +219,8 @@ function PromotionForm({
       onClose()
     },
     onError: (error) => setFormError(fieldErrorSummary(error) || describeError(error)),
+    // Said above the footer; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   return (
     <Dialog
@@ -234,6 +237,16 @@ function PromotionForm({
             const fields = new FormData(event.currentTarget)
             if (imageFile) fields.set('image', imageFile)
             try {
+              // Checked here, before the request, like every other field: a
+              // sentence thrown inside the mutation reads as a crash.
+              const image = fields.get('image')
+              if (
+                kind === 'banners' &&
+                image instanceof File &&
+                image.size > 0 &&
+                !BANNER_IMAGE_TYPES.includes(image.type)
+              )
+                throw new Error('Choose a JPEG, PNG or WebP image.')
               if (kind === 'offers') offerPayload(fields, targetId, customerId)
               else
                 bannerPayload(
@@ -302,7 +315,7 @@ function PromotionForm({
                     id="promotion-image"
                     name="image"
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept={BANNER_IMAGE_TYPES.join(',')}
                     onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
                     disabled={!can(P.DOCUMENT_UPLOAD)}
                     className="mt-1"
@@ -481,6 +494,8 @@ export default function PromotionsPage() {
       setReason('')
     },
     onError: (error) => setReasonError(fieldErrorSummary(error) || describeError(error)),
+    // Said under the reason; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const columns = useMemo<ColumnDef<Promotion, unknown>[]>(
     () => [
