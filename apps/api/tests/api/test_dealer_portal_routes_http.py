@@ -41,7 +41,7 @@ from typing import Any
 
 import pytest
 from httpx import Response
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers, UploadFile
 
@@ -1665,6 +1665,57 @@ async def test_an_image_past_its_retention_date_is_neither_listed_nor_served(
     served = await api_client.get(f"/dealer-portal/images/{front}")
     assert served.status_code == 200, served.text
     assert served.content == PNG
+
+
+async def test_a_banner_whose_image_has_lapsed_is_withdrawn_from_the_dealer(
+    api_client, session, tenant, shop, storage, unique_code
+):
+    # The image route answers 404 for an image past its retention date, and for
+    # one the purge sweep has since removed, while the banner list kept naming
+    # both: every dealer saw a broken banner. A banner has no next image to take
+    # its place, so it is withdrawn instead (docs/assumptions.md §PROMO-1).
+    promotions = PromotionService(session, tenant)
+    live_png = PNG + b"monsoon range"
+    images = {
+        "live": await stored(session, tenant, live_png, "image/png", "live.png"),
+        "lapsed": await stored(session, tenant, PNG + b"last season", "image/png", "old.png"),
+        "purged": await stored(session, tenant, PNG + b"swept", "image/png", "gone.png"),
+    }
+    banners: dict[str, uuid.UUID] = {}
+    for order, (name, image_id) in enumerate(images.items()):
+        created = await promotions.create(
+            "banners",
+            DealerBannerCreate(
+                code=unique_code("B"),
+                title=f"The {name} banner",
+                image_document_id=image_id,
+                status=DealerBannerStatus.ACTIVE,
+                sort_order=order,
+            ),
+        )
+        banners[name] = created.id
+    await session.execute(
+        update(Document)
+        .where(Document.id == images["lapsed"])
+        .values(expires_at=utcnow() - timedelta(minutes=1))
+    )
+    await session.execute(delete(Document).where(Document.id == images["purged"]))
+    sign_in(shop.dealer)
+
+    listed = await api_client.get("/dealer-portal/banners")
+    assert [row["id"] for row in ok(listed)] == [str(banners["live"])]
+    assert listed.json()["pagination"]["total"] == 1
+    for gone in (images["lapsed"], images["purged"]):
+        refused(await api_client.get(f"/dealer-portal/images/{gone}"), 404, "NOT_FOUND")
+    served = await api_client.get(f"/dealer-portal/images/{images['live']}")
+    assert served.status_code == 200, served.text
+    assert served.content == live_png
+
+    # Withdrawn from dealers, not retired: nothing moved a status.
+    statuses = await session.scalars(
+        select(DealerBanner.status).where(DealerBanner.id.in_(list(banners.values())))
+    )
+    assert sorted(statuses.all()) == [DealerBannerStatus.ACTIVE] * 3
 
 
 # -----------------------------------------------------------------------------

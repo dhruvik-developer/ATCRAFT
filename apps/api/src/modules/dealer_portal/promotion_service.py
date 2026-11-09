@@ -245,7 +245,9 @@ class PromotionService:
         self, params: PageParams
     ) -> tuple[list[DealerBannerRead], OffsetPagination]:
         customer = await DealerPortalService(self.session, self.tenant)._customer()
-        rows, page = await self.repo.banners.active(customer.price_list_type, today(), params)
+        rows, page = await self.repo.banners.active(
+            customer.price_list_type, today(), params, now=utcnow()
+        )
         return [DealerBannerRead.model_validate(row) for row in rows], page
 
     async def dealer_offers(

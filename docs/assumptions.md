@@ -4888,6 +4888,35 @@ a resolver is registered for a type it does not list.
 again. To hold another entity type to its records, register its owner's
 `get_or_404` and move the type from the guard's unresolved list.
 
+## §PROMO-1. A banner whose image has lapsed is not shown to dealers
+
+**Assumed.** `GET /dealer-portal/banners` lists an active banner only while its
+image is one `GET /dealer-portal/images/{id}` serves: a JPEG, PNG or WebP
+document of this company's that has not passed its retention date
+(`document_not_expired`, the documents module's one statement of the rule). A
+banner whose image has lapsed, or whose image row the purge sweep or a person
+has removed, is withdrawn from every dealer, and the page's total counts only
+what is listed. Its status does not change: staff still list it as ACTIVE, and
+choosing a live image brings it back, since activating or editing a banner
+already refuses an image that is not live.
+
+**Why.** The image route reads the banner's image as a live document and
+answers 404 once its retention date passes, while the banner list went on
+naming it, so every dealer saw a broken banner until someone noticed. An item's
+catalogue images drop a lapsed one and rank the next in its place; a banner has
+one image and nothing to rank, and a banner without its image is not one.
+Retiring or deactivating it automatically was not chosen: a promotion's status
+moves only through an audited transition that a person gives a reason for.
+
+**Where.** `src/modules/dealer_portal/promotion_repository.py` -
+`DealerBannerRepository.active`; `src/modules/documents/repository.py` -
+`document_not_expired`. `tests/api/test_dealer_portal_routes_http.py` -
+`test_a_banner_whose_image_has_lapsed_is_withdrawn_from_the_dealer`.
+
+**Impact if wrong.** To show such a banner without its image, drop the
+predicate and make `image_document_id` nullable on the dealer's read, which the
+portal must then draw without a picture.
+
 ## §MAIL-1. A relay's permanent refusal of a recipient ends the e-mail attempt
 
 **Assumed.** When the relay refuses every recipient of a message with a 5xx

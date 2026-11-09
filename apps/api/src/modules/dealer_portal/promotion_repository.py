@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import func, literal, or_, select, union_all
@@ -14,7 +14,9 @@ from src.core.pagination import PageParams
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import Customer
 from src.modules.dealer_portal.models import DealerBanner, DealerBannerStatus, DealerOffer
-from src.modules.dealer_portal.repository import DealerOfferRepository
+from src.modules.dealer_portal.repository import IMAGE_MIME_TYPES, DealerOfferRepository
+from src.modules.documents.models import Document
+from src.modules.documents.repository import document_not_expired
 from src.modules.products.models import Brand, Item, ItemCategory
 
 
@@ -24,8 +26,31 @@ class DealerBannerRepository(BaseRepository[DealerBanner]):
     searchable_fields = ("code", "title")
 
     async def active(
-        self, price_type: str, on_date: date, params: PageParams
+        self, price_type: str, on_date: date, params: PageParams, *, now: datetime
     ) -> tuple[list[DealerBanner], OffsetPagination]:
+        """The banners a dealer on ``price_type`` is shown on ``on_date``.
+
+        Only a banner whose image ``/dealer-portal/images/{id}`` will serve - a
+        JPEG, PNG or WebP of this company's, not past its retention date. That
+        route reads the image as a live document and answers 404 for one that
+        lapsed, or that the purge sweep has since removed, so listing the banner
+        showed every dealer a broken image.
+
+        ASSUMPTION: such a banner is withdrawn from dealers rather than shown
+        without its image. A banner is its image, and unlike an item's there is
+        no next one to take its place; staff still see it, ACTIVE, and choose a
+        new image to bring it back. docs/assumptions.md §PROMO-1.
+        """
+        image_live = (
+            select(Document.id)
+            .where(
+                Document.company_id == self.tenant.company_id,
+                Document.id == DealerBanner.image_document_id,
+                Document.mime_type.in_(IMAGE_MIME_TYPES),
+                document_not_expired(now),
+            )
+            .exists()
+        )
         stmt = self._scoped().where(
             DealerBanner.status == DealerBannerStatus.ACTIVE,
             or_(DealerBanner.valid_from.is_(None), DealerBanner.valid_from <= on_date),
@@ -34,6 +59,7 @@ class DealerBannerRepository(BaseRepository[DealerBanner]):
                 DealerBanner.audience_price_type.is_(None),
                 DealerBanner.audience_price_type == price_type,
             ),
+            image_live,
         )
         return await self.list_page(params, stmt=stmt, order_by=DealerBanner.sort_order.asc())
 
