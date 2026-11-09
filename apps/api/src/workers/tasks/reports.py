@@ -126,11 +126,6 @@ PAGE_MARGIN = 15 * mm
 #: goods-inwards clerk mis-reads.
 CARTONS_PER_PAGE = 6
 
-#: Rows fetched from the valuation aggregate per round trip. Large enough that a
-#: four-thousand-position company is eight queries, small enough that no single
-#: result set is held in the worker at an unbounded size.
-VALUATION_CHUNK_ROWS = 500
-
 #: Hard ceiling on one valuation export. A company whose valuation exceeds this
 #: has outgrown a spreadsheet, and an unbounded export would be an unbounded
 #: result set wearing a background job's clothes (section 31). The workbook says
@@ -1456,10 +1451,13 @@ async def inventory_valuation(
     A real item master can contain thousands of positions, so this work belongs
     in a background job rather than a long HTTP request (sections 22, 35).
 
-    The aggregate is walked in fixed-size chunks over a stable ``(item_id,
-    warehouse_id)`` ordering. Ordering by value instead - which is right for the
-    screen - would tie between equal-valued positions and let a row appear in
-    two chunks or in none.
+    The aggregate is read in one statement, up to ``MAX_VALUATION_EXPORT_ROWS``,
+    over a stable ``(item_id, warehouse_id)`` ordering, so a truncated export is
+    a deterministic prefix. It used to be walked in OFFSET chunks, and each
+    chunk re-ran the whole aggregate in a fresh READ COMMITTED snapshot: the
+    cost grew with the square of the position count, and stock moving between
+    chunks shifted the offsets, so a position could be exported twice or not
+    at all. The workbook holds every row in memory whichever way they are read.
 
     The job row (``snapshot_id``) is claimed on entry, completed with the
     document id once the row is written, and failed on a fresh session if
@@ -1531,17 +1529,8 @@ async def inventory_valuation(
             repo = InventoryValuationRepository(session, tenant)
             row_count, total_quantity, total_value = await repo.valuation_totals(filters)
 
-            stmt = repo.valuation_export_stmt(filters)
-            rows: list[dict[str, Any]] = []
-            offset = 0
-            while len(rows) < MAX_VALUATION_EXPORT_ROWS:
-                chunk = (
-                    await session.execute(stmt.limit(VALUATION_CHUNK_ROWS).offset(offset))
-                ).all()
-                if not chunk:
-                    break
-                rows.extend(valuation_row(row).model_dump() for row in chunk)
-                offset += VALUATION_CHUNK_ROWS
+            stmt = repo.valuation_export_stmt(filters).limit(MAX_VALUATION_EXPORT_ROWS)
+            rows = [valuation_row(row).model_dump() for row in (await session.execute(stmt)).all()]
 
             truncated = len(rows) < row_count
             payload = await anyio.to_thread.run_sync(
@@ -2903,7 +2892,6 @@ __all__ = [
     "PACKING_LIST_ENTITY",
     "PURCHASE_ORDER_ENTITY",
     "REPORT_COLUMN_WIDTH_LIMIT",
-    "VALUATION_CHUNK_ROWS",
     "VALUATION_ENTITY",
     "generate_packing_list",
     "generate_purchase_order",

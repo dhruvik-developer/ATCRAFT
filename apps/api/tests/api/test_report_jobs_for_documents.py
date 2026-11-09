@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
@@ -34,7 +34,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -46,6 +46,9 @@ from src.core.permissions import Permission
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.service import resolve_storage_path
+from src.modules.finance.repository import InventoryValuationRepository
+from src.modules.finance.schemas import ValuationFilters
+from src.modules.finance.service import valuation_row
 from src.modules.inventory import service as inventory_service
 from src.modules.inventory.models import TransactionType
 from src.modules.job_work.models import (
@@ -754,6 +757,113 @@ async def test_the_inventory_valuation_export_is_a_job_that_files_a_workbook(
     assert document.file_name.endswith(".xlsx")
     assert document.size_bytes > 0
     assert resolve_storage_path(document.storage_key).is_file()
+
+
+def _rendered_valuation(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """What the worker hands the workbook renderer: its rows and its summary."""
+    seen: dict[str, Any] = {}
+    render = report_tasks.render_inventory_valuation_xlsx
+
+    def recording(rows: list[dict[str, Any]], summary: dict[str, Any]) -> bytes:
+        seen["rows"], seen["summary"] = list(rows), dict(summary)
+        return render(rows, summary)
+
+    monkeypatch.setattr(report_tasks, "render_inventory_valuation_xlsx", recording)
+    return seen
+
+
+@contextmanager
+def _valuation_row_reads(engine: Any) -> Iterator[list[str]]:
+    """Every valuation row statement sent while the block runs.
+
+    The totals read wraps the same aggregate with no ORDER BY; the row read is
+    the one ordered by the grouping key.
+    """
+    reads: list[str] = []
+
+    def record(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        if "inventory_cost_layers" in statement and "ORDER BY" in statement:
+            reads.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record)
+    try:
+        yield reads
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", record)
+
+
+async def _export_order(
+    engine: Any, tenant: TenantContext, job_id: str, *, limit: int | None = None
+) -> tuple[list[dict[str, Any]], int]:
+    """The export's rows read afresh at the job's captured scope, and the full count."""
+    from src.modules.reports.models import ReportSnapshot
+
+    async with _factory(engine)() as session:
+        snapshot = await session.get(ReportSnapshot, uuid.UUID(job_id))
+        scoped = TenantContext(
+            company_id=tenant.company_id,
+            user_id=tenant.user_id,
+            allowed_warehouse_ids=reports_service.valuation_warehouse_scope(snapshot),
+        )
+        repo = InventoryValuationRepository(session, scoped)
+        stmt = repo.valuation_export_stmt(ValuationFilters())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        rows = [valuation_row(row).model_dump() for row in (await session.execute(stmt)).all()]
+        count, _, _ = await repo.valuation_totals(ValuationFilters())
+    return rows, count
+
+
+async def test_the_valuation_export_reads_its_positions_in_one_statement(
+    client: AsyncClient, engine: Any, tenant: TenantContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for _ in range(3):
+        await _stock_a_position(engine, tenant)
+    seen = _rendered_valuation(monkeypatch)
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202, accepted.text
+    job_id = accepted.json()["data"]["job_id"]
+
+    with _valuation_row_reads(engine) as reads:
+        outcome = await _run_worker(
+            report_tasks.inventory_valuation,
+            company_id=str(tenant.company_id),
+            user_id=str(tenant.user_id),
+            snapshot_id=job_id,
+        )
+
+    assert outcome["status"] == "COMPLETED", outcome
+    # An OFFSET walk re-ran the aggregate per chunk and once more to find the end.
+    assert len(reads) == 1, reads
+    expected, count = await _export_order(engine, tenant, job_id)
+    assert count >= 3
+    assert seen["rows"] == expected
+    assert (seen["summary"]["row_count"], seen["summary"]["truncated"]) == (count, False)
+
+
+async def test_a_valuation_export_past_its_ceiling_keeps_the_first_positions_and_says_so(
+    client: AsyncClient, engine: Any, tenant: TenantContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for _ in range(2):
+        await _stock_a_position(engine, tenant)
+    monkeypatch.setattr(report_tasks, "MAX_VALUATION_EXPORT_ROWS", 1)
+    seen = _rendered_valuation(monkeypatch)
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202, accepted.text
+    job_id = accepted.json()["data"]["job_id"]
+
+    outcome = await _run_worker(
+        report_tasks.inventory_valuation,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+        snapshot_id=job_id,
+    )
+
+    assert outcome["status"] == "COMPLETED", outcome
+    first, count = await _export_order(engine, tenant, job_id, limit=1)
+    assert count >= 2
+    assert seen["rows"] == first
+    assert (seen["summary"]["row_count"], seen["summary"]["truncated"]) == (count, True)
 
 
 async def test_restricted_valuation_exporter_can_watch_and_download_only_its_own_export(

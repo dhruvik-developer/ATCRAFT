@@ -2196,11 +2196,11 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
         )
 
     def valuation_export_stmt(self, filters: ValuationFilters) -> Select[Any]:
-        """Stable order for the chunked full-company export.
+        """Stable order for the full-company export.
 
-        Ordered by the grouping key rather than by value: the export walks the
-        result in fixed-size chunks, and an ordering that ties would let a row
-        appear on two chunks or on none.
+        Ordered by the grouping key rather than by value: the export stops at
+        its row ceiling, and an ordering that ties between equal-valued
+        positions would make which of them a truncated export kept arbitrary.
         """
         return self.valuation_stmt(filters).order_by(
             InventoryBalance.item_id.asc(), InventoryBalance.warehouse_id.asc()
