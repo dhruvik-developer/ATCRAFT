@@ -26,6 +26,21 @@ type Assignment = SchemaOf<'ShiftAssignmentRead'>
 const keys = (params: unknown) => [...queryKeys.routing.all, 'roster', params] as const
 const dateText = (date: Date) => format(date, 'yyyy-MM-dd')
 
+/** An audited change awaiting its reason; retiring and cancelling cannot be undone. */
+interface RosterChange {
+  path: string
+  /**
+   * How the reason travels: retiring a shift is a `DELETE` with the reason in
+   * the query, every other change posts it. Stated with the target rather than
+   * read off the confirm button, so rewording a label cannot change the request.
+   */
+  method: 'DELETE' | 'POST'
+  /** What the dialog asks, naming the shift or the assignment it acts on. */
+  title: string
+  label: string
+  destructive?: boolean
+}
+
 export default function ShiftRosterPage() {
   const { can } = useAuth()
   const cache = useQueryClient()
@@ -37,14 +52,7 @@ export default function ShiftRosterPage() {
     cell?: RosterCell
   } | null>(null)
   const [editing, setEditing] = useState<ShiftOption | null | undefined>()
-  /** The audited change awaiting its reason; retiring and cancelling cannot be undone. */
-  const [confirm, setConfirm] = useState<{
-    path: string
-    /** What the dialog asks, naming the shift or the assignment it acts on. */
-    title: string
-    label: string
-    destructive?: boolean
-  } | null>(null)
+  const [confirm, setConfirm] = useState<RosterChange | null>(null)
   const rosterView = can(P.SHIFT_ROSTER_VIEW)
   const rosterManage = can(P.SHIFT_ROSTER_MANAGE)
   const shiftView = can(P.SHIFT_VIEW)
@@ -97,14 +105,8 @@ export default function ShiftRosterPage() {
     enabled: rosterView,
   })
   const action = useMutation({
-    mutationFn: ({
-      target,
-      reason,
-    }: {
-      target: { path: string; label: string }
-      reason: string
-    }) =>
-      target.label === 'Retire'
+    mutationFn: ({ target, reason }: { target: RosterChange; reason: string }) =>
+      target.method === 'DELETE'
         ? api.delete(`${target.path}?reason=${encodeURIComponent(reason)}`)
         : api.post(target.path, { reason }),
     onSuccess: () => {
@@ -149,6 +151,7 @@ export default function ShiftRosterPage() {
                   onClick={() =>
                     setConfirm({
                       path: `/routing/shifts/${row.original.id}/${row.original.is_active ? 'deactivate' : 'activate'}`,
+                      method: 'POST',
                       title: `${row.original.is_active ? 'Deactivate' : 'Activate'} shift ${row.original.code}?`,
                       label: row.original.is_active ? 'Deactivate' : 'Activate',
                     })
@@ -162,8 +165,9 @@ export default function ShiftRosterPage() {
                   onClick={() =>
                     setConfirm({
                       path: `/routing/shifts/${row.original.id}`,
+                      method: 'DELETE',
                       title: `Retire shift ${row.original.code}?`,
-                      label: 'Retire',
+                      label: 'Retire shift',
                       destructive: true,
                     })
                   }
@@ -187,6 +191,7 @@ export default function ShiftRosterPage() {
           onClick={() =>
             setConfirm({
               path: `/routing/roster/assignments/${row.id}/cancel`,
+              method: 'POST',
               title: `Cancel the assignment for ${row.operator_name}?`,
               label: 'Cancel assignment',
               destructive: true,

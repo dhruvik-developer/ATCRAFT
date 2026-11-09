@@ -155,7 +155,7 @@ describe('retiring a shift', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Retire' }))
     const dialog = await screen.findByRole('dialog', { name: 'Retire shift A?' })
-    const confirm = within(dialog).getByRole('button', { name: 'Retire' })
+    const confirm = within(dialog).getByRole('button', { name: 'Retire shift' })
     // Retiring cannot be undone, so its confirmation is the destructive one.
     expect(confirm).toHaveClass('bg-destructive')
 
@@ -171,14 +171,69 @@ describe('retiring a shift', () => {
     expect(seen[0]!.searchParams.get('reason')).toBe('absent shift dropped')
   })
 
-  it('keeps the primary confirm for a deactivation, which can be reversed', async () => {
-    const { user } = renderScreen(<ShiftRosterPage />, {
+  it('keeps the primary confirm for a deactivation, which can be reversed, and posts it', async () => {
+    const { user, fetch } = renderScreen(<ShiftRosterPage />, {
       permissions: [P.SHIFT_VIEW, P.SHIFT_MANAGE],
-      routes,
+      routes: { ...routes, 'POST /routing/shifts/shift-a/deactivate': ok(shift) },
     })
 
     await user.click(await screen.findByRole('button', { name: 'Deactivate' }))
     const dialog = await screen.findByRole('dialog', { name: 'Deactivate shift A?' })
-    expect(within(dialog).getByRole('button', { name: 'Deactivate' })).toHaveClass('bg-primary')
+    const confirm = within(dialog).getByRole('button', { name: 'Deactivate' })
+    expect(confirm).toHaveClass('bg-primary')
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'Line idle')
+    await user.click(confirm)
+    // The method comes with the change, not from the button's wording: only
+    // retiring deletes.
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/routing/shifts/shift-a/deactivate')).toEqual({
+        reason: 'Line idle',
+      }),
+    )
+    expect(fetch.calls.some((call) => call.method === 'DELETE')).toBe(false)
+  })
+})
+
+describe('cancelling an assignment', () => {
+  it('posts the reason to the assignment it names, and deletes nothing', async () => {
+    const { user, fetch } = renderScreen(<ShiftRosterPage />, {
+      permissions: [P.SHIFT_ROSTER_VIEW, P.SHIFT_ROSTER_MANAGE],
+      routes: {
+        ...routes,
+        'GET /routing/roster/assignments': page([
+          {
+            id: 'assignment-1',
+            shift_id: shift.id,
+            shift_code: shift.code,
+            work_center_id: centre.id,
+            work_center_code: centre.code,
+            work_center_name: centre.name,
+            machine_id: null,
+            machine_code: null,
+            operator_user_id: 'operator-1',
+            operator_name: 'Neha Patel',
+            roster_date: '2026-10-12',
+            status: 'PLANNED',
+          },
+        ]),
+        'POST /routing/roster/assignments/assignment-1/cancel': ok(null),
+      },
+    })
+
+    // The board draws the chip twice - the phone list and the desktop grid.
+    await user.click((await screen.findAllByRole('button', { name: 'Cancel Neha Patel' }))[0]!)
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Cancel the assignment for Neha Patel?',
+    })
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'Operator on leave')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel assignment' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/routing/roster/assignments/assignment-1/cancel')).toEqual({
+        reason: 'Operator on leave',
+      }),
+    )
+    expect(fetch.calls.some((call) => call.method === 'DELETE')).toBe(false)
   })
 })
