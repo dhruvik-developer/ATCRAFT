@@ -202,8 +202,8 @@ export function SalesOrderLineDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? `Edit line ${line?.line_number}` : 'Add a line'}</DialogTitle>
           <DialogDescription>
-            The line is saved with the order. On a confirmed order the API adjusts the reserved
-            quantity to match; on a draft it simply replaces the line set.
+            The line is saved with the order. On a confirmed order the reserved quantity is adjusted
+            to match; on a draft it simply replaces the line set.
           </DialogDescription>
         </DialogHeader>
 
@@ -356,8 +356,8 @@ export function SalesOrderLineDialog({
                 />
                 <FieldError message={errors.unit_price?.message} />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Left empty, the API prices the line from the customer&apos;s price list. A price
-                  below cost needs an approval before the order can be confirmed.
+                  Left empty, the line is priced from the customer&apos;s price list. A price below
+                  cost needs an approval before the order can be confirmed.
                 </p>
               </div>
 
@@ -425,7 +425,7 @@ export function SalesOrderLineDialog({
                 </div>
               </dl>
               <p className="mt-2 text-xs text-muted-foreground">
-                A preview before tax. The API prices the line and splits the tax into CGST + SGST or
+                A preview before tax. Saving prices the line and splits the tax into CGST + SGST or
                 IGST from the place of supply.
                 {!currency && ' Amounts use the company currency when the order is saved.'}
               </p>

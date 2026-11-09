@@ -253,7 +253,7 @@ function UploadDialog({
     } else if (type && !ENTITY_TYPE_PATTERN.test(type)) {
       next.entity = 'The record type is lowercase snake_case, e.g. qc_inspection'
     } else if (id && !UUID_PATTERN.test(id)) {
-      next.entity = 'The record id is a UUID'
+      next.entity = 'Enter the record id in full'
     }
 
     if (expiresAt) {
@@ -372,7 +372,7 @@ function UploadDialog({
               <Label htmlFor="document-entity-id">Record id</Label>
               <Input
                 id="document-entity-id"
-                placeholder="UUID of the record"
+                placeholder="The full id of the record"
                 autoComplete="off"
                 className="mt-1.5 font-mono text-xs"
                 value={entityId}
@@ -514,8 +514,8 @@ function DocumentDetailDialog({
             <Alert variant="warning">
               <AlertTitle>Past its retention date</AlertTitle>
               <AlertDescription>
-                The API treats an expired document as absent, so the file can no longer be
-                downloaded. Deleting it still works and clears the record and the file together.
+                An expired document is treated as absent, so the file can no longer be downloaded.
+                Deleting it still works and clears the record and the file together.
               </AlertDescription>
             </Alert>
           )}
@@ -1036,7 +1036,7 @@ export default function DocumentsPage() {
               <Input
                 id="documents-entity-id"
                 className="w-full font-mono text-xs sm:w-[13rem]"
-                placeholder="Record id (UUID)"
+                placeholder="Full record id"
                 autoComplete="off"
                 value={entityId}
                 // Meaningless without the type beside it, and the API says so

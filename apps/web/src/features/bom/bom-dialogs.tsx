@@ -346,8 +346,8 @@ export function BomFormDialog({
                   </p>
                 )}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Any version of the same item qualifies; the API refuses a bill made for a
-                  different item.
+                  Any version of the same item qualifies; a bill made for a different item is
+                  refused.
                 </p>
               </div>
             )}
@@ -455,7 +455,7 @@ export function BomFormDialog({
               <div>
                 <Label htmlFor="bom-default">Make this the default bill for the item</Label>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Only one approved bill per item may be the default; the API rejects a second.
+                  Only one approved bill per item may be the default; a second is refused.
                 </p>
               </div>
             </div>

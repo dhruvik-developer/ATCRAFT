@@ -311,7 +311,7 @@ export function SalesOrderFormDialog({
             <DialogTitle>{isEdit ? `Edit ${order?.code}` : 'New sales order'}</DialogTitle>
             <DialogDescription>
               {isEdit
-                ? 'Header changes only. Lines are amended on the order itself, because the API prices and re-reserves the whole set together.'
+                ? 'Header changes only. Lines are amended on the order itself, because the whole set is priced and re-reserved together.'
                 : 'The order is created as a draft with its lines. Confirming it afterwards reserves stock.'}
             </DialogDescription>
           </DialogHeader>

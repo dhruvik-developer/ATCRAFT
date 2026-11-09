@@ -367,7 +367,7 @@ const transferSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['lines', index, 'serial_numbers'],
-          message: `The API accepts at most ${SERIAL_BULK_MAX} serials at a time.`,
+          message: `At most ${SERIAL_BULK_MAX} serials are accepted at a time.`,
         })
         return
       }
@@ -618,7 +618,7 @@ const adjustmentSchema = z
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['lines', index, 'serial_numbers'],
-          message: `The API accepts at most ${SERIAL_BULK_MAX} serials at a time.`,
+          message: `At most ${SERIAL_BULK_MAX} serials are accepted at a time.`,
         })
         return
       }

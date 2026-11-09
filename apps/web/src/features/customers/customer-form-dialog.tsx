@@ -331,7 +331,7 @@ function StandingPanel({ customer, canEdit }: { customer: CustomerDetail; canEdi
             <FieldError
               message={
                 reason.trim() === ''
-                  ? 'The API records this against the account - it needs a reason'
+                  ? 'This is recorded against the account - it needs a reason'
                   : messages.errors.reasonTooShort
               }
             />

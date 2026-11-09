@@ -384,7 +384,7 @@ export function JobWorkIssueDialog({
                       aria-describedby="challan-reason-hint"
                     />
                     <p id="challan-reason-hint" className="mt-1 text-xs text-muted-foreground">
-                      Required by the API and recorded against the stock movement.
+                      Required, and recorded against the stock movement.
                     </p>
                     <FieldError message={errors.reason?.message} />
                   </div>

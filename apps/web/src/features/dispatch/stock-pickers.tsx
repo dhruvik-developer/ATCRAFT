@@ -406,9 +406,10 @@ export function SerialPicker({
             </div>
           )}
 
+          {/* The rule is docs/assumptions.md section 23. */}
           <p className="text-xs text-muted-foreground">
-            One serial per unit - the API refuses a serialised line that does not name exactly as
-            many as it moves (docs/assumptions.md section 23).
+            One serial per unit - a serialised line that does not name exactly as many as it moves
+            is refused.
           </p>
         </>
       )}

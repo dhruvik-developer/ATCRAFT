@@ -921,7 +921,7 @@ describe('the price list', () => {
     await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      'This endpoint cannot reopen a closed price',
+      'A closed price cannot be reopened',
     )
     expect(fetch.calls.some((call) => call.method === 'PATCH')).toBe(false)
   })

@@ -859,7 +859,7 @@ export default function RequisitionsPage() {
           />
           {commandCopy?.reasonRequired && commandTouched && commandTooShort ? (
             <FieldError
-              message={`The API records this - it needs a reason of at least ${REASON_MIN_LENGTH} characters`}
+              message={`This is recorded - it needs a reason of at least ${REASON_MIN_LENGTH} characters`}
             />
           ) : commandTouched && commandTooLong ? (
             <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />

@@ -261,7 +261,7 @@ export function InventoryValuationTab() {
         <StatTile
           label="Valued at"
           value={formatDateTime(data?.summary.as_of)}
-          hint="FIFO cost layers as the API read them"
+          hint="FIFO cost layers as they stood at that moment"
           isLoading={valuation.isLoading}
         />
       </div>

@@ -261,7 +261,7 @@ function VendorRatingDialog({
           <DialogTitle>{vendor ? `${vendor.code} - ${vendor.name}` : 'Vendor rating'}</DialogTitle>
           <DialogDescription>
             Measured from goods receipts and QC inspections over the window you choose. No figure
-            here can be typed in - recording keeps exactly what the API computed.
+            here can be typed in - recording keeps exactly what the system computed.
           </DialogDescription>
         </DialogHeader>
 

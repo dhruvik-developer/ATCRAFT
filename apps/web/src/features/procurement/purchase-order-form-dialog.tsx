@@ -282,7 +282,7 @@ export function PurchaseOrderFormDialog({
             <DialogTitle>New purchase order</DialogTitle>
             <DialogDescription>
               The order is created as a draft and goes through approval before it can be sent. Only
-              approved vendors can be chosen - the API refuses the rest.
+              approved vendors can be chosen - the rest are refused.
             </DialogDescription>
           </DialogHeader>
 
@@ -515,7 +515,7 @@ export function PurchaseOrderFormDialog({
                   <span className="tabular font-medium text-foreground">
                     {formatMoney(indicativeTotal.toFixed(4))}
                   </span>{' '}
-                  before discount, GST and rounding. The API calculates the order total.
+                  before discount, GST and rounding. The system calculates the order total.
                 </p>
               </div>
 

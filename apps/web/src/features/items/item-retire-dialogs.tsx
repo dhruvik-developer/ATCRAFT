@@ -201,17 +201,17 @@ export function RetireItemDialog({
                 )}
               </ul>
               <p className="mt-2">
-                The API refuses neither. It will retire the item anyway, so this is a decision, not
-                a warning it will enforce.
+                Neither is refused. The item will be retired anyway, so this is a decision, not a
+                warning that will be enforced.
               </p>
             </AlertDescription>
           </Alert>
         )}
 
         <p className="text-xs text-muted-foreground">
-          Retirement is final: the archived state is terminal and no screen or endpoint reverses it.
-          The audit trail records the status change against your account - this endpoint takes no
-          reason, so there is nothing to type.
+          Retirement is final: the archived state is terminal and nothing reverses it. The audit
+          trail records the status change against your account - retiring takes no reason, so there
+          is nothing to type.
           {checksSkipped &&
             ' Stock and bill-of-materials use could not be checked from this account.'}
         </p>
@@ -288,8 +288,8 @@ export function RetireVariantDialog({
         <p className="text-xs text-muted-foreground">
           Retirement is final - no screen brings a variant back. Its finish, size and colour
           combination is freed the moment it goes, so an identical variant can be created again
-          under a new code. This endpoint takes no reason; the audit trail records the removal
-          against your account.
+          under a new code. Retiring takes no reason; the audit trail records the removal against
+          your account.
         </p>
       </div>
     </ConfirmDialog>

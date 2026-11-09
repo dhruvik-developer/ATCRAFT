@@ -228,7 +228,7 @@ export function PriceFormDialog({
       setError('valid_to', {
         type: 'manual',
         message:
-          'This endpoint cannot reopen a closed price. Leave the end date, or add a new row for the period that follows it.',
+          'A closed price cannot be reopened. Leave the end date, or add a new row for the period that follows it.',
       })
       return
     }
@@ -402,7 +402,7 @@ export function PriceFormDialog({
                 <FieldError message={errors.valid_to?.message} />
                 <p id="price-valid-to-help" className="mt-1 text-xs text-muted-foreground">
                   {endDateIsSticky
-                    ? 'An end date, once set, cannot be removed through this endpoint. Add a new row for the period that follows instead.'
+                    ? 'An end date, once set, cannot be removed. Add a new row for the period that follows instead.'
                     : 'Leave empty for a price that runs until it is superseded.'}
                 </p>
               </div>

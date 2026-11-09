@@ -202,7 +202,7 @@ export default function CourierIntegrationPage() {
             </CardTitle>
             <CardDescription>
               Shiprocket credentials are sent only when creating or replacing them; they are never
-              returned by the API.
+              shown again.
             </CardDescription>
           </CardHeader>
           <CardContent>

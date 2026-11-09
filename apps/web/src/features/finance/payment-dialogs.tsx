@@ -672,9 +672,9 @@ export function PaymentFormDialog({
 
                 {isEdit && (
                   <p className="text-xs text-muted-foreground">
-                    An amendment only applies what is filled in. The endpoint ignores an empty value
-                    rather than treating it as a clearance, so emptying the reference, bank or note
-                    here leaves what is stored exactly as it was.
+                    An amendment only applies what is filled in. An empty value is ignored rather
+                    than treated as a clearance, so emptying the reference, bank or note here leaves
+                    what is stored exactly as it was.
                   </p>
                 )}
               </>

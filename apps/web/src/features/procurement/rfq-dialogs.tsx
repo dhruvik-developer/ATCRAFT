@@ -740,8 +740,8 @@ export function RfqFormDialog({
                 <Alert variant="warning">
                   <AlertTitle>This RFQ has already been sent</AlertTitle>
                   <AlertDescription>
-                    Vendors are quoting against the lines as they were issued, so the API will
-                    refuse any change. Cancel it and raise a new one if the enquiry was wrong.
+                    Vendors are quoting against the lines as they were issued, so any change will be
+                    refused. Cancel it and raise a new one if the enquiry was wrong.
                   </AlertDescription>
                 </Alert>
               )}

@@ -276,7 +276,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
               aria-invalid={(touched && delayReasonMissing) || Boolean(delayServerError)}
             />
             {touched && delayReasonMissing && (
-              <FieldError message="This consignment arrived after its promised date - the API records why before it will confirm the delivery" />
+              <FieldError message="This consignment arrived after its promised date - record why before the delivery can be confirmed" />
             )}
             <FieldError message={delayServerError} />
           </div>
@@ -416,7 +416,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
           />
           {touched && noteInvalid && (
             <FieldError
-              message={`The API records this transition - it needs a reason of ${REASON_MIN_LENGTH} to ${REASON_MAX_LENGTH} characters`}
+              message={`This transition is recorded - it needs a reason of ${REASON_MIN_LENGTH} to ${REASON_MAX_LENGTH} characters`}
             />
           )}
           <FieldError message={noteServerError} />

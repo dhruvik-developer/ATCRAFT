@@ -1094,8 +1094,7 @@ export function RoleAssignmentDialog({
           <DialogTitle>Roles for {user?.full_name ?? userName}</DialogTitle>
           <DialogDescription>
             The submitted list replaces the account&apos;s roles entirely. Assigning a role grants
-            every permission in it, and the API enforces that grant on every request from this
-            account.
+            every permission in it, and that grant is enforced on every action this account takes.
           </DialogDescription>
         </DialogHeader>
 

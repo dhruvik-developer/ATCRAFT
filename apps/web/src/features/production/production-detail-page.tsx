@@ -848,7 +848,7 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Calculated by the API from the issues and bookings posted against this order. The screen
+        Calculated by the system from the issues and bookings posted against this order. The screen
         never re-adds them, so these figures reconcile with the inventory ledger.
       </p>
 

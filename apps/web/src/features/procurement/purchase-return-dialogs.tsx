@@ -1161,7 +1161,7 @@ export function PurchaseReturnPostDialog({
             <Alert variant="destructive">
               <AlertTitle>This return has no lines</AlertTitle>
               <AlertDescription>
-                There is nothing to move, and the API refuses a posting without lines. Cancel it and
+                There is nothing to move, and a posting without lines is refused. Cancel it and
                 raise a new return against the receipt.
               </AlertDescription>
             </Alert>

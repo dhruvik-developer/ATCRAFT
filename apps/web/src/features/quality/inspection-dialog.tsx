@@ -198,7 +198,7 @@ const schema = z
         message:
           values.reason === ''
             ? 'Say why this decision is being taken - it is recorded in the audit trail'
-            : `The API records this in the audit trail and needs at least ${REASON_MIN_LENGTH} characters`,
+            : `This is recorded in the audit trail and needs at least ${REASON_MIN_LENGTH} characters`,
       })
     }
 

@@ -964,8 +964,8 @@ export default function ProfilePage() {
               ]}
             />
             <p className="mt-4 text-xs text-muted-foreground">
-              Permissions are resolved by the API on every request, so a change an administrator
-              makes takes effect immediately rather than at your next sign-in.
+              Permissions are checked again on every action, so a change an administrator makes
+              takes effect immediately rather than at your next sign-in.
             </p>
           </CardContent>
         </Card>

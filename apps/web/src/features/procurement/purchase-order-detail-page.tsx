@@ -393,7 +393,7 @@ function TotalsCard({ order }: { order: PurchaseOrderDetail }) {
           ))}
         </dl>
         <p className="mt-4 text-xs text-muted-foreground">
-          Calculated by the API. The screen never re-adds them.
+          Calculated by the system. The screen never re-adds them.
         </p>
       </CardContent>
     </Card>

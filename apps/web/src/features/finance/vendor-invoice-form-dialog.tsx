@@ -1043,9 +1043,9 @@ export function VendorInvoiceFormDialog({
                   <AlertTitle>These lines are linked to a different document</AlertTitle>
                   <AlertDescription>
                     The {seeded?.kind === 'receipt' ? 'goods receipt' : 'purchase order'} named
-                    above has changed since these lines were linked, and the API refuses a line
-                    billed against another order&rsquo;s line. Copy the lines again, or drop the
-                    links and keep the figures you have keyed.
+                    above has changed since these lines were linked, and a line billed against
+                    another order&rsquo;s line is refused. Copy the lines again, or drop the links
+                    and keep the figures you have keyed.
                     <Button
                       type="button"
                       variant="outline"

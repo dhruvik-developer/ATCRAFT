@@ -166,7 +166,7 @@ export default function SettingsPage() {
             ? 'Automatic shortfall planning is on'
             : 'Automatic shortfall planning is off',
         saved.is_default
-          ? 'No company override is stored; the code default (on) is in force.'
+          ? 'No company override is stored; the built-in default (on) is in force.'
           : 'The change applies to the next order confirmed by this company.',
       )
     },
@@ -209,7 +209,7 @@ export default function SettingsPage() {
     <>
       <PageHeader
         title="Settings"
-        description="Company-wide defaults. Each one changes what another screen does, so the API re-checks the value on the request that uses it."
+        description="Company-wide defaults. Each one changes what another screen does, from the next action that uses it."
         breadcrumbs={[{ label: 'Administration' }, { label: 'Settings' }]}
       />
 

@@ -536,7 +536,7 @@ function TotalsCard({ order }: { order: SalesOrderDetail }) {
           ))}
         </dl>
         <p className="mt-4 text-xs text-muted-foreground">
-          Calculated by the API from the place of supply. The screen never re-adds them.
+          Calculated by the system from the place of supply. The screen never re-adds them.
         </p>
       </CardContent>
     </Card>
@@ -1330,7 +1330,7 @@ export default function SalesOrderDetailPage() {
         title="Remove this line?"
         description={
           pendingLineDelete
-            ? `Line ${pendingLineDelete.line.line_number} will be removed, the remaining lines renumbered, and the order totals recalculated by the API.`
+            ? `Line ${pendingLineDelete.line.line_number} will be removed, the remaining lines renumbered, and the order totals recalculated.`
             : undefined
         }
         confirmLabel="Remove line"

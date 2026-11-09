@@ -488,8 +488,8 @@ export default function PlanningPage() {
 
             <p className="text-xs text-muted-foreground">
               Day columns follow the date where this browser sits; the load figures above it are
-              company dates from the API. Clash badges compare the operations loaded for this week -
-              the assignment itself re-validates against everything.
+              company dates. Clash badges compare the operations loaded for this week - the
+              assignment itself re-validates against everything.
             </p>
           </div>
         )}

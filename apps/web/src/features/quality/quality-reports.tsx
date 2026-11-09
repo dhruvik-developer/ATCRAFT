@@ -386,7 +386,7 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
               <AlertTriangle aria-hidden />
               <AlertTitle>Item breakdown is incomplete</AlertTitle>
               <AlertDescription>
-                The API returned only part of this vendor&apos;s item list. The headline figures
+                Only part of this vendor&apos;s item list could be loaded. The headline figures
                 above still cover the whole window.
               </AlertDescription>
             </Alert>

@@ -183,7 +183,7 @@ export function GstSummaryTab({
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Components</CardTitle>
           <p className="text-xs text-muted-foreground">
-            As reported by the API for {period || 'the selected period'}.
+            As recorded for {period || 'the selected period'}.
           </p>
         </CardHeader>
         <CardContent>

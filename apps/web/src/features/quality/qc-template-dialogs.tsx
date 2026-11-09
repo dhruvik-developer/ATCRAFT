@@ -1303,7 +1303,7 @@ export function QcTemplateFormDialog({
                   </AlertTitle>
                   <AlertDescription>
                     {diff?.restatesSpecification
-                      ? 'Scope, stage, sampling and the characteristics decide what past inspections were judged against. The API will refuse this edit if any inspection has already applied this version - raise a new version instead, and the record of what was measured stays intact.'
+                      ? 'Scope, stage, sampling and the characteristics decide what past inspections were judged against. This edit will be refused if any inspection has already applied this version - raise a new version instead, and the record of what was measured stays intact.'
                       : 'Changing any of it is only accepted while no inspection has applied this version.'}
                   </AlertDescription>
                   {/* The refusal alert above already offers the fork, and one

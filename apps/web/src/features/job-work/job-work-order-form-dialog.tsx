@@ -1119,7 +1119,7 @@ export function JobWorkOrderFormDialog({
                     <span className="tabular font-medium text-foreground">
                       {formatMoney(indicativeCharge(lines, ratePerUnit, rateBasis))}
                     </span>{' '}
-                    at the rate above. The API freezes its own estimate onto the order.
+                    at the rate above. The system fixes its own estimate on the order.
                   </p>
                 </div>
 

@@ -139,10 +139,7 @@ const createSchema = z.object({
       (value) => UUID_PATTERN.test(value),
       'Paste the id of the document this stock is held for.',
     ),
-  demand_code: z
-    .string()
-    .trim()
-    .max(64, 'The document number the API stores is at most 64 characters.'),
+  demand_code: z.string().trim().max(64, 'A document number is at most 64 characters.'),
   reservation_type: z
     .string()
     .refine((value): boolean => isReservationType(value), 'Choose how firm the claim is.'),
@@ -162,7 +159,7 @@ const createSchema = z.object({
     .min(10, 'Say why this stock is being held, in enough detail to audit later.')
     .max(
       REASON_MAX_LENGTH,
-      `Keep the reason under ${REASON_MAX_LENGTH} characters - the API stores no more.`,
+      `Keep the reason under ${REASON_MAX_LENGTH} characters - no more is stored.`,
     ),
 })
 
@@ -356,7 +353,7 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
               />
               <p id="reservation-quantity-hint" className="text-xs text-muted-foreground">
                 {!canSeeAvailability
-                  ? 'The API checks availability under a lock when the reservation is saved.'
+                  ? 'Availability is checked under a lock when the reservation is saved.'
                   : free !== null
                     ? formatQuantity(availability.data?.available_quantity) +
                       ' available in this warehouse right now'
@@ -406,8 +403,8 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
               <AlertTitle>More than is free in this warehouse</AlertTitle>
               <AlertDescription>
                 {formatQuantity(quantity)} is more than the{' '}
-                {formatQuantity(availability.data?.available_quantity)} currently available. The API
-                locks the position and re-reads it when the reservation is saved, so this will be
+                {formatQuantity(availability.data?.available_quantity)} currently available. The
+                position is locked and read again when the reservation is saved, so this will be
                 refused unless stock arrives first.
               </AlertDescription>
             </Alert>

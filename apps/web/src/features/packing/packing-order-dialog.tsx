@@ -1735,8 +1735,7 @@ export function PackingOrderDialog({
                   <Alert variant="warning">
                     <AlertTitle>Showing the first {CARTON_PAGE} cartons</AlertTitle>
                     <AlertDescription>
-                      This order has more boxes than one page. The totals above are the API&apos;s
-                      own and cover all of them.
+                      This order has more boxes than one page. The totals above cover all of them.
                     </AlertDescription>
                   </Alert>
                 )}

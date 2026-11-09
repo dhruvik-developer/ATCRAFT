@@ -489,8 +489,8 @@ function SerialPicker({
     status = null
   } else if (rows.length === 0) {
     status =
-      'Nothing matches. The register holds serials in every condition; the API accepts only ' +
-      "the ones actually available in this order's warehouse."
+      'Nothing matches. The register holds serials in every condition; only the ones ' +
+      "actually available in this order's warehouse are accepted."
   } else if (results.data?.pagination.has_next) {
     status = picker.more(rows.length)
   } else {
@@ -834,8 +834,8 @@ function CompleteAssemblyDialog({
               <div className="space-y-2">
                 <p className="text-sm font-medium">Serial numbers consumed</p>
                 <p className="text-xs text-muted-foreground">
-                  One serial per unit consumed, for every serial-tracked line. The API works out how
-                  many that is from what was produced and refuses the completion if the count does
+                  One serial per unit consumed, for every serial-tracked line. How many that is
+                  follows from what was produced, and the completion is refused if the count does
                   not match.
                 </p>
                 {serialTracked.map((component) => (

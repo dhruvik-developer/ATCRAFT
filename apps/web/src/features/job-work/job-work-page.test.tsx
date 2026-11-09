@@ -37,6 +37,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { errors } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
@@ -152,7 +153,7 @@ describe('who may do what to an order', () => {
       // is held here rather than coming back as a 422 on a confirmation the user
       // has already given.
       await user.click(screen.getByRole('button', { name: 'Delete draft' }))
-      expect(await screen.findByText(/At least 3 characters/)).toBeVisible()
+      expect(await screen.findByText(errors.reasonTooShort)).toBeVisible()
       expect(fetch.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0)
 
       await user.type(screen.getByRole('textbox', { name: 'Reason' }), '  Raised in error  ')

@@ -419,11 +419,12 @@ export function ShortageReportTab({
         emptyDescription="Every requirement in this run is covered by stock or by supply that arrives in time."
       />
 
+      {/* The netting rule is docs/assumptions.md section 21. */}
       <p className="text-xs text-muted-foreground">
         <Clock className="mr-1 inline size-3" aria-hidden />
-        Supply is netted only when it arrives on or before the date the requirement needs it
-        (docs/assumptions.md &sect;21). A quantity shown against two dates spans them: the first
-        tranche lands on the earlier, the whole amount is in by the later.
+        Supply is netted only when it arrives on or before the date the requirement needs it. A
+        quantity shown against two dates spans them: the first tranche lands on the earlier, the
+        whole amount is in by the later.
       </p>
 
       {reallocation && (

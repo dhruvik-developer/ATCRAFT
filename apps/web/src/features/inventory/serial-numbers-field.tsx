@@ -101,7 +101,7 @@ export function SerialNumbersField({
         {expectedCount !== null && expectedCount.greaterThan(0)
           ? `; ${formatQuantity(expected ?? '0')} expected, one per unit`
           : ''}
-        {overLimit ? `. The API accepts at most ${SERIAL_BULK_MAX} at a time.` : '.'}
+        {overLimit ? `. At most ${SERIAL_BULK_MAX} are accepted at a time.` : '.'}
       </p>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       <FieldError message={error} />

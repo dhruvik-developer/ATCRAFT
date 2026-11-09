@@ -169,7 +169,7 @@ const COMMAND_COPY: Record<BomCommand, { title: string; description: string; con
   delete: {
     title: 'Delete draft',
     description:
-      'The draft is removed permanently, together with its lines and operations. Nothing is retired and nothing is kept: only the audit entry recording the deletion survives. A draft that alternate structures point at is refused by the API even so.',
+      'The draft is removed permanently, together with its lines and operations. Nothing is retired and nothing is kept: only the audit entry recording the deletion survives. A draft that alternate structures point at is refused even so.',
     confirm: 'Delete draft',
   },
 }
@@ -1264,7 +1264,7 @@ export default function BomDetailPage() {
           />
           {reasonTouched && reasonTooShort && (
             <FieldError
-              message={`The API records a reason against every status change - at least ${REASON_MIN_LENGTH} characters`}
+              message={`A reason is recorded against every status change - at least ${REASON_MIN_LENGTH} characters`}
             />
           )}
         </div>

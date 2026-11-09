@@ -1103,7 +1103,7 @@ export default function MrpRunDetailPage() {
             selected
             {selectedRows.length > MAX_BULK_IGNORE && (
               <span className="ml-2 font-normal text-warning">
-                (the API ignores at most {formatNumber(MAX_BULK_IGNORE)} in one call)
+                (at most {formatNumber(MAX_BULK_IGNORE)} can be ignored at a time)
               </span>
             )}
           </span>
@@ -1422,8 +1422,8 @@ export default function MrpRunDetailPage() {
         <SelectionSummary rows={ignoreBatch} action="ignore" />
         {ignoreRemainder > 0 && (
           <p className="mt-2 text-xs text-warning">
-            The API ignores at most {formatNumber(MAX_BULK_IGNORE)} in one call. The remaining{' '}
-            {formatNumber(ignoreRemainder)} stay selected for a further call.
+            At most {formatNumber(MAX_BULK_IGNORE)} can be ignored at a time. The remaining{' '}
+            {formatNumber(ignoreRemainder)} stay selected for the next round.
           </p>
         )}
         <div className="mt-3">
@@ -1444,7 +1444,7 @@ export default function MrpRunDetailPage() {
             <FieldError
               message={
                 ignoreReason.trim() === ''
-                  ? 'The API records a reason against every ignored suggestion'
+                  ? 'A reason is recorded against every ignored suggestion'
                   : `Record at least ${REASON_MIN_LENGTH} characters of reason`
               }
             />

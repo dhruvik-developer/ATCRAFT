@@ -80,7 +80,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { errors, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -158,9 +158,7 @@ function ReasonField({
         placeholder="Recorded in the audit trail"
         aria-invalid={invalid}
       />
-      {invalid && (
-        <FieldError message={`At least ${REASON_MIN_LENGTH} characters - the API records this`} />
-      )}
+      {invalid && <FieldError message={errors.reasonTooShort} />}
     </div>
   )
 }

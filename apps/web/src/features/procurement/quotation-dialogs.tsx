@@ -637,8 +637,8 @@ export function QuotationDecisionDialog({
             <Alert variant="warning">
               <AlertTitle>This offer looks lapsed</AlertTitle>
               <AlertDescription>
-                It was valid until {formatDate(quotation.validUntil)}. The API refuses to select a
-                lapsed quotation - ask the vendor to requote, then record the revised offer.
+                It was valid until {formatDate(quotation.validUntil)}. A lapsed quotation cannot be
+                selected - ask the vendor to requote, then record the revised offer.
               </AlertDescription>
             </Alert>
           )}
@@ -1259,8 +1259,8 @@ export function QuotationFormDialog({
                     <FieldError message={errors.valid_until?.message} />
                     <p className="mt-1 text-xs text-muted-foreground">
                       {isRevision
-                        ? 'Cleared here it stays as recorded - a revision cannot remove a date the API already holds.'
-                        : 'Left blank the offer is open-ended. Past this date the API refuses to select it.'}
+                        ? 'Cleared here it stays as recorded - a revision cannot remove a date once it is set.'
+                        : 'Left blank the offer is open-ended. Past this date it cannot be selected.'}
                     </p>
                   </div>
 
@@ -1466,7 +1466,7 @@ export function QuotationFormDialog({
                           currency: watch('currency') || DEFAULT_CURRENCY,
                         })}
                       </span>
-                      . Tax is the API&rsquo;s calculation from the item master.
+                      . Tax is calculated by the system from the item master.
                     </p>
                   </div>
                 )}

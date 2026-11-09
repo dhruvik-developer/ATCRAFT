@@ -214,8 +214,8 @@ export function PermissionMatrix({
       />
 
       <p className="text-xs text-muted-foreground">
-        These checkboxes change what the API allows, not merely what this application shows: every
-        request from a holder of this role is authorised against the saved set.
+        These checkboxes change what a holder of this role may do, not merely what this application
+        shows: every action they take is checked against the saved set.
       </p>
 
       {readOnly && (

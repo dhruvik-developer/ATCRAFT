@@ -81,7 +81,7 @@ const reallocationSchema = z.object({
     .min(5, 'Explain why this demand should take priority over the one losing stock.')
     .max(
       REASON_MAX_LENGTH,
-      `Keep the reason under ${REASON_MAX_LENGTH} characters - the API stores no more.`,
+      `Keep the reason under ${REASON_MAX_LENGTH} characters - no more is stored.`,
     ),
 })
 

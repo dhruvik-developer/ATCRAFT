@@ -345,9 +345,7 @@ describe('availability is its own right', () => {
     })
 
     const dialog = await fillCreateForm(user)
-    expect(
-      within(dialog).getByText(/the API checks availability under a lock/i),
-    ).toBeInTheDocument()
+    expect(within(dialog).getByText(/availability is checked under a lock/i)).toBeInTheDocument()
     expect(fetch.calls.map((call) => call.path)).not.toContain('/allocation/available-to-promise')
   })
 
