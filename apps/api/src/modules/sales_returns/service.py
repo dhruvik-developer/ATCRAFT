@@ -30,8 +30,8 @@ from src.modules.inventory.models import (
 )
 from src.modules.inventory.service import (
     MovementRequest,
-    change_stock_state,
     post_movements,
+    state_change_request,
     state_change_type,
 )
 from src.modules.products.models import Item
@@ -538,6 +538,7 @@ async def transition_return(
                 ordinary_line.receipt_transaction_id = receipt_movements[position].id
             if serial_hold_movements:
                 await post_movements(session, tenant, serial_hold_movements)
+            inspected = [line for line in lines if line.requires_qc and not line.serial_ids]
             for line in lines:
                 source = dispatch_by_id[line.dispatch_line_id]
                 if source.returned_quantity + line.quantity > source.quantity:
@@ -546,39 +547,47 @@ async def transition_return(
                         f"{source.line_number}."
                     )
                 source.returned_quantity += line.quantity
-                if line.requires_qc and not line.serial_ids:
-                    await change_stock_state(
-                        session,
-                        tenant,
-                        item_id=line.item_id,
-                        warehouse_id=warehouse_id,
-                        quantity=line.quantity,
-                        from_state=StockState.AVAILABLE,
-                        to_state=StockState.QC_HOLD,
-                        reason=f"{row.code}: customer return inspection",
-                        batch_id=source.batch_id,
-                        reference_type=SALES_RETURN_REFERENCE,
-                        reference_id=row.id,
-                        reference_code=row.code,
-                    )
-                    inspection = await create_inspection(
-                        session,
-                        tenant,
-                        InspectionCreate(
+            # Every inspected line goes on hold in one posting - the balances
+            # locked once, in key order - rather than one full posting a line.
+            if inspected:
+                await post_movements(
+                    session,
+                    tenant,
+                    [
+                        state_change_request(
                             item_id=line.item_id,
                             warehouse_id=warehouse_id,
-                            qc_stage=QcStage.RETURN,
-                            inspected_quantity=line.quantity,
-                            batch_id=source.batch_id,
+                            quantity=line.quantity,
+                            from_state=StockState.AVAILABLE,
+                            to_state=StockState.QC_HOLD,
+                            reason=f"{row.code}: customer return inspection",
+                            batch_id=dispatch_by_id[line.dispatch_line_id].batch_id,
                             reference_type=SALES_RETURN_REFERENCE,
                             reference_id=row.id,
                             reference_code=row.code,
-                            hold_stock=False,
-                            reason=f"Inspection for {row.code}",
-                            remarks=line.note,
-                        ),
-                    )
-                    line.qc_inspection_id = inspection.id
+                        )
+                        for line in inspected
+                    ],
+                )
+            for line in inspected:
+                inspection = await create_inspection(
+                    session,
+                    tenant,
+                    InspectionCreate(
+                        item_id=line.item_id,
+                        warehouse_id=warehouse_id,
+                        qc_stage=QcStage.RETURN,
+                        inspected_quantity=line.quantity,
+                        batch_id=dispatch_by_id[line.dispatch_line_id].batch_id,
+                        reference_type=SALES_RETURN_REFERENCE,
+                        reference_id=row.id,
+                        reference_code=row.code,
+                        hold_stock=False,
+                        reason=f"Inspection for {row.code}",
+                        remarks=line.note,
+                    ),
+                )
+                line.qc_inspection_id = inspection.id
         previous_status = row.status
         row.status = target
         row.updated_by_id = tenant.user_id

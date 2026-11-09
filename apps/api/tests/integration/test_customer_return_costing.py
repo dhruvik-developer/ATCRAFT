@@ -365,3 +365,65 @@ async def test_a_return_reads_earlier_claims_once_however_many_lines_it_names(
         )
 
     assert claim_reads(four_lines) == claim_reads(two_lines)
+
+
+async def test_receiving_a_return_holds_every_inspected_line_in_one_posting(
+    session, tenant, engine
+):
+    """Two inspected lines and four take the same balance locks: one hold posting.
+
+    Each inspected line used to post its own AVAILABLE -> QC_HOLD movement - a
+    full posting with its own balance and cost-layer locks - so a 200-line
+    return paid about 1,600 round trips under those locks. The ledger rows are
+    the same ones: one per line, the same type and the same reason.
+    """
+    dispatch, item, _warehouse = await shipped_stock(
+        session, tenant, [("12", "10")], split_quantities=["2"] * 6
+    )
+
+    def inspected(*indexes: int) -> SalesReturnCreate:
+        return SalesReturnCreate(
+            dispatch_id=dispatch.id,
+            lines=[
+                SalesReturnLineIn(
+                    dispatch_line_id=dispatch.lines[index].id,
+                    quantity=Decimal("1"),
+                    reason_code="DAMAGE",
+                    requires_qc=True,
+                )
+                for index in indexes
+            ],
+        )
+
+    def balance_locks(statements: list[str]) -> int:
+        return sum(
+            1 for text in statements if "FROM inventory_balances" in text and "FOR UPDATE" in text
+        )
+
+    two = await service.create_return(session, tenant, inspected(0, 1))
+    four = await service.create_return(session, tenant, inspected(2, 3, 4, 5))
+    with counted(engine) as receiving_two:
+        await service.transition_return(session, tenant, two.id, SalesReturnStatus.RECEIVED)
+    with counted(engine) as receiving_four:
+        received = await service.transition_return(
+            session, tenant, four.id, SalesReturnStatus.RECEIVED
+        )
+
+    assert balance_locks(receiving_four) == balance_locks(receiving_two)
+    assert all(line.qc_inspection_id is not None for line in received.lines)
+    held = await session.scalar(
+        select(func.sum(InventoryBalance.qc_hold_quantity)).where(
+            InventoryBalance.company_id == tenant.company_id, InventoryBalance.item_id == item.id
+        )
+    )
+    assert held == Decimal("6")
+    holds = (
+        await session.execute(
+            select(InventoryTransaction.reason).where(
+                InventoryTransaction.company_id == tenant.company_id,
+                InventoryTransaction.reference_id == four.id,
+                InventoryTransaction.transaction_type == TransactionType.QC_HOLD,
+            )
+        )
+    ).scalars()
+    assert list(holds) == [f"AVAILABLE -> QC_HOLD: {four.code}: customer return inspection"] * 4

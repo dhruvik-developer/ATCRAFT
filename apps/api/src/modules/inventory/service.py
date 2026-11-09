@@ -4166,13 +4166,55 @@ async def change_stock_state(
     QC hold to available, available to damaged, damaged to scrap, and so on. The
     quantity does not leave the warehouse unless the target state says it does
     (scrap and job work), which is why this is one ledger row rather than a pair.
+    A document moving several lines builds each with :func:`state_change_request`
+    and posts them together through :func:`post_movements`.
     """
-    transaction_type = state_change_type(from_state, to_state)
-    request = MovementRequest(
+    request = state_change_request(
         item_id=item_id,
         warehouse_id=warehouse_id,
         quantity=quantity,
-        transaction_type=transaction_type,
+        from_state=from_state,
+        to_state=to_state,
+        reason=reason,
+        location_id=location_id,
+        batch_id=batch_id,
+        serial_id=serial_id,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        reference_code=reference_code,
+        occurred_at=occurred_at,
+    )
+    posted = await MovementEngine(session, tenant).post([request])
+    return posted[0]
+
+
+def state_change_request(
+    *,
+    item_id: uuid.UUID,
+    warehouse_id: uuid.UUID,
+    quantity: Decimal,
+    from_state: StockState,
+    to_state: StockState,
+    reason: str,
+    location_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+    serial_id: uuid.UUID | None = None,
+    reference_type: str = "stock_state_change",
+    reference_id: uuid.UUID | None = None,
+    reference_code: str | None = None,
+    occurred_at: datetime | None = None,
+) -> MovementRequest:
+    """The movement :func:`change_stock_state` posts, for a caller batching several.
+
+    One ledger row per line either way, with the same type and the same
+    ``"from -> to: reason"`` text; posted together, the balances are locked
+    once, in primary-key order, instead of once per line.
+    """
+    return MovementRequest(
+        item_id=item_id,
+        warehouse_id=warehouse_id,
+        quantity=quantity,
+        transaction_type=state_change_type(from_state, to_state),
         reference_type=reference_type,
         reference_id=reference_id,
         reference_code=reference_code,
@@ -4184,8 +4226,6 @@ async def change_stock_state(
         from_state=from_state,
         occurred_at=occurred_at,
     )
-    posted = await MovementEngine(session, tenant).post([request])
-    return posted[0]
 
 
 # -----------------------------------------------------------------------------
@@ -8696,6 +8736,7 @@ __all__ = [
     "scrap_layers_for",
     "serial_transition",
     "signed_quantity",
+    "state_change_request",
     "state_change_type",
     "to_stock_value",
     "transfer_stock",

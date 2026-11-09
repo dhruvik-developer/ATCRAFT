@@ -185,7 +185,11 @@ from src.modules.inventory.models import (
     TransactionType,
 )
 from src.modules.inventory.repository import StockBatchRepository
-from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
+from src.modules.inventory.service import (
+    MovementRequest,
+    post_movements,
+    state_change_request,
+)
 from src.modules.job_work.models import (
     ISSUED_OR_LATER_STATUSES,
     JOB_WORK_DEFAULT_GST_RATE,
@@ -3857,6 +3861,10 @@ async def record_qc_result(
             )
 
         reason = f"Job work {order.code} inspection: {payload.reason}"[:255]
+        # Every item's release and rejection goes out in one posting, after the
+        # whole verdict has been checked: the balances are locked once, in key
+        # order, instead of one full posting per item and target state.
+        verdict_moves: list[MovementRequest] = []
         for item_id, quantity in sorted(held.items(), key=lambda pair: str(pair[0])):
             verdict = verdicts[item_id]
             accepted = to_quantity(verdict.accepted_quantity)
@@ -3875,19 +3883,21 @@ async def record_qc_result(
             ):
                 if moving <= ZERO:
                     continue
-                await change_stock_state(
-                    session,
-                    tenant,
-                    item_id=item_id,
-                    warehouse_id=order.return_warehouse_id,
-                    quantity=moving,
-                    from_state=StockState.QC_HOLD,
-                    to_state=target,
-                    reason=reason,
-                    reference_type=MOVEMENT_REFERENCE_JOB_WORK,
-                    reference_id=order.id,
-                    reference_code=order.code,
+                verdict_moves.append(
+                    state_change_request(
+                        item_id=item_id,
+                        warehouse_id=order.return_warehouse_id,
+                        quantity=moving,
+                        from_state=StockState.QC_HOLD,
+                        to_state=target,
+                        reason=reason,
+                        reference_type=MOVEMENT_REFERENCE_JOB_WORK,
+                        reference_id=order.id,
+                        reference_code=order.code,
+                    )
                 )
+        if verdict_moves:
+            await post_movements(session, tenant, verdict_moves)
 
         released_at = utcnow()
         for receipt in receipts:
