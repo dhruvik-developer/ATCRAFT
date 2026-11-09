@@ -1860,9 +1860,18 @@ async def _reserve_components(
     Nothing loaded before this loop is written inside it: a caught failure rolls
     back the reservation's savepoint, and SQLAlchemy expires the rows that
     savepoint touched. Every result is therefore accumulated in plain values.
+
+    Each reservation holds its balance row locked until the release commits, so
+    the components are reserved in (item, line) order - the order assembly, job
+    work and sales take the same locks in - not in kit order: two jobs whose
+    bills list shared parts in different orders would otherwise each wait on
+    the other. Availability is one snapshot read before the loop, so within an
+    item the line order still decides which line is served first. The shortages
+    are reported in kit order, as the planner reads the kit.
     """
+    kit_order = {component.id: index for index, component in enumerate(components)}
     shortages: list[ComponentShortage] = []
-    for component in components:
+    for component in sorted(components, key=lambda row: (row.item_id, row.line_number)):
         required = to_quantity(component.required_quantity)
         available = availability.get((component.item_id, component.warehouse_id), ZERO)
         reserve_quantity, shortage_quantity = plan_reservation(required, available)
@@ -1904,7 +1913,7 @@ async def _reserve_components(
                     detail=detail,
                 )
             )
-    return shortages
+    return sorted(shortages, key=lambda shortage: kit_order[shortage.component_id])
 
 
 async def release_order(
@@ -2580,11 +2589,15 @@ async def cancel_order(
 async def _release_reservations(
     session: AsyncSession, tenant: TenantContext, order: ProductionOrder, *, reason: str
 ) -> int:
-    """Give back everything this job is still holding."""
+    """Give back everything this job is still holding.
+
+    In (item, reservation) order, as the release path takes the same balance
+    locks the reserve path does; the query alone has no order at all.
+    """
     reservations: list[StockReservation] = await ReservationCoverageRepository(
         session, tenant
     ).open_for_order(order.id)
-    for reservation in reservations:
+    for reservation in sorted(reservations, key=lambda row: (row.item_id, row.id)):
         await allocation_service.release(
             session, tenant, reservation_id=reservation.id, reason=reason
         )

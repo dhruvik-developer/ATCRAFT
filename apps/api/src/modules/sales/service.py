@@ -2470,7 +2470,12 @@ async def _rereserve_changed_lines(
     held = await SalesOrderLineRepository(session, tenant).open_reservations_by_line(
         [line for line, _ in changed]
     )
-    for line, _ in changed:
+    # Released in (item, line) order like the reserve loop below and like
+    # cancel_order: each release locks a balance row until commit, and the
+    # advisory locks above only serialise sales against sales - a production
+    # release or an assembly taking the same balances in item order would
+    # deadlock against releases made in payload order.
+    for line, _ in sorted(changed, key=lambda pair: (pair[0].item_id, pair[0].line_number)):
         for reservation in held.get(line.id, []):
             await port.release(
                 session,
