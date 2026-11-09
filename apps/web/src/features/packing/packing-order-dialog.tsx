@@ -1141,7 +1141,7 @@ function ReinspectLine({ order, line }: { order: PackingOrderDetail; line: Packi
       <ReasonDialog
         open={open}
         onOpenChange={setOpen}
-        title={`Replace final QC lot for line ${line.line_number}`}
+        title={`Replace final QC lot for line ${line.line_number}?`}
         description="Use after the previous final inspection was rejected. Name the replacement units; the rejected lot stays in its recorded disposition."
         confirmLabel="Raise replacement inspection"
         loading={reinspect.isPending}

@@ -75,7 +75,9 @@ def _attribute(tag: str, name: str) -> list[str]:
         depth += {"{": 1, "}": -1}.get(tag[index], 0)
         index += 1
     expression = tag[match.end() : index - 1]
-    return [next(part for part in found if part) for found in _STRING_LITERAL.findall(expression)]
+    # A template that ends in an interpolation (`Retire ${noun}`) leaves an empty
+    # match at its closing backtick; it is no label, and must not stop the scan.
+    return [part for found in _STRING_LITERAL.findall(expression) for part in found if part]
 
 
 def _line(text: str, offset: int) -> int:
@@ -170,5 +172,6 @@ def test_the_rule_accepts_marked_and_non_destructive_confirmations() -> None:
         "<DropdownMenuItem destructive onSelect={go}><Ban />Cancel order</DropdownMenuItem>\n"
         "<DropdownMenuItem onSelect={go}>Mark ready</DropdownMenuItem>\n"
         '<ConfirmDialog confirmLabel="Cancellation fee waived" />\n'
+        "<ConfirmDialog confirmLabel={`Retire ${noun.toLowerCase()}`} destructive />\n"
     )
     assert missing_destructive(source) == []

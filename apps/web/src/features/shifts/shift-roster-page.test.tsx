@@ -154,7 +154,7 @@ describe('retiring a shift', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Retire' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Retire' })
+    const dialog = await screen.findByRole('dialog', { name: 'Retire shift A?' })
     const confirm = within(dialog).getByRole('button', { name: 'Retire' })
     // Retiring cannot be undone, so its confirmation is the destructive one.
     expect(confirm).toHaveClass('bg-destructive')
@@ -178,7 +178,7 @@ describe('retiring a shift', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: 'Deactivate' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Deactivate' })
+    const dialog = await screen.findByRole('dialog', { name: 'Deactivate shift A?' })
     expect(within(dialog).getByRole('button', { name: 'Deactivate' })).toHaveClass('bg-primary')
   })
 })

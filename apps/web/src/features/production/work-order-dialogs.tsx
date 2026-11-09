@@ -505,7 +505,7 @@ export function WorkOrderTransitionDialog({
     <ConfirmDialog
       open={Boolean(pending)}
       onOpenChange={onOpenChange}
-      title={pending ? `${pending.transition.label}?` : 'Change this operation'}
+      title={pending ? `${pending.transition.label}?` : 'Change this operation?'}
       description={
         pending
           ? `${pending.workOrder.code} - ${pending.workOrder.operation_name}. ${pending.transition.description}`

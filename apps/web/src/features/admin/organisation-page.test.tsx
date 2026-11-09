@@ -304,7 +304,7 @@ describe('editing and retiring a cost centre', () => {
       within(confirm).getByRole('textbox', { name: 'Reason' }),
       'Zone merged into West',
     )
-    await user.click(within(confirm).getByRole('button', { name: 'Retire' }))
+    await user.click(within(confirm).getByRole('button', { name: 'Retire cost centre' }))
 
     await waitFor(() => expect(reason).toBe('Zone merged into West'))
   })

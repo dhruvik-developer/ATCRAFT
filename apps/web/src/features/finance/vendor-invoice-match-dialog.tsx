@@ -756,7 +756,7 @@ export function VendorInvoiceMatchDialog({
             setReasonTouched(false)
           }
         }}
-        title={blocked ? 'Approve over a match variance' : 'Approve this invoice'}
+        title={blocked ? 'Approve over a match variance?' : 'Approve this invoice?'}
         description={
           blocked
             ? 'The three-way match is outside tolerance. Approving it here overrides that, and the reason is recorded against the invoice and in the audit log.'
@@ -810,7 +810,7 @@ export function VendorInvoiceMatchDialog({
         onOpenChange={(open) => {
           if (!open) closeCommand()
         }}
-        title={command === 'delete' ? 'Delete this draft bill' : 'Send this bill for approval'}
+        title={command === 'delete' ? 'Delete this draft bill?' : 'Send this bill for approval?'}
         description={
           command === 'delete'
             ? 'The draft is removed for good. Nothing of it reached the ledger, so there is nothing to reverse - but the deletion and your reason are recorded in the audit log.'

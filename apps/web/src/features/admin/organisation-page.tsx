@@ -155,7 +155,7 @@ function RetireDialog({
         description ??
         `The ${noun.toLowerCase()} stops being selectable on new documents. Records that already reference it keep their history and stay readable.`
       }
-      confirmLabel="Retire"
+      confirmLabel={`Retire ${noun.toLowerCase()}`}
       destructive
       loading={mutation.isPending}
       onConfirm={() => {

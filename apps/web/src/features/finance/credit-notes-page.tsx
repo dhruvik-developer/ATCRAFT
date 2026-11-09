@@ -326,7 +326,7 @@ export default function CreditNotesPage() {
         }}
         title={`Cancel credit note ${selected?.code ?? ''}?`}
         description="This reverses the credit note and restores the invoice balance. Record the cancellation reason for the audit history."
-        confirmLabel="Confirm cancellation"
+        confirmLabel="Cancel credit note"
         destructive
         loading={cancel.isPending}
         onConfirm={() => {

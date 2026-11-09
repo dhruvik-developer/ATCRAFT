@@ -96,7 +96,6 @@ export const errors = {
   invalidResponse: 'The service returned an invalid response. Please try again.',
   connectionFailed: 'Could not connect to the service',
   networkFailed: 'Could not reach the service. Check your connection and try again.',
-  sessionExpired: 'Your session has expired. Please sign in again.',
   sessionRestoreFailed: 'We could not restore your session',
   networkOffline: 'You appear to be offline. Check the connection and try again.',
   notEnoughStock: 'Not enough stock',
@@ -183,7 +182,6 @@ export const validation = {
   required: (field: string) => `${field} is required.`,
   choose: (noun: string) => `Choose ${noun}.`,
   positive: (field: string) => `${field} must be greater than zero.`,
-  nonnegative: (field: string) => `${field} must be zero or greater.`,
   integer: (field: string) => `${field} must be a whole number.`,
   email: 'Enter a valid email address.',
 } as const
@@ -216,7 +214,6 @@ export function notificationsRead(
 export const empty = {
   title: 'Nothing here yet',
   filtered: 'No records match the current filters.',
-  search: (term: string) => `No results for "${term}".`,
   loadFailedTitle: 'Could not load this list',
   loadFailedAction: 'Try again',
   /**
@@ -235,11 +232,6 @@ export const empty = {
 // ------------------------------------------------------------ prompts ------
 
 export const prompts = {
-  unsavedChanges: 'You have unsaved changes. Leave without saving?',
-  confirmRetire: (noun: string) =>
-    `Retire this ${noun.toLowerCase()}? It stays in history but can no longer be used on new documents.`,
-  confirmDelete: (noun: string) => `Delete this ${noun.toLowerCase()}? This cannot be undone.`,
-  confirmCancel: (noun: string) => `Cancel this ${noun.toLowerCase()}? This cannot be undone.`,
   /** Under the reason box of a status change, retirement or transition dialog. */
   reasonRequired: `Give a reason of at least ${REASON_MIN_LENGTH} characters - it is kept in the audit trail.`,
 } as const

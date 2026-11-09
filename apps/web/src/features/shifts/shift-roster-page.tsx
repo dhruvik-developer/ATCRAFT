@@ -40,6 +40,8 @@ export default function ShiftRosterPage() {
   /** The audited change awaiting its reason; retiring and cancelling cannot be undone. */
   const [confirm, setConfirm] = useState<{
     path: string
+    /** What the dialog asks, naming the shift or the assignment it acts on. */
+    title: string
     label: string
     destructive?: boolean
   } | null>(null)
@@ -146,6 +148,7 @@ export default function ShiftRosterPage() {
                   onClick={() =>
                     setConfirm({
                       path: `/routing/shifts/${row.original.id}/${row.original.is_active ? 'deactivate' : 'activate'}`,
+                      title: `${row.original.is_active ? 'Deactivate' : 'Activate'} shift ${row.original.code}?`,
                       label: row.original.is_active ? 'Deactivate' : 'Activate',
                     })
                   }
@@ -158,6 +161,7 @@ export default function ShiftRosterPage() {
                   onClick={() =>
                     setConfirm({
                       path: `/routing/shifts/${row.original.id}`,
+                      title: `Retire shift ${row.original.code}?`,
                       label: 'Retire',
                       destructive: true,
                     })
@@ -182,6 +186,7 @@ export default function ShiftRosterPage() {
           onClick={() =>
             setConfirm({
               path: `/routing/roster/assignments/${row.id}/cancel`,
+              title: `Cancel the assignment for ${row.operator_name}?`,
               label: 'Cancel assignment',
               destructive: true,
             })
@@ -463,7 +468,7 @@ export default function ShiftRosterPage() {
             action.reset()
           }
         }}
-        title={confirm?.label ?? ''}
+        title={confirm?.title ?? ''}
         description="This change is recorded in the audit trail. Future assignments must be cancelled before a shift or machine can leave use."
         confirmLabel={confirm?.label ?? 'Confirm'}
         destructive={confirm?.destructive}

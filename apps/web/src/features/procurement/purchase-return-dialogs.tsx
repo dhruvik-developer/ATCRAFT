@@ -1335,7 +1335,7 @@ export function PurchaseReturnCancelDialog({
     <ConfirmDialog
       open={Boolean(purchaseReturn)}
       onOpenChange={onOpenChange}
-      title={purchaseReturn ? `Cancel ${purchaseReturn.code}?` : 'Cancel purchase return'}
+      title={purchaseReturn ? `Cancel ${purchaseReturn.code}?` : 'Cancel this purchase return?'}
       description="The draft is closed and can never be posted. The material stays where it is - cancelling is not the same as sending the goods back."
       confirmLabel="Cancel return"
       cancelLabel="Keep it"
