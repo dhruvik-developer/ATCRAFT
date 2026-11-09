@@ -3119,6 +3119,21 @@ async def cancel_order(
             repo=repo,
             action=AuditAction.CANCEL,
         )
+        # A draft cancelled while its pricing approval is pending leaves the
+        # approver nothing to decide, so the queue row closes with the cancel,
+        # as it does when the draft is deleted. An order that never needed
+        # approval, or was approved before it was confirmed, has no open row.
+        await close_approval(
+            session,
+            tenant=tenant,
+            entity_type=AUDIT_SALES_ORDER,
+            entity_id=order.id,
+            requested_action=Permission.SALES_ORDER_APPROVE,
+            outcome=ApprovalStatus.REJECTED,
+            decided_by=tenant.user_id,
+            decision_note=reason,
+            action_url=f"/sales-orders/{order.id}",
+        )
 
         if released:
             await record_audit(

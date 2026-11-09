@@ -743,6 +743,59 @@ async def test_an_order_is_approved_once_and_only_while_it_is_a_draft(
 
 
 # -----------------------------------------------------------------------------
+# POST /sales/{order_id}/cancel
+# -----------------------------------------------------------------------------
+
+
+async def approvals_waiting(api_client) -> set[str]:
+    """The entity ids in the caller's approvals inbox."""
+    return {row["entity_id"] for row in ok(await api_client.get("/audit/approvals"))}
+
+
+async def test_cancelling_a_below_cost_draft_withdraws_its_pending_approval(
+    api_client, session, tenant, principal, colleague, desk
+):
+    order_id, _ = await place(session, tenant, principal, desk, unit_price="50")
+    sign_in(colleague)
+    assert str(order_id) in await approvals_waiting(api_client)
+
+    data = ok(
+        await api_client.post(f"/sales/{order_id}/cancel", json={"reason": "Customer withdrew"})
+    )
+
+    assert data["status"] == "CANCELLED"
+    decision = (
+        await session.execute(
+            select(
+                ApprovalRequest.status, ApprovalRequest.decided_by_id, ApprovalRequest.decision_note
+            ).where(ApprovalRequest.entity_id == order_id)
+        )
+    ).one()
+    assert tuple(decision) == ("REJECTED", colleague.user_id, "Customer withdrew")
+    assert str(order_id) not in await approvals_waiting(api_client)
+    [cancelled] = await audit_trail(session, order_id, AuditAction.CANCEL)
+    assert cancelled.created_by_id == colleague.user_id
+
+
+async def test_cancelling_an_approved_order_leaves_its_decision_as_it_was(
+    api_client, session, tenant, principal, colleague, desk
+):
+    order_id, _ = await place(session, tenant, principal, desk, unit_price="50")
+    await sales.approve_order(session, tenant, colleague, order_id, reason="Clearance agreed")
+
+    ok(await api_client.post(f"/sales/{order_id}/cancel", json={"reason": "Customer withdrew"}))
+
+    decision = (
+        await session.execute(
+            select(ApprovalRequest.status, ApprovalRequest.decision_note).where(
+                ApprovalRequest.entity_id == order_id
+            )
+        )
+    ).one()
+    assert tuple(decision) == ("APPROVED", "Clearance agreed")
+
+
+# -----------------------------------------------------------------------------
 # POST /sales/{order_id}/close
 # -----------------------------------------------------------------------------
 
