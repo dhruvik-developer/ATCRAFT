@@ -635,23 +635,17 @@ async def test_a_short_confirmed_order_cannot_be_confirmed_again(
     assert moves(await audit_trail(session, order_id)) == [("DRAFT", "CONFIRMED")]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: confirm_order asserts ALLOCATED -> CONFIRMED, which the 'Allocation shortfall' "
-        "edge allows, so an allocated order is confirmed again (re-audited, dealer re-notified)"
-    ),
-)
 async def test_an_allocated_order_cannot_be_confirmed_again(
     api_client, session, tenant, principal, desk
 ):
     order_id, _ = await confirmed(session, tenant, principal, desk)
 
-    refused(
+    error = refused(
         await api_client.post(f"/sales/{order_id}/confirm", json={}),
         422,
         "INVALID_STATE_TRANSITION",
     )
+    assert error["details"]["current_status"] == "ALLOCATED"
     assert moves(await audit_trail(session, order_id)) == [
         ("DRAFT", "CONFIRMED"),
         ("CONFIRMED", "ALLOCATED"),

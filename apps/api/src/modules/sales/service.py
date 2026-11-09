@@ -53,6 +53,7 @@ from src.core.errors import (
     AuthorizationError,
     BusinessRuleError,
     ErrorCode,
+    InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
@@ -2918,6 +2919,17 @@ async def confirm_order(
         current = SalesOrderStatus(order.status)
         # Validated before any work is done, so a wrong-state request costs one
         # comparison rather than a credit check and a round of reservations.
+        # The *source* is asserted as well as the edge: the machine also allows
+        # ALLOCATED -> CONFIRMED for an allocation shortfall, so checking the
+        # edge alone let a confirmed, fully reserved order be confirmed again -
+        # re-audited, re-checked for credit and its dealer told twice.
+        if current is not SalesOrderStatus.DRAFT:
+            raise InvalidStateTransitionError(
+                entity=SALES_ORDER_LIFECYCLE.entity,
+                current=str(current),
+                requested=str(SalesOrderStatus.CONFIRMED),
+                allowed=[str(target) for target in SALES_ORDER_LIFECYCLE.allowed_targets(current)],
+            )
         SALES_ORDER_LIFECYCLE.assert_transition(current, SalesOrderStatus.CONFIRMED)
         assert_customer_currency(
             order.currency, await OrderPartyRepository(session, tenant).company_currency()
