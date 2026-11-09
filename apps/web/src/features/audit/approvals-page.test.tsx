@@ -63,6 +63,8 @@ describe('approvals inbox', () => {
 
   it('does not expose the queue without any approval permission', () => {
     renderScreen(<ApprovalsPage />, { permissions: [], route: '/approvals' })
-    expect(screen.getByRole('heading', { name: 'Approval access required' })).toBeVisible()
+    const headline = screen.getByText('Approval access required')
+    expect(headline).toBeVisible()
+    expect(headline.closest('[role="alert"]')).not.toBeNull()
   })
 })

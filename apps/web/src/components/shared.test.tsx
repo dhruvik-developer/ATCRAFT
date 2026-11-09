@@ -322,13 +322,10 @@ describe('LoadError', () => {
     expect(screen.getByRole('button', { name: /Try again/ })).toBeDisabled()
   })
 
-  it('heads the alert with an h5 unless the page keeps its headline out of the outline', () => {
-    const { rerender } = render(<LoadError title="Could not load the templates" error={null} />)
-    expect(screen.getByRole('heading', { name: 'Could not load the templates' }).tagName).toBe('H5')
-
-    rerender(<LoadError title="Could not load the templates" error={null} titleAsText />)
+  it('says its headline as text, so a failed read never adds a level to the page outline', () => {
+    // As an h5 it jumped every page's outline from h1 to h5 (axe heading-order).
+    render(<LoadError title="Could not load the templates" error={null} />)
     expect(screen.queryByRole('heading')).not.toBeInTheDocument()
-    // The same headline, styled the same way, as text.
     const headline = screen.getByText('Could not load the templates')
     expect(headline.tagName).toBe('P')
     expect(headline).toHaveClass('font-medium')

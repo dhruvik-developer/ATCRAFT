@@ -261,18 +261,21 @@ export function Alert({
  * (`tests/unit/test_frontend_failure_headlines.py`) - so a screen never draws
  * its own.
  *
- * An `h5` by default. A screen whose outline uses only the levels it needs -
- * the messaging page pins `h1` then `h2` - can render the headline as plain text
- * without giving up the styling or the rule, as `CardTitle` does::
+ * A paragraph with a headline's weight, not a heading. An alert appears wherever
+ * something happened - under a page's `h1`, inside an `h2` section, in a dialog -
+ * so no fixed level fits it: as an `h5` it jumped every page's outline from `h1`
+ * to `h5` (axe `heading-order`). Where an alert really does head a part of the
+ * page, `asChild` supplies the element at the level the outline needs, as
+ * `CardTitle` does::
  *
- *     <AlertTitle asChild><p>Could not save the templates</p></AlertTitle>
+ *     <AlertTitle asChild><h2>Approval access required</h2></AlertTitle>
  */
 export function AlertTitle({
   className,
   asChild = false,
   ...props
-}: HTMLAttributes<HTMLHeadingElement> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot : 'h5'
+}: HTMLAttributes<HTMLParagraphElement> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot : 'p'
   return <Comp className={cn('mb-1 font-medium leading-none', className)} {...props} />
 }
 

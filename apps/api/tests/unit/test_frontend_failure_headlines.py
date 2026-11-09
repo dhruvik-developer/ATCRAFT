@@ -21,8 +21,10 @@ An alert's headline is read only when it is an ``AlertTitle``, so an alert may
 not open with a headline it styles itself. The messaging page drew four that
 way - a ``<p>`` carrying ``AlertTitle``'s classes - and they escaped both the
 sweep that reworded every headline and this rule; one still read "Delivery
-history unavailable". ``AlertTitle asChild`` keeps a headline out of the page
-outline without taking it out of the rule's sight.
+history unavailable" - because ``AlertTitle`` was an ``h5`` then, and the page
+wanted its outline to stay ``h1`` then ``h2``. ``AlertTitle`` is a paragraph
+now, so a headline stays out of the page outline without leaving the rule's
+sight.
 """
 
 from __future__ import annotations
@@ -202,8 +204,8 @@ def test_every_alert_headline_is_an_alert_title() -> None:
     }
     assert not drawn, (
         "These alerts open with a headline they style themselves, which the rule above "
-        "cannot read; use AlertTitle from '@/components/ui/primitives' (AlertTitle asChild "
-        f"around a <p> keeps it out of the page outline):\n{drawn}"
+        "cannot read; use AlertTitle from '@/components/ui/primitives', a paragraph that "
+        f"keeps out of the page outline:\n{drawn}"
     )
 
 

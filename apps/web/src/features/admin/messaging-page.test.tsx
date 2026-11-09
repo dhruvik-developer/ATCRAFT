@@ -66,7 +66,7 @@ describe('messaging administration', () => {
     )
 
     const settings = await screen.findByText('Could not load the provider status')
-    // AlertTitle's own styling, on a paragraph rather than an h5.
+    // AlertTitle's own styling, on a paragraph rather than a heading.
     expect(settings.tagName).toBe('P')
     expect(settings).toHaveClass('font-medium')
     expect(settings.closest('[role="alert"]')).toHaveTextContent('Provider status is down')

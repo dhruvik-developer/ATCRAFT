@@ -252,22 +252,16 @@ export default function MessagingPage() {
         description="Configure approved per-company templates and review external delivery attempts."
       />
 
-      {/* Every alert headline on this page is text rather than the default h5,
-          so the outline stays h1 then h2 whichever alerts are showing. */}
       {status.error && (
         <Alert variant="warning" className="mb-5">
-          <AlertTitle asChild>
-            <p>Could not load the provider status</p>
-          </AlertTitle>
+          <AlertTitle>Could not load the provider status</AlertTitle>
           <AlertDescription>{describeError(status.error)}</AlertDescription>
         </Alert>
       )}
 
       {enabled && (
         <Alert className="mb-5">
-          <AlertTitle asChild>
-            <p>Provider status</p>
-          </AlertTitle>
+          <AlertTitle>Provider status</AlertTitle>
           <AlertDescription>
             WhatsApp: {enabled.whatsapp_enabled ? 'enabled' : 'disabled'} · SMS:{' '}
             {enabled.sms_enabled ? 'enabled' : 'disabled'}
@@ -333,9 +327,7 @@ export default function MessagingPage() {
 
       {summary.length > 0 && (
         <Alert variant="destructive" className="mb-5">
-          <AlertTitle asChild>
-            <p>Could not save the templates</p>
-          </AlertTitle>
+          <AlertTitle>Could not save the templates</AlertTitle>
           <AlertDescription>
             <ul className="list-disc space-y-0.5 pl-4">
               {summary.map((problem) => (
@@ -487,7 +479,6 @@ export default function MessagingPage() {
             error={templates.error}
             onRetry={() => void templates.refetch()}
             retrying={templates.isFetching}
-            titleAsText
           />
         )}
         {templatesRead && draft.length === 0 && (
@@ -501,9 +492,7 @@ export default function MessagingPage() {
         <h2 className="mb-3 text-lg font-semibold">Recent delivery attempts</h2>
         {deliveries.isError && (
           <Alert variant="warning">
-            <AlertTitle asChild>
-              <p>Could not load the delivery history</p>
-            </AlertTitle>
+            <AlertTitle>Could not load the delivery history</AlertTitle>
             <AlertDescription>{describeError(deliveries.error)}</AlertDescription>
           </Alert>
         )}
