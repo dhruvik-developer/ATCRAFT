@@ -37,6 +37,7 @@ import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
 import { toDateInput } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
@@ -1001,12 +1002,15 @@ describe('the line editor', () => {
     await user.click(screen.getByRole('combobox', { name: 'Item' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
 
-    expect(
-      await screen.findByText('Could not load the item variants. Retry to continue.'),
-    ).toBeVisible()
+    // The shared failed-read panel: what did not load, the API's reason, and
+    // the catalogue's retry.
+    const failure = (await screen.findByText('Could not load the item variants')).closest(
+      '[role="alert"]',
+    ) as HTMLElement
+    expect(failure).toHaveTextContent('Variant lookup unavailable')
     expect(screen.getByRole('button', { name: 'Add line' })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await user.click(within(failure).getByRole('button', { name: empty.loadFailedAction }))
     expect(await screen.findByRole('combobox', { name: 'Variant' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Add line' })).toBeEnabled()
     expect(attempts).toBe(2)

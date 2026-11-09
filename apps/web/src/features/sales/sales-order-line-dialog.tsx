@@ -21,7 +21,7 @@ import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -239,17 +239,15 @@ export function SalesOrderLineDialog({
                 </p>
               )}
               {itemId && variantsQuery.isError && (
-                <div className="flex items-center justify-between gap-3 text-sm text-destructive">
-                  <p role="alert">Could not load the item variants. Retry to continue.</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void variantsQuery.refetch()}
-                  >
-                    Retry
-                  </Button>
-                </div>
+                // The line is held until the variants load: "Add line" stays
+                // disabled, so the retry is the way forward.
+                <LoadError
+                  className="sm:col-span-2"
+                  title="Could not load the item variants"
+                  error={variantsQuery.error}
+                  onRetry={() => void variantsQuery.refetch()}
+                  retrying={variantsQuery.isFetching}
+                />
               )}
               {selectableVariants.length > 0 && (
                 <div className="sm:col-span-2">

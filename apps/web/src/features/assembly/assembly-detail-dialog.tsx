@@ -25,6 +25,7 @@ import {
   BadgeDismiss,
   DescriptionList,
   FieldError,
+  LoadError,
   ReasonDialog,
   StatusBadge,
 } from '@/components/shared'
@@ -943,11 +944,13 @@ function ReleaseReadiness({
   isLoading,
   error,
   onRefresh,
+  isRefreshing,
 }: {
   availability: AssemblyComponentAvailability[] | undefined
   isLoading: boolean
   error: Error | null
   onRefresh: () => void
+  isRefreshing: boolean
 }) {
   if (isLoading) {
     return (
@@ -960,14 +963,13 @@ function ReleaseReadiness({
 
   if (error) {
     return (
-      <div className="space-y-2 pb-3">
-        <Alert variant="destructive">
-          <AlertDescription>{describeError(error)}</AlertDescription>
-        </Alert>
-        <Button variant="outline" size="sm" onClick={onRefresh}>
-          Retry
-        </Button>
-      </div>
+      <LoadError
+        className="mb-3"
+        title="Could not load the component availability"
+        error={error}
+        onRetry={onRefresh}
+        retrying={isRefreshing}
+      />
     )
   }
 
@@ -1562,6 +1564,7 @@ export function AssemblyDetailDialog({
               isLoading={availabilityQuery.isLoading}
               error={availabilityQuery.error as Error | null}
               onRefresh={() => void availabilityQuery.refetch()}
+              isRefreshing={availabilityQuery.isFetching}
             />
           )}
         </ReasonDialog>

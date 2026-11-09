@@ -45,8 +45,11 @@ _DEFINITION = re.compile(
     r"\b(?:function\s+(?P<fn>LoadError|PanelDenied)\b"
     r"|(?:const|let|var)\s+(?P<bound>LoadError|PanelDenied)\s*=)"
 )
-#: The retry label written out: JSX text or a whole quoted literal.
-_RETRY_LABEL = re.compile(r">\s*Try again\s*<|(['\"`])Try again\1")
+#: The retry label written out: JSX text or a whole quoted literal. A bare
+#: "Retry" is the same label in other words - the sales-order line dialog and
+#: the assembly release check each drew a failed read with one, and neither was
+#: seen. A retry that names what it retries ("Retry status") is its own label.
+_RETRY_LABEL = re.compile(r">\s*(?:Try again|Retry)\s*<|(['\"`])(?:Try again|Retry)\1")
 #: A failure shown by its own text: ``q.error.message``, ``(q.error as Error).message``.
 _RAW_MESSAGE = re.compile(r"\.error\.message\b|\.error\s+as\s+Error\s*\)\.message\b")
 #: A paragraph whose classes are a plain string, and what it contains.
@@ -146,7 +149,8 @@ def test_no_screen_spells_the_retry_label() -> None:
         "A retry is labelled by hand:\n  "
         + "\n  ".join(f"{name}: {', '.join(found)}" for name, found in spelled.items())
         + "\n\nShow a failed read with LoadError from '@/components/shared' (pass onRetry), "
-        "or label a bespoke retry with empty.loadFailedAction from '@/lib/messages'."
+        "label a bespoke retry with empty.loadFailedAction from '@/lib/messages', or name "
+        "what it retries ('Retry status')."
     )
 
 
@@ -197,9 +201,13 @@ def test_the_rules_find_a_pasted_panel_and_a_spelled_retry() -> None:
         "  Try again\n"
         "</Button>\n"
         "{retryAfter === null ? 'Try again' : `Try again in ${retryAfter}s`}\n"
+        '<Button type="button" variant="outline" size="sm" onClick={() => void q.refetch()}>\n'
+        "  Retry\n"
+        "</Button>\n"
+        "{failed ? 'Retry' : 'PDF'}\n"
     )
     assert definitions(source) == ["line 1: PanelDenied", "line 2: LoadError"]
-    assert retry_labels(source) == ["line 4", "line 7"]
+    assert retry_labels(source) == ["line 4", "line 7", "line 8", "line 11"]
 
 
 def test_the_rules_ignore_uses_and_a_countdown() -> None:
@@ -211,6 +219,9 @@ def test_the_rules_ignore_uses_and_a_countdown() -> None:
         "{retryAfter === null ? empty.loadFailedAction : `Try again in ${retryAfter}s`}\n"
         "// a comment about Try again is not a label\n"
         ' * and "Try again" can never fix it, because\n'
+        '<Button size="sm" onClick={controller.retry}>\n  Retry status\n</Button>\n'
+        "{failedMessage ? 'Retry PDF' : 'PDF'}\n"
+        "headers.get('Retry-After')\n"
     )
     assert definitions(source) == []
     assert retry_labels(source) == []

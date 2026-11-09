@@ -19,7 +19,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
-import { messages } from '@/lib/messages'
+import { empty, messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
@@ -260,6 +260,25 @@ describe('releasing to the bench', () => {
     })
 
     expect(await screen.findByText(/every component is covered/i)).toBeVisible()
+  })
+
+  it('says a failed availability read and reads it again on request', async () => {
+    let attempts = 0
+    const { user } = await openCommand('APPROVED', [P.ASSEMBLY_ORDER_MANAGE], 'Release', {
+      'GET /assembly/asm-1/availability': () =>
+        ++attempts === 1
+          ? fail(503, 'TEMPORARILY_UNAVAILABLE', 'Stock positions are being recalculated')
+          : ok([availability()]),
+    })
+
+    const failure = (await screen.findByText('Could not load the component availability')).closest(
+      '[role="alert"]',
+    ) as HTMLElement
+    expect(failure).toHaveTextContent('Stock positions are being recalculated')
+
+    await user.click(within(failure).getByRole('button', { name: empty.loadFailedAction }))
+    expect(await screen.findByText('short 40 of 100')).toBeVisible()
+    expect(attempts).toBe(2)
   })
 })
 
