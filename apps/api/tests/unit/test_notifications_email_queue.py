@@ -130,6 +130,56 @@ class TestQueueEmailDelivery:
         assert len(sync_session.info[PENDING_KEY]) == 3
 
 
+class TestOneDeliveryPerRow:
+    """A grouped row re-raised inside one transaction is delivered once per channel.
+
+    Raising one inspection per goods-receipt line re-upserts the same "pending"
+    digest row for every inspector once per line; staging a delivery each time
+    queued one broker message per line for one row.
+    """
+
+    def test_a_row_raised_again_before_the_commit_is_staged_once(
+        self, fake_async_session: SimpleNamespace
+    ) -> None:
+        row = _notification(
+            NotificationChannel.EMAIL.value,
+            NotificationChannel.PUSH.value,
+            NotificationChannel.WHATSAPP.value,
+            NotificationChannel.SMS.value,
+        )
+        other = _notification(NotificationChannel.EMAIL.value)
+
+        def stage(*rows: Notification) -> list[int]:
+            return [
+                notifications_service.queue_email_delivery(fake_async_session, list(rows)),
+                notifications_service.queue_push_delivery(fake_async_session, list(rows)),
+                notifications_service.queue_messaging_delivery(fake_async_session, list(rows)),
+            ]
+
+        assert stage(row) == [1, 1, 2]
+        assert stage(row, other) == [1, 0, 0]
+        assert stage(row) == [0, 0, 0]
+
+        info = fake_async_session.sync_session.info
+        assert [p["notification_id"] for p in info[PENDING_KEY]] == [str(row.id), str(other.id)]
+        assert [p["notification_id"] for p in info["notifications.pending_push"]] == [str(row.id)]
+        assert sorted(p["channel"] for p in info["notifications.pending_messaging"]) == [
+            NotificationChannel.SMS.value,
+            NotificationChannel.WHATSAPP.value,
+        ]
+
+    def test_after_the_commit_the_row_can_be_staged_again(
+        self, fake_async_session: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(notifications_service, "_send_email_tasks", lambda payloads: None)
+        row = _notification(NotificationChannel.EMAIL.value)
+        assert notifications_service.queue_email_delivery(fake_async_session, [row]) == 1
+
+        notifications_service._flush_pending_emails(fake_async_session.sync_session)
+
+        assert notifications_service.queue_email_delivery(fake_async_session, [row]) == 1
+
+
 class TestSendEmailTasks:
     def test_publishes_one_task_per_payload_under_the_contract_name(
         self, monkeypatch: pytest.MonkeyPatch

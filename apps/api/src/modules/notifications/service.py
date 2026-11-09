@@ -310,6 +310,29 @@ _PENDING_EMAIL_KEY = "notifications.pending_email"
 _EMAIL_HOOK_KEY = "notifications.email_hook_installed"
 
 
+def _stage_once(pending: list[dict[str, Any]], payloads: Sequence[dict[str, Any]]) -> int:
+    """Append each payload whose delivery is not staged yet; return how many were.
+
+    A grouped notification raised several times in one transaction is one row
+    upserted several times - a goods receipt raising an inspection per held
+    line re-raises the same "inspection pending" digest for every inspector -
+    and each raise used to stage another delivery of that row: one broker
+    message per raise, every one after the first a no-op in the worker. The
+    worker reads the row when it delivers, so one delivery per row (and
+    channel) per commit carries its final content.
+    """
+    staged = {(payload["notification_id"], payload.get("channel")) for payload in pending}
+    added = 0
+    for payload in payloads:
+        key = (payload["notification_id"], payload.get("channel"))
+        if key in staged:
+            continue
+        staged.add(key)
+        pending.append(payload)
+        added += 1
+    return added
+
+
 def _send_email_tasks(payloads: Sequence[dict[str, Any]]) -> int:
     """Publish the queued e-mail jobs. Never raises.
 
@@ -364,9 +387,10 @@ def _drop_pending_emails(sync_session: SyncSession) -> None:
 def queue_email_delivery(session: AsyncSession, notifications: Sequence[Notification]) -> int:
     """Stage e-mail dispatch for the rows that asked for it.
 
-    Returns how many were staged. Nothing is published until the caller's
-    transaction commits - see the hooks above - so a fan-out that rolls back
-    sends nothing.
+    Returns how many were newly staged: a row already waiting for this commit
+    is not staged twice (:func:`_stage_once`). Nothing is published until the
+    caller's transaction commits - see the hooks above - so a fan-out that rolls
+    back sends nothing.
     """
     payloads = [
         {
@@ -385,13 +409,13 @@ def queue_email_delivery(session: AsyncSession, notifications: Sequence[Notifica
 
     sync_session = session.sync_session
     pending: list[dict[str, Any]] = sync_session.info.setdefault(_PENDING_EMAIL_KEY, [])
-    pending.extend(payloads)
+    staged = _stage_once(pending, payloads)
 
     if not sync_session.info.get(_EMAIL_HOOK_KEY):
         sync_session.info[_EMAIL_HOOK_KEY] = True
         event.listen(sync_session, "after_commit", _flush_pending_emails)
         event.listen(sync_session, "after_rollback", _drop_pending_emails)
-    return len(payloads)
+    return staged
 
 
 # -----------------------------------------------------------------------------
@@ -454,12 +478,12 @@ def queue_push_delivery(session: AsyncSession, notifications: Sequence[Notificat
     if not payloads:
         return 0
     sync_session = session.sync_session
-    sync_session.info.setdefault(_PENDING_PUSH_KEY, []).extend(payloads)
+    staged = _stage_once(sync_session.info.setdefault(_PENDING_PUSH_KEY, []), payloads)
     if not sync_session.info.get(_PUSH_HOOK_KEY):
         sync_session.info[_PUSH_HOOK_KEY] = True
         event.listen(sync_session, "after_commit", _flush_pending_push)
         event.listen(sync_session, "after_rollback", _drop_pending_push)
-    return len(payloads)
+    return staged
 
 
 _PENDING_MESSAGING_KEY = "notifications.pending_messaging"
@@ -530,12 +554,12 @@ def queue_messaging_delivery(session: AsyncSession, notifications: Sequence[Noti
     if not payloads:
         return 0
     sync_session = session.sync_session
-    sync_session.info.setdefault(_PENDING_MESSAGING_KEY, []).extend(payloads)
+    staged = _stage_once(sync_session.info.setdefault(_PENDING_MESSAGING_KEY, []), payloads)
     if not sync_session.info.get(_MESSAGING_HOOK_KEY):
         sync_session.info[_MESSAGING_HOOK_KEY] = True
         event.listen(sync_session, "after_commit", _flush_pending_messaging)
         event.listen(sync_session, "after_rollback", _drop_pending_messaging)
-    return len(payloads)
+    return staged
 
 
 async def notify(
