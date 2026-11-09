@@ -4814,3 +4814,40 @@ entity type the dealer catalogue publishes loses its policy.
 holder file against an item again. If some uploads against an item must stay
 internal for people who may edit items, the catalogue needs a typed link, as
 the vendor portal has (§C1-3), rather than a wider upload right.
+
+## §DOC-2. A file filed against an item or an inspection names one this company holds
+
+**Assumed.** `POST /documents` reads `entity_id` through the owning module's
+tenant-scoped repository for each entity type a module registers a resolver
+for - `item` (products) and `qc_inspection` (quality) - and answers
+`404 NOT_FOUND` naming the record (`Item not found: <id>`,
+`QC inspection not found: <id>`) for another company's record, an unknown id or
+another kind of record's id, before any byte is read or stored. It runs after
+the attach policy (§DOC-1), so a caller without `item.update` is refused 403
+first. Any other entity type is stored as given, as before. Modules that file
+against their own typed record (a purchase order's shared files, a generated
+PDF) call the upload without a principal, against a record they have just
+read, and are not checked again. Files filed before the rule stay where they
+are.
+
+**Why.** `documents.entity_id` is polymorphic and has no foreign key, so a
+mistyped id or another company's satisfied every constraint and the file was
+stored with 201 against nothing - listed under no item or inspection, so
+nobody looking for it would find it. A UUID is globally unique: only a read
+through the tenant-scoped repository says which company a record belongs to
+(§REF-1). The owning module registers its reader, as it registers an attach
+policy, so the documents module imports none of the modules whose records it
+can be filed against.
+
+**Where.** `src/common/document_access.py` - `register_document_entity_resolver`,
+`assert_entity_held`; `src/modules/products/service.py` and
+`src/modules/quality/service.py` - the registrations for `ITEM_DOCUMENT_ENTITY`
+and `INSPECTION_DOCUMENT_ENTITY`; `src/modules/documents/service.py` -
+`DocumentService.upload(principal=...)`. `tests/unit/test_document_entity_resolvers.py`
+lists the entity types the code base files documents under with no resolver,
+and fails if a type the screens file through the upload loses its resolver or
+a resolver is registered for a type it does not list.
+
+**Impact if wrong.** Remove a registration to accept any id under that type
+again. To hold another entity type to its records, register its owner's
+`get_or_404` and move the type from the guard's unresolved list.

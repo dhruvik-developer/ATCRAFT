@@ -93,6 +93,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.document_access import register_document_entity_resolver
 from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -226,6 +227,21 @@ DEFAULT_AUTO_STAGE = QcStage.IN_PROCESS
 #: The reference type procurement files incoming inspections under. A rejection
 #: on one of these is also reported to the supplying vendor's portal users.
 GOODS_RECEIPT_REFERENCE = "goods_receipt"
+
+#: ``documents.entity_type`` of a file filed against an inspection - its
+#: attachments and its reading photos, which the inspection screens upload and
+#: list under this type.
+INSPECTION_DOCUMENT_ENTITY = "qc_inspection"
+
+# A file filed against an inspection is one of this company's inspections - not
+# another company's, and not an id naming none, which no inspection would ever
+# list. docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    INSPECTION_DOCUMENT_ENTITY,
+    lambda session, tenant, inspection_id: QcInspectionRepository(session, tenant).get_or_404(
+        inspection_id
+    ),
+)
 
 
 def _plain_quantity(value: Decimal) -> str:

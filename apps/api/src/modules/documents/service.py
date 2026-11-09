@@ -38,6 +38,14 @@ owning an entity type registers the right filing against it needs
 (:func:`src.common.document_access.register_document_attach_policy`), and a
 generic upload checks it before a byte is read.
 
+*A file filed against nothing.* ``entity_id`` is polymorphic and has no foreign
+key, so another company's record or an id naming none satisfied every
+constraint, and the file was listed under nothing anyone can open. The owning
+module registers a tenant-scoped reader for its entity type
+(:func:`src.common.document_access.register_document_entity_resolver`), and a
+generic upload resolves the id before a byte is read - 404, as any read of
+another company's record answers.
+
 Ordering of the write and the commit
 ------------------------------------
 The bytes are written first, then the metadata row is committed. If the
@@ -70,7 +78,7 @@ import anyio
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.document_access import assert_may_attach
+from src.common.document_access import assert_entity_held, assert_may_attach
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
@@ -628,13 +636,18 @@ class DocumentService:
         :meth:`discard_stored`, or the bytes stay with nothing pointing at them.
 
         ``principal`` is the caller of the generic upload, which may file a
-        document against any entity type: when that type's owner registered an
-        attach policy, its right is required before anything is read or stored.
-        A module filing against its own typed record gates its route itself and
-        passes none.
+        document against any entity type and id: when that type's owner
+        registered an attach policy, its right is required, and when it
+        registered an entity resolver, the id must be a record of it this
+        company holds - both before anything is read or stored. A module filing
+        against its own typed record, which it has just read, gates its route
+        itself and passes none.
         """
         if principal is not None:
             assert_may_attach(principal, payload.entity_type)
+            await assert_entity_held(
+                self.session, self.tenant, payload.entity_type, payload.entity_id
+            )
         moment = utcnow()
         mime_type = normalise_mime_type(upload_file.content_type)
         rule = assert_upload_allowed(mime_type)

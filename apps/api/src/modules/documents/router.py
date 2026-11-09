@@ -93,7 +93,11 @@ FilterDep = Annotated[DocumentFilters, Depends(document_filters)]
     description=(
         "Multipart upload. The declared content type must be permitted by the server "
         "configuration and must match the file's actual leading bytes; the stored path is "
-        "generated server-side and never derives from the submitted file name."
+        "generated server-side and never derives from the submitted file name. Filing "
+        "against an `item` also needs `item.update`, because the dealer catalogue publishes "
+        "the images filed against a sellable item (403 otherwise). An `entity_id` of a type "
+        "its module resolves (`item`, `qc_inspection`) must be a record this company holds "
+        "(404 otherwise); any other entity type is stored as given."
     ),
     dependencies=[
         require_permission(Permission.DOCUMENT_UPLOAD),

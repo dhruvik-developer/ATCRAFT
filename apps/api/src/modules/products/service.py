@@ -31,7 +31,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import normalise_code
-from src.common.document_access import register_document_attach_policy
+from src.common.document_access import (
+    register_document_attach_policy,
+    register_document_entity_resolver,
+)
 from src.common.repository import labels_by_id
 from src.core.cache import CacheNamespace, cache_delete, cache_get, cache_set, make_key
 from src.core.clock import today
@@ -149,6 +152,13 @@ ITEM_DOCUMENT_ENTITY = "item"
 # a change to the item's public face rather than an internal note. Files filed
 # before this rule stay where they are. docs/assumptions.md §DOC-1.
 register_document_attach_policy(ITEM_DOCUMENT_ENTITY, Permission.ITEM_UPDATE)
+# A file filed against an item is one of this company's items - not another
+# company's, which the catalogue would never show, and not an id naming none.
+# docs/assumptions.md §DOC-2.
+register_document_entity_resolver(
+    ITEM_DOCUMENT_ENTITY,
+    lambda session, tenant, item_id: ItemRepository(session, tenant).get_or_404(item_id),
+)
 
 #: What an audit row records for an attribute. `attribute` is absent because
 #: it cannot be changed - see ItemAttributeUpdate.
