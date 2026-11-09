@@ -28,7 +28,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, PackageCheck, Search, ShieldAlert } from 'lucide-react'
+import { PackageCheck, ShieldAlert } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -43,9 +43,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
 } from '@/components/ui/overlays'
 import {
   Alert,
@@ -57,6 +54,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import { LocationPicker } from '@/features/inventory/location-picker'
 import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
@@ -64,7 +62,6 @@ import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { ApiError, api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
@@ -73,7 +70,7 @@ import { describeError, errorDescription, success, validation } from '@/lib/mess
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { cn, indexById } from '@/lib/utils'
+import { indexById } from '@/lib/utils'
 
 import {
   isPoReceivable,
@@ -110,134 +107,54 @@ function OpenPurchaseOrderPicker({
   invalid: boolean
   vendorName: (vendorId: string) => string
 }) {
-  const [open, setOpen] = useState(false)
-  const [term, setTerm] = useState('')
-
-  const debouncedTerm = useDebouncedValue(term)
-
-  const params = {
-    limit: PICKER_PAGE_SIZE,
-    with_total: false,
-    open_only: true,
-    sort_by: 'expected_delivery_date',
-    sort_dir: 'asc',
-    ...(debouncedTerm ? { search: debouncedTerm } : {}),
-  }
-
-  const results = useQuery({
-    queryKey: queryKeys.procurement.purchaseOrders(params),
-    queryFn: ({ signal }) =>
-      api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params, signal }),
-    enabled: open,
-    staleTime: staleTimes.transactional,
-  })
-
-  const rows = results.data?.data ?? []
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          id="grn-po"
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          aria-label="Purchase order"
-          aria-invalid={invalid}
-          className={cn(
-            'h-9 w-full justify-between font-normal',
-            !value && 'text-muted-foreground',
-            invalid && 'border-destructive',
-          )}
-        >
-          <span className="truncate">
-            {value ? `${value.code} - ${vendorName(value.vendor_id)}` : 'Search open orders'}
+    <SearchPicker<PurchaseOrderRow>
+      id="grn-po"
+      label="Purchase order"
+      labelDisplay="external"
+      required
+      listLabel="Open purchase orders"
+      width="wide"
+      display={value ? `${value.code} - ${vendorName(value.vendor_id)}` : null}
+      placeholder="Search open orders"
+      invalid={invalid}
+      searchLabel="Search open purchase orders"
+      searchPlaceholder="Search by order code or vendor reference"
+      query={(term) => {
+        const params = {
+          limit: PICKER_PAGE_SIZE,
+          with_total: false,
+          open_only: true,
+          sort_by: 'expected_delivery_date',
+          sort_dir: 'asc',
+          ...(term ? { search: term } : {}),
+        }
+        return {
+          queryKey: queryKeys.procurement.purchaseOrders(params),
+          queryFn: ({ signal }) =>
+            api.getPage<PurchaseOrderRow>('/procurement/purchase-orders', { params, signal }),
+          staleTime: staleTimes.transactional,
+        }
+      }}
+      getKey={(order) => order.id}
+      selectedKey={value?.id ?? null}
+      isDisabled={(order) => !isPoReceivable(order.status)}
+      onSelect={onChange}
+      renderOption={(order) => (
+        <>
+          <span className="block truncate font-medium">{order.code}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {vendorName(order.vendor_id)} - expected {formatDate(order.expected_delivery_date)}
           </span>
-          <ChevronsUpDown className="opacity-50" aria-hidden />
-        </Button>
-      </PopoverTrigger>
-
-      <PopoverContent
-        align="start"
-        collisionPadding={8}
-        className="w-[26rem] max-w-[var(--radix-popover-content-available-width)] p-0"
-      >
-        <div className="relative border-b p-2">
-          <Search
-            className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            autoFocus
-            value={term}
-            onChange={(event) => setTerm(event.target.value)}
-            placeholder="Search by order code or vendor reference"
-            aria-label="Search open purchase orders"
-            className="pl-8"
-          />
-        </div>
-
-        <div
-          className="max-h-72 overflow-y-auto p-1"
-          role="listbox"
-          aria-label="Open purchase orders"
-        >
-          {results.isLoading && (
-            <p className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Searching...
-            </p>
+          {!isPoReceivable(order.status) && (
+            <span className="block truncate text-xs text-warning">
+              Not yet sent to the vendor - nothing can be received against it
+            </span>
           )}
-
-          {!results.isLoading && results.error && (
-            <FieldError className="mt-0 px-2 py-6 text-sm" message={describeError(results.error)} />
-          )}
-
-          {!results.isLoading && !results.error && rows.length === 0 && (
-            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-              No open purchase order matches.
-            </p>
-          )}
-
-          {rows.map((order) => {
-            const receivable = isPoReceivable(order.status)
-            return (
-              <button
-                key={order.id}
-                type="button"
-                role="option"
-                aria-selected={order.id === value?.id}
-                aria-disabled={!receivable}
-                disabled={!receivable}
-                onClick={() => {
-                  onChange(order)
-                  setOpen(false)
-                }}
-                className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
-              >
-                <Check
-                  className={cn('mt-0.5 h-4 w-4 shrink-0', order.id !== value?.id && 'invisible')}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{order.code}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {vendorName(order.vendor_id)} - expected{' '}
-                    {formatDate(order.expected_delivery_date)}
-                  </span>
-                  {!receivable && (
-                    <span className="block truncate text-xs text-warning">
-                      Not yet sent to the vendor - nothing can be received against it
-                    </span>
-                  )}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </PopoverContent>
-    </Popover>
+        </>
+      )}
+      emptyText="No open purchase order matches."
+    />
   )
 }
 

@@ -26,7 +26,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, Plus, Search, Trash2, X } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -41,9 +41,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
 } from '@/components/ui/overlays'
 import {
   Alert,
@@ -55,10 +52,10 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY, PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -178,29 +175,7 @@ function RfqPicker({
   onChange: (rfqId: string | null) => void
   invalid?: boolean
 }) {
-  const [open, setOpen] = useState(false)
-  const [term, setTerm] = useState('')
   const [picked, setPicked] = useState<RfqRow | null>(null)
-
-  // One request per keystroke would put a scan of the RFQ register behind every
-  // character typed.
-  const debouncedTerm = useDebouncedValue(term)
-
-  const searchParams = {
-    limit: PICKER_PAGE_SIZE,
-    with_total: false,
-    sort_by: 'rfq_date',
-    sort_dir: 'desc',
-    ...(debouncedTerm ? { search: debouncedTerm } : {}),
-  }
-
-  const results = useQuery({
-    queryKey: rfqKeys.list(searchParams),
-    queryFn: ({ signal }) =>
-      api.getPage<RfqRow>('/procurement/rfqs', { params: searchParams, signal }),
-    enabled: open,
-    staleTime: staleTimes.transactional,
-  })
 
   // An RFQ arriving as a bare id - prefilled from the list's own filter - is
   // resolved by id so the field reads as a code rather than a UUID.
@@ -212,131 +187,66 @@ function RfqPicker({
   })
 
   const selected = value ? (picked?.id === value ? picked : (detail.data ?? null)) : null
-  const rows = results.data?.data ?? []
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} required>
-        RFQ
-      </Label>
-      <div className="flex items-center gap-1">
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              id={id}
-              type="button"
-              variant="outline"
-              role="combobox"
-              aria-expanded={open}
-              aria-label="RFQ"
-              aria-invalid={invalid}
-              className={cn(
-                'h-9 min-w-[200px] flex-1 justify-between font-normal',
-                !selected && 'text-muted-foreground',
-                invalid && 'border-destructive',
-              )}
-            >
-              <span className="truncate">{selected ? selected.code : 'Search open RFQs'}</span>
-              <ChevronsUpDown className="opacity-50" aria-hidden />
-            </Button>
-          </PopoverTrigger>
-
-          <PopoverContent
-            align="start"
-            collisionPadding={8}
-            className="w-[24rem] max-w-[var(--radix-popover-content-available-width)] p-0"
-          >
-            <div className="relative border-b p-2">
-              <Search
-                className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                autoFocus
-                value={term}
-                onChange={(event) => setTerm(event.target.value)}
-                placeholder="Search by RFQ code"
-                aria-label="Search requests for quotation"
-                className="pl-8"
-              />
-            </div>
-
-            <div className="max-h-64 overflow-y-auto p-1" role="listbox" aria-label="RFQ">
-              {results.isLoading && (
-                <p className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  Searching...
-                </p>
-              )}
-
-              {!results.isLoading && results.error && (
-                <FieldError
-                  className="mt-0 px-2 py-6 text-sm"
-                  message={describeError(results.error)}
-                />
-              )}
-
-              {!results.isLoading && !results.error && rows.length === 0 && (
-                <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                  {debouncedTerm
-                    ? 'No RFQ matches that search.'
-                    : 'Type to search requests for quotation.'}
-                </p>
-              )}
-
-              {rows.map((rfq) => {
-                const settled = RFQ_TERMINAL_STATUSES.includes(rfq.status)
-                return (
-                  <button
-                    key={rfq.id}
-                    type="button"
-                    role="option"
-                    aria-selected={rfq.id === value}
-                    disabled={settled}
-                    onClick={() => {
-                      setPicked(rfq)
-                      onChange(rfq.id)
-                      setOpen(false)
-                    }}
-                    className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-                  >
-                    <Check
-                      className={cn('mt-0.5 h-4 w-4 shrink-0', rfq.id !== value && 'invisible')}
-                      aria-hidden
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate font-medium">{rfq.code}</span>
-                        <StatusBadge status={rfq.status} />
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {formatDate(rfq.rfq_date)}
-                        {settled && ' - no longer accepts quotations'}
-                      </span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        {value && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Clear RFQ"
-            onClick={() => {
-              setPicked(null)
-              onChange(null)
-            }}
-          >
-            <X />
-          </Button>
-        )}
-      </div>
-    </div>
+    <SearchPicker<RfqRow>
+      id={id}
+      label="RFQ"
+      required
+      triggerClassName="min-w-[200px]"
+      display={selected ? selected.code : null}
+      placeholder="Search open RFQs"
+      invalid={invalid}
+      searchLabel="Search requests for quotation"
+      searchPlaceholder="Search by RFQ code"
+      query={(term) => {
+        const params = {
+          limit: PICKER_PAGE_SIZE,
+          with_total: false,
+          sort_by: 'rfq_date',
+          sort_dir: 'desc',
+          ...(term ? { search: term } : {}),
+        }
+        return {
+          queryKey: rfqKeys.list(params),
+          queryFn: ({ signal }) => api.getPage<RfqRow>('/procurement/rfqs', { params, signal }),
+          staleTime: staleTimes.transactional,
+        }
+      }}
+      getKey={(rfq) => rfq.id}
+      selectedKey={value}
+      isDisabled={(rfq) => RFQ_TERMINAL_STATUSES.includes(rfq.status)}
+      onSelect={(rfq) => {
+        setPicked(rfq)
+        onChange(rfq.id)
+      }}
+      renderOption={(rfq) => (
+        <>
+          <span className="flex items-center gap-2">
+            <span className="truncate font-medium">{rfq.code}</span>
+            <StatusBadge status={rfq.status} />
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {formatDate(rfq.rfq_date)}
+            {RFQ_TERMINAL_STATUSES.includes(rfq.status) && ' - no longer accepts quotations'}
+          </span>
+        </>
+      )}
+      emptyText={(term) =>
+        term ? 'No RFQ matches that search.' : 'Type to search requests for quotation.'
+      }
+      clear={
+        value
+          ? {
+              label: 'Clear RFQ',
+              onClear: () => {
+                setPicked(null)
+                onChange(null)
+              },
+            }
+          : undefined
+      }
+    />
   )
 }
 

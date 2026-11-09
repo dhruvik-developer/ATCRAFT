@@ -677,6 +677,44 @@ describe('what the quotation form sends', () => {
     expect(screen.getByRole('dialog')).toBeVisible()
   })
 
+  it('lists a closed RFQ, says it takes no more quotations, and records against an open one', async () => {
+    const open = {
+      id: RFQ_ID,
+      code: 'RFQ-0001',
+      status: 'SENT',
+      rfq_date: '2026-09-01',
+      response_due_date: '2026-09-10',
+      required_date: '2026-09-30',
+      currency: 'INR',
+      warehouse_id: '01a00000-0000-7000-8000-00000000wh01',
+      requisition_id: null,
+      vendor_ids: [VENDOR_A],
+      sent_at: '2026-09-02T09:00:00Z',
+      closed_at: null,
+      created_at: '2026-09-01T09:00:00Z',
+    }
+    const closed = { ...open, id: `${RFQ_ID}-closed`, code: 'RFQ-0000', status: 'CLOSED' }
+    const { user, fetch } = renderScreen(<QuotationsPage />, {
+      permissions: BUYER,
+      routes: formRoutes({ 'GET /procurement/rfqs': page([closed, open]) }),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /record quotation/i }))
+    await stable(() => screen.getByRole('dialog'))
+    const field = screen.getByRole('combobox', { name: 'RFQ' })
+    await user.click(field)
+    const settledRfq = await stable(() =>
+      screen.getByRole('option', { name: /RFQ-0000.*no longer accepts quotations/ }),
+    )
+    expect(settledRfq).toHaveAttribute('aria-disabled', 'true')
+
+    await user.click(settledRfq)
+    expect(field).toHaveTextContent('Search open RFQs')
+    await user.click(screen.getByRole('option', { name: /RFQ-0001/ }))
+    expect(field).toHaveTextContent('RFQ-0001')
+  })
+
   it('says the lines cannot be keyed when the item master is unreadable', async () => {
     // The line editor searches `/products/items`, which enforces `item.view` -
     // not the `quotation.manage` that lets this form post.

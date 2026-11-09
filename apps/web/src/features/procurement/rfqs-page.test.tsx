@@ -534,6 +534,40 @@ describe('what the RFQ form sends', () => {
     const dialog = await stable(() => screen.getByRole('dialog'))
     expect(within(dialog).getByRole('combobox', { name: 'Raised against' })).toBeVisible()
   })
+
+  it('finds the requisition among the approved ones and lets it bring its own lines', async () => {
+    const searches: URLSearchParams[] = []
+    const { user, fetch } = renderScreen(<RfqsPage />, {
+      permissions: [...BUYER, P.PURCHASE_REQUISITION_VIEW],
+      routes: formRoutes({
+        'GET /procurement/purchase-requisitions': ({ url }) => {
+          searches.push(url.searchParams)
+          return page([
+            {
+              id: '01a00000-0000-7000-8000-00000000req7',
+              code: 'PR-0007',
+              required_date: '2026-09-25',
+              purpose: 'Hinge line restock',
+            },
+          ])
+        },
+      }),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /new rfq/i }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    expect(within(dialog).getByRole('combobox', { name: 'Line 1 item' })).toBeVisible()
+    const field = within(dialog).getByRole('combobox', { name: 'Raised against' })
+    await user.click(field)
+    await user.click(await stable(() => screen.getByRole('option', { name: /PR-0007/ })))
+
+    expect(searches.at(-1)?.get('open_only'), 'only demand still left to source').toBe('true')
+    expect(field).toHaveTextContent('PR-0007')
+    // The API copies a requisition's lines only when none are sent, so the
+    // untouched starter line goes.
+    expect(within(dialog).queryByRole('combobox', { name: 'Line 1 item' })).not.toBeInTheDocument()
+  })
 })
 
 describe('the board itself', () => {

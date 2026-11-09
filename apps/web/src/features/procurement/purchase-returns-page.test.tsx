@@ -485,6 +485,27 @@ describe('what the return form sends', () => {
     expect(screen.getByText('Lot LOT-88')).toBeVisible()
   })
 
+  it('searches only posted receipts and reads the chosen one back on the field', async () => {
+    const searches: URLSearchParams[] = []
+    const { user, fetch } = renderScreen(<PurchaseReturnsPage />, {
+      permissions: STOREKEEPER,
+      routes: formRoutes({
+        'GET /procurement/goods-receipts': ({ url }) => {
+          searches.push(url.searchParams)
+          return page([RECEIPT_ROW])
+        },
+      }),
+    })
+
+    await openForm(user, fetch)
+
+    // Only a posted receipt put stock on the shelf, so only one can send it back.
+    expect(searches.at(-1)?.get('status')).toBe('POSTED')
+    const field = screen.getByRole('combobox', { name: 'Goods receipt' })
+    expect(field).toHaveTextContent('GRN-0007')
+    expect(field).toHaveAttribute('aria-required', 'true')
+  })
+
   it('sends only the lines with a quantity, renumbered from one', async () => {
     const { user, fetch } = renderScreen(<PurchaseReturnsPage />, {
       permissions: STOREKEEPER,

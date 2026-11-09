@@ -289,6 +289,40 @@ describe('what one submit achieves', () => {
     expect(fetch.calls.some((c) => c.method === 'POST' && c.path.endsWith('/post'))).toBe(false)
   })
 
+  it('lists an order the vendor was never sent, says why, and receives against none but a sent one', async () => {
+    const searches: URLSearchParams[] = []
+    const unsent = { ...PO_ROW, id: `${PO_ID}-unsent`, code: 'PO-0002', status: 'APPROVED' }
+    const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
+      permissions: CLERK,
+      routes: formRoutes({
+        [`GET ${ORDERS_PATH}`]: ({ url }) => {
+          searches.push(url.searchParams)
+          return page([unsent, PO_ROW])
+        },
+      }),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /receive against po/i }))
+    await stable(() => screen.getByRole('dialog'))
+    const field = screen.getByRole('combobox', { name: 'Purchase order' })
+    expect(field).toHaveAttribute('aria-required', 'true')
+    await user.click(field)
+    const refused = await stable(() =>
+      screen.getByRole('option', { name: /PO-0002.*Not yet sent to the vendor/ }),
+    )
+    expect(refused).toHaveAttribute('aria-disabled', 'true')
+    expect(searches.at(-1)?.get('open_only'), 'only orders still expecting goods').toBe('true')
+
+    await user.click(refused)
+    expect(screen.getByRole('listbox', { name: 'Open purchase orders' })).toBeVisible()
+    expect(field).toHaveTextContent('Search open orders')
+
+    await user.click(screen.getByRole('option', { name: /PO-0001/ }))
+    expect(await stable(() => screen.getByText('Brass rod 12mm'))).toBeVisible()
+    expect(field).toHaveTextContent('PO-0001')
+  })
+
   it('sends only the counted lines, renumbered from one', async () => {
     const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
       permissions: STOREKEEPER,

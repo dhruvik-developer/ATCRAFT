@@ -28,7 +28,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, Plus, Search, Trash2, X } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -43,9 +43,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
 } from '@/components/ui/overlays'
 import {
   Alert,
@@ -57,11 +54,11 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import {
   DEFAULT_CURRENCY,
@@ -71,11 +68,11 @@ import {
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, plural, toDateInput, toDecimal } from '@/lib/format'
-import { describeError, messages, success, validation } from '@/lib/messages'
+import { messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { cn, indexById } from '@/lib/utils'
+import { indexById } from '@/lib/utils'
 
 import { type RequisitionRow } from './procurement-types'
 import {
@@ -428,142 +425,64 @@ function RequisitionPicker({
   value: string | null
   onChange: (requisitionId: string | null) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [term, setTerm] = useState('')
   const [picked, setPicked] = useState<RequisitionRow | null>(null)
-
-  const debouncedTerm = useDebouncedValue(term)
-
-  const params = useMemo(
-    () => ({
-      limit: PICKER_PAGE_SIZE,
-      with_total: false,
-      open_only: true,
-      sort_by: 'requisition_date',
-      sort_dir: 'desc' as const,
-      ...(debouncedTerm ? { search: debouncedTerm } : {}),
-    }),
-    [debouncedTerm],
-  )
-
-  const results = useQuery({
-    queryKey: [...rfqKeys.all, 'requisition-options', params] as const,
-    queryFn: ({ signal }) =>
-      api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params, signal }),
-    enabled: open,
-    staleTime: staleTimes.transactional,
-  })
-
-  const rows = results.data?.data ?? []
   const selected = value && picked?.id === value ? picked : null
 
   return (
-    <div className="flex items-center gap-1">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            id="rfq-requisition"
-            type="button"
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className={cn(
-              'h-9 min-w-[200px] flex-1 justify-between font-normal',
-              !value && 'text-muted-foreground',
-            )}
-          >
-            <span className="truncate">
-              {selected ? selected.code : value ? 'Requisition selected' : 'Not from a requisition'}
-            </span>
-            <ChevronsUpDown className="opacity-50" aria-hidden />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          collisionPadding={8}
-          className="w-[24rem] max-w-[var(--radix-popover-content-available-width)] p-0"
-        >
-          <div className="relative border-b p-2">
-            <Search
-              className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              autoFocus
-              value={term}
-              onChange={(event) => setTerm(event.target.value)}
-              placeholder="Search by number or purpose"
-              aria-label="Search approved requisitions"
-              className="pl-8"
-            />
-          </div>
-
-          <div className="max-h-64 overflow-y-auto p-1" role="listbox" aria-label="Requisitions">
-            {results.isLoading && (
-              <p className="flex items-center gap-2 px-2 py-6 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Searching...
-              </p>
-            )}
-
-            {!results.isLoading && results.error && (
-              <FieldError
-                className="mt-0 px-2 py-6 text-sm"
-                message={describeError(results.error)}
-              />
-            )}
-
-            {!results.isLoading && !results.error && rows.length === 0 && (
-              <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-                No approved requisition still has anything left to source.
-              </p>
-            )}
-
-            {rows.map((requisition) => (
-              <button
-                key={requisition.id}
-                type="button"
-                role="option"
-                aria-selected={requisition.id === value}
-                onClick={() => {
-                  setPicked(requisition)
-                  onChange(requisition.id)
-                  setOpen(false)
-                }}
-                className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              >
-                <Check
-                  className={cn('mt-0.5 h-4 w-4 shrink-0', requisition.id !== value && 'invisible')}
-                  aria-hidden
-                />
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{requisition.code}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    Needed {formatDate(requisition.required_date)}
-                    {requisition.purpose ? ` - ${requisition.purpose}` : ''}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {value && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Clear requisition"
-          onClick={() => {
-            setPicked(null)
-            onChange(null)
-          }}
-        >
-          <X />
-        </Button>
+    <SearchPicker<RequisitionRow>
+      id="rfq-requisition"
+      label="Raised against"
+      labelDisplay="external"
+      listLabel="Requisitions"
+      triggerClassName="min-w-[200px]"
+      display={selected ? selected.code : value ? 'Requisition selected' : null}
+      placeholder="Not from a requisition"
+      searchLabel="Search approved requisitions"
+      searchPlaceholder="Search by number or purpose"
+      query={(term) => {
+        const params = {
+          limit: PICKER_PAGE_SIZE,
+          with_total: false,
+          open_only: true,
+          sort_by: 'requisition_date',
+          sort_dir: 'desc' as const,
+          ...(term ? { search: term } : {}),
+        }
+        return {
+          queryKey: [...rfqKeys.all, 'requisition-options', params] as const,
+          queryFn: ({ signal }) =>
+            api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params, signal }),
+          staleTime: staleTimes.transactional,
+        }
+      }}
+      getKey={(requisition) => requisition.id}
+      selectedKey={value}
+      onSelect={(requisition) => {
+        setPicked(requisition)
+        onChange(requisition.id)
+      }}
+      renderOption={(requisition) => (
+        <>
+          <span className="block truncate font-medium">{requisition.code}</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            Needed {formatDate(requisition.required_date)}
+            {requisition.purpose ? ` - ${requisition.purpose}` : ''}
+          </span>
+        </>
       )}
-    </div>
+      emptyText="No approved requisition still has anything left to source."
+      clear={
+        value
+          ? {
+              label: 'Clear requisition',
+              onClear: () => {
+                setPicked(null)
+                onChange(null)
+              },
+            }
+          : undefined
+      }
+    />
   )
 }
 
