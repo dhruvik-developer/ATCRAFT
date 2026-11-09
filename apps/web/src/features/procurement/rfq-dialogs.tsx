@@ -28,12 +28,12 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2, Plus, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { BadgeDismiss, ConfirmDialog, FieldError } from '@/components/shared'
+import { BadgeDismiss, ConfirmDialog, FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -784,20 +784,12 @@ export function RfqFormDialog({
 
         {isEdit && !detail.isLoading && detail.error && (
           <DialogBody>
-            <Alert variant="destructive">
-              <AlertTitle>Could not load this RFQ</AlertTitle>
-              <AlertDescription>{describeError(detail.error)}</AlertDescription>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                loading={detail.isFetching}
-                onClick={() => void detail.refetch()}
-              >
-                <RefreshCw />
-                Try again
-              </Button>
-            </Alert>
+            <LoadError
+              title="Could not load this RFQ"
+              error={detail.error}
+              onRetry={() => void detail.refetch()}
+              retrying={detail.isFetching}
+            />
           </DialogBody>
         )}
 

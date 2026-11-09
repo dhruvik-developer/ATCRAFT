@@ -27,12 +27,12 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -64,7 +64,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -377,20 +377,12 @@ export function RequisitionFormDialog({
 
         {isAmend && !detail.isLoading && detail.error && (
           <DialogBody>
-            <Alert variant="destructive">
-              <AlertTitle>Could not load this requisition</AlertTitle>
-              <AlertDescription>{describeError(detail.error)}</AlertDescription>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                loading={detail.isFetching}
-                onClick={() => void detail.refetch()}
-              >
-                <RefreshCw />
-                Try again
-              </Button>
-            </Alert>
+            <LoadError
+              title="Could not load this requisition"
+              error={detail.error}
+              onRetry={() => void detail.refetch()}
+              retrying={detail.isFetching}
+            />
           </DialogBody>
         )}
 

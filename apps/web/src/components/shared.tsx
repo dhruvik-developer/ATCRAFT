@@ -1,16 +1,16 @@
 /**
  * Cross-feature building blocks: page header, status badge, chip dismiss, stat
- * tile, confirmation and reason dialogs, description list, field error,
- * date-range filter, panel loader.
+ * tile, confirmation and reason dialogs, description list, field error, load
+ * error, denied panel, date-range filter, panel loader.
  *
  * These exist so twenty screens present a status, a heading and a destructive
  * confirmation the same way. Divergence there is what makes an ERP feel
  * assembled by committee.
  */
 
-import { describeError, errors, prompts } from '@/lib/messages'
+import { describeError, empty, errors, prompts } from '@/lib/messages'
 
-import { AlertTriangle, ChevronRight, Loader2, X, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Loader2, RefreshCw, X, type LucideIcon } from 'lucide-react'
 import {
   useEffect,
   useId,
@@ -706,6 +706,64 @@ export function DateRangeFilter({
 // Defined in its own module so the eager sign-in screen can use it without
 // this file; re-exported here, where every other screen imports it from.
 export { FieldError }
+
+// ------------------------------------------------------------- LoadError ----
+
+/**
+ * A read that failed: what did not load, the API's own reason, and a way to
+ * ask again.
+ *
+ * One presentation for every panel, dialog body and page section, so the same
+ * failure never reads as a headline with a retry on one screen and as a bare
+ * red sentence on the next. A refused *submit* is not this: it stays beside the
+ * form that sent it, as a `FieldError` or the form's own alert.
+ */
+export function LoadError({
+  error,
+  title = errors.loadFailed,
+  onRetry,
+  retrying = false,
+  retryClassName,
+  className,
+}: {
+  error: unknown
+  /** What failed to load, when the screen can say it: "Could not load this order". */
+  title?: string
+  onRetry?: () => void
+  /** The retry is in flight (`query.isFetching`): the button spins instead of inviting a second press. */
+  retrying?: boolean
+  /** The portals size every control for a thumb (`min-h-11`); the retry follows suit. */
+  retryClassName?: string
+  className?: string
+}) {
+  return (
+    <Alert variant="destructive" className={className}>
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{describeError(error)}</AlertDescription>
+      {onRetry && (
+        // type="button": a failed read inside a form dialog must not submit the form.
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn('mt-3', retryClassName)}
+          loading={retrying}
+          onClick={onRetry}
+        >
+          <RefreshCw />
+          {empty.loadFailedAction}
+        </Button>
+      )}
+    </Alert>
+  )
+}
+
+// ----------------------------------------------------------- PanelDenied ----
+
+/** A panel the viewer's role may not read, said in place of the panel. */
+export function PanelDenied({ what }: { what: string }) {
+  return <EmptyState title={empty.panelDenied(what)} description={empty.panelDeniedDetail} />
+}
 
 // ------------------------------------------------------------ EmptyState ----
 

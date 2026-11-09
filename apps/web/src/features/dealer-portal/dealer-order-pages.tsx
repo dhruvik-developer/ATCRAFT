@@ -121,7 +121,7 @@ export function DealerCartPage() {
         title="Cart"
         description="Prices, offers, taxes and credit are checked again when you place your order."
       />
-      <DealerResult loading={cart.isLoading} error={cart.error}>
+      <DealerResult loading={cart.isLoading} error={cart.error} onRetry={() => void cart.refetch()}>
         {data &&
           (data.lines.length ? (
             <div className="space-y-5">
@@ -329,7 +329,7 @@ export function DealerWishlistPage() {
               : undefined
         }
       />
-      <DealerResult loading={list.isLoading} error={list.error}>
+      <DealerResult loading={list.isLoading} error={list.error} onRetry={() => void list.refetch()}>
         {list.data?.length ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {list.data.map((item) => (
@@ -446,7 +446,11 @@ export function DealerOrdersPage() {
 function DealerTrackingPanel({ dispatchId }: { dispatchId: string }) {
   const tracking = useDealerRead<SchemaOf<'DealerTracking'>>(`dispatches/${dispatchId}/tracking`)
   return (
-    <DealerResult loading={tracking.isLoading} error={tracking.error}>
+    <DealerResult
+      loading={tracking.isLoading}
+      error={tracking.error}
+      onRetry={() => void tracking.refetch()}
+    >
       {tracking.data && (
         <ol className="mt-3 space-y-3 border-l pl-4">
           {tracking.data.events.map((event, index) => (
@@ -498,7 +502,11 @@ export function DealerOrderPage() {
           )
         }
       />
-      <DealerResult loading={detail.isLoading} error={detail.error}>
+      <DealerResult
+        loading={detail.isLoading}
+        error={detail.error}
+        onRetry={() => void detail.refetch()}
+      >
         {order && (
           <div className="space-y-5">
             <DescriptionList
@@ -546,7 +554,11 @@ export function DealerOrderPage() {
               </table>
             </div>
             <h2 className="font-semibold">Dispatches and tracking</h2>
-            <DealerResult loading={dispatches.isLoading} error={dispatches.error}>
+            <DealerResult
+              loading={dispatches.isLoading}
+              error={dispatches.error}
+              onRetry={() => void dispatches.refetch()}
+            >
               <div className="space-y-3">
                 {dispatches.data?.map((dispatch) => (
                   <Card key={dispatch.id}>

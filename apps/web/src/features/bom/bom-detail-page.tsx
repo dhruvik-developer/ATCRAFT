@@ -30,7 +30,6 @@ import {
   Layers,
   Merge,
   Pencil,
-  RefreshCw,
   Send,
   ShieldCheck,
   Split,
@@ -46,7 +45,9 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LoadError,
   PageHeader,
+  PanelDenied,
   StatTile,
   StatusBadge,
 } from '@/components/shared'
@@ -86,7 +87,7 @@ import {
   formatQuantity,
   humanise,
 } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -169,28 +170,6 @@ const COMMAND_COPY: Record<BomCommand, { title: string; description: string; con
       'The draft is removed permanently, together with its lines and operations. Nothing is retired and nothing is kept: only the audit entry recording the deletion survives. A draft that alternate structures point at is refused by the API even so.',
     confirm: 'Delete draft',
   },
-}
-
-function PanelDenied({ what }: { what: string }) {
-  return (
-    <EmptyState
-      title={`${what} are not visible to your account`}
-      description="Your role does not include the permission this panel needs. Ask an administrator if you believe this is wrong."
-    />
-  )
-}
-
-function PanelError({ error, onRetry }: { error: Error; onRetry: () => void }) {
-  return (
-    <Alert variant="destructive">
-      <AlertTitle>Could not load this panel</AlertTitle>
-      <AlertDescription>{describeError(error)}</AlertDescription>
-      <Button variant="outline" size="sm" className="mt-4" onClick={onRetry}>
-        <RefreshCw />
-        Try again
-      </Button>
-    </Alert>
-  )
 }
 
 function RowSkeletons({ rows = 6 }: { rows?: number }) {
@@ -740,7 +719,13 @@ function CostPanel({ bomId }: { bomId: string }) {
   }
 
   if (cost.error) {
-    return <PanelError error={cost.error as Error} onRetry={() => void cost.refetch()} />
+    return (
+      <LoadError
+        title="Could not load this panel"
+        error={cost.error}
+        onRetry={() => void cost.refetch()}
+      />
+    )
   }
 
   const data = cost.data
@@ -1030,19 +1015,11 @@ export default function BomDetailPage() {
           title="Bill of materials"
           breadcrumbs={[{ label: 'Bills of Material', to: '/bom' }]}
         />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this bill</AlertTitle>
-          <AlertDescription>{describeError(bomQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void bomQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this bill"
+          error={bomQuery.error}
+          onRetry={() => void bomQuery.refetch()}
+        />
       </>
     )
   }

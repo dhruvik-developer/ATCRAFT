@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { authenticationRetryAfter } from '@/features/auth/auth-retry'
-import { describeError, errors } from '@/lib/messages'
+import { describeError, empty, errors } from '@/lib/messages'
 
 /** An unverified session can recover without rendering protected pages or losing its route. */
 export function SessionRecovery({ error }: { error: Error }) {
@@ -54,7 +54,7 @@ export function SessionRecovery({ error }: { error: Error }) {
               disabled={retryAfter !== null || isLeaving}
               onClick={retryRestoration}
             >
-              {retryAfter === null ? 'Try again' : `Try again in ${retryAfter}s`}
+              {retryAfter === null ? empty.loadFailedAction : `Try again in ${retryAfter}s`}
             </Button>
             <Button
               type="button"

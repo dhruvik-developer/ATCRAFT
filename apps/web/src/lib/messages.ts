@@ -226,6 +226,10 @@ export const empty = {
   unlistedReference: 'Not in the active list',
   /** A stored reference whose master list the viewer is not allowed to read. */
   referenceNotVisible: 'Not visible to your account',
+  /** A whole panel the viewer's role may not read: "Prices are not visible to your account". */
+  panelDenied: (what: string) => `${what} are not visible to your account`,
+  panelDeniedDetail:
+    'Your role does not include the permission this panel needs. Ask an administrator if you believe this is wrong.',
 } as const
 
 // ------------------------------------------------------------ prompts ------

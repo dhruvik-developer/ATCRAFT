@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * One request for quotation: the header, the lines that were put out, and the
  * vendors they went to.
@@ -24,12 +23,18 @@ import { describeError } from '@/lib/messages'
 
 import { useQuery } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { Ban, Check, CheckCircle2, Pencil, RefreshCw, Send, TriangleAlert } from 'lucide-react'
+import { Ban, Check, CheckCircle2, Pencil, Send, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, EmptyState, PageHeader, StatusBadge } from '@/components/shared'
+import {
+  DescriptionList,
+  EmptyState,
+  LoadError,
+  PageHeader,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -325,19 +330,11 @@ export default function RfqDetailPage() {
           title="Request for quotation"
           breadcrumbs={[{ label: 'RFQs', to: '/procurement/rfqs' }]}
         />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this RFQ</AlertTitle>
-          <AlertDescription>{describeError(rfqQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void rfqQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this RFQ"
+          error={rfqQuery.error}
+          onRetry={() => void rfqQuery.refetch()}
+        />
       </>
     )
   }

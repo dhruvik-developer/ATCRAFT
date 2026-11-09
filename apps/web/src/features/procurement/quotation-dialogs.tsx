@@ -26,12 +26,12 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2, Plus, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { DescriptionList, FieldError, StatusBadge } from '@/components/shared'
+import { DescriptionList, FieldError, LoadError, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -1215,21 +1215,12 @@ export function QuotationFormDialog({
             )}
 
             {isRevision && existing.error && (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load this quotation</AlertTitle>
-                <AlertDescription>{describeError(existing.error)}</AlertDescription>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  loading={existing.isFetching}
-                  onClick={() => void existing.refetch()}
-                >
-                  <RefreshCw />
-                  Try again
-                </Button>
-              </Alert>
+              <LoadError
+                title="Could not load this quotation"
+                error={existing.error}
+                onRetry={() => void existing.refetch()}
+                retrying={existing.isFetching}
+              />
             )}
 
             {/* Nothing editable until the revision has actually loaded. The

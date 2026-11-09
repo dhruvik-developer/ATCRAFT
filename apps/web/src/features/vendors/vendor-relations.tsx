@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { EmptyState, FieldError, ReasonDialog } from '@/components/shared'
+import { EmptyState, FieldError, LoadError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -35,7 +35,7 @@ import { useCategoryOptions } from '@/features/items/item-model'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -201,14 +201,10 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
 
   if (contacts.error) {
     return (
-      <EmptyState
+      <LoadError
         title="Could not load contacts"
-        description={describeError(contacts.error)}
-        action={
-          <Button variant="outline" size="sm" onClick={() => void contacts.refetch()}>
-            Try again
-          </Button>
-        }
+        error={contacts.error}
+        onRetry={() => void contacts.refetch()}
       />
     )
   }
@@ -534,14 +530,10 @@ export function VendorCategoriesPanel({
 
   if (links.error) {
     return (
-      <EmptyState
+      <LoadError
         title="Could not load qualifications"
-        description={describeError(links.error)}
-        action={
-          <Button variant="outline" size="sm" onClick={() => void links.refetch()}>
-            Try again
-          </Button>
-        }
+        error={links.error}
+        onRetry={() => void links.refetch()}
       />
     )
   }

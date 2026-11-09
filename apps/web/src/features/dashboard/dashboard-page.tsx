@@ -40,7 +40,7 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { EmptyState, PageHeader, StatTile, StatusBadge } from '@/components/shared'
+import { EmptyState, LoadError, PageHeader, StatTile, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -716,16 +716,11 @@ export default function DashboardPage() {
       />
 
       {dashboard.error && !dashboard.data && (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load the dashboard</AlertTitle>
-          <AlertDescription>
-            <p>{describeError(dashboard.error)}</p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={refreshAll}>
-              <RefreshCw />
-              Try again
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <LoadError
+          title="Could not load the dashboard"
+          error={dashboard.error}
+          onRetry={refreshAll}
+        />
       )}
 
       {/* ------------------------------------------------------------ KPIs -- */}

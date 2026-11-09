@@ -279,6 +279,28 @@ describe('dealer shopping and orders', () => {
     ).toHaveLength(1)
   })
 
+  it('says why an order did not load and asks again on request', async () => {
+    const view = renderScreen(<DealerOrderPage />, {
+      route: '/dealer/orders/order',
+      path: '/dealer/orders/:orderId',
+      permissions: [P.DEALER_PORTAL_ORDER],
+      routes: {
+        'GET /dealer-portal/orders/order': fail(404, 'NOT_FOUND', 'Sales order not found'),
+        'GET /dealer-portal/orders/order/dispatches': ok([]),
+      },
+    })
+    const reads = () =>
+      view.fetch.calls.filter(
+        (call) => call.method === 'GET' && call.path === '/dealer-portal/orders/order',
+      ).length
+
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Sales order not found')
+    const before = reads()
+    await view.user.click(retry)
+    await waitFor(() => expect(reads()).toBeGreaterThan(before))
+  })
+
   it('shows a blank PO reference as the same dash every other screen uses', async () => {
     renderScreen(<DealerOrderPage />, {
       route: '/dealer/orders/order',

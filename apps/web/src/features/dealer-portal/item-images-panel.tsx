@@ -151,7 +151,11 @@ export function ItemImagesPanel({
               ))}
             </select>
           </div>
-          <DealerResult loading={list.isLoading} error={list.error}>
+          <DealerResult
+            loading={list.isLoading}
+            error={list.error}
+            onRetry={() => void list.refetch()}
+          >
             {list.data.length ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {list.data.map((document) => (

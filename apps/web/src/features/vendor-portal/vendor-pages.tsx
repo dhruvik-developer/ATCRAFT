@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
 import { PwaInstallCard } from '@/components/pwa-install-card'
-import { EmptyState, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
+import { EmptyState, LoadError, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -31,7 +31,7 @@ import {
   formatQuantity,
   humanise,
 } from '@/lib/format'
-import { describeError, empty, fileMessages } from '@/lib/messages'
+import { empty, fileMessages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -66,18 +66,6 @@ const subscribeViewport = (listener: () => void) => {
 }
 const desktopSnapshot = () => window.matchMedia(desktopQuery).matches
 
-function QueryFailure({ error, retry }: { error: unknown; retry?: () => void }) {
-  return (
-    <div role="alert" className="rounded-lg border border-destructive/30 p-4">
-      <p className="text-sm text-destructive">{describeError(error)}</p>
-      {retry && (
-        <Button className="mt-3 min-h-11" variant="outline" onClick={retry}>
-          Try again
-        </Button>
-      )}
-    </div>
-  )
-}
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <Card>
@@ -165,7 +153,11 @@ function VendorList<T>({
         </form>
       )}
       {query.error ? (
-        <QueryFailure error={query.error} retry={() => void query.refetch()} />
+        <LoadError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : query.isLoading ? (
         <PanelLoader />
       ) : query.data.length ? (
@@ -238,7 +230,9 @@ export function VendorHomePage() {
         description={me.data?.name ?? 'Your vendor workspace'}
       />
       <PwaInstallCard audience="vendor" />
-      {me.error && <QueryFailure error={me.error} retry={() => void me.refetch()} />}
+      {me.error && (
+        <LoadError error={me.error} onRetry={() => void me.refetch()} retryClassName="min-h-11" />
+      )}
       {me.data && (
         <p className="text-sm text-muted-foreground">
           Your categories:{' '}
@@ -247,7 +241,11 @@ export function VendorHomePage() {
         </p>
       )}
       {dashboard.error ? (
-        <QueryFailure error={dashboard.error} retry={() => void dashboard.refetch()} />
+        <LoadError
+          error={dashboard.error}
+          onRetry={() => void dashboard.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : dashboard.isLoading ? (
         <PanelLoader />
       ) : (
@@ -274,7 +272,11 @@ export function VendorHomePage() {
       )}
       <Section title="Your vendor rating">
         {rating.error ? (
-          <QueryFailure error={rating.error} retry={() => void rating.refetch()} />
+          <LoadError
+            error={rating.error}
+            onRetry={() => void rating.refetch()}
+            retryClassName="min-h-11"
+          />
         ) : rating.isLoading ? (
           <p role="status">Loading rating…</p>
         ) : (
@@ -622,7 +624,11 @@ function OrderRelatedList({
   return (
     <>
       {query.error ? (
-        <QueryFailure error={query.error} retry={() => void query.refetch()} />
+        <LoadError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : query.isLoading ? (
         <PanelLoader />
       ) : query.data.length === 0 ? (
@@ -702,7 +708,14 @@ export function VendorOrderPage() {
     onError: (error) => reportFieldErrors(error, 'Purchase order PDF could not be requested'),
     onSuccess: job.start,
   })
-  if (query.error) return <QueryFailure error={query.error} retry={() => void query.refetch()} />
+  if (query.error)
+    return (
+      <LoadError
+        error={query.error}
+        onRetry={() => void query.refetch()}
+        retryClassName="min-h-11"
+      />
+    )
   if (!query.data) return <PanelLoader />
   const order = query.data
   if (order.pending_amendment)
@@ -952,7 +965,11 @@ export function VendorShipmentsPage() {
         ))}
       </div>
       {query.error ? (
-        <QueryFailure error={query.error} retry={() => void query.refetch()} />
+        <LoadError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : query.isLoading ? (
         <PanelLoader />
       ) : (
@@ -1021,7 +1038,11 @@ export function VendorReceiptsPage() {
         With rejected quantities
       </Label>
       {query.error ? (
-        <QueryFailure error={query.error} retry={() => void query.refetch()} />
+        <LoadError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : query.isLoading ? (
         <PanelLoader />
       ) : (
@@ -1136,7 +1157,14 @@ export function VendorInvoicePage() {
       api.get<VendorInvoice>(`/vendor-portal/invoices/${invoiceId}`, { signal }),
     enabled: Boolean(invoiceId) && can(P.VENDOR_PORTAL_INVOICE),
   })
-  if (query.error) return <QueryFailure error={query.error} retry={() => void query.refetch()} />
+  if (query.error)
+    return (
+      <LoadError
+        error={query.error}
+        onRetry={() => void query.refetch()}
+        retryClassName="min-h-11"
+      />
+    )
   if (!query.data) return <PanelLoader />
   const invoice = query.data
   return (
@@ -1219,7 +1247,11 @@ export function VendorPaymentsPage() {
         description="Approved payments and the invoices each payment settled."
       />
       {summary.error ? (
-        <QueryFailure error={summary.error} retry={() => void summary.refetch()} />
+        <LoadError
+          error={summary.error}
+          onRetry={() => void summary.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : (
         summary.data?.map((row) => (
           <Section key={row.currency} title={`${row.currency} payment summary`}>
@@ -1243,7 +1275,11 @@ export function VendorPaymentsPage() {
         ))
       )}
       {query.error ? (
-        <QueryFailure error={query.error} retry={() => void query.refetch()} />
+        <LoadError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          retryClassName="min-h-11"
+        />
       ) : query.isLoading ? (
         <PanelLoader />
       ) : (

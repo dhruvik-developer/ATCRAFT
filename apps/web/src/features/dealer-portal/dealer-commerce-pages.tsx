@@ -150,7 +150,11 @@ export function DealerInvoicePage() {
         ]}
         status={<StatusBadge status={invoice?.status} />}
       />
-      <DealerResult loading={detail.isLoading} error={detail.error}>
+      <DealerResult
+        loading={detail.isLoading}
+        error={detail.error}
+        onRetry={() => void detail.refetch()}
+      >
         {invoice && (
           <div className="space-y-5">
             <DescriptionList
@@ -379,10 +383,14 @@ export function DealerAccountPage() {
         }
       />
       <div className="space-y-6">
-        <DealerResult loading={me.isLoading} error={me.error}>
+        <DealerResult loading={me.isLoading} error={me.error} onRetry={() => void me.refetch()}>
           {me.data && <DealerCredit credit={me.data.credit} />}
         </DealerResult>
-        <DealerResult loading={outstanding.isLoading} error={outstanding.error}>
+        <DealerResult
+          loading={outstanding.isLoading}
+          error={outstanding.error}
+          onRetry={() => void outstanding.refetch()}
+        >
           {position && (
             <div className="grid gap-3 sm:grid-cols-3">
               <StatTile
@@ -445,7 +453,11 @@ export function DealerAccountPage() {
               />
             </div>
           </div>
-          <DealerResult loading={statement.isLoading} error={statement.error}>
+          <DealerResult
+            loading={statement.isLoading}
+            error={statement.error}
+            onRetry={() => void statement.refetch()}
+          >
             {statement.data && (
               <>
                 <DescriptionList
@@ -618,7 +630,11 @@ export function DealerReturnsPage() {
             </DialogHeader>
             <DialogBody className="space-y-4">
               {!selected ? (
-                <DealerResult loading={eligible.isLoading} error={eligible.error}>
+                <DealerResult
+                  loading={eligible.isLoading}
+                  error={eligible.error}
+                  onRetry={() => void eligible.refetch()}
+                >
                   <div className="space-y-2">
                     {eligible.data.map((dispatch) => (
                       <Button
@@ -732,7 +748,11 @@ export function DealerReturnsPage() {
             <DialogDescription>Return review and credited quantities.</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <DealerResult loading={detail.isLoading} error={detail.error}>
+            <DealerResult
+              loading={detail.isLoading}
+              error={detail.error}
+              onRetry={() => void detail.refetch()}
+            >
               {detail.data && (
                 <div className="space-y-3">
                   <StatusBadge status={detail.data.status} />

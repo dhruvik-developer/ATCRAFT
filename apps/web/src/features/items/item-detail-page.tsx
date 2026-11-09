@@ -12,18 +12,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import {
-  Boxes,
-  Layers,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Shapes,
-  Star,
-  Tags,
-  Trash2,
-  Truck,
-} from 'lucide-react'
+import { Boxes, Layers, Pencil, Plus, Shapes, Star, Tags, Trash2, Truck } from 'lucide-react'
 import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
@@ -32,7 +21,9 @@ import {
   ConfirmDialog,
   DescriptionList,
   EmptyState,
+  LoadError,
   PageHeader,
+  PanelDenied,
   PanelLoader,
   StatTile,
   StatusBadge,
@@ -40,9 +31,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
   Badge,
   Card,
   CardContent,
@@ -68,7 +56,7 @@ import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { attributeLabeller, useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
 import { manufacturerLabeller, useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { reportFieldErrors } from '@/lib/form-errors'
-import { describeError, success } from '@/lib/messages'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -153,15 +141,6 @@ function usePanelQuery<T>({
     page,
     setPage,
   }
-}
-
-function PanelDenied({ what }: { what: string }) {
-  return (
-    <EmptyState
-      title={`${what} are not visible to your account`}
-      description="Your role does not include the permission this panel needs. Ask an administrator if you believe this is wrong."
-    />
-  )
 }
 
 // ------------------------------------------------------------- Overview -----
@@ -1210,19 +1189,11 @@ export default function ItemDetailPage() {
     return (
       <>
         <PageHeader title="Item" breadcrumbs={[{ label: 'Items', to: '/items' }]} />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this item</AlertTitle>
-          <AlertDescription>{describeError(itemQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void itemQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this item"
+          error={itemQuery.error}
+          onRetry={() => void itemQuery.refetch()}
+        />
       </>
     )
   }

@@ -1,31 +1,26 @@
 import { ImageIcon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { PanelLoader, StatTile } from '@/components/shared'
+import { LoadError, PanelLoader, StatTile } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { formatMoney } from '@/lib/format'
-import { describeError, errors } from '@/lib/messages'
 import type { OffsetPagination, SchemaOf } from '@/types/api'
 
 export function DealerResult({
   loading,
   error,
+  onRetry,
   children,
 }: {
   loading: boolean
   error?: unknown
+  /** Ask again: a dealer on a weak connection should not have to reload the portal. */
+  onRetry?: () => void
   children: ReactNode
 }) {
   if (loading) return <PanelLoader />
-  if (error)
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>{errors.loadFailed}</AlertTitle>
-        <AlertDescription>{describeError(error)}</AlertDescription>
-      </Alert>
-    )
+  if (error) return <LoadError error={error} onRetry={onRetry} retryClassName="min-h-11" />
   return children
 }
 

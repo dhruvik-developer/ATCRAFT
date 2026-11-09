@@ -25,7 +25,6 @@ import {
   PackagePlus,
   PackageCheck,
   Pencil,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -40,6 +39,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LoadError,
   PageHeader,
   StatusBadge,
 } from '@/components/shared'
@@ -73,7 +73,7 @@ import {
   formatQuantity,
   toDecimal,
 } from '@/lib/format'
-import { describeError, fulfilment, success } from '@/lib/messages'
+import { fulfilment, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -970,19 +970,11 @@ export default function SalesOrderDetailPage() {
           title="Sales order"
           breadcrumbs={[{ label: 'Sales orders', to: '/sales-orders' }]}
         />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this order</AlertTitle>
-          <AlertDescription>{describeError(orderQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void orderQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this order"
+          error={orderQuery.error}
+          onRetry={() => void orderQuery.refetch()}
+        />
       </>
     )
   }

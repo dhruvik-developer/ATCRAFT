@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * One MRP run: what it found, and what to do about it.
  *
@@ -50,6 +49,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LoadError,
   PageHeader,
   StatTile,
   StatusBadge,
@@ -912,19 +912,11 @@ export default function MrpRunDetailPage() {
     return (
       <>
         <PageHeader title="MRP run" breadcrumbs={[{ label: 'MRP', to: '/mrp' }]} />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this run</AlertTitle>
-          <AlertDescription>{describeError(runQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void runQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this run"
+          error={runQuery.error}
+          onRetry={() => void runQuery.refetch()}
+        />
       </>
     )
   }

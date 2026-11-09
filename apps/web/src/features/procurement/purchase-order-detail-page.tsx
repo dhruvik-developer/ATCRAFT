@@ -47,6 +47,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LoadError,
   PageHeader,
   PanelLoader,
   StatusBadge,
@@ -81,7 +82,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { describeError, messages, success } from '@/lib/messages'
+import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -224,19 +225,11 @@ function TrackingPanel({ orderId }: { orderId: string }) {
         )}
 
         {!tracking.isLoading && tracking.error && (
-          <Alert variant="destructive">
-            <AlertTitle>Could not load tracking</AlertTitle>
-            <AlertDescription>{describeError(tracking.error)}</AlertDescription>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              onClick={() => void tracking.refetch()}
-            >
-              <RefreshCw />
-              Try again
-            </Button>
-          </Alert>
+          <LoadError
+            title="Could not load tracking"
+            error={tracking.error}
+            onRetry={() => void tracking.refetch()}
+          />
         )}
 
         {!tracking.isLoading && !tracking.error && data && (
@@ -736,19 +729,11 @@ export default function PurchaseOrderDetailPage() {
           title="Purchase order"
           breadcrumbs={[{ label: 'Purchase orders', to: '/procurement/purchase-orders' }]}
         />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this order</AlertTitle>
-          <AlertDescription>{describeError(orderQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void orderQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this order"
+          error={orderQuery.error}
+          onRetry={() => void orderQuery.refetch()}
+        />
       </>
     )
   }

@@ -264,7 +264,7 @@ export function DealerCatalogPage() {
         </div>
       </div>
       <DealerSpecificationFilters />
-      <DealerResult loading={list.isLoading} error={list.error}>
+      <DealerResult loading={list.isLoading} error={list.error} onRetry={() => void list.refetch()}>
         {list.data.length ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {list.data.map((item) => (
@@ -319,7 +319,11 @@ export function DealerItemPage() {
           { label: item?.code || 'Product' },
         ]}
       />
-      <DealerResult loading={detail.isLoading} error={detail.error}>
+      <DealerResult
+        loading={detail.isLoading}
+        error={detail.error}
+        onRetry={() => void detail.refetch()}
+      >
         {item && (
           <div className="space-y-6">
             <div className="grid gap-5 md:grid-cols-2">
@@ -504,7 +508,7 @@ export function DealerHomePage() {
       <div className="mt-4">
         <PwaInstallCard audience="dealer" />
       </div>
-      <DealerResult loading={me.isLoading} error={me.error}>
+      <DealerResult loading={me.isLoading} error={me.error} onRetry={() => void me.refetch()}>
         {me.data && <DealerCredit credit={me.data.credit} />}
       </DealerResult>
       <DealerHomePromotions />
@@ -580,7 +584,11 @@ function DealerHomePromotions() {
             : null
   return (
     <div className="mt-6 space-y-5">
-      <DealerResult loading={banners.isLoading} error={banners.error}>
+      <DealerResult
+        loading={banners.isLoading}
+        error={banners.error}
+        onRetry={() => void banners.refetch()}
+      >
         {slide && (
           <section
             role="region"
@@ -642,7 +650,11 @@ function DealerHomePromotions() {
           </section>
         )}
       </DealerResult>
-      <DealerResult loading={offers.isLoading} error={offers.error}>
+      <DealerResult
+        loading={offers.isLoading}
+        error={offers.error}
+        onRetry={() => void offers.refetch()}
+      >
         {offers.data.length > 0 && (
           <section>
             <h2 className="mb-3 font-semibold">Current offers</h2>
@@ -701,7 +713,11 @@ function DealerRecentOrders() {
   return (
     <section className="mt-6">
       <h2 className="mb-3 font-semibold">Recent orders</h2>
-      <DealerResult loading={orders.isLoading} error={orders.error}>
+      <DealerResult
+        loading={orders.isLoading}
+        error={orders.error}
+        onRetry={() => void orders.refetch()}
+      >
         <div className="space-y-2">
           {orders.data.map((order) => (
             <Link

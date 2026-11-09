@@ -27,7 +27,6 @@ import {
   PackagePlus,
   PlayCircle,
   Plus,
-  RefreshCw,
   Wrench,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -39,6 +38,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LoadError,
   PageHeader,
   StatTile,
   StatusBadge,
@@ -73,7 +73,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -740,14 +740,11 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
 
   if (cost.error) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>Could not load the costing</AlertTitle>
-        <AlertDescription>{describeError(cost.error)}</AlertDescription>
-        <Button variant="outline" size="sm" className="mt-4" onClick={() => void cost.refetch()}>
-          <RefreshCw />
-          Try again
-        </Button>
-      </Alert>
+      <LoadError
+        title="Could not load the costing"
+        error={cost.error}
+        onRetry={() => void cost.refetch()}
+      />
     )
   }
 
@@ -1088,19 +1085,11 @@ export default function ProductionDetailPage() {
           title="Production order"
           breadcrumbs={[{ label: 'Production', to: '/production' }]}
         />
-        <Alert variant="destructive">
-          <AlertTitle>Could not load this order</AlertTitle>
-          <AlertDescription>{describeError(orderQuery.error)}</AlertDescription>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-4"
-            onClick={() => void orderQuery.refetch()}
-          >
-            <RefreshCw />
-            Try again
-          </Button>
-        </Alert>
+        <LoadError
+          title="Could not load this order"
+          error={orderQuery.error}
+          onRetry={() => void orderQuery.refetch()}
+        />
       </>
     )
   }

@@ -6,7 +6,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/lib/api-client'
 import { messages } from '@/lib/messages'
 
-import { BadgeDismiss, DateRangeFilter, FieldError, ReasonDialog, StatusBadge } from './shared'
+import {
+  BadgeDismiss,
+  DateRangeFilter,
+  FieldError,
+  LoadError,
+  PanelDenied,
+  ReasonDialog,
+  StatusBadge,
+} from './shared'
 import { CardTitle } from './ui/primitives'
 
 describe('ReasonDialog', () => {
@@ -278,5 +286,47 @@ describe('FieldError', () => {
     )
     expect(screen.getByRole('alert')).toHaveClass('mt-2', 'text-xs', 'text-destructive')
     expect(screen.getByRole('alert')).not.toHaveClass('mt-1')
+  })
+})
+
+describe('LoadError', () => {
+  it('heads the failure with the shared headline and shows the API reason verbatim', () => {
+    render(<LoadError error={new ApiError(404, 'NOT_FOUND', 'Purchase order not found')} />)
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(messages.errors.loadFailed)
+    expect(alert).toHaveTextContent('Purchase order not found')
+    // Without a way to ask again it offers none, rather than a button that does nothing.
+    expect(within(alert).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('names what failed and asks again without submitting the form around it', async () => {
+    const onRetry = vi.fn()
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault())
+    render(
+      <form onSubmit={onSubmit}>
+        <LoadError
+          title="Could not load this quotation"
+          error={new ApiError(503, 'SERVICE_UNAVAILABLE', 'Try later')}
+          onRetry={onRetry}
+        />
+      </form>,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load this quotation')
+    await userEvent.click(screen.getByRole('button', { name: messages.empty.loadFailedAction }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('holds the retry while one is already in flight', () => {
+    render(<LoadError error={new Error('x')} onRetry={() => undefined} retrying />)
+    expect(screen.getByRole('button', { name: /Try again/ })).toBeDisabled()
+  })
+})
+
+describe('PanelDenied', () => {
+  it('says which panel the role cannot read, in the shared words', () => {
+    render(<PanelDenied what="Prices" />)
+    expect(screen.getByText(messages.empty.panelDenied('Prices'))).toBeInTheDocument()
+    expect(screen.getByText(messages.empty.panelDeniedDetail)).toBeInTheDocument()
   })
 })

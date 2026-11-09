@@ -1,21 +1,12 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 
-import { EmptyState, PanelLoader, StatusBadge } from '@/components/shared'
+import { EmptyState, LoadError, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/primitives'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatDateTime, formatMoney, formatQuantity } from '@/lib/format'
-import { describeError } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 
 import { purchaseOrderChangeKeys, type PurchaseOrderAmendment } from './purchase-order-change-model'
@@ -152,13 +143,11 @@ export default function PurchaseOrderAmendmentsPanel({
       <CardContent className="space-y-4">
         {history.isPending && <PanelLoader />}
         {history.error && (
-          <Alert variant="destructive">
-            <AlertTitle>Could not load amendment history</AlertTitle>
-            <AlertDescription>{describeError(history.error)}</AlertDescription>
-            <Button className="mt-3" variant="outline" onClick={() => void history.refetch()}>
-              Try again
-            </Button>
-          </Alert>
+          <LoadError
+            title="Could not load amendment history"
+            error={history.error}
+            onRetry={() => void history.refetch()}
+          />
         )}
         {!history.isPending && !history.error && !rows.length && (
           <EmptyState

@@ -25,7 +25,7 @@ import {
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { EmptyState, PageHeader, PanelLoader } from '@/components/shared'
+import { EmptyState, LoadError, PageHeader, PanelLoader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -325,20 +325,11 @@ function InboxTab() {
       )}
 
       {notifications.error && !notifications.isLoading && (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load notifications</AlertTitle>
-          <AlertDescription>
-            {describeError(notifications.error)}
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              onClick={() => void notifications.refetch()}
-            >
-              Try again
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <LoadError
+          title="Could not load notifications"
+          error={notifications.error}
+          onRetry={() => void notifications.refetch()}
+        />
       )}
 
       {!notifications.isLoading && !notifications.error && rows.length === 0 && (

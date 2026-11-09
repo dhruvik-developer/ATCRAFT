@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { EmptyState, FieldError, ReasonDialog } from '@/components/shared'
+import { EmptyState, FieldError, LoadError, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -37,7 +37,7 @@ import { Badge, Checkbox, Input, Label, Skeleton } from '@/components/ui/primiti
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { GSTIN_PATTERN, PINCODE_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -261,14 +261,10 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
 
   if (addresses.error) {
     return (
-      <EmptyState
+      <LoadError
         title="Could not load addresses"
-        description={describeError(addresses.error)}
-        action={
-          <Button variant="outline" size="sm" onClick={() => void addresses.refetch()}>
-            Try again
-          </Button>
-        }
+        error={addresses.error}
+        onRetry={() => void addresses.refetch()}
       />
     )
   }
@@ -731,14 +727,10 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
 
   if (contacts.error) {
     return (
-      <EmptyState
+      <LoadError
         title="Could not load contacts"
-        description={describeError(contacts.error)}
-        action={
-          <Button variant="outline" size="sm" onClick={() => void contacts.refetch()}>
-            Try again
-          </Button>
-        }
+        error={contacts.error}
+        onRetry={() => void contacts.refetch()}
       />
     )
   }
