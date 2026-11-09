@@ -282,25 +282,21 @@ class TestUpdateOrder:
         assert data["assembly_line"] is None
         assert await column(session, AssemblyOrder.assembly_line, order_id) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: PATCH /assembly/{id} with warehouse_id null answers 404 'Warehouse not "
-            "found' instead of ignoring the null for a NOT NULL column as the service documents"
-        ),
-    )
+    @pytest.mark.parametrize("field", ["warehouse_id", "output_warehouse_id"])
     async def test_an_explicit_null_on_a_required_warehouse_is_ignored(
-        self, api_client: AsyncClient, session, tenant, kit
+        self, api_client: AsyncClient, session, tenant, kit, field
     ) -> None:
         order_id = await drafted(session, tenant, kit)
+        attribute = getattr(AssemblyOrder, field)
+        stored = await column(session, attribute, order_id)
 
         response = await api_client.patch(
-            f"/assembly/{order_id}", json={"warehouse_id": None, "notes": "Re-sequenced"}
+            f"/assembly/{order_id}", json={field: None, "notes": "Re-sequenced"}
         )
 
         data = ok(response)
-        assert data["warehouse_id"] == str(kit.warehouse_id)
-        assert await column(session, AssemblyOrder.warehouse_id, order_id) == kit.warehouse_id
+        assert (data[field], data["notes"]) == (str(stored), "Re-sequenced")
+        assert await column(session, attribute, order_id) == stored
 
     async def test_an_approved_order_is_no_longer_editable(
         self, api_client: AsyncClient, session, tenant, kit

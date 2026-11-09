@@ -1504,7 +1504,17 @@ async def update_order(
             )
 
         before = snapshot(order, ORDER_AUDITED_FIELDS)
-        fields = payload.model_dump(exclude_unset=True)
+        # An explicit null clears a column that is nullable and is ignored for
+        # one that is not: PATCH cannot be allowed to write NULL into a NOT NULL
+        # column and fail with an integrity error naming a constraint rather
+        # than the field. The ignored nulls are dropped before anything reads
+        # the payload, so none is validated as though somebody had named it -
+        # ``{"warehouse_id": null}`` once answered "Warehouse not found".
+        fields = {
+            field: value
+            for field, value in payload.model_dump(exclude_unset=True).items()
+            if value is not None or field in CLEARABLE_UPDATE_FIELDS
+        }
 
         warehouse_id = fields.get("warehouse_id", order.warehouse_id)
         output_warehouse_id = fields.get("output_warehouse_id", order.output_warehouse_id)
@@ -1512,12 +1522,6 @@ async def update_order(
             await _assert_warehouses(session, tenant, warehouse_id, output_warehouse_id)
 
         for field, value in fields.items():
-            # An explicit null clears a column that is nullable and is ignored
-            # for one that is not: PATCH cannot be allowed to write NULL into a
-            # NOT NULL column and fail with an integrity error naming a
-            # constraint rather than the field.
-            if value is None and field not in CLEARABLE_UPDATE_FIELDS:
-                continue
             setattr(order, field, value)
         if fields.get("planned_quantity") is not None:
             order.planned_quantity = to_quantity(fields["planned_quantity"])
