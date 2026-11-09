@@ -353,13 +353,6 @@ async def test_preferences_are_upserted_for_the_caller_and_answered_in_full(
     ] * 2
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: NotificationService.update_preferences audits in_app/email/whatsapp/sms but "
-        "leaves push_enabled out of new_values, so a push opt-out leaves no trace"
-    ),
-)
 async def test_a_push_opt_out_is_on_the_audit_record(api_client, session, tenant):
     ok(
         await api_client.put(
@@ -378,8 +371,15 @@ async def test_a_push_opt_out_is_on_the_audit_record(api_client, session, tenant
     )
 
     [entry] = await audit_rows(session, tenant.company_id, "notification_preference")
-    recorded = entry.new_values[ANNOUNCEMENT]
-    assert recorded.get("push_enabled") is False, recorded
+    # Every channel is on the record; the two the row did not send were kept
+    # as stored, which is what a null says.
+    assert entry.new_values[ANNOUNCEMENT] == {
+        "in_app_enabled": True,
+        "email_enabled": False,
+        "push_enabled": False,
+        "whatsapp_enabled": None,
+        "sms_enabled": None,
+    }
 
 
 @pytest.mark.parametrize(

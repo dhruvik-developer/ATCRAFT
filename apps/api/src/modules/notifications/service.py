@@ -1191,13 +1191,14 @@ class NotificationService:
                 entity_type="notification_preference",
                 summary=f"Updated {len(rows)} notification preference(s)",
                 user_id=self.tenant.user_id,
+                # Every channel flag the row carries, read off the request model
+                # rather than listed here: a hand-kept list is how the push
+                # opt-out came to leave no trace. An omitted optional channel
+                # is recorded as null - "kept as stored", which is what it means.
                 new_values={
-                    str(preference.notification_type): {
-                        "in_app_enabled": preference.in_app_enabled,
-                        "email_enabled": preference.email_enabled,
-                        "whatsapp_enabled": preference.whatsapp_enabled,
-                        "sms_enabled": preference.sms_enabled,
-                    }
+                    str(preference.notification_type): preference.model_dump(
+                        exclude={"notification_type"}
+                    )
                     for preference in payload.preferences
                 },
             )
