@@ -1021,6 +1021,24 @@ async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids:
             )
 
 
+def _assert_return_not_in_past(expected_return_date: date) -> None:
+    """Refuse a promise to have material back on a day that has already gone.
+
+    Shared by the create and the draft edit, so a date the create refuses
+    cannot be stored by amending the draft instead - where it would surface
+    only at issue, as a challan that cannot be dated.
+    """
+    if expected_return_date < today():
+        message = "The expected return date is in the past."
+        raise ValidationError(
+            message,
+            details={
+                "expected_return_date": expected_return_date.isoformat(),
+                "fields": {"expected_return_date": [message]},
+            },
+        )
+
+
 async def _assert_vendor(session: AsyncSession, tenant: TenantContext, vendor_id: uuid.UUID) -> str:
     """The processor must exist, be active and be approved.
 
@@ -1818,11 +1836,7 @@ async def create_order(
             lines=payload.lines,
         )
 
-        if payload.expected_return_date < today():
-            raise ValidationError(
-                "The expected return date is in the past.",
-                details={"expected_return_date": payload.expected_return_date.isoformat()},
-            )
+        _assert_return_not_in_past(payload.expected_return_date)
         # ASSUMPTION: explicit or absent. A job-work order does not inherit the
         # cost centre of the production order it may cover - ``source_id`` is a
         # bare polymorphic id this module never reads. docs/assumptions.md §42.
@@ -1917,13 +1931,29 @@ async def update_order(
             )
 
         before = snapshot(order, ORDER_AUDITED_FIELDS)
-        fields = payload.model_dump(exclude_unset=True)
+        # An explicit null clears a column that is nullable and is ignored for
+        # one that is not: PATCH cannot be allowed to write NULL into a NOT NULL
+        # column and fail with an integrity error naming a constraint rather
+        # than the field. The ignored nulls are dropped before anything reads
+        # the payload, so none is validated as though somebody had named it -
+        # ``{"warehouse_id": null}`` once answered "Warehouse not found".
+        fields = {
+            field: value
+            for field, value in payload.model_dump(exclude_unset=True).items()
+            if value is not None or field in CLEARABLE_UPDATE_FIELDS
+        }
         fields.pop("lines", None)
 
         warehouse_id = fields.get("warehouse_id", order.warehouse_id)
         return_warehouse_id = fields.get("return_warehouse_id", order.return_warehouse_id)
         if {"warehouse_id", "return_warehouse_id"} & fields.keys():
             await _assert_warehouses(session, tenant, warehouse_id, return_warehouse_id)
+        # A new return date is held to the create's rule. Re-sending the date
+        # the draft already carries is not a new promise, so a draft whose
+        # promised date has slipped stays amendable rather than uneditable.
+        new_return = fields.get("expected_return_date")
+        if new_return is not None and new_return != order.expected_return_date:
+            _assert_return_not_in_past(new_return)
         # Only a new cost centre is validated: a draft re-saving the one it
         # already carries keeps its reference even after deactivation.
         new_centre = fields.get("cost_centre_id")
@@ -1931,12 +1961,6 @@ async def update_order(
             await require_cost_centre(session, tenant, new_centre)
 
         for field, value in fields.items():
-            # An explicit null clears a column that is nullable and is ignored
-            # for one that is not: PATCH cannot be allowed to write NULL into a
-            # NOT NULL column and fail with an integrity error naming a
-            # constraint rather than the field.
-            if value is None and field not in CLEARABLE_UPDATE_FIELDS:
-                continue
             setattr(order, field, value)
 
         lines: list[JobWorkOrderLine]

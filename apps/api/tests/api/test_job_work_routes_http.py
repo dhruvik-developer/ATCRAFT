@@ -30,7 +30,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -340,7 +340,8 @@ class TestCreateOrder:
             "/job-work", json=create_body(job, expected_return_date=yesterday)
         )
 
-        refused(response, 422, "VALIDATION_ERROR")
+        # Named as a field error, by the same check the draft edit applies.
+        assert "expected_return_date" in field_errors(response)
         assert await count_orders(session, tenant.company_id) == 0
 
     async def test_an_unapproved_vendor_cannot_be_sent_material(
@@ -482,13 +483,6 @@ class TestUpdateOrder:
         refused(response, 422, "BUSINESS_RULE_VIOLATION")
         assert await column(session, JobWorkOrder.rate_per_unit, order_id) == Decimal("12.5")
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: PATCH /job-work/{id} stores an expected_return_date in the past "
-            "that POST /job-work refuses with 422"
-        ),
-    )
     async def test_an_expected_return_in_the_past_is_refused_on_edit_too(
         self, api_client: AsyncClient, session, tenant, job
     ) -> None:
@@ -500,8 +494,49 @@ class TestUpdateOrder:
             json={"expected_return_date": (today() - timedelta(days=3)).isoformat()},
         )
 
-        refused(response, 422, "VALIDATION_ERROR")
+        assert "expected_return_date" in field_errors(response)
         assert await column(session, JobWorkOrder.expected_return_date, order_id) == planned
+
+    async def test_a_new_return_date_ahead_is_stored(
+        self, api_client: AsyncClient, session, tenant, job
+    ) -> None:
+        order_id = await drafted(session, tenant, job)
+        later = today() + timedelta(days=30)
+
+        data = ok(
+            await api_client.patch(
+                f"/job-work/{order_id}", json={"expected_return_date": later.isoformat()}
+            )
+        )
+
+        assert data["expected_return_date"] == later.isoformat()
+        assert await column(session, JobWorkOrder.expected_return_date, order_id) == later
+
+    async def test_a_draft_whose_return_date_slipped_can_still_be_amended(
+        self, api_client: AsyncClient, session, tenant, job
+    ) -> None:
+        # The edit form always re-sends the stored date. A promise that has
+        # since lapsed is not a new one, so it must not lock the draft.
+        order_id = await drafted(session, tenant, job)
+        slipped = today() - timedelta(days=2)
+        await session.execute(
+            update(JobWorkOrder)
+            .where(JobWorkOrder.id == order_id)
+            .values(expected_return_date=slipped)
+        )
+
+        data = ok(
+            await api_client.patch(
+                f"/job-work/{order_id}",
+                json={"expected_return_date": slipped.isoformat(), "notes": "Vendor chased"},
+            )
+        )
+
+        assert (data["expected_return_date"], data["notes"]) == (
+            slipped.isoformat(),
+            "Vendor chased",
+        )
+        assert await column(session, JobWorkOrder.notes, order_id) == "Vendor chased"
 
     async def test_an_explicit_null_on_a_required_rate_is_ignored(
         self, api_client: AsyncClient, session, tenant, job
@@ -518,25 +553,21 @@ class TestUpdateOrder:
         assert Decimal(data["estimated_charges"]) == Decimal("1250")
         assert data["notes"] == "Rate kept"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: PATCH /job-work/{id} with warehouse_id null answers 404 'Warehouse not "
-            "found' instead of ignoring the null for a NOT NULL column as the service documents"
-        ),
-    )
+    @pytest.mark.parametrize("field", ["warehouse_id", "return_warehouse_id"])
     async def test_an_explicit_null_on_a_required_warehouse_is_ignored(
-        self, api_client: AsyncClient, session, tenant, job
+        self, api_client: AsyncClient, session, tenant, job, field
     ) -> None:
         order_id = await drafted(session, tenant, job)
+        attribute = getattr(JobWorkOrder, field)
+        stored = await column(session, attribute, order_id)
 
         response = await api_client.patch(
-            f"/job-work/{order_id}", json={"warehouse_id": None, "notes": "Re-sequenced"}
+            f"/job-work/{order_id}", json={field: None, "notes": "Re-sequenced"}
         )
 
         data = ok(response)
-        assert data["warehouse_id"] == str(job.warehouse_id)
-        assert await column(session, JobWorkOrder.warehouse_id, order_id) == job.warehouse_id
+        assert (data[field], data["notes"]) == (str(stored), "Re-sequenced")
+        assert await column(session, attribute, order_id) == stored
 
     @pytest.mark.parametrize(
         ("body", "field"),
