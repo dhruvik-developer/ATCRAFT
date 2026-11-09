@@ -4603,6 +4603,12 @@ checked against the caller's company when a write names it, and only when it
   that is not a live document of this company with 404, before any field is
   written. A null clears the logo, and re-sending the logo already set is not
   re-checked, so editing the bank details keeps working after the file expires.
+- **Assembly order source.** `POST /assembly` refuses, with 404 and no order, a
+  `SALES_ORDER` source whose `source_id` is not a sales order of this company:
+  it is the one source a later step reads, as the packing hand-over's customer
+  and sales order (§E4-8). The other source types stay bare provenance that no
+  step resolves, as procurement keeps the sources it does not own. The source is
+  set only at creation; an edit cannot change it.
 - **MRP run.** `POST /mrp/runs` refuses, with 404 and no run row, a manual
   demand line whose item is not a live item of this company, and a run scope or
   demand line naming a warehouse that is not this company's or not in the
@@ -4621,7 +4627,9 @@ centre.
 `src/modules/sales/repository.py` - `OrderPartyRepository.transporter_in_tenant`;
 `src/modules/quality/service.py` - `record_results`, through
 `DocumentService.require_live`; `src/modules/organization/service.py` -
-`CompanyService.update_company`, through the same; `src/modules/mrp/service.py` -
+`CompanyService.update_company`, through the same;
+`src/modules/assembly/service.py` - `_assert_source`, through
+`SalesOrderRepository`; `src/modules/mrp/service.py` -
 `_assert_run_references`, through `WarehouseRepository.ids_in_scope`.
 
 **Impact if wrong.** Check every non-null value in the helper instead; the

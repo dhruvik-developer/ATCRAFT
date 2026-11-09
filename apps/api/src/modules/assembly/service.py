@@ -167,6 +167,7 @@ from src.modules.inventory.service import (
     change_stock_state,
     post_movements,
 )
+from src.modules.sales.repository import SalesOrderRepository
 
 log = get_logger(__name__)
 
@@ -1106,6 +1107,28 @@ async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids:
             )
 
 
+async def _assert_source(
+    session: AsyncSession,
+    tenant: TenantContext,
+    source_type: AssemblySourceType,
+    source_id: uuid.UUID | None,
+) -> None:
+    """A sales order the new order says it covers is one this company holds.
+
+    ``source_id`` is a bare polymorphic id with no foreign key (models
+    docstring), and a SALES_ORDER source is the one a later step reads as a
+    reference: the packing hand-over packs for that order's customer and sales
+    order (docs/assumptions.md §E4-8), the order's fulfilment trace lists the
+    assembly, and the order screen links to it. Another company's order, or
+    none at all, was stored with 201 and then refused every hand-over of the
+    finished output as "Sales order not found". The other sources are provenance
+    no step resolves, held bare as procurement holds the ones it does not own
+    (``procurement.service._assert_order_source``).
+    """
+    if source_type is AssemblySourceType.SALES_ORDER and source_id is not None:
+        await SalesOrderRepository(session, tenant).get_or_404(source_id)
+
+
 async def _kit_position(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1428,6 +1451,7 @@ async def create_order(
 
         output_warehouse_id = payload.output_warehouse_id or payload.warehouse_id
         await _assert_warehouses(session, tenant, payload.warehouse_id, output_warehouse_id)
+        await _assert_source(session, tenant, payload.source_type, payload.source_id)
 
         bom = await _resolve_bom(session, tenant, item_id=payload.item_id, bom_id=payload.bom_id)
         exploded = await _explode_components(

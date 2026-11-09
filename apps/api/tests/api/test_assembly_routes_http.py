@@ -1,4 +1,5 @@
-"""Assembly write routes over HTTP: amend, close, cancel and the packing claim.
+"""Assembly write routes over HTTP: amend, close, cancel, the packing claim and
+the sales order a new order says it covers.
 
 The bench rules - one-level explosion, the kit reservation, completion and the
 single QC release path - are pinned in ``tests/integration/test_assembly_service.py``
@@ -28,7 +29,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +43,7 @@ from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.packing import service as packing_service
 from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
+from src.modules.sales.models import SalesOrder
 from src.workers import celery_app as celery_module
 from tests import seed_support
 from tests.integration.test_assembly_completion import (
@@ -623,3 +625,66 @@ class TestMarkPacked:
         response = await api_client.post(f"/assembly/{order_id}/pack", json=body)
 
         assert field in field_errors(response)
+
+
+# -----------------------------------------------------------------------------
+# POST /assembly - the sales order a new order says it covers
+# -----------------------------------------------------------------------------
+
+
+async def sales_order(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
+    """A draft sales order of ``owner``'s company, built through the ORM."""
+    customer = await seed_support.seed_customer(session, company_id=owner.company_id)
+    store = await seed_support.seed_warehouse(
+        session, company_id=owner.company_id, code=f"SO-{uuid.uuid4().hex[:6].upper()}"
+    )
+    order = SalesOrder(
+        company_id=owner.company_id,
+        code=f"SO-{uuid.uuid4().hex[:8].upper()}",
+        customer_id=customer.id,
+        order_date=today(),
+        required_date=today() + timedelta(days=7),
+        warehouse_id=store.id,
+    )
+    session.add(order)
+    await session.flush()
+    return order.id
+
+
+def raised_for(kit: Kit, source_id: uuid.UUID) -> dict[str, Any]:
+    return {
+        "item_id": str(kit.output_item_id),
+        "planned_quantity": "4",
+        "warehouse_id": str(kit.warehouse_id),
+        "output_warehouse_id": str(kit.output_warehouse_id),
+        "source_type": "SALES_ORDER",
+        "source_id": str(source_id),
+    }
+
+
+class TestOrderSource:
+    @pytest.mark.parametrize("whose", ["another-companys-order", "no-such-order"])
+    async def test_a_sales_order_this_company_does_not_hold_is_not_found(
+        self, api_client: AsyncClient, session, kit, foreign, whose
+    ) -> None:
+        source_id = (
+            await sales_order(session, foreign)
+            if whose == "another-companys-order"
+            else uuid.uuid4()
+        )
+
+        response = await api_client.post("/assembly", json=raised_for(kit, source_id))
+
+        refused(response, 404, "NOT_FOUND")
+        raised = select(func.count()).where(AssemblyOrder.item_id == kit.output_item_id)
+        assert await session.scalar(raised) == 0
+
+    async def test_this_companys_sales_order_is_kept_as_the_source(
+        self, api_client: AsyncClient, session, tenant, kit
+    ) -> None:
+        ours = await sales_order(session, tenant)
+
+        data = ok(await api_client.post("/assembly", json=raised_for(kit, ours)), 201)
+
+        assert (data["source_type"], data["source_id"]) == ("SALES_ORDER", str(ours))
+        assert await column(session, AssemblyOrder.source_id, uuid.UUID(data["id"])) == ours
