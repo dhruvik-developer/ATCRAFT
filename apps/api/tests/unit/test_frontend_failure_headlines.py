@@ -15,6 +15,13 @@ mutation's ``meta.errorTitle``, an ``errorHeadline`` prop, and an
 chosen by a condition (``cancelled ? 'MRP run cancelled' : 'MRP run failed'``)
 has both its results checked and neither its condition nor a call argument. A
 description under the headline is free to be a sentence; the headline is not.
+
+An alert's headline is read only when it is an ``AlertTitle``, so an alert may
+not open with a headline it styles itself. The messaging page drew four that
+way - a ``<p>`` carrying ``AlertTitle``'s classes - and they escaped both the
+sweep that reworded every headline and this rule; one still read "Delivery
+history unavailable". ``AlertTitle asChild`` keeps a headline out of the page
+outline without taking it out of the rule's sight.
 """
 
 from __future__ import annotations
@@ -47,6 +54,15 @@ _SECOND_ARGUMENT_TITLE = re.compile(r"\b(?:toast\.failure|reportFieldErrors)\s*\
 _META_TITLE = re.compile(r"(?<![\w$.])errorTitle\s*:\s*")
 _HEADLINE_PROP = re.compile(r"(?<![\w-])errorHeadline=(?:(?P<quoted>\")|\{\s*)")
 _ALERT_TITLE = re.compile(r"<AlertTitle(?:\s[^>]*)?>(?P<body>.*?)</AlertTitle>", re.S)
+#: An ``<Alert>`` and its body; ``AlertTitle``, ``AlertDescription`` and
+#: ``AlertDialog`` do not match, because the name must end at a space or ``>``.
+_ALERT = re.compile(r"<Alert(?:\s[^>]*)?>(?P<body>.*?)</Alert>", re.S)
+#: Where an alert's own parts begin: whatever comes before them is its lead.
+_ALERT_PART = re.compile(r"<Alert(?:Title|Description)\b")
+#: An element given a headline's weight by its own classes.
+_HEADLINE_WEIGHT = re.compile(
+    r"<(?P<tag>[a-z][a-z0-9]*)\b[^>]*?\bclassName=\"[^\"]*\bfont-(?:medium|semibold|bold)\b"
+)
 
 
 def _literal_at(source: str, index: int) -> str | None:
@@ -116,6 +132,24 @@ def minority_headlines(source: str) -> list[str]:
     ]
 
 
+def hand_drawn_alert_headlines(source: str) -> list[str]:
+    """``line N: <tag>`` for every alert that opens with a headline it styles itself.
+
+    Only the lead is read - what comes before the alert's first ``AlertTitle`` or
+    ``AlertDescription`` - so emphasis inside a description is not a headline.
+    """
+    found = []
+    for match in _ALERT.finditer(source):
+        body = match.group("body")
+        part = _ALERT_PART.search(body)
+        lead = body[: part.start()] if part else body
+        found.extend(
+            f"line {_line(source, match.start('body') + element.start())}: <{element.group('tag')}>"
+            for element in _HEADLINE_WEIGHT.finditer(lead)
+        )
+    return found
+
+
 def _sources() -> list:
     return sorted(
         path
@@ -146,6 +180,19 @@ def test_every_failure_headline_says_could_not() -> None:
     )
 
 
+def test_every_alert_headline_is_an_alert_title() -> None:
+    drawn = {
+        path.relative_to(WEB_SRC).as_posix(): found
+        for path in _sources()
+        if (found := hand_drawn_alert_headlines(path.read_text(encoding="utf-8")))
+    }
+    assert not drawn, (
+        "These alerts open with a headline they style themselves, which the rule above "
+        "cannot read; use AlertTitle from '@/components/ui/primitives' (AlertTitle asChild "
+        f"around a <p> keeps it out of the page outline):\n{drawn}"
+    )
+
+
 def test_the_rule_finds_the_shapes_that_shipped() -> None:
     source = "\n".join(
         [
@@ -159,6 +206,9 @@ def test_the_rule_finds_the_shapes_that_shipped() -> None:
             "</AlertTitle>",
             "meta: { errorTitle: 'Unable to load item variants' },",
             "toast.error(cancelled ? 'MRP run cancelled' : 'MRP run failed', reason)",
+            "<AlertTitle asChild>",
+            "  <p>The templates were not saved</p>",
+            "</AlertTitle>",
         ]
     )
 
@@ -172,6 +222,7 @@ def test_the_rule_finds_the_shapes_that_shipped() -> None:
         "line 6: 'The bill was not saved'",
         "line 9: 'Unable to load item variants'",
         "line 10: 'MRP run failed'",
+        "line 11: 'The templates were not saved'",
     ]
 
 
@@ -196,3 +247,44 @@ def test_the_rule_leaves_the_catalogue_form_and_descriptions_alone() -> None:
     )
 
     assert minority_headlines(source) == []
+
+
+def test_the_alert_rule_finds_the_shapes_that_shipped() -> None:
+    source = "\n".join(
+        [
+            '<Alert variant="warning" className="mb-5">',
+            '  <p className="mb-1 font-medium leading-none">Delivery history unavailable</p>',
+            "  <AlertDescription>{describeError(deliveries.error)}</AlertDescription>",
+            "</Alert>",
+            '<Alert variant="destructive">',
+            '  <TriangleAlert className="size-4" aria-hidden />',
+            '  <div className="text-sm font-semibold">The bill was not saved</div>',
+            "</Alert>",
+        ]
+    )
+
+    assert hand_drawn_alert_headlines(source) == ["line 2: <p>", "line 7: <div>"]
+
+
+def test_the_alert_rule_leaves_alert_parts_and_emphasis_alone() -> None:
+    source = "\n".join(
+        [
+            '<Alert variant="info">',
+            "  <AlertTitle asChild>",
+            "    <p>Provider status</p>",
+            "  </AlertTitle>",
+            "  <AlertDescription>",
+            '    <span className="block font-medium text-foreground">1 BOX = 12 PCS</span>',
+            "  </AlertDescription>",
+            "</Alert>",
+            '<Alert variant="destructive" className="flex flex-wrap items-start gap-3">',
+            '  <TriangleAlert className="mt-0.5 shrink-0 text-destructive" aria-hidden />',
+            '  <div className="min-w-0 flex-1 basis-40">',
+            "    <AlertTitle>Could not generate the report</AlertTitle>",
+            "  </div>",
+            "</Alert>",
+            '<AlertDialog><p className="font-medium">Not an alert</p></AlertDialog>',
+        ]
+    )
+
+    assert hand_drawn_alert_headlines(source) == []

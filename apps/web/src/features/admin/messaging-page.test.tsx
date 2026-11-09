@@ -47,6 +47,31 @@ describe('messaging administration', () => {
     ])
   })
 
+  it('says each failed read as a headline that stays out of the page outline', async () => {
+    renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW],
+      routes: {
+        ...routes(),
+        'GET /notifications/channel-status': fail(503, 'UNAVAILABLE', 'Provider status is down'),
+        'GET /notifications/deliveries': fail(503, 'UNAVAILABLE', 'Delivery log is down'),
+      },
+    })
+
+    const settings = await screen.findByText('Could not load the messaging settings')
+    // AlertTitle's own styling, on a paragraph rather than an h5.
+    expect(settings.tagName).toBe('P')
+    expect(settings).toHaveClass('font-medium')
+    expect(settings.closest('[role="alert"]')).toHaveTextContent('Provider status is down')
+    const history = await screen.findByText('Could not load the delivery history')
+    expect(history.closest('[role="alert"]')).toHaveTextContent('Delivery log is down')
+    expect(await screen.findByLabelText('Approved template name')).toBeVisible()
+    expect(screen.getAllByRole('heading').map((heading) => heading.tagName)).toEqual([
+      'H1',
+      'H2',
+      'H2',
+    ])
+  })
+
   it('keeps template changes unavailable to settings viewers without manage permission', async () => {
     renderScreen(<MessagingPage />, {
       permissions: [P.SETTINGS_VIEW],

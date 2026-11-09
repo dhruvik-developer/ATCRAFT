@@ -44,12 +44,11 @@ CardHeader.displayName = 'CardHeader'
 /**
  * A card's title.
  *
- * Defaults to `h3`, which is right for a card sitting inside a page that already
- * has an `h1` and an `h2`. It is wrong for a card that IS the page - a login
- * form, a single-card settings screen - where an `h3` with nothing above it
- * skips two levels and a screen reader reports a document whose outline starts
- * three levels deep. `asChild` lets that caller supply the correct element
- * without giving up the styling::
+ * Defaults to `h2`, which is right for a card sitting under a page's `h1`. It is
+ * wrong for a card that IS the page - a login form, a single-card settings
+ * screen - where an `h2` with nothing above it gives a screen reader a document
+ * whose outline starts a level deep. `asChild` lets that caller supply the
+ * correct element without giving up the styling::
  *
  *     <CardTitle asChild><h1>Sign in</h1></CardTitle>
  */
@@ -257,8 +256,24 @@ export function Alert({
   return <div role="alert" className={cn(alertVariants({ variant }), className)} {...props} />
 }
 
-export function AlertTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h5 className={cn('mb-1 font-medium leading-none', className)} {...props} />
+/**
+ * An alert's headline, and the one the failure-headline rule reads
+ * (`tests/unit/test_frontend_failure_headlines.py`) - so a screen never draws
+ * its own.
+ *
+ * An `h5` by default. A screen whose outline uses only the levels it needs -
+ * the messaging page pins `h1` then `h2` - can render the headline as plain text
+ * without giving up the styling or the rule, as `CardTitle` does::
+ *
+ *     <AlertTitle asChild><p>Could not save the templates</p></AlertTitle>
+ */
+export function AlertTitle({
+  className,
+  asChild = false,
+  ...props
+}: HTMLAttributes<HTMLHeadingElement> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot : 'h5'
+  return <Comp className={cn('mb-1 font-medium leading-none', className)} {...props} />
 }
 
 export function AlertDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {

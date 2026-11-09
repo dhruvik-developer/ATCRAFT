@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import {
   Alert,
   AlertDescription,
+  AlertTitle,
   Card,
   CardContent,
   Checkbox,
@@ -239,16 +240,22 @@ export default function MessagingPage() {
         description="Configure approved per-company templates and review external delivery attempts."
       />
 
+      {/* Every alert headline on this page is text rather than the default h5,
+          so the outline stays h1 then h2 whichever alerts are showing. */}
       {loadError && (
         <Alert variant="warning" className="mb-5">
-          <p className="mb-1 font-medium leading-none">Could not load the messaging settings</p>
+          <AlertTitle asChild>
+            <p>Could not load the messaging settings</p>
+          </AlertTitle>
           <AlertDescription>{describeError(loadError)}</AlertDescription>
         </Alert>
       )}
 
       {enabled && (
         <Alert className="mb-5">
-          <p className="mb-1 font-medium leading-none">Provider status</p>
+          <AlertTitle asChild>
+            <p>Provider status</p>
+          </AlertTitle>
           <AlertDescription>
             WhatsApp: {enabled.whatsapp_enabled ? 'enabled' : 'disabled'} · SMS:{' '}
             {enabled.sms_enabled ? 'enabled' : 'disabled'}
@@ -309,7 +316,9 @@ export default function MessagingPage() {
 
       {summary.length > 0 && (
         <Alert variant="destructive" className="mb-5">
-          <p className="mb-1 font-medium leading-none">Could not save the templates</p>
+          <AlertTitle asChild>
+            <p>Could not save the templates</p>
+          </AlertTitle>
           <AlertDescription>
             <ul className="list-disc space-y-0.5 pl-4">
               {summary.map((problem) => (
@@ -466,7 +475,9 @@ export default function MessagingPage() {
         <h2 className="mb-3 text-lg font-semibold">Recent delivery attempts</h2>
         {deliveries.isError && (
           <Alert variant="warning">
-            <p className="mb-1 font-medium leading-none">Delivery history unavailable</p>
+            <AlertTitle asChild>
+              <p>Could not load the delivery history</p>
+            </AlertTitle>
             <AlertDescription>{describeError(deliveries.error)}</AlertDescription>
           </Alert>
         )}
