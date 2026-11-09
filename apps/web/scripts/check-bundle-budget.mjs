@@ -67,8 +67,16 @@ const ROUTE_CHUNK_KB = 20
  * Higher than ROUTE_CHUNK_KB because a route legitimately shares a feature
  * module or two with its neighbours; low enough that statically importing a
  * vendor chunk fails.
+ *
+ * Raised from 40 to 43 when two shared parts arrived: the several-choice list
+ * the serial picker renders (components/ui/multi-select-list.tsx, 1.1 KB) - one
+ * Tab stop and the arrow keys instead of fifty toggle buttons - and the table
+ * parts DataTable now draws its cells with (components/ui/table.tsx, 0.7 KB).
+ * Job work and dispatch, which name serials and list rows, sat at about 40 KB
+ * already and measured 42.0 and 40.4 KB with them. A static vendor import is
+ * still tens of kilobytes over this.
  */
-const ROUTE_CLOSURE_KB = 40
+const ROUTE_CLOSURE_KB = 43
 
 /**
  * Total JavaScript a first-time visitor downloads to see the dashboard.
