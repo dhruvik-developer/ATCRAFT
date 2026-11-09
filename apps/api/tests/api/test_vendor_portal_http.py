@@ -611,6 +611,49 @@ async def test_typed_files_are_shared_and_one_consignment_is_one_notification(
     assert board_row["has_lr_copy"] is True and board_row["documents_count"] == 2
 
 
+async def test_a_file_whose_filing_fails_after_it_was_stored_leaves_nothing_behind(
+    api_client, session, tenant, principal, world, monkeypatch, tmp_path
+):
+    """The document row commits only with the order's link, its audit and the
+    buyer's notification. When one of those fails the row rolls back - and the
+    bytes must go with it, or they sit on disk with nothing pointing at them,
+    outside retention and the purge."""
+    from src.core.config import settings
+    from src.core.errors import BusinessRuleError
+    from src.modules.documents.models import Document
+    from src.modules.procurement import inbound_service
+    from src.modules.procurement.models import PurchaseOrderDocument
+
+    monkeypatch.setattr(settings, "storage_path", tmp_path)
+    order = await sent_order(session, tenant, principal, world)
+    order_id = order.id  # a failed request expires the instance
+    notify_buyer = inbound_service.notify_buyer
+
+    async def unreachable(*_args: Any, **_kwargs: Any) -> None:
+        raise BusinessRuleError("The buyer could not be told.")
+
+    monkeypatch.setattr(inbound_service, "notify_buyer", unreachable)
+    url = f"/procurement/purchase-orders/{order_id}/documents"
+    lorry_receipt = {"file": ("lr.pdf", PDF, "application/pdf")}
+
+    refused = await api_client.post(url, data={"kind": "LR_COPY"}, files=lorry_receipt)
+
+    assert refused.status_code == 422, refused.text
+    assert [path for path in tmp_path.rglob("*") if path.is_file()] == []
+    for table, column in (
+        (Document, Document.entity_id),
+        (PurchaseOrderDocument, PurchaseOrderDocument.purchase_order_id),
+    ):
+        count = select(func.count()).select_from(table).where(column == order_id)
+        assert await session.scalar(count) == 0
+
+    # With the buyer reachable the same filing stores exactly one file.
+    monkeypatch.setattr(inbound_service, "notify_buyer", notify_buyer)
+    filed = await api_client.post(url, data={"kind": "LR_COPY"}, files=lorry_receipt)
+    assert filed.status_code == 201, filed.text
+    assert len([path for path in tmp_path.rglob("*") if path.is_file()]) == 1
+
+
 # -----------------------------------------------------------------------------
 # Receipts, bills, payments
 # -----------------------------------------------------------------------------

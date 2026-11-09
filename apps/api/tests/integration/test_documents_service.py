@@ -15,9 +15,12 @@ after every test.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
 
 import pytest
@@ -27,8 +30,10 @@ from starlette.datastructures import Headers, UploadFile
 
 from src.core.clock import utcnow
 from src.core.config import settings
+from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
+    BusinessRuleError,
     ErrorCode,
     FileValidationError,
     MalwareDetectedError,
@@ -232,6 +237,82 @@ class TestUpload:
         assert exc.value.status_code == 413
         assert stored_files(storage_root) == []
         assert await document_count(session, tenant.company_id) == 0
+
+    async def test_a_request_cancelled_during_the_audit_leaves_no_file_and_no_row(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A cancellation is a BaseException, not an Exception: the handler
+        that removed the bytes on a failed row used to let it through."""
+
+        async def cancelled(*_args: object, **_kwargs: object) -> None:
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(documents_service, "record_audit", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await DocumentService(session, tenant).upload(upload_file(PDF), DocumentUploadRequest())
+
+        assert stored_files(storage_root) == []
+        assert await document_count(session, tenant.company_id) == 0
+
+    async def test_a_cancellation_while_committing_keeps_the_bytes_of_a_row_that_may_exist(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        storage_root,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancelled after the body, with the COMMIT in flight, the row may have
+        landed - removing its bytes then would leave a document nobody can open.
+        A caller whose own transaction is known to have failed still can."""
+
+        @asynccontextmanager
+        async def commit_cancelled(_session: AsyncSession) -> AsyncIterator[AsyncSession]:
+            yield _session
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(documents_service, "transaction", commit_cancelled)
+        service = DocumentService(session, tenant)
+
+        with pytest.raises(asyncio.CancelledError):
+            await service.upload(upload_file(PDF), DocumentUploadRequest())
+
+        assert len(stored_files(storage_root)) == 1
+        await service.discard_stored(asyncio.CancelledError(), committing=False)
+        assert stored_files(storage_root) == []
+
+    async def test_a_failed_enclosing_transaction_removes_only_what_its_service_stored(
+        self, session: AsyncSession, tenant: TenantContext, storage_root
+    ) -> None:
+        """``upload`` inside a caller's transaction: the caller's next step fails,
+        the row rolls back with it, and discard_stored takes the bytes too -
+        but not a file another upload already committed."""
+        committed = await DocumentService(session, tenant).upload(
+            upload_file(PDF, file_name="committed.pdf"), DocumentUploadRequest()
+        )
+        committed_id = committed.id
+        service = DocumentService(session, tenant)
+
+        with pytest.raises(BusinessRuleError):
+            try:
+                async with transaction(session):
+                    await service.upload(
+                        upload_file(CSV, file_name="rolled-back.csv", content_type="text/csv"),
+                        DocumentUploadRequest(),
+                    )
+                    raise BusinessRuleError("The caller's next step failed.")
+            except BusinessRuleError as failure:
+                await service.discard_stored(failure)
+                raise
+
+        files = stored_files(storage_root)
+        assert [path.read_bytes() for path in files] == [PDF]
+        assert await document_count(session, tenant.company_id) == 1
+        assert (await service.get_document(committed_id)).file_name == "committed.pdf"
 
     async def test_transient_categories_get_a_default_retention(
         self, session: AsyncSession, tenant: TenantContext, storage_root

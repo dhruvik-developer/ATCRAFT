@@ -546,6 +546,28 @@ async def _discard(path: Path) -> None:
         log.error("documents.orphan_file_left", path=str(path), error=str(exc))
 
 
+async def _discard_unregistered(
+    paths: Sequence[Path], failure: BaseException, *, committing: bool
+) -> bool:
+    """Remove stored files once the transaction meant to register them failed.
+
+    Nothing will ever point at those bytes, and they sit outside retention and
+    the purge, so this is the only cheap chance to remove them - a cancelled
+    request included. One failure keeps them, and answers False: a cancellation
+    that arrived once the transaction body had finished (``committing``), while
+    the release or the COMMIT was in flight. The row may have landed, and a row
+    whose bytes are gone is worse than bytes no row points at; the log names
+    them for an operator to reconcile. An ordinary exception while committing
+    is treated as a refused COMMIT, which is what it nearly always is.
+    """
+    if committing and not isinstance(failure, Exception):
+        log.warning("documents.commit_outcome_unknown", paths=[str(path) for path in paths])
+        return False
+    for path in paths:
+        await _discard(path)
+    return True
+
+
 async def stream_file(path: Path) -> AsyncIterator[bytes]:
     """Yield a file in chunks, without ever holding it all in memory."""
     handle = await anyio.to_thread.run_sync(_open_read, path)
@@ -579,11 +601,19 @@ class DocumentService:
         self.session = session
         self.tenant = tenant
         self.repo = DocumentRepository(session, tenant)
+        # Files this instance wrote whose rows are registered but not yet known
+        # to be committed - see discard_stored.
+        self._stored: list[Path] = []
 
     # --- upload -------------------------------------------------------------
 
     async def upload(self, upload_file: UploadFile, payload: DocumentUploadRequest) -> DocumentRead:
-        """Validate, store and register one uploaded file."""
+        """Validate, store and register one uploaded file.
+
+        Run inside a caller's transaction, the row commits only with the
+        caller's: a failure after this returns must be followed by
+        :meth:`discard_stored`, or the bytes stay with nothing pointing at them.
+        """
         moment = utcnow()
         mime_type = normalise_mime_type(upload_file.content_type)
         rule = assert_upload_allowed(mime_type)
@@ -624,6 +654,7 @@ class DocumentService:
             await _discard(destination)
             raise
 
+        committing = False
         try:
             async with transaction(self.session):
                 document = Document(
@@ -665,12 +696,17 @@ class DocumentService:
                         "entity_id": payload.entity_id,
                     },
                 )
-        except Exception:
-            # The row never committed, so nothing will ever reference these
-            # bytes. Removing them here is the only chance to do so cheaply.
-            await _discard(destination)
+                committing = True
+        except BaseException as failure:
+            # BaseException, not Exception: a request cancelled during the
+            # flush or the audit leaves no row either. A file kept because the
+            # outcome is unknown stays listed, so an enclosing transaction that
+            # knows it never committed can still remove it (discard_stored).
+            if not await _discard_unregistered([destination], failure, committing=committing):
+                self._stored.append(destination)
             raise
 
+        self._stored.append(destination)
         log.info(
             "documents.uploaded",
             document_id=str(document.id),
@@ -680,6 +716,19 @@ class DocumentService:
             malware_scanner=scan.engine,
         )
         return DocumentRead.model_validate(document)
+
+    async def discard_stored(self, failure: BaseException, *, committing: bool = False) -> None:
+        """Remove what :meth:`upload` stored, after the caller's transaction failed.
+
+        For a caller that runs ``upload`` inside its own transaction: the rows
+        commit only with the caller's, so its link row, audit or notification
+        failing rolls them back and leaves the files behind. Call this from that
+        failure path - ``committing`` once the caller's transaction body had
+        finished - and only the files this instance stored are touched.
+        """
+        stored, self._stored = self._stored, []
+        if stored:
+            await _discard_unregistered(stored, failure, committing=committing)
 
     async def _write_stream(
         self, upload_file: UploadFile, destination: Path, *, first_chunk: bytes

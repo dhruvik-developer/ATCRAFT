@@ -361,8 +361,13 @@ into `ORDER BY`.
 The ASGI request-body limit counts received bytes even when `Content-Length`
 is absent or incorrect. Multipart resources and partially written files are
 closed or removed on validation failure, transaction failure and request
-cancellation. Upload verification covers allowed content types; content
-verification alone is not an antivirus scan.
+cancellation - including the failure of a caller's transaction the upload ran
+inside (a purchase order's typed files: `DocumentService.discard_stored`). The
+one case that keeps the bytes is a cancellation that arrives while the COMMIT
+itself is in flight: the row may have landed, so the file stays and
+`documents.commit_outcome_unknown` names it for reconciliation. Upload
+verification covers allowed content types; content verification alone is not
+an antivirus scan.
 
 Filesystem paths are never exposed. Nothing is served from a public directory.
 

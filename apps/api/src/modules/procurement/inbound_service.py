@@ -348,50 +348,69 @@ async def upload_document(
 
     Files attached here are the ones shared between the buyer and the vendor
     of the order (docs/assumptions.md §C1-3).
+
+    The document row commits only with this transaction, so a failure after the
+    file was stored - the link, its audit, the buyer's notification - removes the
+    file too, or it would stay on disk with no row pointing at it.
     """
-    async with transaction(session):
-        order = await PurchaseOrderRepository(session, tenant).get_or_404(order_id)
-        shipment = (
-            await _order_shipment(session, tenant, order.id, shipment_id) if shipment_id else None
-        )
-        doc = await DocumentService(session, tenant).upload(
-            upload,
-            DocumentUploadRequest(
-                category=DocumentCategory.DOCUMENT,
-                entity_type=ORDER_DOCUMENT_ENTITY,
-                entity_id=order.id,
-            ),
-        )
-        repo = InboundDocumentRepository(session, tenant)
-        link = repo.add(
-            PurchaseOrderDocument(
-                purchase_order_id=order.id, document_id=doc.id, kind=kind, shipment_id=shipment_id
+    documents = DocumentService(session, tenant)
+    committing = False
+    try:
+        async with transaction(session):
+            order = await PurchaseOrderRepository(session, tenant).get_or_404(order_id)
+            shipment = (
+                await _order_shipment(session, tenant, order.id, shipment_id)
+                if shipment_id
+                else None
             )
-        )
-        await session.flush()
-        label = DOCUMENT_KIND_LABELS[kind]
-        await record_audit(
-            session,
-            company_id=tenant.company_id,
-            action=AuditAction.CREATE,
-            entity_type="purchase_order_document",
-            entity_id=link.id,
-            entity_code=order.code,
-            summary=f"Attached {label.lower()} {doc.file_name} to {order.code}",
-            user_id=tenant.user_id,
-            new_values={"kind": kind, "document_id": doc.id, "shipment_id": shipment_id},
-        )
-        if kind in ("LR_COPY", "DISPATCH_PHOTO"):
-            event = f"{label} uploaded"
-            await notify_buyer(
+            doc = await documents.upload(
+                upload,
+                DocumentUploadRequest(
+                    category=DocumentCategory.DOCUMENT,
+                    entity_type=ORDER_DOCUMENT_ENTITY,
+                    entity_id=order.id,
+                ),
+            )
+            repo = InboundDocumentRepository(session, tenant)
+            link = repo.add(
+                PurchaseOrderDocument(
+                    purchase_order_id=order.id,
+                    document_id=doc.id,
+                    kind=kind,
+                    shipment_id=shipment_id,
+                )
+            )
+            await session.flush()
+            label = DOCUMENT_KIND_LABELS[kind]
+            await record_audit(
                 session,
-                tenant,
-                order,
-                NotificationType.PURCHASE_ORDER_SHIPPED,
-                shipment_message(order, shipment, event) if shipment else f"{order.code}: {event}",
-                shipment_id=shipment_id,
+                company_id=tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type="purchase_order_document",
+                entity_id=link.id,
+                entity_code=order.code,
+                summary=f"Attached {label.lower()} {doc.file_name} to {order.code}",
+                user_id=tenant.user_id,
+                new_values={"kind": kind, "document_id": doc.id, "shipment_id": shipment_id},
             )
-        return InboundDocumentRead(**doc.model_dump(), kind=kind, shipment_id=shipment_id)
+            if kind in ("LR_COPY", "DISPATCH_PHOTO"):
+                event = f"{label} uploaded"
+                await notify_buyer(
+                    session,
+                    tenant,
+                    order,
+                    NotificationType.PURCHASE_ORDER_SHIPPED,
+                    shipment_message(order, shipment, event)
+                    if shipment
+                    else f"{order.code}: {event}",
+                    shipment_id=shipment_id,
+                )
+            result = InboundDocumentRead(**doc.model_dump(), kind=kind, shipment_id=shipment_id)
+            committing = True
+    except BaseException as failure:
+        await documents.discard_stored(failure, committing=committing)
+        raise
+    return result
 
 
 async def list_documents(
