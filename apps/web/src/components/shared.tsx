@@ -724,6 +724,7 @@ export function LoadError({
   onRetry,
   retrying = false,
   retryClassName,
+  titleAsText = false,
   className,
 }: {
   error: unknown
@@ -734,11 +735,22 @@ export function LoadError({
   retrying?: boolean
   /** The portals size every control for a thumb (`min-h-11`); the retry follows suit. */
   retryClassName?: string
+  /**
+   * The headline as text rather than an `h5`, for a page that pins its heading
+   * outline - the messaging page keeps `h1` then `h2` (see `AlertTitle`).
+   */
+  titleAsText?: boolean
   className?: string
 }) {
   return (
     <Alert variant="destructive" className={className}>
-      <AlertTitle>{title}</AlertTitle>
+      {titleAsText ? (
+        <AlertTitle asChild>
+          <p>{title}</p>
+        </AlertTitle>
+      ) : (
+        <AlertTitle>{title}</AlertTitle>
+      )}
       <AlertDescription>{describeError(error)}</AlertDescription>
       {onRetry && (
         // type="button": a failed read inside a form dialog must not submit the form.

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
-import { FieldError, PageHeader } from '@/components/shared'
+import { FieldError, LoadError, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -134,15 +134,27 @@ export default function MessagingPage() {
   /** Set by the first Save, so a row being filled in is not called wrong while it is typed. */
   const [saveAttempted, setSaveAttempted] = useState(false)
 
+  // Each read below says its own failure on the page, so none is toasted too.
   const status = useQuery({
     queryKey: [...queryKeys.notifications.channels, 'admin'] as const,
     queryFn: ({ signal }) => api.get<ChannelStatus>('/notifications/channel-status', { signal }),
+    meta: { suppressErrorToast: true },
   })
   const templates = useQuery({
     queryKey: queryKeys.notifications.channelTemplates,
     queryFn: ({ signal }) =>
       api.get<MessagingTemplate[]>('/notifications/channel-templates', { signal }),
+    // In place of the list, with a retry.
+    meta: { suppressErrorToast: true },
   })
+  /**
+   * The save is an upsert of every mapping in the draft, keyed on channel and
+   * notification type, and Add refuses a pair the draft already has. Until the
+   * saved mappings have been read, the draft is not them: an "empty" list after
+   * a failed read let Add seed a mapping that already existed, and Save write
+   * it over the saved one. So nothing is added or saved before they arrive.
+   */
+  const templatesRead = templates.data !== undefined
   const deliveries = useQuery({
     queryKey: queryKeys.notifications.messagingDeliveries,
     queryFn: ({ signal }) =>
@@ -150,6 +162,7 @@ export default function MessagingPage() {
         params: { limit: MESSAGING_DELIVERIES_PAGE_SIZE },
         signal,
       }),
+    meta: { suppressErrorToast: true },
   })
 
   useEffect(() => {
@@ -231,7 +244,6 @@ export default function MessagingPage() {
   }
 
   const enabled = status.data
-  const loadError = status.error ?? templates.error
 
   return (
     <div>
@@ -242,12 +254,12 @@ export default function MessagingPage() {
 
       {/* Every alert headline on this page is text rather than the default h5,
           so the outline stays h1 then h2 whichever alerts are showing. */}
-      {loadError && (
+      {status.error && (
         <Alert variant="warning" className="mb-5">
           <AlertTitle asChild>
-            <p>Could not load the messaging settings</p>
+            <p>Could not load the provider status</p>
           </AlertTitle>
-          <AlertDescription>{describeError(loadError)}</AlertDescription>
+          <AlertDescription>{describeError(status.error)}</AlertDescription>
         </Alert>
       )}
 
@@ -299,14 +311,19 @@ export default function MessagingPage() {
               ))}
             </select>
           </div>
-          <Button type="button" variant="outline" disabled={!canManage} onClick={addTemplate}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!canManage || !templatesRead}
+            onClick={addTemplate}
+          >
             Add template
           </Button>
           <Button
             type="button"
             className="ml-auto"
             loading={save.isPending}
-            disabled={!canManage || draft.length === 0 || templates.isLoading}
+            disabled={!canManage || draft.length === 0 || !templatesRead}
             onClick={saveTemplates}
           >
             Save templates
@@ -464,7 +481,16 @@ export default function MessagingPage() {
             </Card>
           )
         })}
-        {draft.length === 0 && !templates.isLoading && (
+        {!templatesRead && templates.error && (
+          <LoadError
+            title="Could not load the templates"
+            error={templates.error}
+            onRetry={() => void templates.refetch()}
+            retrying={templates.isFetching}
+            titleAsText
+          />
+        )}
+        {templatesRead && draft.length === 0 && (
           <p className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
             No templates configured. Add a channel and notification type to start.
           </p>

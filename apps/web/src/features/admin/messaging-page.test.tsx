@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { formatDateTime } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { cursorPage, fail, ok, renderScreen } from '@/test/harness'
@@ -48,16 +49,23 @@ describe('messaging administration', () => {
   })
 
   it('says each failed read as a headline that stays out of the page outline', async () => {
-    renderScreen(<MessagingPage />, {
-      permissions: [P.SETTINGS_VIEW],
-      routes: {
-        ...routes(),
-        'GET /notifications/channel-status': fail(503, 'UNAVAILABLE', 'Provider status is down'),
-        'GET /notifications/deliveries': fail(503, 'UNAVAILABLE', 'Delivery log is down'),
+    renderScreen(
+      <>
+        <MessagingPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SETTINGS_VIEW],
+        errorNets: true,
+        routes: {
+          ...routes(),
+          'GET /notifications/channel-status': fail(503, 'UNAVAILABLE', 'Provider status is down'),
+          'GET /notifications/deliveries': fail(503, 'UNAVAILABLE', 'Delivery log is down'),
+        },
       },
-    })
+    )
 
-    const settings = await screen.findByText('Could not load the messaging settings')
+    const settings = await screen.findByText('Could not load the provider status')
     // AlertTitle's own styling, on a paragraph rather than an h5.
     expect(settings.tagName).toBe('P')
     expect(settings).toHaveClass('font-medium')
@@ -70,6 +78,62 @@ describe('messaging administration', () => {
       'H2',
       'H2',
     ])
+    // Each said where it applies, and not toasted as well.
+    const toasts = within(screen.getByRole('region', { name: 'Notifications' }))
+    expect(toasts.queryAllByRole('alert')).toHaveLength(0)
+  })
+
+  it('will not add or save until the saved templates are read, and says the failed read once', async () => {
+    // The save upserts every mapping in the draft, and Add only refuses a pair
+    // the draft already holds. With the read failed the draft was empty, so Add
+    // seeded a mapping that already existed and Save wrote it over the saved one.
+    let reads = 0
+    const { user, fetch } = renderScreen(
+      <>
+        <MessagingPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+        errorNets: true,
+        routes: {
+          ...routes(),
+          'GET /notifications/channel-templates': () =>
+            ++reads === 1 ? fail(503, 'UNAVAILABLE', 'Templates are down') : ok(templates),
+        },
+      },
+    )
+
+    const headline = await screen.findByText('Could not load the templates')
+    expect(headline.closest('[role="alert"]')).toHaveTextContent('Templates are down')
+    // Not an empty list: nothing says there are no templates when none were read.
+    expect(screen.queryByText(/no templates configured/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add template' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save templates' })).toBeDisabled()
+    // Said once, in place, and the headline keeps out of the page outline.
+    const toasts = within(screen.getByRole('region', { name: 'Notifications' }))
+    expect(toasts.queryAllByRole('alert')).toHaveLength(0)
+    expect(screen.getAllByRole('heading').map((heading) => heading.tagName)).toEqual(['H1', 'H2'])
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByLabelText('Approved template name')).toHaveValue('announcement')
+    expect(screen.queryByText('Could not load the templates')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add template' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Save templates' })).toBeEnabled()
+    expect(fetch.calls.some((call) => call.method === 'PUT')).toBe(false)
+  })
+
+  it('says an empty list once the templates are read and none exist', async () => {
+    renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+      routes: { ...routes(), 'GET /notifications/channel-templates': ok([]) },
+    })
+
+    expect(await screen.findByText(/no templates configured/i)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Add template' })).toBeEnabled()
+    // Nothing to save until a mapping is added.
+    expect(screen.getByRole('button', { name: 'Save templates' })).toBeDisabled()
   })
 
   it('keeps template changes unavailable to settings viewers without manage permission', async () => {
