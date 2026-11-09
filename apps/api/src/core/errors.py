@@ -115,6 +115,17 @@ class AppError(Exception):
         ).model_dump(mode="json")
 
 
+def is_refusal(exc: BaseException) -> bool:
+    """Whether ``exc`` is a deliberate refusal: an :class:`AppError` below 500.
+
+    A refusal is the application working as intended - the request or the job
+    asked for something a rule forbids - so it is logged as an expected outcome,
+    never as an error with a traceback. A server-side ``AppError`` and anything
+    that is not an ``AppError`` at all are faults.
+    """
+    return isinstance(exc, AppError) and exc.status_code < 500
+
+
 # --- 4xx ---------------------------------------------------------------------
 
 
@@ -345,4 +356,5 @@ __all__ = [
     "TenantMismatchError",
     "TokenExpiredError",
     "ValidationError",
+    "is_refusal",
 ]

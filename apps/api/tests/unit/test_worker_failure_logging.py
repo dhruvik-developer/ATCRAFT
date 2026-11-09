@@ -176,11 +176,11 @@ def trace() -> Iterator[_Captured]:
     level = trace_logger.level
     trace_logger.setLevel(logging.DEBUG)
     trace_logger.addHandler(captured)
-    worker.withhold_mail_task_exceptions()
+    worker.filter_celery_trace()
     try:
         yield captured
     finally:
-        trace_logger.removeFilter(worker._MAIL_TRACE_FILTER)
+        trace_logger.removeFilter(worker._TRACE_FILTER)
         trace_logger.removeHandler(captured)
         trace_logger.setLevel(level)
 
@@ -250,8 +250,11 @@ def test_celerys_failure_line_never_names_a_mail_tasks_recipient(
     assert RECIPIENT not in repr(vars(record)), "nor in the record's extras"
 
 
-def test_every_other_tasks_trace_lines_keep_their_detail(trace: _Captured) -> None:
-    """The control: the lines above would carry the address unfiltered."""
+def test_every_other_tasks_trace_lines_keep_the_exception_but_not_its_traceback(
+    trace: _Captured,
+) -> None:
+    """The control: the lines above would carry the address unfiltered. Only the
+    traceback goes - ``task.failed`` has just logged it."""
     import src.workers.tasks.reports  # noqa: F401 - registers the task
 
     _retry_line("reports.generate")
@@ -260,7 +263,8 @@ def test_every_other_tasks_trace_lines_keep_their_detail(trace: _Captured) -> No
     retry, failure = trace.lines()
     assert RECIPIENT in retry
     assert RECIPIENT in failure
-    assert trace.records[1].exc_info is not None
+    assert "Traceback" not in failure
+    assert trace.records[1].exc_info is None
 
 
 @pytest.mark.parametrize("task_name", _mail_task_names())
@@ -281,4 +285,4 @@ def test_the_worker_logging_setup_installs_the_trace_filter(
     worker._configure_worker_logging()
     worker._configure_worker_logging()
 
-    assert trace_logger.filters == [worker._MAIL_TRACE_FILTER]
+    assert trace_logger.filters == [worker._TRACE_FILTER]

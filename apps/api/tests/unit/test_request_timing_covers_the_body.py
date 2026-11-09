@@ -119,16 +119,20 @@ def test_an_ordinary_response_logs_exactly_once(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_a_failing_request_is_logged_once_and_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The exception path must not also emit a completion line."""
+    """The exception path must not also emit a completion line - nor the
+    traceback, which the handler further out logs as ``error.unhandled``."""
     completed: list[str] = []
-    failed: list[str] = []
+    failed: list[tuple[str, dict[str, Any]]] = []
     monkeypatch.setattr(middleware.log, "info", lambda event, **kw: completed.append(event))
-    monkeypatch.setattr(middleware.log, "exception", lambda event, **kw: failed.append(event))
+    monkeypatch.setattr(middleware.log, "warning", lambda event, **kw: failed.append((event, kw)))
 
     with TestClient(_app(), raise_server_exceptions=False) as client:
         assert client.get("/boom").status_code == 500
 
-    assert failed == ["request.failed"]
+    ((event, fields),) = failed
+    assert event == "request.failed"
+    assert fields["exc_type"] == "RuntimeError"
+    assert "exc_info" not in fields
     assert completed == []
 
 

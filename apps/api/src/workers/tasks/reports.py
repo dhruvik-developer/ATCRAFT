@@ -61,7 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.clock import utcnow
 from src.core.database import session_scope, transaction
 from src.core.deps import TenantContext
-from src.core.errors import AppError, BusinessRuleError, InvalidStateTransitionError
+from src.core.errors import AppError, BusinessRuleError, InvalidStateTransitionError, is_refusal
 from src.core.ids import new_id
 from src.core.logging import get_logger
 from src.modules.audit.models import AuditAction
@@ -603,9 +603,7 @@ async def generate_packing_list(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error(
-            "reports.packing_list_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
-        )
+        _log_job_failure("reports.packing_list_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -952,7 +950,7 @@ async def generate_job_work_challan(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error("reports.challan_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc)
+        _log_job_failure("reports.challan_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -1096,9 +1094,7 @@ async def generate_sales_invoice(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error(
-            "reports.sales_invoice_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
-        )
+        _log_job_failure("reports.sales_invoice_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -1626,12 +1622,7 @@ async def inventory_valuation(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error(
-            "reports.inventory_valuation_failed",
-            snapshot_id=snapshot_id,
-            error=str(exc),
-            exc_info=exc,
-        )
+        _log_job_failure("reports.inventory_valuation_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -2273,6 +2264,18 @@ def _describe(parameters: dict[str, Any] | None) -> tuple[str, str]:
     return period_text, filter_text
 
 
+def _log_job_failure(event: str, exc: BaseException, **ids: str) -> None:
+    """Name the job a failure belongs to; ``task.failed`` logs the failure itself.
+
+    The task re-raises, and the task-failure signal then logs the error with
+    its one traceback - repeating them here was a second copy of each. A
+    refusal (an AppError below 500, its sentence already on the job row) is the
+    job running into a rule, and is logged as expected, not as an error.
+    """
+    log_method = log.warning if is_refusal(exc) else log.error
+    log_method(event, error_type=type(exc).__name__, **ids)
+
+
 def _failure_message(exc: BaseException) -> str:
     """A message safe to persist on the job row and show the person waiting.
 
@@ -2471,7 +2474,7 @@ async def generate_report(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error("reports.generate_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc)
+        _log_job_failure("reports.generate_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -2632,9 +2635,7 @@ async def generate_trial_balance(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error(
-            "reports.trial_balance_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
-        )
+        _log_job_failure("reports.trial_balance_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -2730,7 +2731,7 @@ async def generate_gstr1(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error("reports.gstr1_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc)
+        _log_job_failure("reports.gstr1_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(
@@ -2866,9 +2867,7 @@ async def generate_purchase_order(
             await reports_service.fail_snapshot(
                 session, tenant, snapshot_id=identifier, error=_failure_message(exc)
             )
-        log.error(
-            "reports.purchase_order_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
-        )
+        _log_job_failure("reports.purchase_order_failed", exc, snapshot_id=snapshot_id)
         raise
 
     log.info(

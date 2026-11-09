@@ -16,7 +16,7 @@ import contextlib
 import logging
 import smtplib
 from collections.abc import Callable, Coroutine, Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from celery import Celery, Task
 from celery.schedules import crontab
@@ -31,6 +31,7 @@ from celery.signals import (
 from prometheus_client import start_http_server
 
 from src.core.config import settings
+from src.core.errors import AppError, is_refusal
 from src.core.logging import (
     bind_request_context,
     clear_request_context,
@@ -233,7 +234,12 @@ def async_task(*task_args: Any, **task_kwargs: Any) -> Callable[..., Any]:
 
     @async_task(name="mrp.run", queue="mrp")
     async def run_mrp(run_id: str) -> dict: ...
+
+    ``throws`` defaults to :class:`AppError`: Celery then writes a deliberate
+    error as "raised expected", at INFO and without a traceback, rather than as
+    an unexpected failure - :func:`_on_task_failure` decides how it is logged.
     """
+    task_kwargs.setdefault("throws", (AppError,))
 
     def decorator(func: Callable[..., Coroutine[Any, Any, T]]) -> Any:
         @celery_app.task(*task_args, base=AsyncTask, bind=True, **task_kwargs)
@@ -264,11 +270,11 @@ def async_task(*task_args: Any, **task_kwargs: Any) -> Callable[..., Any]:
 def _configure_worker_logging(**_: Any) -> None:
     """Use the application's structured logging, not Celery's own format.
 
-    Celery's own trace lines go through it too, so this is also where a mail
-    task's exception is withheld from them (:class:`_MailTraceFilter`).
+    Celery's own trace lines go through it too, so this is also where they
+    are kept from repeating ``task.failed`` (:class:`_TraceFilter`).
     """
     configure_logging()
-    withhold_mail_task_exceptions()
+    filter_celery_trace()
 
 
 _worker_metrics_started = False
@@ -379,29 +385,35 @@ CELERY_TRACE_LOGGER = "celery.app.trace"
 MAIL_EXCEPTION_WITHHELD = "[exception withheld]"
 
 
-class _MailTraceFilter(logging.Filter):
-    """Withhold a mail task's exception from Celery's own trace lines.
+class _TraceFilter(logging.Filter):
+    """Keep Celery's own trace lines from repeating what ``task.failed`` says.
 
-    ``celery.app.trace`` writes every retry at INFO - ``Task
-    notifications.send_email[...] retry: Retry in 4s:
-    SMTPRecipientsRefused({'person@example.com': (550, ...)})`` - and the final
-    failure at ERROR with the exception's repr and its traceback: the recipient
-    address and the relay's reply, both of which :mod:`src.core.mail` keeps out
-    of the log. The record's ``args`` is the context dict that message is
-    formatted from, and Celery attaches the same dict as ``data``; the filter
-    replaces its ``exc`` and ``traceback`` and drops the exception the record
-    carries, so neither the line nor a rendered traceback can name anyone. A
-    filter rather than a rule at the call site, because the call site is
-    Celery's. :func:`_on_task_failure` still logs the exception's type, and a
-    programming error's traceback with it.
+    ``celery.app.trace`` writes every retry at INFO and every failure with the
+    exception's repr and, unless the task ``throws`` it, its traceback - right
+    after :func:`_on_task_failure` has logged the same failure. The record's
+    ``args`` is the context dict the line is formatted from, and Celery attaches
+    the same dict as ``data``. Two rules, as a filter because the call site is
+    Celery's:
 
-    Every mail task is covered, whatever it raised: Celery's line would only
-    repeat what ``task.failed`` already says.
+    * A failure line (its context carries ``traceback``) drops the exception
+      the record carries: ``task.failed`` holds the one traceback, and this
+      was a second full copy of it for every failure.
+    * A mail task's retry and failure lines also withhold the exception
+      itself - ``retry: Retry in 4s: SMTPRecipientsRefused({'person@example.com':
+      (550, ...)})`` - the recipient address and the relay's reply, both of
+      which :mod:`src.core.mail` keeps out of the log. Every mail task is
+      covered, whatever it raised: ``task.failed`` already says it, by type for
+      a transport failure and with its traceback for a defect.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         context = record.args
-        if isinstance(context, Mapping) and context.get("name") in MAIL_TASKS and "exc" in context:
+        if not isinstance(context, Mapping) or "exc" not in context:
+            return True
+        if "traceback" in context:
+            record.exc_info = None
+            record.exc_text = None
+        if context.get("name") in MAIL_TASKS:
             withheld = dict(context)
             withheld["exc"] = MAIL_EXCEPTION_WITHHELD
             if "traceback" in withheld:
@@ -414,16 +426,16 @@ class _MailTraceFilter(logging.Filter):
         return True
 
 
-_MAIL_TRACE_FILTER = _MailTraceFilter()
+_TRACE_FILTER = _TraceFilter()
 
 
-def withhold_mail_task_exceptions() -> None:
-    """Install :class:`_MailTraceFilter` on Celery's trace logger, once.
+def filter_celery_trace() -> None:
+    """Install :class:`_TraceFilter` on Celery's trace logger, once.
 
     On the logger rather than on a handler: a logger's filters run before any
     handler sees the record, the root handler and any error tracker alike.
     """
-    logging.getLogger(CELERY_TRACE_LOGGER).addFilter(_MAIL_TRACE_FILTER)
+    logging.getLogger(CELERY_TRACE_LOGGER).addFilter(_TRACE_FILTER)
 
 
 @task_failure.connect
@@ -435,12 +447,27 @@ def _on_task_failure(
 ) -> None:
     """Section 53: background job failures are handled, not silently dropped.
 
-    A mail task's transport failure is logged by type only: its message and
-    traceback would carry the recipient address and the relay's reply, and
-    ``error`` is not a redacted key. Everything else keeps the full detail.
+    This is the one line that carries a failed task's traceback. A refusal - an
+    :class:`AppError` below 500, a rule the job ran into - is expected: it is
+    logged as ``task.refused`` at warning, by code and status, and the job row
+    already holds its sentence. A mail task's transport failure is logged by
+    type only: its message and traceback would carry the recipient address and
+    the relay's reply, and ``error`` is not a redacted key. Everything else
+    keeps the full detail.
     """
     task_name = getattr(sender, "name", "unknown")
     error_type = type(exception).__name__ if exception is not None else "unknown"
+    if exception is not None and is_refusal(exception):
+        refusal = cast(AppError, exception)
+        log.warning(
+            "task.refused",
+            task=task_name,
+            task_id=task_id,
+            error_type=error_type,
+            code=str(refusal.code),
+            status=refusal.status_code,
+        )
+        return
     if _failure_is_confidential(task_name, exception):
         log.error("task.failed", task=task_name, task_id=task_id, error_type=error_type)
         return
@@ -463,5 +490,5 @@ __all__ = [
     "AsyncTask",
     "async_task",
     "celery_app",
-    "withhold_mail_task_exceptions",
+    "filter_celery_trace",
 ]

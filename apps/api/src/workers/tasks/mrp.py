@@ -32,7 +32,7 @@ from typing import Any
 
 from src.core.database import session_scope
 from src.core.deps import TenantContext, system_tenant
-from src.core.errors import AppError, InvalidStateTransitionError, RateLimitedError
+from src.core.errors import AppError, InvalidStateTransitionError, RateLimitedError, is_refusal
 from src.core.logging import get_logger
 from src.core.observability import count_sweep_failure
 from src.modules.mrp import service
@@ -155,9 +155,19 @@ async def run_mrp(
     except Exception as exc:
         # A separate session: the one the failure happened on cannot be used to
         # write anything, so the run would otherwise stay RUNNING for ever.
+        refused = is_refusal(exc)
         async with session_scope() as session:
-            await service.fail_run(session, tenant, run_id=identifier, error=_failure_message(exc))
-        log.error("mrp.task_failed", run_id=run_id, error=str(exc), exc_info=exc)
+            await service.fail_run(
+                session,
+                tenant,
+                run_id=identifier,
+                error=_failure_message(exc),
+                refused=refused,
+            )
+        # The error and its traceback are ``task.failed``'s, once it re-raises.
+        (log.warning if refused else log.error)(
+            "mrp.task_failed", run_id=run_id, error_type=type(exc).__name__
+        )
         raise
 
     finally:

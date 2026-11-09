@@ -135,13 +135,15 @@ async def test_a_failed_fail_run_is_logged_and_the_original_error_still_raised(
 
 async def test_a_successful_fail_run_logs_nothing_extra(monkeypatch: pytest.MonkeyPatch) -> None:
     log = _Log()
-    recorded: list[str] = []
+    recorded: list[tuple[str, bool]] = []
 
     async def explode(*args: Any, **kwargs: Any) -> None:
         raise CalculationError("boom")
 
-    async def record(session: Any, tenant: Any, *, run_id: uuid.UUID, error: str) -> None:
-        recorded.append(error)
+    async def record(
+        session: Any, tenant: Any, *, run_id: uuid.UUID, error: str, refused: bool = False
+    ) -> None:
+        recorded.append((error, refused))
 
     monkeypatch.setattr(service, "execute_run", explode)
     monkeypatch.setattr(service, "fail_run", record)
@@ -150,7 +152,35 @@ async def test_a_successful_fail_run_logs_nothing_extra(monkeypatch: pytest.Monk
     with pytest.raises(CalculationError):
         await service._run_inline(_Untouchable(), _tenant(), uuid.uuid4())  # type: ignore[arg-type]
 
-    assert recorded and log.exceptions == []
+    assert log.exceptions == []
+    ((_, refused),) = recorded
+    assert refused is False, "a fault is not a refusal"
+
+
+async def test_a_run_that_meets_a_planning_rule_is_recorded_as_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """So ``fail_run`` logs it as expected rather than as an error."""
+    from src.core.errors import BusinessRuleError
+
+    recorded: list[tuple[str, bool]] = []
+
+    async def refuse(*args: Any, **kwargs: Any) -> None:
+        raise BusinessRuleError("The run names more demand lines than one plan may hold.")
+
+    async def record(
+        session: Any, tenant: Any, *, run_id: uuid.UUID, error: str, refused: bool = False
+    ) -> None:
+        recorded.append((error, refused))
+
+    monkeypatch.setattr(service, "execute_run", refuse)
+    monkeypatch.setattr(service, "fail_run", record)
+    monkeypatch.setattr(service, "log", _Log())
+
+    with pytest.raises(BusinessRuleError):
+        await service._run_inline(_Untouchable(), _tenant(), uuid.uuid4())  # type: ignore[arg-type]
+
+    assert recorded == [("The run names more demand lines than one plan may hold.", True)]
 
 
 # -----------------------------------------------------------------------------

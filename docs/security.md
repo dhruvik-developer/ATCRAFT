@@ -524,6 +524,15 @@ Constraint violations and transient PostgreSQL failures are translated into
 safe business or retryable errors by `exception_handlers.py`; unexpected errors
 are logged with their context and receive the shared generic response.
 
+Each defect is logged with its traceback once. In the API that is
+`error.unhandled`: the access line `request.failed` names the request without
+it, and uvicorn's "Exception in ASGI application" repeat of an exception the
+handler already logged is dropped. In a worker it is `task.failed`: a task's own
+`*_failed` line names its job without it, and Celery's trace line drops it. A
+refusal - an `AppError` below 500, in a request or a job - is logged as an
+expected outcome (`error.application` at info, `task.refused` at warning), never
+as an error.
+
 Free text the key-based redaction cannot see into stays out of the log as well.
 The engine is built with `hide_parameters` (`HIDE_STATEMENT_PARAMETERS` in
 `core/database.py`), so a failed statement's text - in every traceback, the

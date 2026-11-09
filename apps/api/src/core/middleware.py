@@ -302,13 +302,17 @@ class RequestContextMiddleware(HttpMiddleware):
 
         try:
             await self.app(scope, receive, send_wrapper)
-        except Exception:
+        except Exception as exc:
+            # The access line for a request that raised. Not the traceback, and
+            # not an error: the handler further out logs ``error.unhandled``
+            # with both, once, and this would only print the same one again.
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
-            log.exception(
+            log.warning(
                 "request.failed",
                 method=request.method,
                 path=request.url.path,
                 duration_ms=duration_ms,
+                exc_type=type(exc).__name__,
             )
             accounted = True
             clear_request_context()

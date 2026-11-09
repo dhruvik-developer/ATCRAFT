@@ -10,6 +10,7 @@ Nginx through FastAPI into a worker.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sys
 import uuid
@@ -146,7 +147,15 @@ REDACTED = "[REDACTED]"
 
 
 def _redact(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-    """Recursively blank out sensitive keys before a record is emitted."""
+    """Recursively blank out sensitive keys before a record is emitted.
+
+    A tuple stays a tuple. A standard-library record hands its ``exc_info`` over
+    as one, and structlog renders a traceback only from a real ``(type, value,
+    traceback)`` tuple; turned into a list it fell back to whatever exception
+    was being handled when the line was *formatted* - none, for a record
+    logged outside its ``except`` block (asyncio's "Task exception was never
+    retrieved"), so its traceback silently vanished.
+    """
 
     def scrub(value: Any, depth: int = 0) -> Any:
         if depth > 6:
@@ -156,7 +165,9 @@ def _redact(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str,
                 k: (REDACTED if str(k).lower() in SENSITIVE_KEYS else scrub(v, depth + 1))
                 for k, v in value.items()
             }
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, tuple):
+            return tuple(scrub(v, depth + 1) for v in value)
+        if isinstance(value, list):
             return [scrub(v, depth + 1) for v in value]
         return value
 
@@ -174,6 +185,44 @@ def _add_request_context(_logger: Any, _method: str, event_dict: dict[str, Any])
         if value and key not in event_dict:
             event_dict[key] = value
     return event_dict
+
+
+# --- One traceback per failure -------------------------------------------------
+
+#: Set on an exception once the application has logged it with its traceback.
+_TRACEBACK_LOGGED = "_atcraft_traceback_logged"
+
+#: The server logger that repeats an exception the application already handled.
+SERVER_ERROR_LOGGER = "uvicorn.error"
+
+
+def mark_traceback_logged(exc: BaseException) -> None:
+    """Note that ``exc`` is in the log with its traceback, so no server repeats it."""
+    with contextlib.suppress(AttributeError, TypeError):
+        setattr(exc, _TRACEBACK_LOGGED, True)
+
+
+def traceback_already_logged(exc: BaseException | None) -> bool:
+    return exc is not None and getattr(exc, _TRACEBACK_LOGGED, False) is True
+
+
+class _RepeatedTracebackFilter(logging.Filter):
+    """Drop a server's repeat of a traceback the application already logged.
+
+    Starlette's ``ServerErrorMiddleware`` answers 500 through the application's
+    handler - which logs ``error.unhandled`` with the traceback - and then
+    re-raises, so uvicorn logged the same exception again as "Exception in
+    ASGI application": a second full traceback for every defect. Only a record
+    carrying an exception the handler marked is dropped; one the handler never
+    saw - the handler itself failing, a lifespan error - is still logged.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exception = record.exc_info[1] if record.exc_info else None
+        return not traceback_already_logged(exception)
+
+
+_REPEATED_TRACEBACK_FILTER = _RepeatedTracebackFilter()
 
 
 def configure_logging() -> None:
@@ -244,6 +293,8 @@ def configure_logging() -> None:
         ("asyncio", logging.WARNING),
     ):
         logging.getLogger(noisy).setLevel(level)
+    # Adding the same filter twice is a no-op, so a second call changes nothing.
+    logging.getLogger(SERVER_ERROR_LOGGER).addFilter(_REPEATED_TRACEBACK_FILTER)
 
     if settings.app_env is AppEnv.production and settings.app_debug:  # pragma: no cover
         raise RuntimeError("APP_DEBUG must not be enabled in production")
@@ -257,6 +308,7 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
 __all__ = [
     "REDACTED",
     "SENSITIVE_KEYS",
+    "SERVER_ERROR_LOGGER",
     "bind_request_context",
     "clear_request_context",
     "company_id_ctx",
@@ -264,10 +316,12 @@ __all__ = [
     "get_logger",
     "get_request_id",
     "ip_address_ctx",
+    "mark_traceback_logged",
     "new_request_id",
     "request_id_ctx",
     "resolve_client_ip",
     "resolve_request_id",
+    "traceback_already_logged",
     "user_agent_ctx",
     "user_id_ctx",
 ]

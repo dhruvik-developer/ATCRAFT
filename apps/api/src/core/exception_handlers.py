@@ -22,8 +22,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
 from src.core.config import settings
-from src.core.errors import AppError, ErrorCode
-from src.core.logging import get_logger, get_request_id
+from src.core.errors import AppError, ErrorCode, is_refusal
+from src.core.logging import get_logger, get_request_id, mark_traceback_logged
 from src.core.messages import (
     FIELDS_NEED_ATTENTION,
     MALFORMED_JSON,
@@ -62,14 +62,14 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     path say which rule refused, and the request id ties the line to the
     response. A server-side failure keeps its sentence: it was written for us.
     """
-    is_server_error = exc.status_code >= 500
-    log_method = log.warning if is_server_error else log.info
+    refused = is_refusal(exc)
+    log_method = log.info if refused else log.warning
     log_method(
         "error.application",
         code=str(exc.code),
         status=exc.status_code,
         path=request.url.path,
-        **({"detail": exc.message} if is_server_error else {}),
+        **({} if refused else {"detail": exc.message}),
     )
     headers = {}
     if exc.status_code == 429:
@@ -371,7 +371,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """The final net. Anything reaching here is a defect.
 
-    The full traceback is logged with the correlation id. Responses remain safe
+    The full traceback is logged with the correlation id - here, and only here:
+    the access log's ``request.failed`` names the request without it, and
+    uvicorn's own "Exception in ASGI application" repeat of this exception,
+    which Starlette re-raises after this answer, is dropped
+    (:func:`~src.core.logging.mark_traceback_logged`). Responses remain safe
     even when development logging is enabled: exception text can carry secrets.
     """
     request_id = getattr(request.state, "request_id", None) or get_request_id()
@@ -381,6 +385,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         exc_type=type(exc).__name__,
         request_id=request_id,
     )
+    mark_traceback_logged(exc)
 
     return JSONResponse(
         status_code=500,

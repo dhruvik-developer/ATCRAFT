@@ -58,7 +58,7 @@ from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import TenantContext
-from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError
+from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError, is_refusal
 from src.core.logging import get_logger
 from src.core.observability import mrp_run_duration, mrp_runs_total
 from src.core.pagination import PageParams, SortParams
@@ -811,7 +811,13 @@ async def _run_inline(session: AsyncSession, tenant: TenantContext, run_id: uuid
         await execute_run(session, tenant, run_id=run_id)
     except Exception as exc:
         try:
-            await fail_run(session, tenant, run_id=run_id, error=_safe_error(exc))
+            await fail_run(
+                session,
+                tenant,
+                run_id=run_id,
+                error=_safe_error(exc),
+                refused=is_refusal(exc),
+            )
         except Exception:
             # The original failure is re-raised below and logged by the unhandled
             # handler. This one is different: the FAILED record could not be
@@ -1163,13 +1169,20 @@ async def execute_run(
 
 
 async def fail_run(
-    session: AsyncSession, tenant: TenantContext, *, run_id: uuid.UUID, error: str
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    run_id: uuid.UUID,
+    error: str,
+    refused: bool = False,
 ) -> None:
     """Record that a run did not produce a plan.
 
     Separate from :func:`execute_run` so a worker can call it on a *fresh*
     session after the one that failed has been discarded. A run left sitting in
-    RUNNING would block the next one until it aged out.
+    RUNNING would block the next one until it aged out. ``refused`` says the run
+    ran into a rule (an AppError below 500, such as a planning limit) rather
+    than a fault, and is logged as expected rather than as an error.
     """
     repository = MrpRunRepository(session, tenant)
 
@@ -1204,7 +1217,7 @@ async def fail_run(
             action=AuditAction.JOB_FAILED,
             reason=error[:255],
         )
-    log.error("mrp.run_failed", run_code=run.code, error=error)
+    (log.warning if refused else log.error)("mrp.run_failed", run_code=run.code, error=error)
 
 
 def _parse_date(value: object) -> date | None:
