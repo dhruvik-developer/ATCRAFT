@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import smtplib
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from typing import Any, TypeVar
 
 from celery import Celery, Task
@@ -261,8 +262,13 @@ def async_task(*task_args: Any, **task_kwargs: Any) -> Callable[..., Any]:
 
 @setup_logging.connect
 def _configure_worker_logging(**_: Any) -> None:
-    """Use the application's structured logging, not Celery's own format."""
+    """Use the application's structured logging, not Celery's own format.
+
+    Celery's own trace lines go through it too, so this is also where a mail
+    task's exception is withheld from them (:class:`_MailTraceFilter`).
+    """
     configure_logging()
+    withhold_mail_task_exceptions()
 
 
 _worker_metrics_started = False
@@ -343,6 +349,9 @@ def _on_task_end(
 #: :mod:`src.core.mail` forbids from the log: ``SMTPRecipientsRefused`` is
 #: keyed by recipient address, and every ``SMTPResponseException`` carries the
 #: relay's response text. The tasks log their own stable row identifiers.
+#: Each is registered with ``ignore_result=True`` - nothing reads a Celery
+#: result - so the result backend never keeps a retry's or a failure's
+#: exception either.
 MAIL_TASKS = frozenset(
     {
         "notifications.send_email",
@@ -361,6 +370,60 @@ _TRANSPORT_EXCEPTIONS = (smtplib.SMTPException, OSError)
 
 def _failure_is_confidential(task_name: str, exception: BaseException | None) -> bool:
     return task_name in MAIL_TASKS and isinstance(exception, _TRANSPORT_EXCEPTIONS)
+
+
+#: The logger Celery writes each task's retry and failure lines to.
+CELERY_TRACE_LOGGER = "celery.app.trace"
+
+#: What a mail task's Celery trace line says in place of its exception.
+MAIL_EXCEPTION_WITHHELD = "[exception withheld]"
+
+
+class _MailTraceFilter(logging.Filter):
+    """Withhold a mail task's exception from Celery's own trace lines.
+
+    ``celery.app.trace`` writes every retry at INFO - ``Task
+    notifications.send_email[...] retry: Retry in 4s:
+    SMTPRecipientsRefused({'person@example.com': (550, ...)})`` - and the final
+    failure at ERROR with the exception's repr and its traceback: the recipient
+    address and the relay's reply, both of which :mod:`src.core.mail` keeps out
+    of the log. The record's ``args`` is the context dict that message is
+    formatted from, and Celery attaches the same dict as ``data``; the filter
+    replaces its ``exc`` and ``traceback`` and drops the exception the record
+    carries, so neither the line nor a rendered traceback can name anyone. A
+    filter rather than a rule at the call site, because the call site is
+    Celery's. :func:`_on_task_failure` still logs the exception's type, and a
+    programming error's traceback with it.
+
+    Every mail task is covered, whatever it raised: Celery's line would only
+    repeat what ``task.failed`` already says.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = record.args
+        if isinstance(context, Mapping) and context.get("name") in MAIL_TASKS and "exc" in context:
+            withheld = dict(context)
+            withheld["exc"] = MAIL_EXCEPTION_WITHHELD
+            if "traceback" in withheld:
+                withheld["traceback"] = MAIL_EXCEPTION_WITHHELD
+            record.args = withheld
+            if getattr(record, "data", None) is context:
+                record.data = withheld
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
+_MAIL_TRACE_FILTER = _MailTraceFilter()
+
+
+def withhold_mail_task_exceptions() -> None:
+    """Install :class:`_MailTraceFilter` on Celery's trace logger, once.
+
+    On the logger rather than on a handler: a logger's filters run before any
+    handler sees the record, the root handler and any error tracker alike.
+    """
+    logging.getLogger(CELERY_TRACE_LOGGER).addFilter(_MAIL_TRACE_FILTER)
 
 
 @task_failure.connect
@@ -392,10 +455,13 @@ def _on_task_failure(
 
 
 __all__ = [
+    "CELERY_TRACE_LOGGER",
+    "MAIL_EXCEPTION_WITHHELD",
     "MAIL_TASKS",
     "RECONCILE_QUALITY_OWNERS_ENTRY",
     "RECONCILE_QUALITY_OWNERS_TASK",
     "AsyncTask",
     "async_task",
     "celery_app",
+    "withhold_mail_task_exceptions",
 ]

@@ -511,6 +511,13 @@ A redaction processor blanks a fixed key list — passwords, tokens, cookies,
 secrets, PAN, Aadhaar, bank and card fields — recursively, before any record is
 emitted. It does not rely on call sites remembering.
 
+A delivery task's transport exception names the recipient and quotes the
+relay's reply, so for every task in `MAIL_TASKS` (`workers/celery_app.py`) it
+is logged by type only. That covers Celery's own trace lines as well as the
+application's: a filter on `celery.app.trace` replaces the exception in each
+retry and failure line and drops its traceback. Those tasks are registered with
+`ignore_result=True`, so the result backend never stores the exception either.
+
 Errors returned to clients carry a stable code, a usable message and the
 correlation id. Never a stack trace, SQL fragment, constraint or table name.
 Constraint violations and transient PostgreSQL failures are translated into

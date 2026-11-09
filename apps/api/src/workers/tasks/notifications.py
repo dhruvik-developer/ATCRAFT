@@ -246,6 +246,7 @@ async def _deliver_notification_push(
 @async_task(
     name="notifications.send_push",
     queue="notifications",
+    ignore_result=True,
     autoretry_for=(PushRetryableError,),
     retry_backoff=True,
     retry_jitter=True,
@@ -472,6 +473,7 @@ async def _deliver_notification_messaging(
 @async_task(
     name="notifications.send_whatsapp",
     queue="notifications",
+    ignore_result=True,
     autoretry_for=(MessagingRetryableError,),
     retry_backoff=True,
     retry_jitter=True,
@@ -495,6 +497,7 @@ async def send_whatsapp(
 @async_task(
     name="notifications.send_sms",
     queue="notifications",
+    ignore_result=True,
     autoretry_for=(MessagingRetryableError,),
     retry_backoff=True,
     retry_jitter=True,
@@ -609,7 +612,9 @@ def pending_deliveries_statement(moment: datetime) -> Any:
     )
 
 
-@async_task(name="notifications.dispatch_pending_deliveries", queue="notifications")
+@async_task(
+    name="notifications.dispatch_pending_deliveries", queue="notifications", ignore_result=True
+)
 async def dispatch_pending_deliveries(request_id: str | None = None, **_: Any) -> dict[str, int]:
     from src.workers.celery_app import celery_app
 
@@ -1112,6 +1117,7 @@ async def _dispatch_pending_password_resets(*, limit: int = 100) -> dict[str, in
 
 
 _MAIL_RETRY_OPTIONS = {
+    "ignore_result": True,
     "autoretry_for": (OSError, smtplib.SMTPException),
     "retry_backoff": True,
     "retry_jitter": True,
@@ -1151,6 +1157,7 @@ async def send_password_reset_email(
 @async_task(
     name="notifications.dispatch_pending_password_resets",
     queue="notifications",
+    ignore_result=True,
 )
 async def dispatch_pending_password_resets(
     request_id: str | None = None,
