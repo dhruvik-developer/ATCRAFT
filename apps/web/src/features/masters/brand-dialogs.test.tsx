@@ -218,7 +218,7 @@ describe('retiring a brand', () => {
     await user.type(screen.getByLabelText(/reason/i), 'no')
     await user.click(screen.getByRole('button', { name: 'Retire brand' }))
 
-    expect(await screen.findByText('Record at least three characters of reason')).toBeVisible()
+    expect(await screen.findByText('Record at least 3 characters of reason')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'DELETE')).toBe(false)
   })
 

@@ -280,7 +280,7 @@ describe('what the lifecycle commands send', () => {
 
     // `ReasonRequest` requires three characters, and this is the sentence the
     // invited vendors are given.
-    await stable(() => screen.getByText(/at least three characters/i))
+    await stable(() => screen.getByText(/at least 3 characters/i))
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 

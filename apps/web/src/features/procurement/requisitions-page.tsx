@@ -66,7 +66,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { errors, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -812,7 +812,7 @@ export default function RequisitionsPage() {
             aria-invalid={(reasonTouched && reasonInvalid) || serverReason !== null}
           />
           {reasonRequired && reasonTouched && reasonTooShort && (
-            <FieldError message="A rejection needs a recorded reason of at least three characters" />
+            <FieldError message={errors.reasonTooShort} />
           )}
           {reasonTouched && reasonTooLong && (
             <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />

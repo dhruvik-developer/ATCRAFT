@@ -462,7 +462,7 @@ describe('retiring an account', () => {
     await user.type(await stable(() => screen.getByLabelText(/reason/i)), 'x')
     await user.click(screen.getByRole('button', { name: 'Retire customer' }))
 
-    expect(await screen.findByText('Record at least three characters of reason')).toBeVisible()
+    expect(await screen.findByText('Record at least 3 characters of reason')).toBeVisible()
     expect(fetch.calls.filter((call) => call.method === 'DELETE')).toHaveLength(0)
   })
 

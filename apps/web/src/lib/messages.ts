@@ -108,7 +108,7 @@ export const errors = {
   /** Shown by a form when a 422 arrived without field detail. */
   checkTheForm: 'Check the entered information',
   /** A lifecycle reason shorter than `REASON_MIN_LENGTH`, held back before the round trip. */
-  reasonTooShort: 'Record at least three characters of reason',
+  reasonTooShort: `Record at least ${REASON_MIN_LENGTH} characters of reason`,
 } as const
 
 /** The toast headline for an API error code. The API's own message is the description. */

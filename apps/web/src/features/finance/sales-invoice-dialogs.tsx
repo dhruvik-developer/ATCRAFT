@@ -26,7 +26,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError, salesInvoiceMessages, success } from '@/lib/messages'
+import { describeError, errors, salesInvoiceMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -535,7 +535,7 @@ export function SalesInvoiceDetailDialog({
           onChange={(event) => setReason(event.target.value)}
         />
         {reasonTouched && reason.trim().length < REASON_MIN_LENGTH && (
-          <FieldError message="A cancellation needs at least three characters." />
+          <FieldError message={errors.reasonTooShort} />
         )}
         {cancel.error && (
           <FieldError message={fieldErrorSummary(cancel.error) || describeError(cancel.error)} />

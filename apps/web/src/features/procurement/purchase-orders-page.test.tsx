@@ -787,7 +787,7 @@ describe('the lifecycle on the order’s own screen', () => {
     await user.click(screen.getByRole('button', { name: 'Short-close order' }))
     expect(await stable(() => screen.getByText('Short-close PO-0001?'))).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Short-close order' }))
-    await stable(() => screen.getByText(/at least three characters/i))
+    await stable(() => screen.getByText(/at least 3 characters/i))
     expect(fetch.calls.some((call) => call.path === closePath)).toBe(false)
 
     await user.type(screen.getByRole('textbox', { name: 'Reason' }), 'Vendor confirmed no balance')
@@ -821,7 +821,7 @@ describe('the lifecycle on the order’s own screen', () => {
     await user.click(await stable(() => screen.getByRole('button', { name: 'Reject order' })))
 
     // The buyer sees this sentence and nothing else about the refusal.
-    await stable(() => screen.getByText(/at least three characters/i))
+    await stable(() => screen.getByText(/at least 3 characters/i))
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 

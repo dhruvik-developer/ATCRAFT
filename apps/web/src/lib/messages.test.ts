@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from './api-client'
+import { REASON_MIN_LENGTH } from './constants'
 import {
   describeError,
   errorDescription,
   errors,
   joinValidationMessages,
   notificationsRead,
+  prompts,
 } from './messages'
 
 describe('validation sentence formatting', () => {
@@ -65,5 +67,14 @@ describe('notification read results', () => {
       title: 'All notifications read',
       description: '1 notification marked as read.',
     })
+  })
+})
+
+describe('the reason minimum', () => {
+  it('is stated from REASON_MIN_LENGTH, the bound the API holds a reason to', () => {
+    // Spelled "three", it would keep saying so after the constant moved, while
+    // the API refused on the new bound.
+    expect(errors.reasonTooShort).toBe(`Record at least ${REASON_MIN_LENGTH} characters of reason`)
+    expect(prompts.reasonRequired).toContain(`at least ${REASON_MIN_LENGTH} characters`)
   })
 })

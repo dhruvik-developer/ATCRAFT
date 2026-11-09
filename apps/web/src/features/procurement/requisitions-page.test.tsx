@@ -463,7 +463,7 @@ describe('what the decision sends', () => {
     await user.click(await stable(() => screen.getByRole('button', { name: 'Reject requisition' })))
 
     expect(await stable(() => screen.getByRole('alert'))).toHaveTextContent(
-      /at least three characters/i,
+      'Record at least 3 characters of reason',
     )
     // The requester only ever sees this sentence, so an empty rejection reason
     // is a decision nobody can act on. It must not reach the API at all.

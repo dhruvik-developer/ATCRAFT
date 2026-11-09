@@ -270,9 +270,7 @@ describe('sales invoices', () => {
     await user.click(await screen.findByRole('button', { name: 'Cancel invoice' }))
     const confirm = await screen.findByRole('dialog', { name: 'Cancel this invoice?' })
     await user.click(within(confirm).getByRole('button', { name: 'Cancel invoice' }))
-    expect(
-      within(confirm).getByText('A cancellation needs at least three characters.'),
-    ).toBeVisible()
+    expect(within(confirm).getByText('Record at least 3 characters of reason')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
     await user.type(within(confirm).getByRole('textbox', { name: 'Reason' }), 'Correct the buyer')
     await user.click(within(confirm).getByRole('button', { name: 'Cancel invoice' }))
