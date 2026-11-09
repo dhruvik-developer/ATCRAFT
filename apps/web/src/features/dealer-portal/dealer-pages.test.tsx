@@ -316,6 +316,48 @@ describe('dealer shopping and orders', () => {
     expect(document.body).not.toHaveTextContent('—')
   })
 
+  it('lines up the quantities and money of a dealer order in right-aligned columns', async () => {
+    renderScreen(<DealerOrderPage />, {
+      route: '/dealer/orders/order',
+      path: '/dealer/orders/:orderId',
+      permissions: [P.DEALER_PORTAL_ORDER],
+      routes: {
+        'GET /dealer-portal/orders/order': ok({
+          ...order,
+          line_count: 1,
+          lines: [
+            {
+              id: 'order-line',
+              line_number: 1,
+              item_id: 'item',
+              item_code: 'HANDLE',
+              item_name: 'Brass handle',
+              item_variant_id: null,
+              offer_id: null,
+              quantity: '1200',
+              allocated_quantity: '600',
+              dispatched_quantity: '0',
+              invoiced_quantity: '0',
+              allocation_status: 'PARTIALLY_ALLOCATED',
+              discount_percentage: '0',
+              unit_price: '10',
+              tax_amount: '2160',
+              line_total: '14160',
+            },
+          ],
+        }),
+        'GET /dealer-portal/orders/order/dispatches': ok([]),
+      },
+    })
+    const lines = within(await screen.findByRole('region', { name: 'Order fulfilment by line' }))
+    for (const heading of ['Ordered', 'Allocated', 'Dispatched', 'Invoiced', 'Total']) {
+      expect(lines.getByRole('columnheader', { name: heading })).toHaveClass('text-right')
+    }
+    expect(lines.getByRole('cell', { name: '1,200' })).toHaveClass('text-right', 'tabular')
+    expect(lines.getByRole('cell', { name: /14,160/ })).toHaveClass('text-right', 'tabular')
+    expect(lines.getByRole('cell', { name: /Brass handle/ })).not.toHaveClass('text-right')
+  })
+
   it.each(['DRAFT', 'CONFIRMED'] as const)(
     'only a DRAFT order exposes cancellation (%s)',
     async (status) => {

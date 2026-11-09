@@ -31,6 +31,15 @@ import {
   NativeSelect,
   Textarea,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api, ApiError } from '@/lib/api-client'
@@ -540,39 +549,40 @@ export function DealerOrderPage() {
                 },
               ]}
             />
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <TableScroller label="Order fulfilment by line">
+              <Table>
                 <caption className="sr-only">Order fulfilment by line</caption>
-                <thead>
-                  <tr>
-                    {['Product', 'Ordered', 'Allocated', 'Dispatched', 'Invoiced', 'Total'].map(
-                      (name) => (
-                        <th key={name} className="p-2 text-left">
-                          {name}
-                        </th>
-                      ),
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead align="right">Ordered</TableHead>
+                    <TableHead align="right">Allocated</TableHead>
+                    <TableHead align="right">Dispatched</TableHead>
+                    <TableHead align="right">Invoiced</TableHead>
+                    <TableHead align="right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {order.lines.map((line) => (
-                    <tr key={line.id} className="border-t">
-                      <td className="p-2">
+                    <TableRow key={line.id}>
+                      <TableCell>
                         {line.item_name}
                         <p className="text-xs text-muted-foreground">{line.item_code}</p>
-                      </td>
-                      <td className="p-2">{formatQuantity(line.quantity)}</td>
-                      <td className="p-2">{formatQuantity(line.allocated_quantity)}</td>
-                      <td className="p-2">{formatQuantity(line.dispatched_quantity)}</td>
-                      <td className="p-2">{formatQuantity(line.invoiced_quantity)}</td>
-                      <td className="p-2">
+                      </TableCell>
+                      <TableCell align="right">{formatQuantity(line.quantity)}</TableCell>
+                      <TableCell align="right">{formatQuantity(line.allocated_quantity)}</TableCell>
+                      <TableCell align="right">
+                        {formatQuantity(line.dispatched_quantity)}
+                      </TableCell>
+                      <TableCell align="right">{formatQuantity(line.invoiced_quantity)}</TableCell>
+                      <TableCell align="right">
                         {formatMoney(line.line_total, { currency: order.currency })}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </TableScroller>
             <h2 className="font-semibold">Dispatches and tracking</h2>
             <DealerResult
               loading={dispatches.isLoading}

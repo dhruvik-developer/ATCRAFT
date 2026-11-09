@@ -43,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/overlays'
 import { Input, NativeSelect, Skeleton } from '@/components/ui/primitives'
+import { TableCell, TableHead, type TableAlign } from '@/components/ui/table'
 import {
   DEFAULT_PAGE_SIZE,
   PAGE_SIZES,
@@ -297,8 +298,9 @@ export function DataTable<T>({
                   {headerGroup.headers.map((header) => {
                     const canSort = header.column.getCanSort() && Boolean(onSortChange)
                     const sorted = header.column.getIsSorted()
-                    const align = (header.column.columnDef.meta as { align?: string } | undefined)
-                      ?.align
+                    const align = (
+                      header.column.columnDef.meta as { align?: TableAlign } | undefined
+                    )?.align
                     // A column with no visible header - the row-actions column,
                     // a selection checkbox - still needs an accessible name, or
                     // a screen reader announces every cell in it as belonging to
@@ -311,14 +313,10 @@ export function DataTable<T>({
                       headerDef !== '' &&
                       headerDef !== null
                     return (
-                      <th
+                      <TableHead
                         key={header.id}
                         style={{ width: header.getSize() !== 150 ? header.getSize() : undefined }}
-                        className={cn(
-                          'h-10 px-3 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground',
-                          align === 'right' && 'text-right',
-                          align === 'center' && 'text-center',
-                        )}
+                        align={align}
                         aria-sort={
                           sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
                         }
@@ -346,7 +344,7 @@ export function DataTable<T>({
                         ) : (
                           flexRender(header.column.columnDef.header, header.getContext())
                         )}
-                      </th>
+                      </TableHead>
                     )
                   })}
                 </tr>
@@ -409,19 +407,13 @@ export function DataTable<T>({
                     )}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const align = (cell.column.columnDef.meta as { align?: string } | undefined)
-                        ?.align
+                      const align = (
+                        cell.column.columnDef.meta as { align?: TableAlign } | undefined
+                      )?.align
                       return (
-                        <td
-                          key={cell.id}
-                          className={cn(
-                            'px-3 py-2 align-middle',
-                            align === 'right' && 'text-right tabular',
-                            align === 'center' && 'text-center',
-                          )}
-                        >
+                        <TableCell key={cell.id} align={align}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
+                        </TableCell>
                       )
                     })}
                   </tr>

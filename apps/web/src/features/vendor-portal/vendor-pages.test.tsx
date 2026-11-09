@@ -892,4 +892,36 @@ describe('vendor job-work progress', () => {
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(await within(toasts).findByText('Status update recorded')).toBeVisible()
   })
+
+  it('lines the material quantities up in right-aligned columns', async () => {
+    renderScreen(<VendorJobWorkDetailPage />, {
+      route: '/vendor/job-work/jw-1',
+      path: '/vendor/job-work/:orderId',
+      routes: {
+        'GET /vendor-portal/job-work/jw-1': ok({
+          ...JOB_WORK,
+          lines: [
+            {
+              id: 'jw-line-1',
+              line_number: 1,
+              item_code: 'BR-01',
+              item_name: 'Brass body',
+              uom_code: 'NOS',
+              issued_quantity: '1500.0000',
+              received_output_quantity: '250.0000',
+              received_quantity: '260.0000',
+              pending_quantity: '1240.0000',
+            },
+          ],
+        }),
+      },
+    })
+
+    const material = within(await screen.findByRole('region', { name: 'Material at the vendor' }))
+    expect(material.getByRole('columnheader', { name: 'Still at vendor' })).toHaveClass(
+      'text-right',
+    )
+    expect(material.getByRole('cell', { name: '1,500' })).toHaveClass('text-right', 'tabular')
+    expect(material.getByRole('cell', { name: '1,240' })).toHaveClass('text-right', 'tabular')
+  })
 })

@@ -16,6 +16,15 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays'
 import { Label, Textarea } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
@@ -223,27 +232,30 @@ export default function CreditNotesPage() {
                       </div>
                     )}
                   </div>
-                  <div
-                    className="overflow-x-auto"
-                    role="region"
-                    aria-label="Credit note line details"
-                    tabIndex={0}
-                  >
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b text-left text-muted-foreground">
-                          <th className="whitespace-nowrap p-2">Item</th>
-                          <th className="whitespace-nowrap p-2">HSN</th>
-                          <th className="whitespace-nowrap p-2">Quantity</th>
-                          <th className="whitespace-nowrap p-2 text-right">Taxable</th>
-                          <th className="whitespace-nowrap p-2 text-right">Tax</th>
-                          <th className="whitespace-nowrap p-2 text-right">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                  <TableScroller label="Credit note line details">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="whitespace-nowrap">Item</TableHead>
+                          <TableHead className="whitespace-nowrap">HSN</TableHead>
+                          <TableHead align="right" className="whitespace-nowrap">
+                            Quantity
+                          </TableHead>
+                          <TableHead align="right" className="whitespace-nowrap">
+                            Taxable
+                          </TableHead>
+                          <TableHead align="right" className="whitespace-nowrap">
+                            Tax
+                          </TableHead>
+                          <TableHead align="right" className="whitespace-nowrap">
+                            Total
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {detail.data.lines.map((line) => (
-                          <tr key={line.id} className="border-b">
-                            <td className="p-2">
+                          <TableRow key={line.id}>
+                            <TableCell>
                               <span className="block font-medium">
                                 {line.item_code ?? EMPTY_VALUE}
                               </span>
@@ -252,25 +264,25 @@ export default function CreditNotesPage() {
                                   {line.item_name}
                                 </span>
                               )}
-                            </td>
-                            <td className="p-2">{line.hsn_code ?? EMPTY_VALUE}</td>
-                            <td className="p-2 tabular">
+                            </TableCell>
+                            <TableCell>{line.hsn_code ?? EMPTY_VALUE}</TableCell>
+                            <TableCell align="right">
                               {line.quantity ? formatQuantity(line.quantity) : EMPTY_VALUE}
-                            </td>
-                            <td className="p-2 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right">
                               {formatMoney(line.taxable_amount, { currency: detail.data.currency })}
-                            </td>
-                            <td className="p-2 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right">
                               {formatMoney(line.tax_amount, { currency: detail.data.currency })}
-                            </td>
-                            <td className="p-2 text-right tabular">
+                            </TableCell>
+                            <TableCell align="right">
                               {formatMoney(line.line_total, { currency: detail.data.currency })}
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </TableBody>
+                    </Table>
+                  </TableScroller>
                 </div>
               )}
               <ReportJobPanel controller={job} label="Credit note PDF" />

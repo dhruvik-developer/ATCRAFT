@@ -21,6 +21,15 @@ import {
   Label,
   NativeSelect,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -424,25 +433,25 @@ export function DealerItemPage() {
             {item.slabs.length > 0 && (
               <section>
                 <h2 className="mb-3 font-semibold">Quantity pricing</h2>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <TableScroller label="Channel price slabs">
+                  <Table>
                     <caption className="sr-only">Channel price slabs</caption>
-                    <thead>
-                      <tr>
-                        <th className="p-2 text-left">Minimum quantity</th>
-                        <th className="p-2 text-right">Unit price</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead align="right">Minimum quantity</TableHead>
+                        <TableHead align="right">Unit price</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {item.slabs.map((slab, index) => (
-                        <tr key={index} className="border-t">
-                          <td className="p-2">{formatQuantity(slab.min_quantity)}</td>
-                          <td className="p-2 text-right">{formatMoney(slab.price)}</td>
-                        </tr>
+                        <TableRow key={index}>
+                          <TableCell align="right">{formatQuantity(slab.min_quantity)}</TableCell>
+                          <TableCell align="right">{formatMoney(slab.price)}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </TableScroller>
               </section>
             )}
             {item.specifications.length > 0 && (

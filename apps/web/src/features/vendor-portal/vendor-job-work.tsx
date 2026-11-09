@@ -15,6 +15,15 @@ import {
   Label,
   NativeSelect,
 } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { api } from '@/lib/api-client'
 import { formatDate, formatDateTime, formatQuantity, humanise } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
@@ -176,31 +185,35 @@ export function VendorJobWorkDetailPage() {
         <CardHeader>
           <CardTitle>Material</CardTitle>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead>
-              <tr className="border-b text-muted-foreground">
-                <th className="p-2">Item</th>
-                <th className="p-2">Issued</th>
-                <th className="p-2">Output received</th>
-                <th className="p-2">Input accounted</th>
-                <th className="p-2">Still at vendor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {order.lines.map((line) => (
-                <tr key={line.id} className="border-b last:border-0">
-                  <td className="p-2">
-                    {line.item_code} · {line.item_name} ({line.uom_code})
-                  </td>
-                  <td className="p-2">{formatQuantity(line.issued_quantity)}</td>
-                  <td className="p-2">{formatQuantity(line.received_output_quantity)}</td>
-                  <td className="p-2">{formatQuantity(line.received_quantity)}</td>
-                  <td className="p-2">{formatQuantity(line.pending_quantity)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <CardContent>
+          <TableScroller label="Material at the vendor">
+            <Table className="min-w-[36rem]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead align="right">Issued</TableHead>
+                  <TableHead align="right">Output received</TableHead>
+                  <TableHead align="right">Input accounted</TableHead>
+                  <TableHead align="right">Still at vendor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {order.lines.map((line) => (
+                  <TableRow key={line.id}>
+                    <TableCell>
+                      {line.item_code} · {line.item_name} ({line.uom_code})
+                    </TableCell>
+                    <TableCell align="right">{formatQuantity(line.issued_quantity)}</TableCell>
+                    <TableCell align="right">
+                      {formatQuantity(line.received_output_quantity)}
+                    </TableCell>
+                    <TableCell align="right">{formatQuantity(line.received_quantity)}</TableCell>
+                    <TableCell align="right">{formatQuantity(line.pending_quantity)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableScroller>
         </CardContent>
       </Card>
 

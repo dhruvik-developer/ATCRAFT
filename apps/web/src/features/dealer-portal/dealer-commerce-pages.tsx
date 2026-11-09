@@ -16,6 +16,15 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays'
 import { Badge, Card, CardContent, Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -185,40 +194,41 @@ export function DealerInvoicePage() {
               ]}
             />
             <DealerPdf resource={`invoices/${invoiceId}`} label="invoice PDF" />
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <TableScroller label="Invoice lines">
+              <Table>
                 <caption className="sr-only">Invoice lines</caption>
-                <thead>
-                  <tr>
-                    {['Description', 'HSN', 'Quantity', 'Price', 'Tax', 'Total'].map((name) => (
-                      <th key={name} className="p-2 text-left">
-                        {name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Description</TableHead>
+                    <TableHead>HSN</TableHead>
+                    <TableHead align="right">Quantity</TableHead>
+                    <TableHead align="right">Price</TableHead>
+                    <TableHead align="right">Tax</TableHead>
+                    <TableHead align="right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {invoice.lines.map((line) => (
-                    <tr key={line.id} className="border-t">
-                      <td className="p-2">{line.description}</td>
-                      <td className="p-2">{line.hsn_code || EMPTY_VALUE}</td>
-                      <td className="p-2">
+                    <TableRow key={line.id}>
+                      <TableCell>{line.description}</TableCell>
+                      <TableCell>{line.hsn_code || EMPTY_VALUE}</TableCell>
+                      <TableCell align="right">
                         {formatQuantity(line.quantity)} {line.uom_code}
-                      </td>
-                      <td className="p-2">
+                      </TableCell>
+                      <TableCell align="right">
                         {formatMoney(line.unit_price, { currency: invoice.currency })}
-                      </td>
-                      <td className="p-2">
+                      </TableCell>
+                      <TableCell align="right">
                         {formatMoney(line.tax_amount, { currency: invoice.currency })}
-                      </td>
-                      <td className="p-2">
+                      </TableCell>
+                      <TableCell align="right">
                         {formatMoney(line.line_total, { currency: invoice.currency })}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </TableScroller>
             <DescriptionList
               items={[
                 {
@@ -473,31 +483,31 @@ export function DealerAccountPage() {
                     },
                   ]}
                 />
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full text-sm">
+                <TableScroller label="Account statement" className="mt-4">
+                  <Table>
                     <caption className="sr-only">Account statement</caption>
-                    <thead>
-                      <tr>
-                        {['Date', 'Reference', 'Debit', 'Credit', 'Balance'].map((name) => (
-                          <th key={name} className="p-2 text-left">
-                            {name}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Reference</TableHead>
+                        <TableHead align="right">Debit</TableHead>
+                        <TableHead align="right">Credit</TableHead>
+                        <TableHead align="right">Balance</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {statement.data.rows?.map((row) => (
-                        <tr key={row.entry_id} className="border-t">
-                          <td className="p-2">{formatDate(row.entry_date)}</td>
-                          <td className="p-2">{row.reference_code || row.reference_type}</td>
-                          <td className="p-2">{formatMoney(row.debit_amount)}</td>
-                          <td className="p-2">{formatMoney(row.credit_amount)}</td>
-                          <td className="p-2">{formatMoney(row.running_balance)}</td>
-                        </tr>
+                        <TableRow key={row.entry_id}>
+                          <TableCell>{formatDate(row.entry_date)}</TableCell>
+                          <TableCell>{row.reference_code || row.reference_type}</TableCell>
+                          <TableCell align="right">{formatMoney(row.debit_amount)}</TableCell>
+                          <TableCell align="right">{formatMoney(row.credit_amount)}</TableCell>
+                          <TableCell align="right">{formatMoney(row.running_balance)}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </TableScroller>
                 <nav aria-label="Statement pagination" className="mt-4 flex justify-between gap-3">
                   <Button
                     variant="outline"

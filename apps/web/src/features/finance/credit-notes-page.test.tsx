@@ -111,6 +111,12 @@ describe('credit note detail', () => {
     const cells = within(row).getAllByRole('cell')
     expect(cells[1]).toHaveTextContent(/^-$/)
     expect(cells[2]).toHaveTextContent(/^2$/)
+    // Quantities and money line up digit under digit, under right-aligned headings.
+    for (const figure of cells.slice(2)) expect(figure).toHaveClass('text-right', 'tabular')
+    expect(within(dialog).getByRole('columnheader', { name: 'Quantity' })).toHaveClass('text-right')
+    expect(
+      within(dialog).getByRole('region', { name: 'Credit note line details' }),
+    ).toHaveAttribute('tabindex', '0')
   })
 
   it('names the invoice, the return and each line item by code, never by id', async () => {

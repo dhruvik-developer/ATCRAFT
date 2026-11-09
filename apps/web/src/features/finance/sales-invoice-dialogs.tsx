@@ -19,12 +19,28 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays'
 import { Alert, AlertDescription, AlertTitle, Input, Label } from '@/components/ui/primitives'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScroller,
+} from '@/components/ui/table'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatMoney,
+  formatQuantity,
+  toDateInput,
+  toDecimal,
+} from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, errors, salesInvoiceMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -70,13 +86,14 @@ function InvoiceAmounts({ invoice }: { invoice: SalesInvoicePreview }) {
 
 function InvoiceLines({ invoice }: { invoice: SalesInvoicePreview }) {
   return (
-    <div className="overflow-x-auto" role="region" aria-label="Invoice line details" tabIndex={0}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-muted-foreground">
+    <TableScroller label="Invoice line details">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Item</TableHead>
+            <TableHead>HSN</TableHead>
+            {/* Over the right-aligned figures, each heading sits right as well. */}
             {[
-              'Item',
-              'HSN',
               'Quantity',
               'Credited',
               'Rate',
@@ -87,23 +104,23 @@ function InvoiceLines({ invoice }: { invoice: SalesInvoicePreview }) {
               'IGST',
               'Total',
             ].map((label) => (
-              <th key={label} className="whitespace-nowrap p-2">
+              <TableHead key={label} align="right" className="whitespace-nowrap">
                 {label}
-              </th>
+              </TableHead>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {invoice.lines.map((line) => (
-            <tr key={line.dispatch_line_id} className="border-b">
-              <td className="min-w-40 p-2">{line.description}</td>
-              <td className="p-2">{line.hsn_code ?? '-'}</td>
-              <td className="whitespace-nowrap p-2">
+            <TableRow key={line.dispatch_line_id}>
+              <TableCell className="min-w-40">{line.description}</TableCell>
+              <TableCell>{line.hsn_code ?? EMPTY_VALUE}</TableCell>
+              <TableCell align="right" className="whitespace-nowrap">
                 {formatQuantity(line.quantity)} {line.uom_code}
-              </td>
-              <td className="whitespace-nowrap p-2">
+              </TableCell>
+              <TableCell align="right" className="whitespace-nowrap">
                 {formatQuantity(line.credited_quantity)} {line.uom_code}
-              </td>
+              </TableCell>
               {[
                 'unit_price',
                 'discount_amount',
@@ -113,15 +130,15 @@ function InvoiceLines({ invoice }: { invoice: SalesInvoicePreview }) {
                 'igst_amount',
                 'line_total',
               ].map((field) => (
-                <td key={field} className="whitespace-nowrap p-2 text-right tabular">
+                <TableCell key={field} align="right" className="whitespace-nowrap">
                   {formatMoney(line[field as 'unit_price'], { currency: invoice.currency })}
-                </td>
+                </TableCell>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableScroller>
   )
 }
 
