@@ -45,6 +45,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.repository import labels_by_id
 from src.common.warehouse_scope import assert_warehouse_scope
@@ -59,6 +60,7 @@ from src.core.errors import (
     ErrorCode,
     NotFoundError,
     PermissionDeniedError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.logging import get_logger
@@ -330,27 +332,20 @@ REQUISITION_AUDITED_FIELDS = [
 ]
 
 # ASSUMPTION: the approver of a procurement document may not be the person who
-# raised it, unless they are a platform superuser or hold SUPER_ADMIN. Approval
-# is evidence of a second person's judgement (master rules section 42), and a
-# purchase order signed off by the buyer who raised it is not evidence of
-# anything. Recorded in docs/assumptions.md section 2; one predicate, in one
-# place, if a small team wants it relaxed.
-SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
+# raised it: a purchase order signed off by the buyer who raised it is not
+# evidence of anything. The rule and its exemption are the shared ones in
+# src/common/approvals.py (docs/assumptions.md section 2).
 
 
-def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
-    """Whether this principal may approve a document raised by ``created_by_id``."""
-    if principal.is_superuser or SUPER_ADMIN_ROLE_CODE in principal.role_codes:
-        return True
-    return created_by_id is None or created_by_id != principal.user_id
-
-
-def _assert_separate_approver(principal: Principal, created_by_id: uuid.UUID | None) -> None:
+def _assert_separate_approver(
+    principal: Principal,
+    created_by_id: uuid.UUID | None,
+    subject: str,
+    *,
+    decision: str = "approved",
+) -> None:
     if not can_approve(principal, created_by_id):
-        raise AuthorizationError(
-            "A document cannot be approved by the person who raised it.",
-            code=ErrorCode.APPROVAL_REQUIRED,
-        )
+        raise SelfApprovalError(subject, decision=decision)
 
 
 # =============================================================================
@@ -1372,11 +1367,13 @@ async def transition_requisition(
                 }
 
         if auto is None and target is RequisitionStatus.APPROVED:
-            _assert_separate_approver(principal, requisition.created_by_id)
+            _assert_separate_approver(principal, requisition.created_by_id, "A requisition")
             requisition.approved_by_id = principal.user_id
             requisition.approved_at = utcnow()
         elif target is RequisitionStatus.REJECTED:
-            _assert_separate_approver(principal, requisition.created_by_id)
+            _assert_separate_approver(
+                principal, requisition.created_by_id, "A requisition", decision="rejected"
+            )
             requisition.rejection_reason = reason
         elif target is RequisitionStatus.CANCELLED:
             requisition.cancellation_reason = reason
@@ -3239,8 +3236,10 @@ async def transition_purchase_order(
             # draft (or an already-approved order) could record a signature
             # without ever attempting the transition.
             PURCHASE_ORDER_LIFECYCLE.assert_transition(PurchaseOrderStatus(order.status), target)
-            _assert_separate_approver(principal, order.created_by_id)
-            _assert_separate_approver(principal, order.last_amended_by_id)
+            _assert_separate_approver(principal, order.created_by_id, "A purchase order")
+            _assert_separate_approver(
+                principal, order.last_amended_by_id, "A purchase order revision"
+            )
 
             # ASSUMPTION: apply the current limit at the approval decision. If a
             # first signature is already recorded, keep the second signature
@@ -3301,7 +3300,9 @@ async def transition_purchase_order(
             order.approved_by_id = principal.user_id
             order.approved_at = utcnow()
         elif target is PurchaseOrderStatus.REJECTED:
-            _assert_separate_approver(principal, order.created_by_id)
+            _assert_separate_approver(
+                principal, order.created_by_id, "A purchase order", decision="rejected"
+            )
             order.rejection_reason = reason
         elif target is PurchaseOrderStatus.SENT:
             # The edge first, so an order that cannot be sent says so rather

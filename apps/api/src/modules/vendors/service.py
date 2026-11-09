@@ -46,12 +46,12 @@ from src.core.clock import utcnow
 from src.core.database import affected_rows, transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
-    AuthorizationError,
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
     InvalidStateTransitionError,
     NotFoundError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.logging import get_logger
@@ -937,10 +937,8 @@ class VendorService:
             VENDOR_LIFECYCLE.assert_transition(current, VendorState.APPROVED)
 
             if REQUIRE_SEPARATE_APPROVER and vendor.created_by_id == self.tenant.user_id:
-                raise AuthorizationError(
-                    "A vendor cannot be approved by the person who created it. "
-                    "Ask a second approver to review the record.",
-                    code=ErrorCode.APPROVAL_REQUIRED,
+                raise SelfApprovalError(
+                    "A vendor", origin="created", details={"vendor_id": str(vendor.id)}
                 )
 
             # A vendor with no way to be paid or invoiced correctly should not

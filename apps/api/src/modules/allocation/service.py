@@ -82,6 +82,7 @@ from src.core.errors import (
     ErrorCode,
     InsufficientStockError,
     NotFoundError,
+    SelfApprovalError,
 )
 from src.core.ids import persisted_actor
 from src.core.logging import get_logger
@@ -2567,10 +2568,7 @@ def _assert_separate_approver(
     if tenant.is_superuser:
         return
     if request.requested_by_id is not None and request.requested_by_id == approved_by:
-        raise BusinessRuleError(
-            "A reallocation must be approved by someone other than the person who requested it.",
-            details={"request_id": str(request.id)},
-        )
+        raise SelfApprovalError("A reallocation", details={"request_id": str(request.id)})
 
 
 async def _notify_donor_owner(

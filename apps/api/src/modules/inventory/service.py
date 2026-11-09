@@ -107,6 +107,7 @@ from src.core.errors import (
     InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
+    SelfApprovalError,
     StockLockTimeoutError,
     ValidationError,
 )
@@ -6557,9 +6558,8 @@ class StockAdjustmentService:
         if self.tenant.is_superuser:
             return
         if adjustment.created_by_id == self.tenant.user_id:
-            raise BusinessRuleError(
-                "An adjustment must be approved by someone other than the person who raised it.",
-                details={"adjustment_code": adjustment.code},
+            raise SelfApprovalError(
+                "A stock adjustment", details={"adjustment_code": adjustment.code}
             )
 
     @staticmethod
@@ -8468,9 +8468,9 @@ class InternalIssueService:
         if self.tenant.is_superuser:
             return
         if issue.created_by_id == self.tenant.user_id:
-            raise BusinessRuleError(
-                "An internal issue must be approved or rejected by someone other than the "
-                "person who raised it.",
+            raise SelfApprovalError(
+                "An internal issue",
+                decision="approved or rejected",
                 details={"internal_issue_code": issue.code},
             )
 

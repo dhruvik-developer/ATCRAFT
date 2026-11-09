@@ -40,15 +40,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.approvals import SUPER_ADMIN_ROLE_CODE, can_approve
 from src.core.clock import today, utcnow
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
-    AuthorizationError,
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
     NotFoundError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.logging import get_logger
@@ -146,10 +147,6 @@ ROSTER_LOCK = "shift_roster"
 
 MINUTES_PER_HOUR = Decimal("60")
 
-#: The role that may approve its own work. Named rather than inlined so the
-#: segregation-of-duties rule is one editable decision, and identical to the one
-#: the BOM module uses.
-SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
 
 _WORK_CENTER_AUDITED_FIELDS = [
     "code",
@@ -469,21 +466,6 @@ class OperationTimings(Protocol):
 
     @property
     def move_time_minutes(self) -> Decimal: ...
-
-
-def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
-    """Segregation of duties on approval.
-
-    ASSUMPTION: the approver of a routing may not be the person who created it,
-    unless they hold ``SUPER_ADMIN`` (or are a platform superuser). Approval is
-    evidence of a second person's judgement (master rules section 42), and a
-    process approved by its own author is not evidence of anything. Same rule and
-    same escape hatch as the BOM module, so a two-person engineering team relaxes
-    both in one place.
-    """
-    if principal.is_superuser or SUPER_ADMIN_ROLE_CODE in principal.role_codes:
-        return True
-    return created_by_id is None or created_by_id != principal.user_id
 
 
 def is_editable(status: RoutingStatus) -> bool:
@@ -1432,8 +1414,8 @@ class RoutingService:
             routing = await self.repo.get_or_404(routing_id)
 
             if not can_approve(principal, routing.created_by_id):
-                raise AuthorizationError(
-                    "A routing must be approved by someone other than its author.",
+                raise SelfApprovalError(
+                    "A routing",
                     details={
                         "routing_id": str(routing.id),
                         "created_by_id": str(routing.created_by_id),

@@ -41,6 +41,7 @@ from typing import Any, Protocol
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
 from src.core.config import settings
@@ -50,12 +51,12 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     AppError,
     ApprovalRequiredError,
-    AuthorizationError,
     BusinessRuleError,
     ErrorCode,
     InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.logging import get_logger
@@ -160,13 +161,10 @@ FROZEN_AFTER_CONFIRMATION = (
     "shipping_address_id",
 )
 
-#: ASSUMPTION: the approver of a sales order may not be the person who raised
-#: it, unless they hold ``SUPER_ADMIN`` (or are a platform superuser). Approval
-#: is evidence of a second person's judgement (master rules section 42), and a
-#: below-cost price signed off by the salesperson who granted it is not
-#: evidence of anything. One predicate, in one place, if a small team wants it
-#: relaxed.
-SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
+# ASSUMPTION: the approver of a sales order may not be the person who raised it:
+# a below-cost price signed off by the salesperson who granted it is not evidence
+# of anything. The rule and its exemption are the shared ones in
+# src/common/approvals.py (docs/assumptions.md section 2).
 
 
 def is_below_cost(unit_price: Decimal, standard_cost: Decimal) -> bool:
@@ -303,13 +301,6 @@ TOP_UP_STATUSES: tuple[SalesOrderStatus, ...] = (
 # -----------------------------------------------------------------------------
 # Pure rules - unit tested without a database
 # -----------------------------------------------------------------------------
-
-
-def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
-    """Segregation of duties on approval. See ``SUPER_ADMIN_ROLE_CODE``."""
-    if principal.is_superuser or SUPER_ADMIN_ROLE_CODE in principal.role_codes:
-        return True
-    return created_by_id is None or created_by_id != principal.user_id
 
 
 def resolve_tax_treatment(seller_state_code: str | None, place_of_supply: str | None) -> bool:
@@ -2655,10 +2646,7 @@ async def approve_order(
                 details={"approved_by_id": str(order.approved_by_id)},
             )
         if not can_approve(principal, order.created_by_id):
-            raise AuthorizationError(
-                "A sales order must be approved by someone other than the person who raised it.",
-                details={"order_id": str(order.id)},
-            )
+            raise SelfApprovalError("A sales order", details={"order_id": str(order.id)})
 
         order.approved_by_id = principal.user_id
         order.approved_at = utcnow()

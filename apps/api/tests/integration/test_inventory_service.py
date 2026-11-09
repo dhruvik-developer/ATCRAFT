@@ -33,6 +33,7 @@ from src.core.errors import (
     ErrorCode,
     InsufficientStockError,
     InvalidStateTransitionError,
+    SelfApprovalError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
@@ -1106,7 +1107,7 @@ class TestStockAdjustment:
 
         await service.submit(adjustment_id)
         # Segregation of duties: the raiser may not sign off their own document.
-        with pytest.raises(BusinessRuleError, match="someone other than"):
+        with pytest.raises(SelfApprovalError, match="A stock adjustment must be approved"):
             await service.approve(adjustment_id, "self approval")
 
         approver_service = inv.StockAdjustmentService(session, approver)

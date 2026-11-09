@@ -18,6 +18,7 @@ from src.core.messages import (
     RATE_LIMITED,
     UNEXPECTED_ERROR,
     failed_unexpectedly,
+    self_approval_refused,
 )
 
 
@@ -216,6 +217,30 @@ class PermissionDeniedError(AuthorizationError):
         )
 
 
+class SelfApprovalError(AuthorizationError):
+    """Segregation of duties: the person who raised a document may not decide it.
+
+    One refusal for every approving module - the same 403, the same code and the
+    same sentence - so the screen heads it "Approval required" wherever it comes
+    from. Who is exempt is each module's decision (docs/assumptions.md section 2);
+    how the refusal reads is not.
+    """
+
+    code = ErrorCode.APPROVAL_REQUIRED
+
+    def __init__(
+        self,
+        subject: str,
+        *,
+        decision: str = "approved",
+        origin: str = "raised",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            self_approval_refused(subject, decision=decision, origin=origin), details=details
+        )
+
+
 class PasswordChangeRequiredError(AuthorizationError):
     """The account may use only credential-management routes until remediated."""
 
@@ -371,6 +396,7 @@ __all__ = [
     "PasswordChangeRequiredError",
     "PermissionDeniedError",
     "RateLimitedError",
+    "SelfApprovalError",
     "StockLockTimeoutError",
     "TenantMismatchError",
     "TokenExpiredError",

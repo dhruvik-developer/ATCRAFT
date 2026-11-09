@@ -203,8 +203,12 @@ async def test_the_requester_cannot_approve_their_own_request(
         f"/allocation/reallocation-requests/{request_id}/approve", json={}
     )
 
-    assert refused.status_code == 422, refused.text
-    assert "someone other than" in refused.json()["error"]["message"]
+    # The same refusal, status and code as every other approving module.
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["error"]["code"] == "APPROVAL_REQUIRED"
+    assert refused.json()["error"]["message"] == (
+        "A reallocation must be approved by someone other than the person who raised it."
+    )
 
 
 async def test_a_separate_approver_executes_and_both_people_are_notified(

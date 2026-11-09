@@ -30,7 +30,7 @@ from sqlalchemy.pool import NullPool
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
-from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError
+from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, SelfApprovalError
 from src.core.models import Base
 from src.core.pagination import PageParams
 from src.modules.audit.models import AuditLog
@@ -698,7 +698,7 @@ async def test_serial_internal_issue_keeps_the_two_person_approval_control(kit: 
     pending = await issuer.submit(draft.id)
     assert pending.status == "PENDING_APPROVAL"
 
-    with pytest.raises(BusinessRuleError, match="someone other than"):
+    with pytest.raises(SelfApprovalError, match="someone other than"):
         await issuer.approve(draft.id)
 
     approver = await seed_support.seed_user(session=kit.session, company_id=kit.tenant.company_id)

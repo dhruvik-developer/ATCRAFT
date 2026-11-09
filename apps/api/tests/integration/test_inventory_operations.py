@@ -34,6 +34,7 @@ from src.core.errors import (
     InsufficientStockError,
     InvalidStateTransitionError,
     NotFoundError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.pagination import PageParams, SortParams
@@ -792,7 +793,7 @@ class TestInternalIssues:
         assert balance is not None and balance.on_hand_quantity == Decimal("20")
 
         await service.submit(issue_id)
-        with pytest.raises(BusinessRuleError, match="someone other than"):
+        with pytest.raises(SelfApprovalError, match="approved or rejected by someone other"):
             await service.approve(issue_id)
 
         approver = await _second_person(session, tenant)
@@ -894,7 +895,7 @@ class TestInternalIssues:
         )
         issue_id = draft.id
         await service.submit(issue_id)
-        with pytest.raises(BusinessRuleError, match="someone other than"):
+        with pytest.raises(SelfApprovalError, match="approved or rejected by someone other"):
             await service.reject(issue_id, "I changed my mind about this issue")
 
         approver = await _second_person(session, tenant)

@@ -48,9 +48,11 @@ from src.core.errors import (
     BusinessRuleError,
     NotFoundError,
     PermissionDeniedError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import self_approval_refused
 from src.core.pagination import CursorParams, PageParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -94,9 +96,9 @@ _MAX_WINDOW = timedelta(days=MAX_WINDOW_DAYS)
 # is the conservative reading of section 42.
 MIN_REJECTION_NOTE_LENGTH = 3
 
-SELF_APPROVAL_BLOCKED = (
-    "You raised this request. Segregation of duties requires a different approver."
-)
+#: The inbox shows it beside a request its own raiser cannot decide, and
+#: :func:`assert_may_decide` refuses in it - the one segregation-of-duties sentence.
+SELF_APPROVAL_BLOCKED = self_approval_refused("This request", decision="decided")
 UNKNOWN_ACTION_BLOCKED = (
     "This request names an action the permission registry does not know, so the "
     "authority it needs cannot be verified. Only a platform administrator may decide it."
@@ -280,6 +282,8 @@ def assert_may_decide(
 
     if authority.permission is not None and not principal.has(authority.permission):
         raise PermissionDeniedError(str(authority.permission))
+    if authority.permission is not None and authority.is_self_request:
+        raise SelfApprovalError("This request", decision="decided")
     raise AuthorizationError(authority.reason or UNKNOWN_ACTION_BLOCKED)
 
 

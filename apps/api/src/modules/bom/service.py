@@ -31,12 +31,13 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.approvals import SUPER_ADMIN_ROLE_CODE, can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
-from src.core.errors import AuthorizationError, BusinessRuleError, NotFoundError
+from src.core.errors import BusinessRuleError, NotFoundError, SelfApprovalError
 from src.core.logging import get_logger
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -110,10 +111,6 @@ NON_NULLABLE_UPDATE_FIELDS = frozenset(
     {"bom_type", "output_quantity", "base_uom_id", "effective_from", "is_default"}
 )
 
-#: The role that may approve its own work. Named rather than inlined so the
-#: segregation-of-duties rule is one editable decision (docs/assumptions.md §2).
-SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
-
 
 # -----------------------------------------------------------------------------
 # State machine - the only thing permitted to move boms.status
@@ -175,21 +172,6 @@ BOM_LIFECYCLE: StateMachine[BomStatus] = StateMachine(
 # -----------------------------------------------------------------------------
 # Pure rule helpers - unit tested without a database
 # -----------------------------------------------------------------------------
-
-
-def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
-    """Segregation of duties on approval.
-
-    ASSUMPTION: the approver of a BOM may not be the person who created it,
-    unless they hold ``SUPER_ADMIN`` (or are a platform superuser). Approval is
-    evidence of a second person's judgement (master rules section 42), and a
-    document approved by its own author is not evidence of anything. Recorded in
-    ``docs/assumptions.md`` section 2 because a two-person engineering team may
-    reasonably want it relaxed - it is one predicate, in one place.
-    """
-    if principal.is_superuser or SUPER_ADMIN_ROLE_CODE in principal.role_codes:
-        return True
-    return created_by_id is None or created_by_id != principal.user_id
 
 
 def is_editable(status: BomStatus) -> bool:
@@ -919,8 +901,8 @@ async def approve_bom(
         bom = await repo.get_or_404(bom_id)
 
         if not can_approve(principal, bom.created_by_id):
-            raise AuthorizationError(
-                "A bill of materials must be approved by someone other than its author.",
+            raise SelfApprovalError(
+                "A bill of materials",
                 details={"bom_id": str(bom.id), "created_by_id": str(bom.created_by_id)},
             )
 

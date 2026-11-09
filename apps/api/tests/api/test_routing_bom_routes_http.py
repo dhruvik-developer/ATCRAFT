@@ -1150,7 +1150,10 @@ class TestRoutingLifecycle:
 
         response = await api_client.post(f"/routing/{draft.id}/approve", json={"reason": REASON})
 
-        refused(response, 403, "FORBIDDEN")
+        error = refused(response, 403, "APPROVAL_REQUIRED")
+        assert error["message"] == (
+            "A routing must be approved by someone other than the person who raised it."
+        )
         assert await column(session, Routing.status, draft.id) == RoutingStatus.DRAFT
 
     async def test_an_approved_routing_can_be_obsoleted(
@@ -1465,7 +1468,7 @@ class TestBomLifecycle:
 
         response = await api_client.post(f"/bom/{submitted.id}/approve", json={"reason": REASON})
 
-        refused(response, 403, "FORBIDDEN")
+        refused(response, 403, "APPROVAL_REQUIRED")
         assert await column(session, Bom.status, submitted.id) == BomStatus.PENDING_APPROVAL
 
     async def test_reject_returns_a_submission_to_draft(

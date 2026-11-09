@@ -301,10 +301,13 @@ async def test_the_person_who_raised_a_request_cannot_decide_it(api_client, sess
     own = await raise_request(session, tenant.company_id, user.id)
 
     for action in ("approve", "reject"):
-        refused(
+        error = refused(
             await api_client.post(f"/audit/approvals/{own}/{action}", json={"note": "Self check"}),
             403,
-            "FORBIDDEN",
+            "APPROVAL_REQUIRED",
+        )
+        assert error["message"] == (
+            "This request must be decided by someone other than the person who raised it."
         )
     assert (await request_state(session, own))[0] == ApprovalStatus.PENDING.value
 

@@ -28,7 +28,7 @@ from sqlalchemy.pool import NullPool
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext
-from src.core.errors import AuthorizationError, BusinessRuleError, InvalidStateTransitionError
+from src.core.errors import BusinessRuleError, InvalidStateTransitionError, SelfApprovalError
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -517,7 +517,10 @@ async def test_an_author_cannot_approve_their_own_structure(ctx: Ctx) -> None:
     )
     await service.submit_bom(ctx.session, ctx.author, bom.id, reason="Ready")
 
-    with pytest.raises(AuthorizationError, match="someone other than its author"):
+    with pytest.raises(
+        SelfApprovalError,
+        match="A bill of materials must be approved by someone other than the person",
+    ):
         await service.approve_bom(
             ctx.session, ctx.author, ctx.author_principal, bom.id, reason="Looks fine to me"
         )

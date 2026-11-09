@@ -239,7 +239,26 @@ evidence of a second person's judgement (section 42). A small team may find it
 obstructive, which is why it is recorded rather than assumed permanent.
 
 **Where.** The approval path of each module's service, and
-`src/modules/audit/` for approval requests.
+`src/modules/audit/` for approval requests. Every module refuses in the same
+shape - `SelfApprovalError`, 403 `APPROVAL_REQUIRED`, "A sales order must be
+approved by someone other than the person who raised it." - and the modules that
+exempt the `SUPER_ADMIN` role share one predicate, `src/common/approvals.py`
+`can_approve`.
+
+**Who is exempt differs by module, and is the owner's to settle.** The rule
+above says "unless they are a superuser"; the code grants three exemptions:
+
+| Exempt | Modules |
+|---|---|
+| Platform superuser, or the `SUPER_ADMIN` role (`can_approve`) | BOM, routing, sales order, production order, purchase requisition and purchase order (approve and reject) |
+| Platform superuser only | reallocation requests, stock adjustments, internal issues, approval-inbox requests |
+| Nobody (`REQUIRE_SEPARATE_APPROVER` in `vendors/service.py`) | vendor approval |
+
+The middle row decides on a `TenantContext`, which carries no role codes, and the
+vendor rule is maker-checker on bank details by design. Neither was changed when
+the refusals were unified, because widening or narrowing who may approve their
+own work is a control decision, not a wording one. If one rule is wanted
+everywhere, change it here first and then in the three places the table names.
 
 **Impact if wrong.** A small plant with one buyer cannot approve their own
 purchase orders and needs a second account. Easy to relax; harder to add later

@@ -212,6 +212,20 @@ def date_before(later: str, earlier: str) -> str:
     return f"The {later} cannot be before the {earlier}."
 
 
+# --- approvals ------------------------------------------------------------------
+
+
+def self_approval_refused(
+    subject: str, *, decision: str = "approved", origin: str = "raised"
+) -> str:
+    """``"A sales order must be approved by someone other than the person who raised it."``
+
+    Segregation of duties, worded once for every approving module - see
+    :class:`src.core.errors.SelfApprovalError`, which raises it.
+    """
+    return f"{subject} must be {decision} by someone other than the person who {origin} it."
+
+
 # --- quality ------------------------------------------------------------------
 
 
@@ -263,6 +277,7 @@ __all__ = [
     "inactive_record",
     "listed",
     "plural",
+    "self_approval_refused",
     "success_message",
     "verdict_differs_from_inspection",
 ]

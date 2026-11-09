@@ -37,6 +37,7 @@ from src.core.errors import (
     InsufficientStockError,
     InvalidStateTransitionError,
     NotFoundError,
+    SelfApprovalError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
@@ -1271,7 +1272,9 @@ class TestReallocationLifecycle:
         session, tenant, _, _ = ctx
         request, _, _, _ = await self._pending_request(session, tenant)
 
-        with pytest.raises(BusinessRuleError, match="someone other than"):
+        with pytest.raises(
+            SelfApprovalError, match="A reallocation must be approved by someone other than"
+        ):
             await alloc.reallocate(
                 session, tenant, request_id=request.id, approved_by=tenant.user_id
             )

@@ -719,7 +719,12 @@ async def test_the_author_of_an_order_cannot_approve_it(
 ):
     order_id, _ = await place(session, tenant, principal, desk, unit_price="50")
 
-    refused(await api_client.post(f"/sales/{order_id}/approve", json={}), 403, "FORBIDDEN")
+    error = refused(
+        await api_client.post(f"/sales/{order_id}/approve", json={}), 403, "APPROVAL_REQUIRED"
+    )
+    assert error["message"] == (
+        "A sales order must be approved by someone other than the person who raised it."
+    )
     stored = await session.get(SalesOrder, order_id)
     assert stored is not None and stored.approved_at is None
     assert await audit_trail(session, order_id, AuditAction.APPROVE) == []

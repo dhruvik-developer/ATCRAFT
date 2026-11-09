@@ -45,6 +45,7 @@ from typing import Any, Protocol
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.approvals import can_approve
 from src.common.codes import DocTypes, next_document_number
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.actors import actor_id
@@ -56,6 +57,7 @@ from src.core.errors import (
     BusinessRuleError,
     ErrorCode,
     NotFoundError,
+    SelfApprovalError,
     ValidationError,
 )
 from src.core.pagination import PageParams, SortParams
@@ -253,10 +255,6 @@ DEFAULT_CAPACITY_DAYS = 28
 #: Decimal, never 60.0 - see :func:`_elapsed_minutes`.
 SECONDS_PER_MINUTE = Decimal(60)
 
-#: Role that may approve its own document. Same escape hatch, and the same name,
-#: as procurement and BOM use, so a small plant relaxes segregation of duties in
-#: one place.
-SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
 
 # ASSUMPTION: an exploded structure with more components than this is not a
 # manufacturing order, it is a data problem. The bound matters because release
@@ -519,21 +517,6 @@ def assert_may_force_partial_issue(principal: Principal, *, order_code: str) -> 
         code=ErrorCode.PERMISSION_DENIED,
         details={"required_permission": str(Permission.PRODUCTION_ORDER_APPROVE)},
     )
-
-
-def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
-    """Segregation of duties on approval.
-
-    ASSUMPTION: the approver of a production order may not be the person who
-    raised it, unless they hold ``SUPER_ADMIN`` (or are a platform superuser).
-    Approval commits material and capacity, and an order approved by its own
-    author is not evidence of a second person's judgement (master rules
-    section 42). Same rule and same escape hatch as BOM, routing and
-    procurement, so a small team relaxes all four in one place.
-    """
-    if principal.is_superuser or SUPER_ADMIN_ROLE_CODE in principal.role_codes:
-        return True
-    return created_by_id is None or created_by_id != principal.user_id
 
 
 def is_editable(status: ProductionOrderStatus) -> bool:
@@ -1754,10 +1737,7 @@ async def approve_order(
     async with transaction(session):
         order = await _lock_order(session, tenant, order_id)
         if not can_approve(principal, order.created_by_id):
-            raise AuthorizationError(
-                "A production order cannot be approved by the person who raised it.",
-                code=ErrorCode.APPROVAL_REQUIRED,
-            )
+            raise SelfApprovalError("A production order", details={"order_id": str(order.id)})
         order.approved_by_id = principal.user_id
         order.approved_at = utcnow()
         await _transition(
