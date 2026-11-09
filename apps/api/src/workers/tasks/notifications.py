@@ -49,6 +49,7 @@ from src.core.messaging import (
     assert_allowed_url,
     sms_provider,
 )
+from src.core.observability import count_sweep_failure
 from src.core.security import (
     CredentialDecryptionError,
     constant_time_compare,
@@ -654,6 +655,7 @@ async def dispatch_pending_deliveries(request_id: str | None = None, **_: Any) -
                     )
                     queued += 1
                 except Exception as exc:
+                    count_sweep_failure("notifications.dispatch_pending_deliveries")
                     log.error(
                         "notifications.recovery_enqueue_failed",
                         notification_id=str(row.id),
@@ -700,6 +702,7 @@ async def scan_smart_alerts(request_id: str | None = None, **_: Any) -> dict[str
                         scanner = SMART_ALERT_SCANNERS.get(rule_key)
                         if scanner is None:
                             failed += 1
+                            count_sweep_failure("notifications.scan_smart_alerts")
                             log.error(
                                 "notifications.smart_alert_scanner_missing",
                                 company_id=str(company_id),
@@ -729,6 +732,7 @@ async def scan_smart_alerts(request_id: str | None = None, **_: Any) -> dict[str
                             processed += 1
                         except Exception as exc:
                             failed += 1
+                            count_sweep_failure("notifications.scan_smart_alerts")
                             log.error(
                                 "notifications.smart_alert_rule_failed",
                                 company_id=str(company_id),
@@ -738,6 +742,7 @@ async def scan_smart_alerts(request_id: str | None = None, **_: Any) -> dict[str
                             )
         except Exception as exc:
             failed += 1
+            count_sweep_failure("notifications.scan_smart_alerts")
             log.error(
                 "notifications.smart_alert_company_failed",
                 company_id=str(company_id),
@@ -801,6 +806,7 @@ async def scan_overdue_receivables(request_id: str | None = None, **_: Any) -> d
                     totals["reminded"] += result.reminded
         except Exception as exc:
             totals["failed"] += 1
+            count_sweep_failure("notifications.scan_overdue_receivables")
             log.error(
                 "notifications.overdue_receivables_company_failed",
                 company_id=str(company_id),
@@ -1188,6 +1194,7 @@ async def _dispatch_pending_password_resets(*, limit: int = 100) -> dict[str, in
             result = await _deliver_password_reset_email(str(company_id), str(reset_id))
         except MAIL_TRANSPORT_ERRORS as exc:
             failed += 1
+            count_sweep_failure("notifications.dispatch_pending_password_resets")
             log.warning(
                 "auth.password_reset.recovery_failed",
                 company_id=str(company_id),

@@ -34,6 +34,7 @@ from src.core.database import session_scope
 from src.core.deps import TenantContext, system_tenant
 from src.core.errors import AppError, InvalidStateTransitionError, RateLimitedError
 from src.core.logging import get_logger
+from src.core.observability import count_sweep_failure
 from src.modules.mrp import service
 from src.modules.mrp.schemas import MrpRunRequest
 from src.workers.celery_app import async_task
@@ -74,6 +75,7 @@ async def scheduled_run(request_id: str | None = None, **_: Any) -> dict[str, in
             continue
         except Exception as exc:
             failed += 1
+            count_sweep_failure("mrp.scheduled_run")
             log.error(
                 "mrp.scheduled_run_failed",
                 company_id=str(configuration.company_id),

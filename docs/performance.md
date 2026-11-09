@@ -417,6 +417,15 @@ waiting in each queue. Redis list depth excludes tasks already reserved or
 running and ETA-scheduled tasks, so alert on sustained backlog together with
 worker availability rather than interpreting it as total outstanding work.
 
+A beat sweep runs each company, order, account or row on its own and logs and
+skips a failing one, so Celery records the sweep itself as a `SUCCESS`:
+`atcraft_celery_tasks_total` cannot tell a sweep that failed for every tenant
+from one that had nothing to do. `atcraft_sweep_unit_failures_total{task}`
+counts the units each sweep skipped, labelled with the task's Celery name
+(`maintenance.refresh_summary_views`, `notifications.scan_smart_alerts`, ...).
+It is exported by the worker that ran the sweep; alert on a sustained non-zero
+rate.
+
 The multiprocess collector aggregates counters and histograms written by API
 and Celery child processes within each container. The entrypoint clears only
 that container's temporary metrics files on container start; process restarts

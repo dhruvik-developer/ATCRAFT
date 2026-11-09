@@ -69,6 +69,25 @@ celery_task_duration = Histogram(
     registry=registry,
 )
 
+#: A beat sweep runs each company, order, account or row on its own, logs a
+#: failure and moves on, so Celery records the task itself as a SUCCESS -
+#: ``atcraft_celery_tasks_total`` cannot tell a sweep that failed for every
+#: tenant on every tick from one that had nothing to do. This counts the units
+#: it skipped; see :func:`count_sweep_failure`.
+sweep_unit_failures_total = Counter(
+    "atcraft_sweep_unit_failures_total",
+    "Units of scheduled work (a company, an order, an account) a sweep logged and skipped",
+    ["task"],
+    registry=registry,
+)
+
+
+def count_sweep_failure(task: str, units: int = 1) -> None:
+    """Count units a sweep logged and skipped, labelled with the task's Celery name."""
+    if units > 0:
+        sweep_unit_failures_total.labels(task=task).inc(units)
+
+
 # --- Business signals ---------------------------------------------------------
 # Section 56 lists infrastructure metrics; these are the ones that actually get
 # somebody out of bed, because they mean the ERP is producing wrong answers.
@@ -268,6 +287,7 @@ __all__ = [
     "celery_task_duration",
     "celery_tasks_total",
     "celery_workers_online",
+    "count_sweep_failure",
     "http_request_duration",
     "http_requests_total",
     "insufficient_stock_events",
@@ -280,5 +300,6 @@ __all__ = [
     "render_metrics",
     "setup_sentry",
     "setup_tracing",
+    "sweep_unit_failures_total",
     "update_queue_metrics",
 ]

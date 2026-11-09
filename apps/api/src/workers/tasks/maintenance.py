@@ -73,6 +73,7 @@ from src.core.database import affected_rows, session_scope, transaction
 from src.core.deps import TenantContext, system_tenant
 from src.core.errors import BusinessRuleError
 from src.core.logging import get_logger
+from src.core.observability import count_sweep_failure
 from src.core.permissions import Permission
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import (
@@ -179,6 +180,7 @@ async def refresh_summary_views(request_id: str | None = None, **_: Any) -> dict
                 )
         except Exception as exc:
             failed += 1
+            count_sweep_failure("maintenance.refresh_summary_views")
             log.error(
                 "maintenance.summary_refresh_failed",
                 company_id=str(company_id),
@@ -243,6 +245,7 @@ async def release_stale_reservations(request_id: str | None = None, **_: Any) ->
                 )
         except Exception as exc:
             failed += 1
+            count_sweep_failure("maintenance.release_stale_reservations")
             log.error(
                 "maintenance.reservation_expiry_failed",
                 company_id=str(company_id),
@@ -373,6 +376,7 @@ async def top_up_short_orders() -> dict[str, Any]:
                 order_ids = await _short_orders(session, company_id)
         except Exception as exc:
             failed += 1
+            count_sweep_failure("maintenance.allocate_short_orders")
             log.error(
                 "maintenance.topup_scan_failed",
                 company_id=str(company_id),
@@ -400,6 +404,7 @@ async def top_up_short_orders() -> dict[str, Any]:
                 )
             except Exception as exc:
                 failed += 1
+                count_sweep_failure("maintenance.allocate_short_orders")
                 log.error(
                     "maintenance.topup_failed",
                     company_id=str(company_id),
@@ -603,6 +608,7 @@ async def purge_temp_files(request_id: str | None = None, **_: Any) -> dict[str,
                 )
         except Exception as exc:
             failed += 1
+            count_sweep_failure("maintenance.purge_temp_files")
             log.error(
                 "maintenance.snapshot_purge_failed",
                 company_id=str(company_id),
@@ -653,6 +659,7 @@ async def reconcile_quality_owners(request_id: str | None = None, **_: Any) -> d
                 )
         except Exception as exc:
             companies_failed += 1
+            count_sweep_failure("maintenance.reconcile_quality_owners")
             log.error(
                 "maintenance.quality_owner_reconcile_failed",
                 company_id=str(company_id),
@@ -664,6 +671,8 @@ async def reconcile_quality_owners(request_id: str | None = None, **_: Any) -> d
         applied += result.verdicts_applied
         repaired += result.owners_repaired
         failed += result.failed
+        # The documents the service itself logged and skipped, one by one.
+        count_sweep_failure("maintenance.reconcile_quality_owners", result.failed)
 
     log.info(
         "maintenance.quality_owners_reconciled",
@@ -717,6 +726,7 @@ async def poll_courier_tracking(request_id: str | None = None, **_: Any) -> dict
                 count, error = await courier_tracking_service.poll_account(session, tenant, account)
         except Exception as exc:
             result["failed"] += 1
+            count_sweep_failure("maintenance.poll_courier_tracking")
             log.error(
                 "maintenance.courier_tracking_poll_failed",
                 company_id=str(company_id),
@@ -790,6 +800,7 @@ async def expire_batches(request_id: str | None = None, **_: Any) -> dict[str, A
                 ).sweep_expiry()
         except Exception as exc:
             failed += 1
+            count_sweep_failure("maintenance.expire_batches")
             log.error(
                 "maintenance.batch_expiry_failed",
                 company_id=str(company_id),
