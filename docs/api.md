@@ -162,19 +162,19 @@ page; it remains scoped to the verified tenant and any supplied `item_id`.
 |---|---|
 | 200 | success |
 | 201 | resource created |
-| 202 | accepted, running in the background |
+| 202 | accepted, running in the background; the courier webhook's acknowledgement (see Courier integration) |
 | 204 | success, no body |
-| 400 | malformed request |
+| 400 | malformed request, or an upload refused for its type (`FILE_TYPE_NOT_ALLOWED`) or by the malware scan (`FILE_INFECTED`) |
 | 401 | not authenticated, or token invalid/expired/revoked |
-| 403 | authenticated but missing the required permission |
+| 403 | authenticated but not allowed: a missing permission, an account's scope, or a pending password change or MFA enrolment |
 | 404 | not found **in your tenant** |
 | 405 | HTTP method not allowed; see the `Allow` header |
 | 409 | conflict: concurrent edit, duplicate document, invalid state transition, lock timeout |
-| 413 | body too large |
+| 413 | body too large, including an upload over the size limit (`FILE_TOO_LARGE`) |
 | 422 | validation or business-rule failure |
 | 429 | rate limited (see `Retry-After`) |
 | 500 | unexpected server error — quote `request_id` |
-| 503 | dependency unavailable, or the request exceeded the statement timeout |
+| 503 | dependency unavailable (the malware scanner too: `FILE_SCAN_UNAVAILABLE`), or the request exceeded the statement timeout |
 
 A record belonging to another company returns **404, not 403**. Confirming it
 exists elsewhere is itself a disclosure.
@@ -193,24 +193,35 @@ Stable strings the frontend switches on. Renaming one is a breaking change.
 
 | Group | Codes |
 |---|---|
-| Auth | `UNAUTHENTICATED` `INVALID_CREDENTIALS` `TOKEN_EXPIRED` `TOKEN_INVALID` `TOKEN_REVOKED` `ACCOUNT_LOCKED` `ACCOUNT_INACTIVE` `PASSWORD_POLICY` `MFA_INVALID` `PASSWORD_CHANGE_REQUIRED` |
+| Auth | `UNAUTHENTICATED` `INVALID_CREDENTIALS` `TOKEN_EXPIRED` `TOKEN_INVALID` `TOKEN_REVOKED` `ACCOUNT_LOCKED` `ACCOUNT_INACTIVE` `PASSWORD_POLICY` `MFA_INVALID` `MFA_REQUIRED` `PASSWORD_CHANGE_REQUIRED` |
 | Authz | `FORBIDDEN` `PERMISSION_DENIED` `TENANT_MISMATCH` `SCOPE_DENIED` `CSRF_VALIDATION_FAILED` |
 | Generic | `VALIDATION_ERROR` `NOT_FOUND` `CONFLICT` `RATE_LIMITED` `PAYLOAD_TOO_LARGE` `SERVICE_UNAVAILABLE` `INTERNAL_ERROR` `HTTP_ERROR` |
 | Business | `BUSINESS_RULE_VIOLATION` `INVALID_STATE_TRANSITION` `APPROVAL_REQUIRED` `DUPLICATE_DOCUMENT` `REFERENCED_RECORD_IN_USE` |
 | Inventory | `INSUFFICIENT_STOCK` `INSUFFICIENT_AVAILABLE_STOCK` `STOCK_LOCK_TIMEOUT` `NEGATIVE_STOCK_BLOCKED` `BATCH_REQUIRED` `SERIAL_REQUIRED` `RESERVATION_NOT_FOUND` `RESERVATION_ALREADY_CONSUMED` |
 | BOM / MRP | `BOM_NOT_FOUND` `BOM_CYCLE_DETECTED` `BOM_DEPTH_EXCEEDED` `BOM_NOT_APPROVED` `MRP_RUN_IN_PROGRESS` |
-| Files | `FILE_TYPE_NOT_ALLOWED` `FILE_TOO_LARGE` `FILE_NOT_FOUND` |
+| Files | `FILE_TYPE_NOT_ALLOWED` `FILE_TOO_LARGE` `FILE_NOT_FOUND` `FILE_INFECTED` `FILE_SCAN_UNAVAILABLE` |
 | Jobs | `JOB_NOT_FOUND` `JOB_FAILED` |
+
+Reserved, not emitted: `NEGATIVE_STOCK_BLOCKED` `RESERVATION_NOT_FOUND`
+`JOB_FAILED`. They are members of `ErrorCode`, so a client may switch on them,
+but no route raises them today - a shortfall is `INSUFFICIENT_STOCK`, a
+missing reservation `NOT_FOUND`, and a failed job reads back as a job whose
+status is `FAILED`, not as an error. This table and the reserved list are checked against
+`ErrorCode` and the source by `tests/unit/test_api_doc_contract.py`.
 
 Five of these are easy to mishandle:
 
 - `PASSWORD_CHANGE_REQUIRED` (403) is raised by the shared authentication
   dependency on every route outside `/auth/me`, `/auth/change-password`,
   `/auth/logout` and `/auth/logout-all` while `must_change_password` is set.
-- `MFA_INVALID` (401) is a wrong, replayed or unavailable authenticator code
-  during the MFA step. `MFA_REQUIRED` exists in `ErrorCode` but is never sent:
-  the MFA step is signalled by `mfa_required: true` in a 200 login response
-  (see Authentication below).
+- `MFA_REQUIRED` (403) is raised by the same dependency when the account's role
+  is listed in `MFA_REQUIRED_ROLES` and has not enrolled a second factor, on
+  every route outside the enrolment surface (`mfa_enrolment_route_allowed`:
+  `/auth/me`, `/auth/change-password`, `/auth/logout`, `/auth/logout-all`,
+  `/auth/mfa/setup`, `/auth/mfa/confirm` and `/auth/sessions`). With the setting
+  empty it is never sent. `MFA_INVALID` (401) is a wrong, replayed or
+  unavailable authenticator code during the MFA step, which itself is signalled
+  by `mfa_required: true` in a 200 login response (see Authentication below).
 - `INVALID_CREDENTIALS` and `MFA_INVALID` change status with the route. They
   are 401 on the unauthenticated auth routes (`/auth/login`, `/auth/mfa/verify`,
   `/auth/refresh`) and 422 with `details.fields` on the authenticated
@@ -543,7 +554,9 @@ aggregate quantity to individual sales lines.
 /warehouses           warehouses · storage locations
 /products             items · categories · UoM · attributes · brands · manufacturers
                       prices · vendor links · specification masters/templates · accessories
-/customers  /vendors  business partners · transporters
+/customers  /vendors  business partners · addresses · contacts · credit status ·
+                      vendor approval, categories and rating
+/transporters         carriers a dispatch or shipment names · tracking URL
 /inventory            balances · ledger · transfers · adjustments · physical counts
                       batches · serials · bin moves · scrap disposals · internal issues
 /allocation           reservations · release · available-to-promise · reallocation
@@ -565,6 +578,8 @@ aggregate quantity to individual sales lines.
 /quality              templates · inspections · results · decide · reports
 /packing              packing orders · cartons · packing list · from-assembly
 /dispatch             dispatches · tracking events · tracking board · delayed
+/integrations/courier courier accounts · webhook secret · connection test · refresh ·
+                      event history · the signed provider webhook
 /finance              ledgers · vendor/sales invoices · credit notes · match · payments
                       return-debit allocations · ageing · GST · valuation
 /collections          overdue worklist · follow-up register · notes · promises · escalation
@@ -572,15 +587,18 @@ aggregate quantity to individual sales lines.
                       report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
 /notifications        list · unread count · read · preferences · push devices ·
+                      alert rules (company smart-alert thresholds and reminders) ·
                       messaging channel status · tenant templates · delivery history
-/admin/alerts         read and update company smart-alert thresholds and reminders
-/approvals            read open approval requests; decisions stay on their documents
 /vendor-portal        orders · consignments · shared documents · bills · payments · QC
 /dealer-portal        catalogue · pricing · cart · wishlist · checkout · orders · statement
                       own invoices/credits · return requests · banners/offers · item images
 /promotions           staff banner/offer management · lifecycle actions · eligibility preview
-/audit                logs · entity history · approval-request data
+/audit                logs · entity history · approvals (open requests; decisions stay
+                      on their documents) · approval settings
 ```
+
+Every prefix in this map is one the API serves, and every prefix the API
+serves is in it (`tests/unit/test_api_doc_contract.py`).
 
 Full request and response schemas are generated from the code in
 `openapi.json` and, in development, at `/docs`.
@@ -705,7 +723,9 @@ Generic webhook signatures are HMAC-SHA256 over `<unix-timestamp>.<exact-body>`
 in `X-Courier-Signature`, with the timestamp in `X-Courier-Timestamp`.
 Shiprocket uses `X-Api-Key`. Webhook bodies are limited to 64 KiB, generic
 timestamps have a five-minute acceptance window, and duplicate provider events
-are ignored. The scheduled Shiprocket poll runs every
+are ignored. The webhook answers **202** with `events_recorded` after it has
+recorded the events, inside the request: the 202 is the acknowledgement
+providers expect, not a queued job, so there is no `status_url` to poll. The scheduled Shiprocket poll runs every
 `COURIER_POLL_INTERVAL_SECONDS` (1,800 by default), processes at most 100 oldest
 eligible consignments per account, and isolates failures by account.
 
