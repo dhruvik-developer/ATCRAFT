@@ -5,16 +5,22 @@ import { Toaster } from '@/components/ui/toaster'
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
-import { fail, ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
+import type { SchemaOf } from '@/types/api'
 
 import SalesReturnsPage, { type SalesReturnRow } from './sales-returns-page'
+
+type SalesReturnLine = SchemaOf<'SalesReturnLineRead'>
 
 function salesReturnRow(overrides: Partial<SalesReturnRow> = {}): SalesReturnRow {
   return {
     id: 'sr-1',
     code: 'SR/2026-001',
     dispatch_id: 'dispatch-1',
+    dispatch_code: 'DSP-0001',
     customer_id: 'customer-1',
+    customer_code: 'C-0042',
+    customer_name: 'Acme Hardware',
     status: 'DRAFT',
     source: 'ERP',
     notes: null,
@@ -23,6 +29,36 @@ function salesReturnRow(overrides: Partial<SalesReturnRow> = {}): SalesReturnRow
     cancelled_at: null,
     cancellation_reason: null,
     ...overrides,
+  }
+}
+
+function returnLine(overrides: Partial<SalesReturnLine> = {}): SalesReturnLine {
+  return {
+    id: 'line-1',
+    dispatch_line_id: 'dispatch-line-1',
+    item_id: 'item-1',
+    item_code: 'LOCK-01',
+    item_name: 'Mortise lock',
+    quantity: '1.0000',
+    serial_ids: ['serial-1'],
+    serial_numbers: ['LK-0001'],
+    accepted_serial_ids: [],
+    damaged_serial_ids: [],
+    scrapped_serial_ids: [],
+    credited_quantity: '0.0000',
+    reason_code: 'CUSTOMER_RETURN',
+    requires_qc: true,
+    qc_inspection_id: null,
+    note: null,
+    ...overrides,
+  }
+}
+
+/** The register with one return in it, and that return's own read. */
+function returnRoutes(row: SalesReturnRow, lines: SalesReturnLine[] = [returnLine()]): RouteTable {
+  return {
+    'GET /sales-returns': page([row]),
+    [`GET /sales-returns/${row.id}`]: ok({ ...row, lines }),
   }
 }
 
@@ -55,9 +91,12 @@ const OLD_DELIVERY_DETAIL = {
       line_number: 1,
       sales_order_line_id: 'order-line-1',
       item_id: 'item-1',
+      item_code: 'HINGE-04',
+      item_name: 'Butt hinge 4 inch',
       quantity: '4.0000',
       batch_id: null,
       serial_ids: [],
+      serial_numbers: [],
       carton_ids: [],
       reservation_id: null,
       inventory_transaction_id: null,
@@ -66,23 +105,107 @@ const OLD_DELIVERY_DETAIL = {
   ],
 } as unknown as DispatchDetail
 
+/** A delivered dispatch of two serial-tracked locks. */
+const SERIAL_DELIVERY_DETAIL = {
+  ...OLD_DELIVERY,
+  lines: [
+    {
+      id: 'dispatch-line-1',
+      line_number: 1,
+      sales_order_line_id: 'order-line-1',
+      item_id: 'item-1',
+      item_code: 'LOCK-01',
+      item_name: 'Mortise lock',
+      quantity: '2.0000',
+      batch_id: null,
+      serial_ids: ['ser-1', 'ser-2'],
+      serial_numbers: ['LK-0001', 'LK-0002'],
+      carton_ids: [],
+      reservation_id: null,
+      inventory_transaction_id: null,
+      notes: null,
+    },
+  ],
+} as unknown as DispatchDetail
+
+async function openReturn(
+  user: ReturnType<typeof renderScreen>['user'],
+  code = 'SR/2026-001',
+): Promise<HTMLElement> {
+  await user.click(await screen.findByRole('button', { name: code }))
+  return screen.findByRole('dialog', { name: code })
+}
+
 describe('SalesReturnsPage', () => {
-  it('shows only valid actions for a draft return', async () => {
-    const { user } = renderScreen(<SalesReturnsPage />, {
-      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+  it('names the dispatch and the customer in the register, and offers no sort it ignores', async () => {
+    // Both columns printed the raw UUID. The endpoint lists newest first and
+    // takes no sort, so a heading that offered one changed nothing.
+    renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW],
       routes: { 'GET /sales-returns': page([salesReturnRow()]) },
     })
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
+    const row = (await screen.findByRole('button', { name: 'SR/2026-001' })).closest('tr')!
+    expect(within(row).getByText('DSP-0001')).toBeVisible()
+    expect(within(row).getByText('C-0042')).toBeVisible()
+    expect(within(row).getByText('Acme Hardware')).toBeVisible()
+    expect(within(row).getByText('ERP')).toBeVisible()
+    expect(within(row).queryByText(/dispatch-1|customer-1/)).toBeNull()
+    for (const header of screen.getAllByRole('columnheader')) {
+      expect(within(header).queryByRole('button')).toBeNull()
+    }
+  })
 
-    expect(screen.getByRole('button', { name: 'Receive' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
+  it('opens a return over the list and names its lines, units and their verdicts', async () => {
+    const row = salesReturnRow({ status: 'RECEIVED', received_at: '2026-02-03T10:00:00Z' })
+    const { user } = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW],
+      routes: returnRoutes(row, [
+        returnLine({
+          quantity: '2.0000',
+          serial_ids: ['serial-1', 'serial-2'],
+          serial_numbers: ['LK-0001', 'LK-0002'],
+          accepted_serial_ids: ['serial-1'],
+          credited_quantity: '1.0000',
+          reason_code: 'Wrong finish',
+        }),
+      ]),
+    })
+
+    const dialog = await openReturn(user)
+    expect(within(dialog).getByText('C-0042 - Acme Hardware')).toBeVisible()
+    expect(within(dialog).getByText('DSP-0001')).toBeVisible()
+    const lines = await within(dialog).findByRole('region', { name: 'Returned lines' })
+    const cells = within(within(lines).getAllByRole('row')[1]!).getAllByRole('cell')
+    expect(cells[0]).toHaveTextContent('LOCK-01')
+    expect(cells[0]).toHaveTextContent('Mortise lock')
+    expect(cells[1]).toHaveTextContent(/^2$/)
+    expect(cells[2]).toHaveTextContent('LK-0001Accepted')
+    expect(cells[2]).toHaveTextContent('LK-0002')
+    expect(cells[2]).not.toHaveTextContent('LK-0002Accepted')
+    expect(cells[3]).toHaveTextContent(/^Wrong finish$/)
+    expect(cells[4]).toHaveTextContent(/^1$/)
+    expect(within(dialog).queryByText(/serial-1|item-1/)).toBeNull()
+    // A reader may look, not act.
+    expect(within(dialog).queryByRole('button', { name: /return$/ })).toBeNull()
+  })
+
+  it('shows only valid actions for a draft return', async () => {
+    const { user } = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+      routes: returnRoutes(salesReturnRow()),
+    })
+
+    const dialog = await openReturn(user)
+
+    expect(within(dialog).getByRole('button', { name: 'Receive return' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Cancel return' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Close return' })).not.toBeInTheDocument()
   })
 
   it.each([
-    ['DRAFT', 'receive', 'Receive', 'Sales return marked received'],
-    ['RECEIVED', 'close', 'Close', 'Sales return closed'],
+    ['DRAFT', 'receive', 'Receive return', 'Sales return marked received'],
+    ['RECEIVED', 'close', 'Close return', 'Sales return closed'],
   ] as const)('says a %s return was taken through %s', async (status, action, button, title) => {
     // Before, the panel only closed - indistinguishable from dismissing it.
     const row = salesReturnRow({ status })
@@ -94,44 +217,45 @@ describe('SalesReturnsPage', () => {
       {
         permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
         routes: {
-          'GET /sales-returns': page([row]),
+          ...returnRoutes(row, []),
           [`POST /sales-returns/sr-1/${action}`]: ok(row),
         },
       },
     )
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    await user.click(screen.getByRole('button', { name: button }))
+    const dialog = await openReturn(user)
+    await user.click(within(dialog).getByRole('button', { name: button }))
 
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(await within(toasts).findByText(title)).toBeVisible()
     expect(within(toasts).getByText('SR/2026-001')).toBeVisible()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
   it('shows close and cancel for a received return', async () => {
     const { user } = renderScreen(<SalesReturnsPage />, {
       permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
-      routes: { 'GET /sales-returns': page([salesReturnRow({ status: 'RECEIVED' })]) },
+      routes: returnRoutes(salesReturnRow({ status: 'RECEIVED' }), []),
     })
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
+    const dialog = await openReturn(user)
 
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Receive' })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Close return' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Cancel return' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Receive return' })).not.toBeInTheDocument()
   })
 
   it('collects the cancellation reason in a dialog that opens empty', async () => {
     const { user, fetch } = renderScreen(<SalesReturnsPage />, {
       permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
       routes: {
-        'GET /sales-returns': page([salesReturnRow()]),
+        ...returnRoutes(salesReturnRow()),
         'POST /sales-returns/sr-1/cancel': ok(salesReturnRow({ status: 'CANCELLED' })),
       },
     })
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    const trigger = screen.getByRole('button', { name: 'Cancel' })
+    const detail = await openReturn(user)
+    const trigger = within(detail).getByRole('button', { name: 'Cancel return' })
     expect(trigger).toHaveClass('text-destructive')
     await user.click(trigger)
 
@@ -158,6 +282,7 @@ describe('SalesReturnsPage', () => {
         reason: 'Raised against the wrong dispatch',
       }),
     )
+    // Both close: the reason, and the return it cancelled.
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
@@ -165,7 +290,7 @@ describe('SalesReturnsPage', () => {
     const { user } = renderScreen(<SalesReturnsPage />, {
       permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
       routes: {
-        'GET /sales-returns': page([salesReturnRow()]),
+        ...returnRoutes(salesReturnRow()),
         'POST /sales-returns/sr-1/cancel': fail(
           422,
           'VALIDATION_ERROR',
@@ -177,8 +302,8 @@ describe('SalesReturnsPage', () => {
       },
     })
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const detail = await openReturn(user)
+    await user.click(within(detail).getByRole('button', { name: 'Cancel return' }))
     const dialog = await screen.findByRole('dialog', { name: 'Cancel SR/2026-001?' })
     await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'Changed mind')
     await user.click(within(dialog).getByRole('button', { name: 'Cancel return' }))
@@ -188,24 +313,27 @@ describe('SalesReturnsPage', () => {
     expect(within(dialog).getByRole('textbox', { name: 'Reason' })).toHaveValue('Changed mind')
   })
 
-  it('sends nothing when the cancellation is dismissed', async () => {
+  it('sends nothing when the cancellation is dismissed, and keeps the return open', async () => {
     const { user, fetch } = renderScreen(<SalesReturnsPage />, {
       permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
-      routes: { 'GET /sales-returns': page([salesReturnRow()]) },
+      routes: returnRoutes(salesReturnRow()),
     })
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    const detail = await openReturn(user)
+    await user.click(within(detail).getByRole('button', { name: 'Cancel return' }))
     const dialog = await screen.findByRole('dialog', { name: 'Cancel SR/2026-001?' })
     await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), 'Not after all')
     await user.keyboard('{Escape}')
 
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Cancel SR/2026-001?' })).not.toBeInTheDocument(),
+    )
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    const still = screen.getByRole('dialog', { name: 'SR/2026-001' })
+    expect(within(still).getByRole('button', { name: 'Cancel return' })).toBeVisible()
   })
 
-  it('saves per-serial QC dispositions for a received return', async () => {
+  it('saves per-serial QC dispositions for a received return, by label', async () => {
     const row = salesReturnRow({ status: 'RECEIVED' })
     const { user, fetch } = renderScreen(
       <>
@@ -215,40 +343,24 @@ describe('SalesReturnsPage', () => {
       {
         permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
         routes: {
-          'GET /sales-returns': page([row]),
-          'GET /sales-returns/sr-1': ok({
-            ...row,
-            lines: [
-              {
-                id: 'line-1',
-                serial_ids: ['serial-1'],
-                accepted_serial_ids: [],
-                damaged_serial_ids: [],
-                scrapped_serial_ids: [],
-              },
-            ],
-          }),
+          ...returnRoutes(row),
           'POST /sales-returns/sr-1/units': ok({
             ...row,
-            lines: [
-              {
-                id: 'line-1',
-                serial_ids: ['serial-1'],
-                accepted_serial_ids: ['serial-1'],
-                damaged_serial_ids: [],
-                scrapped_serial_ids: [],
-              },
-            ],
+            lines: [returnLine({ accepted_serial_ids: ['serial-1'] })],
           }),
         },
       },
     )
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    await user.click(await screen.findByRole('button', { name: 'Dispose serial units' }))
-    await user.click(screen.getByRole('combobox', { name: 'Disposition for serial-1' }))
+    const detail = await openReturn(user)
+    await user.click(await within(detail).findByRole('button', { name: 'Dispose serial units' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Disposition returned serial units' })
+    // The label on the unit, not its id: the UUID was all this dialog showed.
+    expect(within(dialog).getByText('LK-0001')).toBeVisible()
+    expect(within(dialog).queryByText('serial-1')).toBeNull()
+    await user.click(within(dialog).getByRole('combobox', { name: 'Disposition for LK-0001' }))
     await user.click(await screen.findByRole('option', { name: 'Accepted' }))
-    await user.click(screen.getByRole('button', { name: 'Save dispositions' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save dispositions' }))
 
     await waitFor(() => fetch.requestFor('POST', '/sales-returns/sr-1/units'))
     expect(fetch.requestFor('POST', '/sales-returns/sr-1/units')).toEqual({
@@ -271,36 +383,24 @@ describe('SalesReturnsPage', () => {
         permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
         errorNets: true,
         routes: {
-          'GET /sales-returns': page([row]),
-          'GET /sales-returns/sr-1': ok({
-            ...row,
-            lines: [
-              {
-                id: 'line-1',
-                serial_ids: ['serial-1'],
-                accepted_serial_ids: [],
-                damaged_serial_ids: [],
-                scrapped_serial_ids: [],
-              },
-            ],
-          }),
+          ...returnRoutes(row),
           'POST /sales-returns/sr-1/units': fail(
             422,
             'VALIDATION_ERROR',
             'Some fields need attention.',
-            { fields: { accepted: ['serial-1 was not received on this return'] } },
+            { fields: { accepted: ['LK-0001 was not received on this return'] } },
           ),
         },
       },
     )
 
-    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
-    await user.click(await screen.findByRole('button', { name: 'Dispose serial units' }))
-    await user.click(screen.getByRole('combobox', { name: 'Disposition for serial-1' }))
+    const detail = await openReturn(user)
+    await user.click(await within(detail).findByRole('button', { name: 'Dispose serial units' }))
+    await user.click(screen.getByRole('combobox', { name: 'Disposition for LK-0001' }))
     await user.click(await screen.findByRole('option', { name: 'Accepted' }))
     await user.click(screen.getByRole('button', { name: 'Save dispositions' }))
 
-    expect(await screen.findByText('serial-1 was not received on this return')).toBeVisible()
+    expect(await screen.findByText('LK-0001 was not received on this return')).toBeVisible()
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
@@ -338,17 +438,21 @@ describe('SalesReturnsPage', () => {
     await user.click(await screen.findByRole('option', { name: /DSP-0101/ }))
 
     await user.type(
-      await within(dialog).findByRole('spinbutton', { name: 'Return quantity for item-1' }),
+      await within(dialog).findByRole('spinbutton', {
+        name: 'Return quantity for line 1 (HINGE-04)',
+      }),
       '1',
     )
-    // A quantity, not the API's four-place string.
+    // The line names its item, and a quantity, not the API's four-place string.
+    expect(within(dialog).getByText('Butt hinge 4 inch')).toBeInTheDocument()
     expect(within(dialog).getByText('Dispatched: 4')).toBeInTheDocument()
+    expect(within(dialog).queryByText('item-1')).toBeNull()
     await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
 
     await waitFor(() =>
       expect(fetch.requestFor('POST', '/sales-returns')).toMatchObject({
         dispatch_id: 'dispatch-101',
-        lines: [{ dispatch_line_id: 'dispatch-line-1', quantity: '1' }],
+        lines: [{ dispatch_line_id: 'dispatch-line-1', quantity: '1', serial_ids: [] }],
       }),
     )
     const named = searches.find((url) => url.searchParams.get('search') === 'DSP-0101')
@@ -357,5 +461,89 @@ describe('SalesReturnsPage', () => {
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(await within(toasts).findByText('Sales return created')).toBeVisible()
     expect(within(toasts).getByText('SR/2026-001')).toBeVisible()
+  })
+})
+
+describe('naming the returned units', () => {
+  /** Open the form on the serial-tracked delivery and enter a quantity of one. */
+  async function startSerialReturn() {
+    const rendered = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+      routes: {
+        'GET /sales-returns': page([]),
+        'GET /warehouses/options': ok([]),
+        'GET /dispatch': page([OLD_DELIVERY]),
+        'GET /dispatch/dispatch-101': ok(SERIAL_DELIVERY_DETAIL),
+        'POST /sales-returns': ok(salesReturnRow({ dispatch_id: 'dispatch-101' })),
+      },
+    })
+    const { user } = rendered
+    await user.click(await screen.findByRole('button', { name: 'New return' }))
+    const dialog = await screen.findByRole('dialog', { name: 'New sales return' })
+    await user.click(within(dialog).getByRole('combobox', { name: 'Sales dispatch' }))
+    await user.click(await screen.findByRole('option', { name: /DSP-0101/ }))
+    await user.type(
+      await within(dialog).findByRole('spinbutton', {
+        name: 'Return quantity for line 1 (LOCK-01)',
+      }),
+      '1',
+    )
+    const serials = within(dialog).getByRole('textbox', {
+      name: 'Returned serial numbers for line 1 (LOCK-01)',
+    })
+    return { ...rendered, dialog, serials }
+  }
+
+  it('takes the label on the unit and sends the id the API wants', async () => {
+    // The form asked for "Serial IDs, comma separated" and listed UUIDs to copy.
+    const { user, fetch, dialog, serials } = await startSerialReturn()
+    expect(within(dialog).getByText('Dispatched serials: LK-0001, LK-0002')).toBeVisible()
+    expect(within(dialog).queryByText(/ser-1|ser-2/)).toBeNull()
+
+    // Typed in lower case, as a person does; the API stores labels upper-cased.
+    await user.type(serials, ' lk-0002 ')
+    await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/sales-returns')).toMatchObject({
+        lines: [{ dispatch_line_id: 'dispatch-line-1', quantity: '1', serial_ids: ['ser-2'] }],
+      }),
+    )
+  })
+
+  it('refuses a label this line did not ship, beside the field, and sends nothing', async () => {
+    const { user, fetch, dialog, serials } = await startSerialReturn()
+
+    await user.type(serials, 'LK-0009')
+    await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
+
+    expect(within(dialog).getByText('Not dispatched on this line: LK-0009.')).toBeVisible()
+    expect(serials).toHaveAttribute('aria-invalid', 'true')
+    expect(serials).toHaveAccessibleDescription('Not dispatched on this line: LK-0009.')
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+
+    // Corrected, the refusal goes and the return is raised.
+    await user.clear(serials)
+    await user.type(serials, 'LK-0001')
+    expect(within(dialog).queryByText(/Not dispatched on this line/)).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/sales-returns')).toMatchObject({
+        lines: [{ serial_ids: ['ser-1'] }],
+      }),
+    )
+  })
+
+  it('refuses a unit named twice once the field is left, and sends nothing', async () => {
+    const { user, fetch, dialog, serials } = await startSerialReturn()
+
+    await user.type(serials, 'LK-0001, lk-0001')
+    // Nothing is said while the label is still being typed.
+    expect(within(dialog).queryByText(/Named more than once/)).toBeNull()
+    await user.tab()
+
+    expect(within(dialog).getByText('Named more than once: LK-0001.')).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 })

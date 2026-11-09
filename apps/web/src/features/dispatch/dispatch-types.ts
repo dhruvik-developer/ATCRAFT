@@ -146,10 +146,15 @@ export interface DispatchLine {
   line_number: number
   sales_order_line_id: string | null
   item_id: string
+  /** The item's code and name, read with the line. */
+  item_code?: string | null
+  item_name?: string | null
   quantity: DecimalString
   batch_id: string | null
   /** One per unit for a serial-tracked item; empty for everything else. */
   serial_ids: string[]
+  /** Their labels, in `serial_ids` order (`labelSerials` pairs them). */
+  serial_numbers?: string[]
   carton_ids: string[]
   reservation_id: string | null
   inventory_transaction_id: string | null

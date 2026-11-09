@@ -3,7 +3,14 @@ import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 
 import { DataTable } from '@/components/data-table'
-import { FieldError, LoadError, PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
+import {
+  DescriptionList,
+  FieldError,
+  LoadError,
+  PageHeader,
+  ReasonDialog,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -24,7 +31,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { useAuth } from '@/features/auth/auth-context'
-import { formatDate, formatQuantity } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, humanise } from '@/lib/format'
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
@@ -32,10 +39,17 @@ import { toast } from '@/lib/toast'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { DispatchPicker } from '@/features/dispatch/dispatch-picker'
 import { dispatchKeys, type DispatchDetail } from '@/features/dispatch/dispatch-types'
+import {
+  labelSerials,
+  resolveSerialLabels,
+  type NamedSerials,
+  type SerialUnit,
+} from '@/features/inventory/serial-numbers'
 import type { SchemaOf } from '@/types/api'
 
 export type SalesReturnRow = SchemaOf<'SalesReturnSummary'>
 type SalesReturnDetail = SchemaOf<'SalesReturnDetail'>
+type SalesReturnLine = SchemaOf<'SalesReturnLineRead'>
 
 type SerialDisposition = 'accepted' | 'damaged' | 'scrapped'
 
@@ -43,18 +57,64 @@ function isSerialDisposition(value: string): value is SerialDisposition {
   return value === 'accepted' || value === 'damaged' || value === 'scrapped'
 }
 
-function undisposedSerialIds(detail: SalesReturnDetail | undefined): string[] {
-  return (detail?.lines ?? []).flatMap((line) => {
-    const disposed = new Set([
-      ...line.accepted_serial_ids,
-      ...line.damaged_serial_ids,
-      ...line.scrapped_serial_ids,
-    ])
-    return line.serial_ids.filter((serialId) => !disposed.has(serialId))
-  })
+/** Where a return came from: raised here, or requested by the dealer. */
+const RETURN_SOURCES: Record<SalesReturnRow['source'], string> = {
+  ERP: 'ERP',
+  DEALER_PORTAL: 'Dealer portal',
+}
+
+/** The customer as a person reads them: code, then name. */
+function customerLabel(row: SalesReturnRow): string {
+  if (!row.customer_code) return EMPTY_VALUE
+  return row.customer_name ? `${row.customer_code} - ${row.customer_name}` : row.customer_code
+}
+
+/** The verdict a returned unit was given, once it has one. */
+function dispositionOf(line: SalesReturnLine, serialId: string): SerialDisposition | null {
+  if (line.accepted_serial_ids.includes(serialId)) return 'accepted'
+  if (line.damaged_serial_ids.includes(serialId)) return 'damaged'
+  if (line.scrapped_serial_ids.includes(serialId)) return 'scrapped'
+  return null
+}
+
+/** The returned units still waiting for a verdict, each named by its label. */
+function undisposedSerials(detail: SalesReturnDetail | undefined): SerialUnit[] {
+  return (detail?.lines ?? []).flatMap((line) =>
+    labelSerials(line.serial_ids, line.serial_numbers).filter(
+      (unit) => dispositionOf(line, unit.id) === null,
+    ),
+  )
+}
+
+/** A reason picked from the API's vocabulary reads as words; one typed by hand, as typed. */
+function reasonLabel(reason: string): string {
+  return /^[A-Z0-9_]+$/.test(reason) ? humanise(reason) : reason
+}
+
+/** How the form names a dispatched line: its number, and its item when known. */
+function lineName(line: { line_number: number; item_code?: string | null }): string {
+  return line.item_code
+    ? `line ${line.line_number} (${line.item_code})`
+    : `line ${line.line_number}`
+}
+
+/** What is wrong with the labels typed against a line, said beside the field. */
+function serialProblem(named: NamedSerials): string | null {
+  const said: string[] = []
+  if (named.unknown.length > 0)
+    said.push(`Not dispatched on this line: ${named.unknown.join(', ')}.`)
+  if (named.repeated.length > 0) said.push(`Named more than once: ${named.repeated.join(', ')}.`)
+  return said.length > 0 ? said.join(' ') : null
 }
 
 type SalesReturnAction = 'receive' | 'close' | 'cancel'
+
+/** Named for the return: the dialog's own X is already "Close". */
+const ACTION_LABELS: Record<SalesReturnAction, string> = {
+  receive: 'Receive return',
+  close: 'Close return',
+  cancel: 'Cancel return',
+}
 
 function availableReturnActions(status: SalesReturnRow['status']): SalesReturnAction[] {
   switch (status) {
@@ -83,27 +143,37 @@ function NewSalesReturnDialog({
   const [serials, setSerials] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState('')
+  // A refusal is said once the person has left the field or tried to create,
+  // not while a label is still being typed.
+  const [serialsLeft, setSerialsLeft] = useState<Record<string, boolean>>({})
+  const [attempted, setAttempted] = useState(false)
   const detail = useQuery({
     queryKey: dispatchKeys.detail(dispatchId),
     queryFn: ({ signal }) => api.get<DispatchDetail>(`/dispatch/${dispatchId}`, { signal }),
     enabled: Boolean(dispatchId),
   })
   const warehouses = useWarehouseOptions(open)
+  // The API takes serial ids, which nobody can read off a unit. The operator
+  // types or scans the labels instead, and each line's are matched against the
+  // units that line shipped - so a unit it did not ship, or one named twice,
+  // is refused beside the field rather than by the API after the whole form.
+  const lines = (detail.data?.lines ?? []).map((line) => {
+    const units = labelSerials(line.serial_ids, line.serial_numbers)
+    const named = resolveSerialLabels(serials[line.id] ?? '', units)
+    return { line, units, named, problem: serialProblem(named) }
+  })
   const create = useMutation({
     mutationFn: () =>
       api.post<SalesReturnDetail>('/sales-returns', {
         dispatch_id: dispatchId,
         return_warehouse_id: warehouseId || null,
         notes: notes.trim() || null,
-        lines: (detail.data?.lines ?? [])
-          .filter((line) => quantities[line.id])
-          .map((line) => ({
+        lines: lines
+          .filter(({ line }) => quantities[line.id])
+          .map(({ line, named }) => ({
             dispatch_line_id: line.id,
             quantity: quantities[line.id],
-            serial_ids: (serials[line.id] ?? '')
-              .split(',')
-              .map((serial) => serial.trim())
-              .filter(Boolean),
+            serial_ids: named.ids,
             reason_code: reasons[line.id]?.trim() || 'CUSTOMER_RETURN',
             requires_qc: true,
           })),
@@ -114,9 +184,7 @@ function NewSalesReturnDialog({
       onCreated()
       onClose()
       setDispatchId('')
-      setQuantities({})
-      setSerials({})
-      setReasons({})
+      clearLines()
       setNotes('')
     },
     // Said in the dialog, above its footer; a toast would repeat it.
@@ -124,6 +192,14 @@ function NewSalesReturnDialog({
   })
   const selected = detail.data
   const canSubmit = Boolean(dispatchId) && Object.values(quantities).some(Boolean)
+
+  function clearLines() {
+    setQuantities({})
+    setSerials({})
+    setReasons({})
+    setSerialsLeft({})
+    setAttempted(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -143,9 +219,7 @@ function NewSalesReturnDialog({
             value={dispatchId || null}
             onChange={(next) => {
               setDispatchId(next ?? '')
-              setQuantities({})
-              setSerials({})
-              setReasons({})
+              clearLines()
             }}
             filters={{ dispatch_type: 'SALES', status: 'DELIVERED' }}
             placeholder="Search delivered sales dispatches"
@@ -167,55 +241,73 @@ function NewSalesReturnDialog({
           </div>
           {selected && (
             <div className="space-y-3">
-              {selected.lines.map((line) => (
-                <div
-                  key={line.id}
-                  className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_8rem_1fr]"
-                >
-                  <div>
-                    <p className="font-mono text-xs">{line.item_id}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Dispatched: {formatQuantity(line.quantity)}
-                    </p>
-                    {line.serial_ids.length > 0 && (
-                      <p className="break-all text-xs text-muted-foreground">
-                        Available serial IDs: {line.serial_ids.join(', ')}
+              {lines.map(({ line, units, problem }) => {
+                const name = lineName(line)
+                const errorId = `return-serials-${line.id}-error`
+                const refused = problem && (attempted || serialsLeft[line.id]) ? problem : null
+                return (
+                  <div
+                    key={line.id}
+                    className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_8rem_1fr]"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        Line {line.line_number}
+                        {line.item_code && <span className="ml-2">{line.item_code}</span>}
                       </p>
+                      {line.item_name && (
+                        <p className="truncate text-xs text-muted-foreground">{line.item_name}</p>
+                      )}
+                      <p className="text-sm text-muted-foreground">
+                        Dispatched: {formatQuantity(line.quantity)}
+                      </p>
+                    </div>
+                    <Input
+                      aria-label={`Return quantity for ${name}`}
+                      type="number"
+                      min="0"
+                      max={line.quantity}
+                      step="any"
+                      placeholder="Quantity"
+                      value={quantities[line.id] ?? ''}
+                      onChange={(event) =>
+                        setQuantities((current) => ({ ...current, [line.id]: event.target.value }))
+                      }
+                    />
+                    <Input
+                      aria-label={`Return reason for ${name}`}
+                      placeholder="Reason"
+                      value={reasons[line.id] ?? ''}
+                      onChange={(event) =>
+                        setReasons((current) => ({ ...current, [line.id]: event.target.value }))
+                      }
+                    />
+                    {units.length > 0 && (
+                      <div className="sm:col-span-3">
+                        <Textarea
+                          aria-label={`Returned serial numbers for ${name}`}
+                          rows={2}
+                          placeholder="Serial numbers, one per line or comma separated"
+                          className="font-mono text-xs"
+                          value={serials[line.id] ?? ''}
+                          onChange={(event) =>
+                            setSerials((current) => ({ ...current, [line.id]: event.target.value }))
+                          }
+                          onBlur={() =>
+                            setSerialsLeft((current) => ({ ...current, [line.id]: true }))
+                          }
+                          aria-invalid={Boolean(refused)}
+                          aria-describedby={refused ? errorId : undefined}
+                        />
+                        <p className="mt-1 break-all text-xs text-muted-foreground">
+                          Dispatched serials: {units.map((unit) => unit.label).join(', ')}
+                        </p>
+                        <FieldError id={errorId} message={refused ?? undefined} />
+                      </div>
                     )}
                   </div>
-                  <Input
-                    aria-label={`Return quantity for ${line.item_id}`}
-                    type="number"
-                    min="0"
-                    max={line.quantity}
-                    step="any"
-                    placeholder="Quantity"
-                    value={quantities[line.id] ?? ''}
-                    onChange={(event) =>
-                      setQuantities((current) => ({ ...current, [line.id]: event.target.value }))
-                    }
-                  />
-                  {line.serial_ids.length > 0 && (
-                    <Input
-                      aria-label={`Returned serial IDs for ${line.item_id}`}
-                      placeholder="Serial IDs, comma separated"
-                      value={serials[line.id] ?? ''}
-                      onChange={(event) =>
-                        setSerials((current) => ({ ...current, [line.id]: event.target.value }))
-                      }
-                      className="sm:col-span-3"
-                    />
-                  )}
-                  <Input
-                    aria-label={`Return reason for ${line.item_id}`}
-                    placeholder="Reason"
-                    value={reasons[line.id] ?? ''}
-                    onChange={(event) =>
-                      setReasons((current) => ({ ...current, [line.id]: event.target.value }))
-                    }
-                  />
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
           <div className="space-y-2">
@@ -237,13 +329,73 @@ function NewSalesReturnDialog({
           <Button
             disabled={!canSubmit || create.isPending}
             loading={create.isPending}
-            onClick={() => create.mutate()}
+            onClick={() => {
+              setAttempted(true)
+              if (lines.every(({ problem }) => problem === null)) create.mutate()
+            }}
           >
             Create return
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** What came back: each line's item, quantity, units with their verdicts, and its credit. */
+function ReturnLines({ lines }: { lines: SalesReturnLine[] }) {
+  return (
+    <div className="overflow-x-auto" role="region" aria-label="Returned lines" tabIndex={0}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-left text-muted-foreground">
+            <th className="whitespace-nowrap p-2">Item</th>
+            <th className="whitespace-nowrap p-2 text-right">Quantity</th>
+            <th className="whitespace-nowrap p-2">Serials</th>
+            <th className="whitespace-nowrap p-2">Reason</th>
+            <th className="whitespace-nowrap p-2 text-right">Credited</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line) => (
+            <tr key={line.id} className="border-b align-top">
+              <td className="p-2">
+                <span className="block font-medium">{line.item_code ?? EMPTY_VALUE}</span>
+                {line.item_name && (
+                  <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+                    {line.item_name}
+                  </span>
+                )}
+              </td>
+              <td className="p-2 text-right tabular">{formatQuantity(line.quantity)}</td>
+              <td className="p-2">
+                {line.serial_ids.length === 0 ? (
+                  EMPTY_VALUE
+                ) : (
+                  <ul className="space-y-0.5">
+                    {labelSerials(line.serial_ids, line.serial_numbers).map((unit) => {
+                      const verdict = dispositionOf(line, unit.id)
+                      return (
+                        <li key={unit.id} className="whitespace-nowrap">
+                          <span className="font-mono text-xs">{unit.label}</span>
+                          {verdict && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              {humanise(verdict)}
+                            </span>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </td>
+              <td className="p-2">{reasonLabel(line.reason_code)}</td>
+              <td className="p-2 text-right tabular">{formatQuantity(line.credited_quantity)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -274,7 +426,7 @@ export default function SalesReturnsPage() {
     enabled: Boolean(selected),
     staleTime: staleTimes.transactional,
   })
-  const pendingSerials = undisposedSerialIds(selectedDetail.data)
+  const pendingSerials = undisposedSerials(selectedDetail.data)
   // The reason is the person's own: it is collected in a dialog that opens
   // empty, never pre-filled, because whatever a hurried OK sends is what the
   // audit trail keeps.
@@ -284,7 +436,7 @@ export default function SalesReturnsPage() {
     onSuccess: async (_result, { target }) => {
       toast.success(success.cancelled('Sales return'), target.code)
       setCancelling(null)
-      setSelected(null)
+      closeDetail()
       await queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
     },
     // The reason dialog shows the refusal beside what was typed.
@@ -314,8 +466,14 @@ export default function SalesReturnsPage() {
     meta: { suppressErrorToast: true },
   })
 
-  const selectedReturn = list.data?.find((row) => row.id === selected) ?? null
+  // The detail once it is read, so the actions follow the return's own status
+  // rather than a list row that may be older.
+  const selectedReturn: SalesReturnRow | null =
+    selectedDetail.data ?? list.data?.find((row) => row.id === selected) ?? null
   const availableActions = selectedReturn ? availableReturnActions(selectedReturn.status) : []
+  const mayDispose =
+    selectedReturn?.status === 'RECEIVED' && can(P.SALES_RETURN_CREATE) && pendingSerials.length > 0
+  const mayAct = can(P.SALES_RETURN_CREATE) && availableActions.length > 0
 
   const columns = useMemo<ColumnDef<SalesReturnRow, unknown>[]>(
     () => [
@@ -337,17 +495,47 @@ export default function SalesReturnsPage() {
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
-      { accessorKey: 'source', header: 'Source' },
-      { accessorKey: 'dispatch_id', header: 'Dispatch' },
-      { accessorKey: 'customer_id', header: 'Customer' },
+      {
+        accessorKey: 'source',
+        header: 'Source',
+        cell: ({ row }) => RETURN_SOURCES[row.original.source],
+      },
+      {
+        id: 'dispatch',
+        header: 'Dispatch',
+        cell: ({ row }) => row.original.dispatch_code ?? EMPTY_VALUE,
+      },
+      {
+        id: 'customer',
+        header: 'Customer',
+        cell: ({ row }) =>
+          row.original.customer_code ? (
+            <div className="min-w-0">
+              <span className="block font-medium">{row.original.customer_code}</span>
+              {row.original.customer_name && (
+                <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+                  {row.original.customer_name}
+                </span>
+              )}
+            </div>
+          ) : (
+            EMPTY_VALUE
+          ),
+      },
       {
         accessorKey: 'received_at',
         header: 'Received',
-        cell: ({ row }) => (row.original.received_at ? formatDate(row.original.received_at) : '-'),
+        cell: ({ row }) =>
+          row.original.received_at ? formatDate(row.original.received_at) : EMPTY_VALUE,
       },
     ],
     [],
   )
+
+  function closeDetail() {
+    setSelected(null)
+    setTransitionError(null)
+  }
 
   async function transition(row: SalesReturnRow, action: Exclude<SalesReturnAction, 'cancel'>) {
     const { id } = row
@@ -361,8 +549,10 @@ export default function SalesReturnsPage() {
           : success.closed('Sales return'),
         row.code,
       )
-      setSelected(null)
-      await list.refetch()
+      closeDetail()
+      // The detail as well as the list: the dialog reads the return's status
+      // from its own detail, which would otherwise reopen at the old one.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
     } catch (error) {
       const message = describeError(error, 'The return action failed.')
       setTransitionError(message)
@@ -382,64 +572,8 @@ export default function SalesReturnsPage() {
           ) : undefined
         }
       />
-      {selectedReturn && (
-        <div className="rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <strong>{selectedReturn.code}</strong>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Status: <StatusBadge status={selectedReturn.status} />
-              </div>
-            </div>
-            <Button variant="ghost" onClick={() => setSelected(null)}>
-              Hide details
-            </Button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {can(P.SALES_RETURN_CREATE) && availableActions.length > 0 ? (
-              availableActions.map((action) => (
-                <Button
-                  key={action}
-                  variant={action === 'cancel' ? 'destructive-outline' : 'default'}
-                  disabled={transitioning?.id === selectedReturn.id}
-                  loading={
-                    transitioning?.id === selectedReturn.id && transitioning.action === action
-                  }
-                  onClick={() =>
-                    action === 'cancel'
-                      ? setCancelling(selectedReturn)
-                      : void transition(selectedReturn, action)
-                  }
-                >
-                  {action === 'receive' ? 'Receive' : action === 'close' ? 'Close' : 'Cancel'}
-                </Button>
-              ))
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                No actions available for this status.
-              </span>
-            )}
-          </div>
-          {transitionError && <FieldError message={transitionError} />}
-          {selectedReturn.status === 'RECEIVED' &&
-            can(P.SALES_RETURN_CREATE) &&
-            pendingSerials.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setUnitDispositions({})
-                  setUnitDispositionError(null)
-                  setUnitDispositionOpen(true)
-                }}
-              >
-                Dispose serial units
-              </Button>
-            )}
-          {selectedDetail.error && (
-            <LoadError error={selectedDetail.error} onRetry={() => void selectedDetail.refetch()} />
-          )}
-        </div>
-      )}
+      {/* No sort is offered: the endpoint lists returns newest first and takes
+          no sort, so a heading that offered one would change nothing. */}
       <DataTable
         columns={columns}
         data={list.data}
@@ -447,8 +581,91 @@ export default function SalesReturnsPage() {
         error={list.error}
         pagination={list.pagination}
         onPageChange={list.setPage}
-        onSortChange={list.setSort}
       />
+      {/* A dialog, like the credit note's: opened from a row anywhere in a long
+          list, a panel above the table would open out of sight. */}
+      <Dialog
+        open={selectedReturn !== null}
+        onOpenChange={(open) => {
+          if (!open && !transitioning) closeDetail()
+        }}
+      >
+        {selectedReturn && (
+          <DialogContent size="lg">
+            <DialogHeader>
+              <DialogTitle>{selectedReturn.code}</DialogTitle>
+              <DialogDescription>{customerLabel(selectedReturn)}</DialogDescription>
+            </DialogHeader>
+            <DialogBody className="space-y-4 text-sm">
+              <DescriptionList
+                columns={3}
+                items={[
+                  { label: 'Status', value: <StatusBadge status={selectedReturn.status} /> },
+                  { label: 'Dispatch', value: selectedReturn.dispatch_code ?? EMPTY_VALUE },
+                  { label: 'Source', value: RETURN_SOURCES[selectedReturn.source] },
+                  {
+                    label: 'Received',
+                    value: selectedReturn.received_at
+                      ? formatDate(selectedReturn.received_at)
+                      : EMPTY_VALUE,
+                  },
+                  ...(selectedReturn.cancellation_reason
+                    ? [{ label: 'Cancellation reason', value: selectedReturn.cancellation_reason }]
+                    : []),
+                ]}
+              />
+              {selectedReturn.notes && (
+                <p className="text-muted-foreground">{selectedReturn.notes}</p>
+              )}
+              {selectedDetail.isLoading && (
+                <p className="text-muted-foreground">Loading line details…</p>
+              )}
+              {selectedDetail.error && (
+                <LoadError
+                  error={selectedDetail.error}
+                  onRetry={() => void selectedDetail.refetch()}
+                />
+              )}
+              {selectedDetail.data && <ReturnLines lines={selectedDetail.data.lines} />}
+              {transitionError && <FieldError message={transitionError} />}
+            </DialogBody>
+            {(mayAct || mayDispose) && (
+              <DialogFooter>
+                {mayDispose && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setUnitDispositions({})
+                      setUnitDispositionError(null)
+                      setUnitDispositionOpen(true)
+                    }}
+                  >
+                    Dispose serial units
+                  </Button>
+                )}
+                {mayAct &&
+                  availableActions.map((action) => (
+                    <Button
+                      key={action}
+                      variant={action === 'cancel' ? 'destructive-outline' : 'default'}
+                      disabled={transitioning?.id === selectedReturn.id}
+                      loading={
+                        transitioning?.id === selectedReturn.id && transitioning.action === action
+                      }
+                      onClick={() =>
+                        action === 'cancel'
+                          ? setCancelling(selectedReturn)
+                          : void transition(selectedReturn, action)
+                      }
+                    >
+                      {ACTION_LABELS[action]}
+                    </Button>
+                  ))}
+              </DialogFooter>
+            )}
+          </DialogContent>
+        )}
+      </Dialog>
       <NewSalesReturnDialog
         open={newReturnOpen}
         onClose={() => setNewReturnOpen(false)}
@@ -485,24 +702,24 @@ export default function SalesReturnsPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-3">
-            {pendingSerials.map((serialId) => (
+            {pendingSerials.map((unit) => (
               <div
-                key={serialId}
+                key={unit.id}
                 className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_12rem]"
               >
-                <code className="break-all text-xs">{serialId}</code>
+                <code className="break-all text-xs">{unit.label}</code>
                 <Select
-                  value={unitDispositions[serialId] ?? ''}
+                  value={unitDispositions[unit.id] ?? ''}
                   onValueChange={(value) => {
                     if (isSerialDisposition(value)) {
                       setUnitDispositions((current) => ({
                         ...current,
-                        [serialId]: value,
+                        [unit.id]: value,
                       }))
                     }
                   }}
                 >
-                  <SelectTrigger aria-label={`Disposition for ${serialId}`}>
+                  <SelectTrigger aria-label={`Disposition for ${unit.label}`}>
                     <SelectValue placeholder="Choose disposition" />
                   </SelectTrigger>
                   <SelectContent>

@@ -50,6 +50,7 @@ from src.modules.assembly.schemas import (
     AssemblyOrderSummary,
 )
 from src.modules.auth.schemas import MeResponse
+from src.modules.dispatch.schemas import DispatchDetail, DispatchLineRead, DispatchSummary
 from src.modules.inventory.schemas import ItemStockSummaryWithCost, WarehouseStockRowWithCost
 from src.modules.production.schemas import ProductionOrderDetail, ProductionOrderSummary
 from src.modules.products.schemas import (
@@ -94,6 +95,11 @@ MIRRORS: tuple[tuple[str, str, type[BaseModel]], ...] = (
     ("features/assembly/assembly-model.ts", "AssemblyOrderRow", AssemblyOrderSummary),
     ("features/assembly/assembly-model.ts", "AssemblyOrderDetail", AssemblyOrderDetail),
     ("features/assembly/assembly-model.ts", "AssemblyComponent", AssemblyComponentRead),
+    # The sales-return form reads a dispatch's lines for their item and serial
+    # labels, so the line gained both and the dispatch shapes are checked here.
+    ("features/dispatch/dispatch-types.ts", "DispatchRow", DispatchSummary),
+    ("features/dispatch/dispatch-types.ts", "DispatchDetail", DispatchDetail),
+    ("features/dispatch/dispatch-types.ts", "DispatchLine", DispatchLineRead),
 )
 
 #: Fields a mirror may declare that the model does not carry, with the reason.
