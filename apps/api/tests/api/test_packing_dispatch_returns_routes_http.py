@@ -539,8 +539,10 @@ class TestScanCarton:
         bench = await packing_bench(session, tenant)
         order_id, carton_id, barcode = await sealed_order(session, tenant, bench)
 
-        data = ok(await api_client.post("/packing/scan", json={"barcode": barcode}))
+        scanned = await api_client.post("/packing/scan", json={"barcode": barcode})
+        data = ok(scanned)
 
+        assert scanned.json()["message"] == "Carton scan recorded"
         assert data["carton"]["id"] == str(carton_id)
         assert data["packing_order"]["id"] == str(order_id)
         (scan,) = await audit_rows(session, tenant.company_id, carton_id, AuditAction.SCAN)

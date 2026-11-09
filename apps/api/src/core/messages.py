@@ -16,7 +16,23 @@ Rules for adding shared copy here:
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal
+
+# --- counts -------------------------------------------------------------------
+
+
+def plural(count: int | Decimal, one: str, many: str | None = None) -> str:
+    """``"1 line"``, ``"3 lines"``, ``"2 boxes"``: a count with its noun in the right number.
+
+    The twin of ``plural`` in the frontend's ``lib/format.ts``, so no sentence
+    the API writes says ``line(s)`` either. ``many`` names a plural that is not
+    the noun plus ``s``. The count is written as given, like every other number
+    in an API sentence, so a quantity keeps its own scale (``"2.500 units"``).
+    """
+    noun = one if count == 1 else (f"{one}s" if many is None else many)
+    return f"{count} {noun}"
+
 
 # --- successes ----------------------------------------------------------------
 
@@ -72,6 +88,7 @@ SuccessAction = Literal[
     "cleared",
     "suspended",
     "reactivated",
+    "verified",
 ]
 
 
@@ -192,6 +209,7 @@ __all__ = [
     "date_before",
     "held_for_inspection",
     "inactive_record",
+    "plural",
     "success_message",
     "verdict_differs_from_inspection",
 ]

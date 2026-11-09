@@ -67,6 +67,26 @@ async def test_account_list_is_paginated_and_tenant_scoped(
 
 
 @pytest.mark.asyncio
+async def test_each_account_change_names_what_changed(api_client: AsyncClient) -> None:
+    created = await api_client.post(
+        "/integrations/courier/accounts",
+        json={"code": "GEN-MSG", "provider": "GENERIC_WEBHOOK", "display_name": "Generic"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["message"] == "Courier account created"
+    account = f"/integrations/courier/accounts/{created.json()['data']['id']}"
+
+    updated = await api_client.patch(account, json={"display_name": "Generic courier"})
+    rotated = await api_client.post(f"{account}/rotate-webhook")
+    tested = await api_client.post(f"{account}/test")
+
+    assert [response.status_code for response in (updated, rotated, tested)] == [200] * 3
+    assert updated.json()["message"] == "Courier account updated"
+    assert rotated.json()["message"] == "Webhook secret reset"
+    assert tested.json()["message"] == "Courier connection verified"
+
+
+@pytest.mark.asyncio
 async def test_generic_webhook_verifies_signature_and_deduplicates_events(
     api_client: AsyncClient,
     session: AsyncSession,
@@ -126,6 +146,7 @@ async def test_generic_webhook_verifies_signature_and_deduplicates_events(
 
     assert valid.status_code == 202
     assert valid.json()["data"]["events_recorded"] == 1
+    assert valid.json()["message"] == "Webhook accepted"
     assert repeated.status_code == 202
     assert repeated.json()["data"]["events_recorded"] == 0
 

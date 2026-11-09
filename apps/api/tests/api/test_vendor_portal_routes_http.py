@@ -218,13 +218,13 @@ async def test_progress_is_recorded_and_audited_but_moves_no_stock_or_status(
     held_at_vendor = Decimal(before.job_work_quantity)
     sign_in(works.account)
 
-    data = ok(
-        await api_client.post(
-            f"/vendor-portal/job-work/{works.issued_id}/status",
-            json=progress(note="  Surface preparation is underway  "),
-        ),
-        201,
+    reported = await api_client.post(
+        f"/vendor-portal/job-work/{works.issued_id}/status",
+        json=progress(note="  Surface preparation is underway  "),
     )
+    data = ok(reported, 201)
+
+    assert reported.json()["message"] == "Job work progress recorded"
 
     assert (data["update_type"], data["note"]) == ("IN_PROCESS", "Surface preparation is underway")
     update_id = uuid.UUID(data["id"])

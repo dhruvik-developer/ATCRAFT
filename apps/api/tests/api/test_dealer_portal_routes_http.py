@@ -106,11 +106,13 @@ WEEK = timedelta(days=7)
 # -----------------------------------------------------------------------------
 
 
-def ok(response: Response, status: int = 200) -> Any:
-    """The success envelope's ``data``, after checking the status and the flag."""
+def ok(response: Response, status: int = 200, *, message: str | None = None) -> Any:
+    """The success envelope's ``data``, after checking the status, the flag and any message."""
     assert response.status_code == status, response.text
     body = response.json()
     assert body["success"] is True, body
+    if message is not None:
+        assert body["message"] == message, body
     return body["data"]
 
 
@@ -1692,6 +1694,7 @@ async def test_a_banner_is_created_read_listed_and_edited(
             },
         ),
         201,
+        message="Banner created",
     )
 
     assert (created["code"], created["status"], created["link_kind"]) == (code, "INACTIVE", "NONE")
@@ -1714,7 +1717,8 @@ async def test_a_banner_is_created_read_listed_and_edited(
                 "link_id": str(item_id),
                 "sort_order": 1,
             },
-        )
+        ),
+        message="Banner updated",
     )
 
     assert (edited["title"], edited["link_kind"], edited["link_id"]) == (
@@ -1799,7 +1803,10 @@ async def test_a_banner_moves_through_its_lifecycle_with_a_reason_each_time(
     assert "reason" in field_errors(
         await api_client.post(f"{base}/activate", json={"reason": "  "})
     )
-    active = ok(await api_client.post(f"{base}/activate", json={"reason": "Launch approved"}))
+    active = ok(
+        await api_client.post(f"{base}/activate", json={"reason": "Launch approved"}),
+        message="Banner activated",
+    )
     assert active["status"] == "ACTIVE"
     again = refused(
         await api_client.post(f"{base}/activate", json={"reason": "Launch approved"}),
@@ -1807,14 +1814,20 @@ async def test_a_banner_moves_through_its_lifecycle_with_a_reason_each_time(
         "INVALID_STATE_TRANSITION",
     )
     assert again["details"]["current_status"] == "ACTIVE"
-    paused = ok(await api_client.post(f"{base}/deactivate", json={"reason": "Paused for stock"}))
+    paused = ok(
+        await api_client.post(f"{base}/deactivate", json={"reason": "Paused for stock"}),
+        message="Banner deactivated",
+    )
     assert paused["status"] == "INACTIVE"
     refused(
         await api_client.post(f"{base}/deactivate", json={"reason": "Paused again"}),
         422,
         "INVALID_STATE_TRANSITION",
     )
-    retired = ok(await api_client.post(f"{base}/retire", json={"reason": "Season over"}))
+    retired = ok(
+        await api_client.post(f"{base}/retire", json={"reason": "Season over"}),
+        message="Banner retired",
+    )
     assert retired["status"] == "ARCHIVED"
 
     row = await session.scalar(select(DealerBanner).where(DealerBanner.id == uuid.UUID(banner_id)))
@@ -1867,12 +1880,14 @@ async def test_deleting_a_banner_or_an_offer_retires_it_with_a_reason(
     banner = ok(
         await api_client.request(
             "DELETE", f"/promotions/banners/{banner_id}", json={"reason": "Replaced by festive"}
-        )
+        ),
+        message="Banner retired",
     )
     offer = ok(
         await api_client.request(
             "DELETE", f"/promotions/offers/{offer_id}", json={"reason": "Scheme withdrawn"}
-        )
+        ),
+        message="Offer retired",
     )
 
     assert banner["status"] == "ARCHIVED"
@@ -1930,6 +1945,7 @@ async def test_an_offer_is_created_read_listed_edited_and_previewed(
             },
         ),
         201,
+        message="Offer created",
     )
 
     assert (created["status"], created["is_active"]) == ("INACTIVE", False)
@@ -1949,7 +1965,8 @@ async def test_an_offer_is_created_read_listed_edited_and_previewed(
         await api_client.patch(
             f"/promotions/offers/{offer_id}",
             json={"title": "Handles festival - extended", "discount_percentage": "15"},
-        )
+        ),
+        message="Offer updated",
     )
 
     decimal_equal(edited["discount_percentage"], "15")
@@ -2021,21 +2038,30 @@ async def test_an_offer_moves_through_its_lifecycle_with_a_reason_each_time(
     )["id"]
     base = f"/promotions/offers/{offer_id}"
 
-    active = ok(await api_client.post(f"{base}/activate", json={"reason": "Approved by sales"}))
+    active = ok(
+        await api_client.post(f"{base}/activate", json={"reason": "Approved by sales"}),
+        message="Offer activated",
+    )
     assert (active["status"], active["is_active"]) == ("ACTIVE", True)
     refused(
         await api_client.post(f"{base}/activate", json={"reason": "Approved twice"}),
         422,
         "INVALID_STATE_TRANSITION",
     )
-    paused = ok(await api_client.post(f"{base}/deactivate", json={"reason": "Margin review"}))
+    paused = ok(
+        await api_client.post(f"{base}/deactivate", json={"reason": "Margin review"}),
+        message="Offer deactivated",
+    )
     assert (paused["status"], paused["is_active"]) == ("INACTIVE", False)
     refused(
         await api_client.post(f"{base}/deactivate", json={"reason": "Paused twice"}),
         422,
         "INVALID_STATE_TRANSITION",
     )
-    retired = ok(await api_client.post(f"{base}/retire", json={"reason": "Scheme closed"}))
+    retired = ok(
+        await api_client.post(f"{base}/retire", json={"reason": "Scheme closed"}),
+        message="Offer retired",
+    )
     assert retired["status"] == "ARCHIVED"
 
     row = await session.scalar(select(DealerOffer).where(DealerOffer.id == uuid.UUID(offer_id)))

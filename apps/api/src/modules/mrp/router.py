@@ -36,7 +36,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.messages import success_message
+from src.core.messages import plural, success_message
 from src.core.pagination import (
     PageParams,
     SortParams,
@@ -221,7 +221,10 @@ async def start_run(
         return AcceptedJobResponse.create(
             job_id=str(run.id),
             status_url=service.status_url(run.id),
-            message=(f"Planning run {run.code} queued with {run.demand_line_count} demand lines."),
+            message=(
+                f"Planning run {run.code} queued with "
+                f"{plural(run.demand_line_count, 'demand line')}"
+            ),
         )
     return ApiResponse[MrpRunRead].ok(run, success_message(f"Planning run {run.code}", "completed"))
 

@@ -53,6 +53,7 @@ async def test_subscribe_list_foreign_delete_takeover(
     payload = _payload()
     response = await api_client.post("/notifications/push/subscriptions", json=payload)
     assert response.status_code == 200, response.text
+    assert response.json()["message"] == "Push subscription added"
     data = response.json()["data"]
     assert "endpoint" not in data and "p256dh" not in data and "auth" not in data
     device_id = data["id"]
@@ -83,6 +84,23 @@ async def test_subscribe_list_foreign_delete_takeover(
         "/notifications/push/subscriptions/unregister", json={"endpoint": payload["endpoint"]}
     )
     assert removed.status_code == 200 and removed.json()["data"]["removed"]
+    assert removed.json()["message"] == "Push subscription removed"
+
+
+async def test_a_test_push_and_a_removal_say_what_happened(api_client, push_enabled):
+    added = await api_client.post("/notifications/push/subscriptions", json=_payload())
+    assert added.status_code == 200, added.text
+
+    tested = await api_client.post("/notifications/push/test")
+    removed = await api_client.delete(
+        f"/notifications/push/subscriptions/{added.json()['data']['id']}"
+    )
+
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["data"]["queued"] == 1
+    assert tested.json()["message"] == "Test notification sent"
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["message"] == "Push subscription removed"
 
 
 @pytest.mark.parametrize(

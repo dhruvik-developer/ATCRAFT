@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 
 from src.core.deps import DbSession, Tenant, require_permission
+from src.core.messages import success_message
 from src.core.pagination import CursorParams, cursor_params
 from src.core.permissions import Permission
 from src.core.responses import ApiResponse, CursorPaginatedResponse
@@ -35,7 +36,8 @@ async def subscribe(
     payload: PushSubscribeRequest, request: Request, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PushSubscriptionRead]:
     return ApiResponse.ok(
-        await PushService(session, tenant).subscribe(payload, request.headers.get("user-agent"))
+        await PushService(session, tenant).subscribe(payload, request.headers.get("user-agent")),
+        success_message("Push subscription", "added"),
     )
 
 
@@ -52,7 +54,9 @@ async def delete_subscription(
     subscription_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PushDeleteRead]:
     await PushService(session, tenant).remove(subscription_id)
-    return ApiResponse.ok(PushDeleteRead(removed=True))
+    return ApiResponse.ok(
+        PushDeleteRead(removed=True), success_message("Push subscription", "removed")
+    )
 
 
 @router.post("/subscriptions/unregister", response_model=ApiResponse[PushDeleteRead])
@@ -60,9 +64,14 @@ async def unregister(
     payload: PushEndpointRequest, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PushDeleteRead]:
     removed = await PushService(session, tenant).unregister(payload.endpoint)
-    return ApiResponse.ok(PushDeleteRead(removed=removed))
+    return ApiResponse.ok(
+        PushDeleteRead(removed=removed), success_message("Push subscription", "removed")
+    )
 
 
 @router.post("/test", response_model=ApiResponse[PushTestRead])
 async def test_push(session: DbSession, tenant: Tenant) -> ApiResponse[PushTestRead]:
-    return ApiResponse.ok(PushTestRead(queued=await PushService(session, tenant).test()))
+    return ApiResponse.ok(
+        PushTestRead(queued=await PushService(session, tenant).test()),
+        success_message("Test notification", "sent"),
+    )

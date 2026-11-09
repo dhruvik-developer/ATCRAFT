@@ -22,6 +22,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import resolve_client_ip
+from src.core.messages import success_message
 from src.core.pagination import CursorParams, PageParams, cursor_params, page_params
 from src.core.permissions import Permission
 from src.core.ratelimit import enforce_rate_limit
@@ -89,7 +90,10 @@ async def list_accounts(
 async def create_account(
     payload: CourierAccountCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[CourierAccountRead]:
-    return ApiResponse.ok(await service.create_account(session, tenant, payload))
+    return ApiResponse.ok(
+        await service.create_account(session, tenant, payload),
+        success_message("Courier account", "created"),
+    )
 
 
 @router.patch(
@@ -106,7 +110,10 @@ async def update_account(
     session: DbSession,
     tenant: Tenant,
 ) -> ApiResponse[CourierAccountRead]:
-    return ApiResponse.ok(await service.update_account(session, tenant, account_id, payload))
+    return ApiResponse.ok(
+        await service.update_account(session, tenant, account_id, payload),
+        success_message("Courier account", "updated"),
+    )
 
 
 @router.post(
@@ -125,7 +132,10 @@ async def rotate_webhook(
     header = (
         "X-Api-Key" if account.provider is CourierProvider.SHIPROCKET else "X-Courier-Signature"
     )
-    return ApiResponse.ok(RotateWebhookRead(webhook_url=url, secret=secret, header_name=header))
+    return ApiResponse.ok(
+        RotateWebhookRead(webhook_url=url, secret=secret, header_name=header),
+        success_message("Webhook secret", "reset"),
+    )
 
 
 @router.post(
@@ -140,7 +150,10 @@ async def test_connection(
     account_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[CourierTestRead]:
     provider = await service.test_connection(session, tenant, account_id)
-    return ApiResponse.ok(CourierTestRead(connected=True, provider=provider))
+    return ApiResponse.ok(
+        CourierTestRead(connected=True, provider=provider),
+        success_message("Courier connection", "verified"),
+    )
 
 
 @router.post(
@@ -160,7 +173,7 @@ async def refresh_tracking(
         dispatch_id=payload.dispatch_id,
         shipment_id=payload.shipment_id,
     )
-    return ApiResponse.ok({"events_recorded": count})
+    return ApiResponse.ok({"events_recorded": count}, success_message("Tracking", "refreshed"))
 
 
 @router.get(
@@ -243,7 +256,7 @@ async def courier_webhook(
         if not isinstance(payload_data, dict):
             raise ValidationError("Courier webhook payload must be an object.")
         count = await service.ingest_shiprocket_webhook(session, account, payload_data)
-    return ApiResponse.ok({"events_recorded": count}, message="Webhook accepted.")
+    return ApiResponse.ok({"events_recorded": count}, message="Webhook accepted")
 
 
 async def _bounded_body(request: Request) -> bytes:

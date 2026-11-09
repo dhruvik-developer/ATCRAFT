@@ -350,6 +350,8 @@ async def test_a_large_run_is_queued_and_answered_with_a_status_url(
         MrpRunMode.ASYNC,
         1,
     )
+    # One demand line, so one in the title: no "1 demand lines", no trailing period.
+    assert response.json()["message"] == f"Planning run {stored.code} queued with 1 demand line"
     assert stored.celery_task_id is not None and stored.celery_task_id.startswith("task-")
     polled = ok(await api_client.get(relative(job["status_url"])))
     assert (polled["id"], polled["status"]) == (str(run_id), "QUEUED")

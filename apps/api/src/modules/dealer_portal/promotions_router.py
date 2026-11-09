@@ -14,6 +14,7 @@ from src.core.deps import (
     forbid_vendor_users,
     require_permission,
 )
+from src.core.messages import success_message
 from src.core.pagination import PageParams, page_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -51,7 +52,7 @@ async def activate_banner(
         "banners", identity, DealerBannerStatus.ACTIVE, payload.reason
     )
     return ApiResponse[DealerBannerRead].ok(
-        DealerBannerRead.model_validate(row.model_dump()), "Promotion activated successfully"
+        DealerBannerRead.model_validate(row.model_dump()), success_message("Banner", "activated")
     )
 
 
@@ -67,7 +68,7 @@ async def deactivate_banner(
         "banners", identity, DealerBannerStatus.INACTIVE, payload.reason
     )
     return ApiResponse[DealerBannerRead].ok(
-        DealerBannerRead.model_validate(row.model_dump()), "Promotion deactivated successfully"
+        DealerBannerRead.model_validate(row.model_dump()), success_message("Banner", "deactivated")
     )
 
 
@@ -81,7 +82,7 @@ async def retire_banner_with_reason(
 ) -> ApiResponse[DealerBannerRead]:
     row = await PromotionService(session, tenant).retire("banners", identity, payload.reason)
     return ApiResponse[DealerBannerRead].ok(
-        DealerBannerRead.model_validate(row.model_dump()), "Promotion retired successfully"
+        DealerBannerRead.model_validate(row.model_dump()), success_message("Banner", "retired")
     )
 
 
@@ -97,7 +98,7 @@ async def activate_offer(
         "offers", identity, DealerBannerStatus.ACTIVE, payload.reason
     )
     return ApiResponse[DealerOfferRead].ok(
-        DealerOfferRead.model_validate(row.model_dump()), "Promotion activated successfully"
+        DealerOfferRead.model_validate(row.model_dump()), success_message("Offer", "activated")
     )
 
 
@@ -113,7 +114,7 @@ async def deactivate_offer(
         "offers", identity, DealerBannerStatus.INACTIVE, payload.reason
     )
     return ApiResponse[DealerOfferRead].ok(
-        DealerOfferRead.model_validate(row.model_dump()), "Promotion deactivated successfully"
+        DealerOfferRead.model_validate(row.model_dump()), success_message("Offer", "deactivated")
     )
 
 
@@ -127,7 +128,7 @@ async def retire_offer_with_reason(
 ) -> ApiResponse[DealerOfferRead]:
     row = await PromotionService(session, tenant).retire("offers", identity, payload.reason)
     return ApiResponse[DealerOfferRead].ok(
-        DealerOfferRead.model_validate(row.model_dump()), "Promotion retired successfully"
+        DealerOfferRead.model_validate(row.model_dump()), success_message("Offer", "retired")
     )
 
 
@@ -185,7 +186,7 @@ async def create_banner(
 ) -> ApiResponse[DealerBannerRead]:
     row = await PromotionService(session, tenant).create("banners", payload)
     return ApiResponse[DealerBannerRead].ok(
-        DealerBannerRead.model_validate(row.model_dump()), "Promotion created successfully"
+        DealerBannerRead.model_validate(row.model_dump()), success_message("Banner", "created")
     )
 
 
@@ -199,7 +200,7 @@ async def update_banner(
 ) -> ApiResponse[DealerBannerRead]:
     row = await PromotionService(session, tenant).update("banners", identity, payload)
     return ApiResponse[DealerBannerRead].ok(
-        DealerBannerRead.model_validate(row.model_dump()), "Promotion updated successfully"
+        DealerBannerRead.model_validate(row.model_dump()), success_message("Banner", "updated")
     )
 
 
@@ -213,7 +214,7 @@ async def retire_banner(
 ) -> ApiResponse[DealerBannerRead]:
     row = await PromotionService(session, tenant).retire("banners", identity, payload.reason)
     return ApiResponse[DealerBannerRead].ok(
-        DealerBannerRead.model_validate(row.model_dump()), "Promotion retired successfully"
+        DealerBannerRead.model_validate(row.model_dump()), success_message("Banner", "retired")
     )
 
 
@@ -259,7 +260,7 @@ async def create_offer(
 ) -> ApiResponse[DealerOfferRead]:
     row = await PromotionService(session, tenant).create("offers", payload)
     return ApiResponse[DealerOfferRead].ok(
-        DealerOfferRead.model_validate(row.model_dump()), "Promotion created successfully"
+        DealerOfferRead.model_validate(row.model_dump()), success_message("Offer", "created")
     )
 
 
@@ -273,7 +274,7 @@ async def update_offer(
 ) -> ApiResponse[DealerOfferRead]:
     row = await PromotionService(session, tenant).update("offers", identity, payload)
     return ApiResponse[DealerOfferRead].ok(
-        DealerOfferRead.model_validate(row.model_dump()), "Promotion updated successfully"
+        DealerOfferRead.model_validate(row.model_dump()), success_message("Offer", "updated")
     )
 
 
@@ -287,5 +288,5 @@ async def retire_offer(
 ) -> ApiResponse[DealerOfferRead]:
     row = await PromotionService(session, tenant).retire("offers", identity, payload.reason)
     return ApiResponse[DealerOfferRead].ok(
-        DealerOfferRead.model_validate(row.model_dump()), "Promotion retired successfully"
+        DealerOfferRead.model_validate(row.model_dump()), success_message("Offer", "retired")
     )

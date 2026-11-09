@@ -269,7 +269,7 @@ async def record_carton_scan(
     session: DbSession, tenant: Tenant, payload: CartonScanRequest
 ) -> ApiResponse[CartonScanResult]:
     result = await service.record_carton_scan(session, tenant, payload.barcode)
-    return ApiResponse[CartonScanResult].ok(result)
+    return ApiResponse[CartonScanResult].ok(result, success_message("Carton scan", "recorded"))
 
 
 # -----------------------------------------------------------------------------

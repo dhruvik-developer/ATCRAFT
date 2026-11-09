@@ -155,7 +155,8 @@ async def report_job_work_status(
     tenant: Tenant,
 ) -> ApiResponse[VendorJobWorkUpdateRead]:
     return ApiResponse[VendorJobWorkUpdateRead].ok(
-        await VendorPortalService(session, tenant).report_job_work_update(order_id, payload)
+        await VendorPortalService(session, tenant).report_job_work_update(order_id, payload),
+        success_message("Job work progress", "recorded"),
     )
 
 
