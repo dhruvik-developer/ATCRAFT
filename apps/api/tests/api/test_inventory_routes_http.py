@@ -1581,6 +1581,122 @@ class TestUpdateAdjustment:
             == 0
         )
 
+    @pytest.mark.parametrize(
+        ("whose", "status", "code"),
+        [
+            pytest.param("foreign", 404, "NOT_FOUND", id="another-companys-bin"),
+            pytest.param("elsewhere", 422, "BUSINESS_RULE_VIOLATION", id="another-warehouses-bin"),
+            pytest.param("inactive", 422, "BUSINESS_RULE_VIOLATION", id="write-up-into-a-shut-bin"),
+        ],
+    )
+    async def test_a_new_draft_naming_a_bin_it_cannot_use_is_refused(
+        self, api_client, session, tenant, foreign, unique_code, whose, status, code
+    ) -> None:
+        item_id, warehouse_id = await stocked(session, tenant, unique_code)
+        if whose == "foreign":
+            store = await seed_support.seed_warehouse(
+                session, company_id=foreign.company_id, code=unique_code("WH")
+            )
+            bin_id = (await _bin(session, foreign.company_id, store, unique_code)).id
+        elif whose == "elsewhere":
+            store = await seed_support.seed_warehouse(
+                session, company_id=tenant.company_id, code=unique_code("WH")
+            )
+            bin_id = (await _bin(session, tenant.company_id, store, unique_code)).id
+        else:
+            here = SimpleNamespace(id=warehouse_id)
+            bin_id = (await _bin(session, tenant.company_id, here, unique_code, is_active=False)).id
+
+        error = refused(
+            await api_client.post(
+                "/inventory/adjustments",
+                json=adjustment(
+                    warehouse_id, item_id, "2", unit_cost="19", location_id=str(bin_id)
+                ),
+            ),
+            status,
+            code,
+        )
+
+        if status == 422:
+            assert error["details"]["line_number"] == 1
+            assert error["details"]["location_id"] == str(bin_id)
+        assert (
+            await rows_where(session, StockAdjustment, StockAdjustment.warehouse_id == warehouse_id)
+            == 0
+        )
+
+    async def test_a_draft_keeps_the_bins_of_its_own_warehouse(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        item_id, warehouse_id = await stocked(session, tenant, unique_code)
+        here = SimpleNamespace(id=warehouse_id)
+        rack_id = (await _bin(session, tenant.company_id, here, unique_code)).id
+        # A shut bin still gives its stock up: a write-down out of it is a draft.
+        shut = await _bin(session, tenant.company_id, here, unique_code)
+        shut_id = shut.id
+        await post_movement(
+            session,
+            tenant,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            location_id=shut_id,
+            quantity=Decimal("3"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="test",
+            reference_id=None,
+            reference_code=None,
+            reason="Opening test stock",
+            unit_cost=Decimal("12"),
+        )
+        shut.is_active = False
+        await session.flush()
+        body = adjustment(warehouse_id, item_id, "2", unit_cost="19", location_id=str(rack_id))
+        body["lines"].append(
+            {"item_id": str(item_id), "quantity": "-1", "location_id": str(shut_id)}
+        )
+
+        data = ok(await api_client.post("/inventory/adjustments", json=body), 201)
+
+        assert [line["location_id"] for line in data["lines"]] == [str(rack_id), str(shut_id)]
+        stored = await session.scalars(
+            select(StockAdjustmentLine.location_id)
+            .where(StockAdjustmentLine.adjustment_id == uuid.UUID(data["id"]))
+            .order_by(StockAdjustmentLine.line_number)
+        )
+        assert list(stored) == [rack_id, shut_id]
+
+    async def test_a_line_moved_to_another_companys_bin_is_not_found(
+        self, api_client, session, tenant, foreign, unique_code
+    ) -> None:
+        item_id, warehouse_id = await stocked(session, tenant, unique_code)
+        rack_id = (
+            await _bin(session, tenant.company_id, SimpleNamespace(id=warehouse_id), unique_code)
+        ).id
+        draft = await StockAdjustmentService(session, tenant).create(
+            StockAdjustmentCreate.model_validate(
+                adjustment(warehouse_id, item_id, "2", unit_cost="19", location_id=str(rack_id))
+            )
+        )
+        draft_id = draft.id
+        store = await seed_support.seed_warehouse(
+            session, company_id=foreign.company_id, code=unique_code("WH")
+        )
+        theirs = (await _bin(session, foreign.company_id, store, unique_code)).id
+
+        response = await api_client.patch(
+            f"/inventory/adjustments/{draft_id}",
+            json=adjustment(warehouse_id, item_id, "2", unit_cost="19", location_id=str(theirs)),
+        )
+
+        refused(response, 404, "NOT_FOUND")
+        stored = await session.scalars(
+            select(StockAdjustmentLine.location_id).where(
+                StockAdjustmentLine.adjustment_id == draft_id
+            )
+        )
+        assert list(stored) == [rack_id]
+
 
 # -----------------------------------------------------------------------------
 # POST /inventory/adjustments/{adjustment_id}/approve | reject

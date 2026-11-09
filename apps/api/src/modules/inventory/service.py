@@ -5996,9 +5996,16 @@ class StockAdjustmentService:
             )
 
     async def _check_header(self, payload: StockAdjustmentCreate) -> dict[uuid.UUID, ItemFacts]:
-        """The warehouse, every item and every named lot the draft names exist in this tenant."""
+        """The warehouse, every item, lot and bin the draft names exist in this tenant.
+
+        Each named bin must also be in the draft's warehouse, and a bin a line
+        writes stock up into must be active - the rules the posting would apply,
+        answered while the operator is still looking at the line rather than to
+        the approver at posting.
+        """
         warehouses = await self.inventory.warehouse_facts([payload.warehouse_id])
-        if payload.warehouse_id not in warehouses:
+        warehouse = warehouses.get(payload.warehouse_id)
+        if warehouse is None:
             raise NotFoundError("Warehouse", payload.warehouse_id)
         items = await self.inventory.item_facts([line.item_id for line in payload.lines])
         missing = [line.item_id for line in payload.lines if line.item_id not in items]
@@ -6014,11 +6021,20 @@ class StockAdjustmentService:
         lots = await self.inventory.batch_owners(
             [line.batch_id for line in payload.lines if line.batch_id is not None]
         )
+        bins = await self.inventory.location_facts(
+            [line.location_id for line in payload.lines if line.location_id is not None]
+        )
 
         for number, line in enumerate(payload.lines, start=1):
             item = items[line.item_id]
             if line.batch_id is not None:
                 _assert_line_batch(number, line.item_id, line.batch_id, lots)
+            if line.location_id is not None:
+                # A positive line writes stock up into the bin; a negative one
+                # draws it out.
+                _assert_line_location(
+                    number, line.location_id, bins, warehouse, receiving=line.quantity > 0
+                )
             if item.is_serial_tracked and not line.serial_ids:
                 raise BusinessRuleError(
                     f"Line {number}: {item.code} is serial tracked, so the units being "
@@ -7522,33 +7538,55 @@ async def _assert_document_lines(
         else:
             _assert_line_batch(number, position.item_id, position.batch_id, batches)
         for location_id, receiving in position.locations:
-            if location_id is None:
-                continue
-            location = locations.get(location_id)
-            if location is None:
-                raise NotFoundError("Storage location", location_id)
-            if location.warehouse_id != warehouse.id:
-                raise BusinessRuleError(
-                    f"Line {number}: storage location {location.code} is not in "
-                    f"warehouse {warehouse.code}.",
-                    details={
-                        "line_number": number,
-                        "location_id": str(location_id),
-                        "location_code": location.code,
-                        "warehouse_code": warehouse.code,
-                    },
-                )
-            if receiving and not location.is_active:
-                raise BusinessRuleError(
-                    f"Line {number}: "
-                    + inactive_record("Storage location", location.code, "cannot receive stock"),
-                    details={
-                        "line_number": number,
-                        "location_id": str(location_id),
-                        "location_code": location.code,
-                    },
+            if location_id is not None:
+                _assert_line_location(
+                    number, location_id, locations, warehouse, receiving=receiving
                 )
     return items
+
+
+def _assert_line_location(
+    number: int,
+    location_id: uuid.UUID,
+    locations: Mapping[uuid.UUID, LocationFacts],
+    warehouse: WarehouseFacts,
+    *,
+    receiving: bool,
+) -> None:
+    """The bin a document line names is a live bin of this company, in its warehouse.
+
+    ``locations`` is :meth:`InventoryRepository.location_facts` for the whole
+    document - tenant-scoped, one query, soft-deleted bins excluded. The foreign
+    key on a line's ``location_id`` is company-blind, so without this a draft
+    can name another company's bin, or a bin in another warehouse: stored
+    happily, and refused only when it posts. A bin that takes stock in must
+    also be active; one that gives stock up need not be, the asymmetry every
+    other bin rule follows.
+    """
+    location = locations.get(location_id)
+    if location is None:
+        raise NotFoundError("Storage location", location_id)
+    if location.warehouse_id != warehouse.id:
+        raise BusinessRuleError(
+            f"Line {number}: storage location {location.code} is not in "
+            f"warehouse {warehouse.code}.",
+            details={
+                "line_number": number,
+                "location_id": str(location_id),
+                "location_code": location.code,
+                "warehouse_code": warehouse.code,
+            },
+        )
+    if receiving and not location.is_active:
+        raise BusinessRuleError(
+            f"Line {number}: "
+            + inactive_record("Storage location", location.code, "cannot receive stock"),
+            details={
+                "line_number": number,
+                "location_id": str(location_id),
+                "location_code": location.code,
+            },
+        )
 
 
 async def _document_warehouse(
