@@ -11,7 +11,14 @@
  *    stale with no consequence. A stock balance cannot be stale at all.
  */
 
-import { QueryCache, QueryClient, MutationCache } from '@tanstack/react-query'
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  type DefaultOptions,
+  type MutationCacheConfig,
+  type QueryCacheConfig,
+} from '@tanstack/react-query'
 
 import { ApiError, clearTokens } from './api-client'
 import { reportError } from './error-reporting'
@@ -71,88 +78,125 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 2
 }
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: staleTimes.master,
-      gcTime: 10 * 60 * 1000,
-      retry: shouldRetry,
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
-      // Refetching every list on tab focus is wasteful in an app people leave
-      // open all day; individual live queries opt back in.
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: true,
-    },
-    mutations: {
-      // A mutation that failed may have partially applied. Retrying it
-      // automatically risks double-posting stock or duplicating a document.
-      retry: false,
-    },
-  },
+const queryDefaults: DefaultOptions['queries'] = {
+  staleTime: staleTimes.master,
+  gcTime: 10 * 60 * 1000,
+  retry: shouldRetry,
+  retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+  // Refetching every list on tab focus is wasteful in an app people leave
+  // open all day; individual live queries opt back in.
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: true,
+}
 
-  queryCache: new QueryCache({
-    onError: (error, query) => {
-      if (!(error instanceof ApiError)) {
-        reportError(error, { source: 'query' })
-        if (query.state.data === undefined && !query.meta?.suppressErrorToast) {
-          toast.error(errors.loadFailed, errors.unexpectedDetail)
-        }
-        return
-      }
-      if (error.isAuthError) {
-        clearTokens()
-        return
-      }
-      // Background refetches fail silently; only surface an error the user is
-      // actually waiting on.
-      if (query.state.data !== undefined) return
-      if (error.isPermissionError) {
-        toast.error(errors.notPermitted, error.message)
-        return
-      }
-      // A query that renders its own expected rejection inline (the UoM
-      // conversion check, where a 422 is the business answer) opts out here.
-      if (query.meta?.suppressErrorToast) return
-      toast.error(errors.loadFailed, errorDescription(error))
-    },
-  }),
+const mutationDefaults: DefaultOptions['mutations'] = {
+  // A mutation that failed may have partially applied. Retrying it
+  // automatically risks double-posting stock or duplicating a document.
+  retry: false,
+}
 
-  mutationCache: new MutationCache({
-    // TanStack runs this before the mutation's own `onError`, so anything the
-    // mutation adds there is a second announcement - see `ErrorNetMeta`.
-    onError: (error, _variables, _context, mutation) => {
-      const meta = mutation.meta
-      if (!(error instanceof ApiError)) {
-        // Reported whether or not the screen shows it: a crash is a defect to
-        // find, and the inline copy a screen renders is the safe fallback.
-        reportError(error, { source: 'mutation' })
-        if (meta?.suppressErrorToast) return
-        toast.error(meta?.errorTitle ?? errors.unexpected, errors.unexpectedDetail)
-        return
-      }
-      if (error.isAuthError) {
-        clearTokens()
-        return
-      }
-      if (meta?.suppressErrorToast) return
-      if (error.status === 422) {
-        const { fields, orphans } = partitionFieldErrors(error)
-        // A model-level refusal (`_root`) or a query-parameter error has no
-        // control behind it, and not every form renders a root slot, so it is
-        // said here. `applyFieldErrors` puts the same text on `root` for the
-        // forms that do.
-        if (orphans.length > 0) {
-          toast.error(meta?.errorTitle ?? errors.checkTheForm, joinValidationMessages(orphans))
-          return
-        }
-        // Field errors are rendered inline on the form; a toast on top would
-        // be redundant noise.
-        if (Object.keys(fields).length > 0) return
-      }
-      toast.error(meta?.errorTitle ?? errorTitle(error), errorDescription(error))
+const announceQueryError: NonNullable<QueryCacheConfig['onError']> = (error, query) => {
+  if (!(error instanceof ApiError)) {
+    reportError(error, { source: 'query' })
+    if (query.state.data === undefined && !query.meta?.suppressErrorToast) {
+      toast.error(errors.loadFailed, errors.unexpectedDetail)
+    }
+    return
+  }
+  if (error.isAuthError) {
+    clearTokens()
+    return
+  }
+  // Background refetches fail silently; only surface an error the user is
+  // actually waiting on.
+  if (query.state.data !== undefined) return
+  if (error.isPermissionError) {
+    toast.error(errors.notPermitted, error.message)
+    return
+  }
+  // A query that renders its own expected rejection inline (the UoM
+  // conversion check, where a 422 is the business answer) opts out here.
+  if (query.meta?.suppressErrorToast) return
+  toast.error(errors.loadFailed, errorDescription(error))
+}
+
+// TanStack runs this before the mutation's own `onError`, so anything the
+// mutation adds there is a second announcement - see `ErrorNetMeta`.
+const announceMutationError: NonNullable<MutationCacheConfig['onError']> = (
+  error,
+  _variables,
+  _context,
+  mutation,
+) => {
+  const meta = mutation.meta
+  if (!(error instanceof ApiError)) {
+    // Reported whether or not the screen shows it: a crash is a defect to
+    // find, and the inline copy a screen renders is the safe fallback.
+    reportError(error, { source: 'mutation' })
+    if (meta?.suppressErrorToast) return
+    toast.error(meta?.errorTitle ?? errors.unexpected, errors.unexpectedDetail)
+    return
+  }
+  if (error.isAuthError) {
+    clearTokens()
+    return
+  }
+  if (meta?.suppressErrorToast) return
+  if (error.status === 422) {
+    const { fields, orphans } = partitionFieldErrors(error)
+    // A model-level refusal (`_root`) or a query-parameter error has no
+    // control behind it, and not every form renders a root slot, so it is
+    // said here. `applyFieldErrors` puts the same text on `root` for the
+    // forms that do.
+    if (orphans.length > 0) {
+      toast.error(meta?.errorTitle ?? errors.checkTheForm, joinValidationMessages(orphans))
+      return
+    }
+    // Field errors are rendered inline on the form; a toast on top would
+    // be redundant noise.
+    if (Object.keys(fields).length > 0) return
+  }
+  toast.error(meta?.errorTitle ?? errorTitle(error), errorDescription(error))
+}
+
+export interface QueryClientPolicy {
+  /** Merged over the application's defaults above, one kind at a time. */
+  defaultOptions?: DefaultOptions
+  /**
+   * The error nets above, which turn a failed request into a toast. Off only
+   * for a screen test that asserts what the screen itself says.
+   */
+  errorNets?: boolean
+}
+
+/**
+ * The application's cache policy - the defaults and the error nets - as a new
+ * client.
+ *
+ * The one constructor of a `QueryClient`: the app mounts the `queryClient`
+ * below, and the screen-test harness builds each test's client here too, so a
+ * test that asks for the production policy (`cachePolicy: 'production'`) runs
+ * on the staleTimes, gcTime and nets a person's browser does rather than on a
+ * copy of them that can drift.
+ */
+export function createQueryClient({
+  defaultOptions = {},
+  errorNets = true,
+}: QueryClientPolicy = {}): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      ...defaultOptions,
+      queries: { ...queryDefaults, ...defaultOptions.queries },
+      mutations: { ...mutationDefaults, ...defaultOptions.mutations },
     },
-  }),
-})
+    ...(errorNets && {
+      queryCache: new QueryCache({ onError: announceQueryError }),
+      mutationCache: new MutationCache({ onError: announceMutationError }),
+    }),
+  })
+}
+
+export const queryClient = createQueryClient()
 
 /**
  * Query keys.

@@ -29,7 +29,7 @@
  *     expect(await screen.findByText('A')).toBeVisible()
  */
 
-import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import { render, type RenderResult } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement, ReactNode } from 'react'
@@ -39,7 +39,7 @@ import { expect, vi } from 'vitest'
 import { ThemeProvider } from '@/app/theme-context'
 import { AuthProvider } from '@/features/auth/auth-context'
 import { setTokens } from '@/lib/api-client'
-import { queryClient as appQueryClient } from '@/lib/query-client'
+import { createQueryClient } from '@/lib/query-client'
 
 // ----------------------------------------------------------------- routing --
 
@@ -244,8 +244,22 @@ export interface RenderScreenOptions {
    * Install the application's global error toasts (`lib/query-client`), for a
    * test about how many times a failure is announced and under which title.
    * Off by default, so a screen test sees only what the screen itself says.
+   * Always on under `cachePolicy: 'production'`, which is the app's whole policy.
    */
   errorNets?: boolean
+  /**
+   * The cache the screen runs on.
+   *
+   * `'test'` (the default) forgets an unobserved query at once (`gcTime: 0`)
+   * and treats data with no staleTime of its own as stale, so every mount
+   * fetches - which is also why no test on it can see a cache entry that a
+   * mutation failed to invalidate: the next mount refetches it anyway.
+   *
+   * `'production'` is `createQueryClient()` as the app mounts it - staleTimes,
+   * the ten-minute gcTime, the error nets - with only retries off, so a test can
+   * show that a closed and reopened dialog reads a cache the mutation missed.
+   */
+  cachePolicy?: 'test' | 'production'
 }
 
 export interface ScreenResult extends RenderResult {
@@ -264,6 +278,7 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
     allowUnrouted = false,
     restoreSession = true,
     errorNets = false,
+    cachePolicy = 'test',
   } = options
 
   const table: RouteTable = {
@@ -284,18 +299,15 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
   }
   setTokens(null)
 
-  // Retries turn a deliberate 4xx into a multi-second test, and `gcTime: 0`
-  // stops one test's cache from answering the next one's query.
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0, staleTime: 0 },
-      mutations: { retry: false },
-    },
-    ...(errorNets && {
-      queryCache: new QueryCache(appQueryClient.getQueryCache().config),
-      mutationCache: new MutationCache(appQueryClient.getMutationCache().config),
-    }),
-  })
+  // Retries turn a deliberate 5xx into a multi-second test under either policy.
+  // Each test gets a client of its own, so no cache outlives the test.
+  const queryClient =
+    cachePolicy === 'production'
+      ? createQueryClient({ defaultOptions: { queries: { retry: false } } })
+      : createQueryClient({
+          defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+          errorNets,
+        })
 
   const wrapper = ({ children }: { children: ReactNode }) => (
     <ThemeProvider>

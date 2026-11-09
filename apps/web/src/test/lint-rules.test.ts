@@ -176,6 +176,44 @@ describe('the lint rules that replace review comments', () => {
     expect(await rulesFiredBy(code, 'src/lib/format.ts')).toEqual([])
   })
 
+  it('refuses a second QueryClient anywhere but lib/query-client.ts', async () => {
+    const code = [
+      "import { QueryClient } from '@tanstack/react-query'",
+      '',
+      'export const client = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code)).toEqual(['no-restricted-syntax'])
+    expect(await rulesFiredBy(code, 'src/test/harness.tsx')).toEqual(['no-restricted-syntax'])
+    expect(await rulesFiredBy(code, 'src/features/items/items-page.test.tsx')).toEqual([
+      'no-restricted-syntax',
+    ])
+    expect(await rulesFiredBy(code, 'src/lib/query-client.ts')).toEqual([])
+  })
+
+  it('accepts a client built by createQueryClient', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { createQueryClient } from '@/lib/query-client'",
+        '',
+        'export const client = createQueryClient({ defaultOptions: { queries: { retry: false } } })',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired).toEqual([])
+  })
+
+  it('keeps the other syntax rules in force inside lib/query-client.ts', async () => {
+    const fired = await rulesFiredBy(
+      'export const today = (): string => new Date().toISOString().slice(0, 10)\n',
+      'src/lib/query-client.ts',
+    )
+
+    expect(fired).toEqual(['no-restricted-syntax'])
+  })
+
   it('refuses bare browser storage outside lib/storage.ts and the tests', async () => {
     const code = [
       'export function remember(collapsed: boolean): boolean {',

@@ -8,13 +8,16 @@
  * unrouted request really fails rather than rendering an empty list.
  */
 
+import { useQuery } from '@tanstack/react-query'
 import { screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { errors } from '@/lib/messages'
 import { P } from '@/lib/permissions'
+import { staleTimes } from '@/lib/query-client'
 
 import { fail, ok, page, renderScreen } from './harness'
 
@@ -98,6 +101,71 @@ describe('the fetch boundary', () => {
       message: errors.networkFailed,
       cause: expect.objectContaining({ message: expect.stringMatching(/unrouted request/) }),
     })
+  })
+})
+
+describe('the cache policy', () => {
+  /** A query with no staleTime of its own, which a button mounts and unmounts. */
+  function Remountable() {
+    const [shown, setShown] = useState(true)
+    return (
+      <>
+        <button onClick={() => setShown((now) => !now)}>toggle</button>
+        {shown && <Reader />}
+      </>
+    )
+  }
+
+  function Reader() {
+    const probe = useQuery({
+      queryKey: ['harness', 'probe'],
+      queryFn: ({ signal }) => api.get<{ code: string }>('/probe', { signal }),
+    })
+    return <p>{probe.data?.code ?? 'loading'}</p>
+  }
+
+  async function remount(cachePolicy: 'test' | 'production') {
+    const { user, fetch } = renderScreen(<Remountable />, {
+      cachePolicy,
+      routes: { 'GET /probe': ok({ code: 'BRASS-ROD' }) },
+    })
+    expect(await screen.findByText('BRASS-ROD')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'toggle' }))
+    expect(screen.queryByText('BRASS-ROD')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'toggle' }))
+    expect(await screen.findByText('BRASS-ROD')).toBeVisible()
+    return fetch.calls.filter((call) => call.path === '/probe').length
+  }
+
+  it('serves a remount inside staleTime from the cache under the production policy', async () => {
+    // What a person sees: the entry is still fresh, so reopening the screen is
+    // answered from the cache - which is what lets a test catch a mutation that
+    // forgot to invalidate it.
+    expect(await remount('production')).toBe(1)
+  })
+
+  it('refetches on every mount under the default test policy', async () => {
+    expect(await remount('test')).toBe(2)
+  })
+
+  it('runs on the application defaults, the error nets included, under production', async () => {
+    const { queryClient } = renderScreen(<p>nothing</p>, { cachePolicy: 'production' })
+
+    const queries = queryClient.getDefaultOptions().queries
+    expect(queries?.staleTime).toBe(staleTimes.master)
+    expect(queries?.retry, 'a test must not wait out the retry backoff').toBe(false)
+    expect(queryClient.getQueryCache().config.onError).toBeTypeOf('function')
+    expect(queryClient.getMutationCache().config.onError).toBeTypeOf('function')
+  })
+
+  it('leaves the error nets off under the test policy unless a test asks for them', () => {
+    const quiet = renderScreen(<p>quiet</p>).queryClient
+    expect(quiet.getQueryCache().config.onError).toBeUndefined()
+    expect(quiet.getMutationCache().config.onError).toBeUndefined()
+
+    const loud = renderScreen(<p>loud</p>, { errorNets: true }).queryClient
+    expect(loud.getQueryCache().config.onError).toBeTypeOf('function')
+    expect(loud.getMutationCache().config.onError).toBeTypeOf('function')
   })
 })
 

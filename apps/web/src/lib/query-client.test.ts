@@ -13,7 +13,13 @@ import * as apiClient from './api-client'
 import { ApiError } from './api-client'
 import { errors } from './messages'
 import * as errorReporting from './error-reporting'
-import { queryClient, queryKeys, type ErrorNetMeta } from './query-client'
+import {
+  createQueryClient,
+  queryClient,
+  queryKeys,
+  staleTimes,
+  type ErrorNetMeta,
+} from './query-client'
 import { toast } from './toast'
 
 const onMutationError = queryClient.getMutationCache().config.onError
@@ -211,6 +217,43 @@ describe('query keys', () => {
   it('files the approval queue and the report catalogue under their namespaces', () => {
     expect(queryKeys.audit.approvals({ limit: 6 })).toEqual(['audit', 'approvals', { limit: 6 }])
     expect(queryKeys.reports.catalogue).toEqual(['reports', 'catalogue'])
+  })
+})
+
+describe('createQueryClient', () => {
+  it('builds the application policy: both error nets and the per-domain defaults', () => {
+    const client = createQueryClient()
+
+    expect(client.getQueryCache().config.onError).toBe(onQueryError)
+    expect(client.getMutationCache().config.onError).toBe(onMutationError)
+    const { queries, mutations } = client.getDefaultOptions()
+    expect(queries?.staleTime).toBe(staleTimes.master)
+    expect(queries?.gcTime).toBe(10 * 60 * 1000)
+    expect(queries?.refetchOnWindowFocus).toBe(false)
+    expect(queries?.retry).toBe(queryClient.getDefaultOptions().queries?.retry)
+    expect(mutations?.retry).toBe(false)
+  })
+
+  it('merges an override into one kind of default and keeps the rest', () => {
+    const client = createQueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    const { queries, mutations } = client.getDefaultOptions()
+    expect(queries?.retry).toBe(false)
+    expect(queries?.staleTime).toBe(staleTimes.master)
+    expect(queries?.refetchOnWindowFocus).toBe(false)
+    expect(mutations?.retry).toBe(false)
+  })
+
+  it('leaves the nets off only when asked to', () => {
+    const client = createQueryClient({ errorNets: false })
+
+    expect(client.getQueryCache().config.onError).toBeUndefined()
+    expect(client.getMutationCache().config.onError).toBeUndefined()
+    expect(client.getDefaultOptions().queries?.staleTime).toBe(staleTimes.master)
+  })
+
+  it('gives every caller a cache of its own', () => {
+    expect(createQueryClient().getQueryCache()).not.toBe(queryClient.getQueryCache())
   })
 })
 

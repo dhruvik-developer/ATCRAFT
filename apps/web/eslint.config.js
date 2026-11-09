@@ -38,6 +38,15 @@ const decimalThroughNumber = {
     'An API decimal is a string for decimal.js: use toDecimal(...) from lib/format.ts to compute or compare it, and formatQuantity / formatMoney to show it.',
 }
 
+const queryClientConstruction = {
+  // A second client is a second cache: an invalidation in one never reaches the
+  // other. The screen-test harness built its own and dropped the staleTimes and
+  // gcTime, so no test could see a mutation that forgot to invalidate a cache.
+  selector: "NewExpression[callee.name='QueryClient']",
+  message:
+    'Build a query client with createQueryClient() from lib/query-client.ts, which carries the staleTimes, retry policy and error nets; in a screen test use renderScreen, and its cachePolicy option.',
+}
+
 /*
  * `no-restricted-properties` entries, named for the same reason as the syntax
  * ones above.
@@ -121,6 +130,7 @@ export default tseslint.config(
         destructiveButtonClassName,
         utcDateSlice,
         decimalThroughNumber,
+        queryClientConstruction,
       ],
       'no-restricted-properties': ['error', ...localeFormatting, ...browserStorageProperties],
       'no-restricted-globals': ['error', ...browserStorageGlobals],
@@ -132,8 +142,20 @@ export default tseslint.config(
     // formatter takes once all decimal arithmetic is done.
     files: ['src/lib/format.ts'],
     rules: {
-      'no-restricted-syntax': ['error', destructiveButtonClassName],
+      'no-restricted-syntax': ['error', destructiveButtonClassName, queryClientConstruction],
       'no-restricted-properties': ['error', ...browserStorageProperties],
+    },
+  },
+  {
+    // The one constructor of a query client.
+    files: ['src/lib/query-client.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        destructiveButtonClassName,
+        utcDateSlice,
+        decimalThroughNumber,
+      ],
     },
   },
   {
