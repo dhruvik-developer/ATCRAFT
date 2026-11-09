@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteRequest } from '@/test/harness'
 import type { SchemaOf } from '@/types/api'
@@ -141,6 +142,42 @@ describe('purchase order inbound controls', () => {
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Mark delivered' }),
     )
     await waitFor(() => expect(deliver).toHaveBeenCalledOnce())
+  })
+
+  it('announces a refused courier refresh once, under the name of the action', async () => {
+    // The global net runs first and the panel used to toast again in its own
+    // onError, so one refusal left two red toasts that never auto-dismiss.
+    const { user } = renderScreen(
+      <>
+        <PurchaseOrderInboundPanel order={order} />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.PURCHASE_ORDER_VIEW, P.DISPATCH_UPDATE],
+        errorNets: true,
+        routes: {
+          ...related,
+          'POST /integrations/courier/refresh': fail(
+            409,
+            'CONFLICT',
+            'This consignment is already being refreshed.',
+          ),
+        },
+      },
+    )
+
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    const before = within(region).queryAllByRole('alert').length
+    const refresh = await screen.findByRole('button', { name: 'Refresh tracking' })
+    await user.click(refresh)
+
+    const title = await within(region).findByText('Could not refresh courier tracking')
+    expect(title.closest('[role="alert"]')).toHaveTextContent(
+      'This consignment is already being refreshed.',
+    )
+    // The control is usable again only once both of TanStack's onError hooks ran.
+    await waitFor(() => expect(refresh).toBeEnabled())
+    expect(within(region).getAllByRole('alert')).toHaveLength(before + 1)
   })
 
   it('explains a vendor decline while shipment creation stays unavailable', async () => {

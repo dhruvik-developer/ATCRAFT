@@ -10,6 +10,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
@@ -355,5 +356,42 @@ describe('serial tracking', () => {
       })
     })
     expect(within(dialog).getByRole('button', { name: 'Download label' })).toBeEnabled()
+  })
+
+  it('announces a failed label download once', async () => {
+    const unit = serial()
+    const { user } = renderScreen(
+      <>
+        <TrackingPage />
+        <Toaster />
+      </>,
+      {
+        route: '/inventory/tracking?tab=serials',
+        permissions: [P.INVENTORY_VIEW, P.INVENTORY_BATCH_MANAGE],
+        errorNets: true,
+        routes: {
+          [SERIALS]: page([unit]),
+          [`GET /inventory/serials/${unit.id}`]: ok({
+            serial: unit,
+            movements: [],
+            conversions: [],
+          }),
+          'POST /inventory/serials/labels': fail(409, 'CONFLICT', 'The label printer is busy.'),
+        },
+      },
+    )
+
+    await user.click(await screen.findByRole('button', { name: /trace serial SN-0001/i }))
+    const dialog = await screen.findByRole('dialog')
+    // Earlier tests in this file leave their toasts in the store.
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    const before = within(region).queryAllByRole('alert').length
+    const download = await within(dialog).findByRole('button', { name: 'Download label' })
+    await user.click(download)
+
+    await within(region).findByText('Could not download the serial label')
+    // The control is usable again only once both of TanStack's onError hooks ran.
+    await waitFor(() => expect(download).toBeEnabled())
+    expect(within(region).getAllByRole('alert')).toHaveLength(before + 1)
   })
 })

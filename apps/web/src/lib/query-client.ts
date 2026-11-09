@@ -19,6 +19,33 @@ import { partitionFieldErrors } from './form-errors'
 import { errorDescription, errorTitle, errors, joinValidationMessages } from './messages'
 import { toast } from './toast'
 
+/**
+ * What a query or mutation may tell the error nets below.
+ *
+ * `suppressErrorToast` is for a screen that renders the failure itself, where
+ * the user is looking - a confirm dialog's alert, an inline panel - so a toast
+ * on top would say the same thing twice. A mutation that opts out owns every
+ * failure from then on, a 422's field detail included: `fieldErrorSummary`
+ * before `describeError`, as the dealer portal's `dealerError` does.
+ *
+ * `errorTitle` names the action that failed ("Could not refresh courier
+ * tracking") in place of the headline the error code would choose; the
+ * description is still the API's own reason. It is the only way a mutation
+ * titles its failure: a toast in its own `onError` runs after this net's,
+ * which is how a refusal came to be announced twice.
+ */
+export type ErrorNetMeta = {
+  suppressErrorToast?: boolean
+  errorTitle?: string
+}
+
+declare module '@tanstack/react-query' {
+  interface Register {
+    queryMeta: ErrorNetMeta
+    mutationMeta: ErrorNetMeta
+  }
+}
+
 /** How long a domain's data may be served from cache before it is refetched. */
 export const staleTimes = {
   /** UoM, categories, warehouse types - effectively static during a session. */
@@ -91,16 +118,23 @@ export const queryClient = new QueryClient({
   }),
 
   mutationCache: new MutationCache({
-    onError: (error) => {
+    // TanStack runs this before the mutation's own `onError`, so anything the
+    // mutation adds there is a second announcement - see `ErrorNetMeta`.
+    onError: (error, _variables, _context, mutation) => {
+      const meta = mutation.meta
       if (!(error instanceof ApiError)) {
+        // Reported whether or not the screen shows it: a crash is a defect to
+        // find, and the inline copy a screen renders is the safe fallback.
         reportError(error, { source: 'mutation' })
-        toast.error(errors.unexpected, errors.unexpectedDetail)
+        if (meta?.suppressErrorToast) return
+        toast.error(meta?.errorTitle ?? errors.unexpected, errors.unexpectedDetail)
         return
       }
       if (error.isAuthError) {
         clearTokens()
         return
       }
+      if (meta?.suppressErrorToast) return
       if (error.status === 422) {
         const { fields, orphans } = partitionFieldErrors(error)
         // A model-level refusal (`_root`) or a query-parameter error has no
@@ -108,14 +142,14 @@ export const queryClient = new QueryClient({
         // said here. `applyFieldErrors` puts the same text on `root` for the
         // forms that do.
         if (orphans.length > 0) {
-          toast.error(errors.checkTheForm, joinValidationMessages(orphans))
+          toast.error(meta?.errorTitle ?? errors.checkTheForm, joinValidationMessages(orphans))
           return
         }
         // Field errors are rendered inline on the form; a toast on top would
         // be redundant noise.
         if (Object.keys(fields).length > 0) return
       }
-      toast.error(errorTitle(error), errorDescription(error))
+      toast.error(meta?.errorTitle ?? errorTitle(error), errorDescription(error))
     },
   }),
 })

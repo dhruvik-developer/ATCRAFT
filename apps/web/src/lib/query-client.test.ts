@@ -9,27 +9,28 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import * as apiClient from './api-client'
 import { ApiError } from './api-client'
 import { errors } from './messages'
 import * as errorReporting from './error-reporting'
-import { queryClient, queryKeys } from './query-client'
+import { queryClient, queryKeys, type ErrorNetMeta } from './query-client'
 import { toast } from './toast'
 
 const onMutationError = queryClient.getMutationCache().config.onError
 const onQueryError = queryClient.getQueryCache().config.onError
 
-// The handlers read only the error and, for a query, `state.data` and `meta`;
-// the remaining arguments are typed off the handlers so a library upgrade that
-// adds one fails here, not in the shell.
+// The handlers read only the error, its query's `state.data`, and the `meta`
+// of the query or mutation; the remaining arguments are typed off the handlers
+// so a library upgrade that adds one fails here, not in the shell.
 type MutationErrorArgs = Parameters<NonNullable<typeof onMutationError>>
 type QueryErrorArgs = Parameters<NonNullable<typeof onQueryError>>
 
-function failMutation(error: Error): void {
+function failMutation(error: Error, meta?: ErrorNetMeta): void {
   onMutationError?.(
     error,
     undefined,
     undefined,
-    {} as MutationErrorArgs[3],
+    { meta } as unknown as MutationErrorArgs[3],
     {} as MutationErrorArgs[4],
   )
 }
@@ -109,6 +110,58 @@ describe('the mutation error net', () => {
       errors.checkTheForm,
       'Choose a start date. Choose an end date.',
     )
+  })
+  it("titles the toast with the action a mutation names, keeping the API's reason", () => {
+    const shown = vi.spyOn(toast, 'error')
+
+    failMutation(new ApiError(409, 'CONFLICT', 'The shipment has no tracking number.'), {
+      errorTitle: 'Could not refresh courier tracking',
+    })
+
+    expect(shown).toHaveBeenCalledTimes(1)
+    expect(shown).toHaveBeenCalledWith(
+      'Could not refresh courier tracking',
+      'The shipment has no tracking number.',
+    )
+  })
+
+  it('uses the named action for a model-level refusal and for a crash as well', () => {
+    const shown = vi.spyOn(toast, 'error')
+    vi.spyOn(errorReporting, 'reportError').mockImplementation(() => {})
+    const meta = { errorTitle: 'Could not save the courier account' }
+
+    failMutation(validationError({ _root: ['Choose a provider.'] }), meta)
+    failMutation(new TypeError('Cannot read properties of undefined'), meta)
+
+    expect(shown).toHaveBeenNthCalledWith(1, meta.errorTitle, 'Choose a provider.')
+    expect(shown).toHaveBeenNthCalledWith(2, meta.errorTitle, errors.unexpectedDetail)
+  })
+
+  it('stays silent for a mutation that renders its own failure', () => {
+    const shown = vi.spyOn(toast, 'error')
+
+    failMutation(new ApiError(409, 'CONFLICT', 'Changed by someone else'), {
+      suppressErrorToast: true,
+    })
+    failMutation(validationError({ _root: ['A PAYMENT is recorded against a vendor.'] }), {
+      suppressErrorToast: true,
+    })
+
+    expect(shown).not.toHaveBeenCalled()
+  })
+
+  it('still reports a crash and still ends a lost session when the toast is suppressed', () => {
+    const shown = vi.spyOn(toast, 'error')
+    const reported = vi.spyOn(errorReporting, 'reportError').mockImplementation(() => {})
+    const cleared = vi.spyOn(apiClient, 'clearTokens').mockImplementation(() => {})
+    const crash = new TypeError('Cannot read properties of undefined')
+
+    failMutation(crash, { suppressErrorToast: true })
+    failMutation(new ApiError(401, 'UNAUTHORIZED', 'Session expired'), { suppressErrorToast: true })
+
+    expect(reported).toHaveBeenCalledWith(crash, { source: 'mutation' })
+    expect(cleared).toHaveBeenCalledTimes(1)
+    expect(shown).not.toHaveBeenCalled()
   })
 })
 

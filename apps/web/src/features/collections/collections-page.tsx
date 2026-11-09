@@ -29,7 +29,8 @@ import { useUserOptions } from '@/hooks/use-user-options'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
-import { describeError, success } from '@/lib/messages'
+import { reportFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import {
   formatDate,
@@ -67,6 +68,8 @@ const NOTE_OUTCOMES: FollowUpOutcome[] = [
   'PARTIAL_PAYMENT',
   'OTHER',
 ]
+const OPEN_FOLLOW_UP_FAILED = 'Could not open a payment follow-up'
+const UPDATE_FOLLOW_UP_FAILED = 'Could not update the payment follow-up'
 
 export default function CollectionsPage() {
   const { can } = useAuth()
@@ -157,7 +160,10 @@ export default function CollectionsPage() {
       setSelectedId(created.id)
       await queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
     },
-    onError: (error) => toast.error(describeError(error)),
+    // The global net toasts every other refusal under this title; a 422's
+    // field detail is the one thing it leaves to the screen.
+    meta: { errorTitle: OPEN_FOLLOW_UP_FAILED },
+    onError: (error) => reportFieldErrors(error, OPEN_FOLLOW_UP_FAILED),
   })
 
   const worklistColumns = useMemo<ColumnDef<WorklistRow, unknown>[]>(
@@ -776,7 +782,9 @@ function FollowUpDialog({
       }
       await invalidateFollowUp()
     },
-    onError: (error) => toast.error(describeError(error)),
+    // The drawer's inputs are not form fields, so a 422 names them here.
+    meta: { errorTitle: UPDATE_FOLLOW_UP_FAILED },
+    onError: (error) => reportFieldErrors(error, UPDATE_FOLLOW_UP_FAILED),
   })
 
   const update = useMutation({
@@ -786,7 +794,8 @@ function FollowUpDialog({
       toast.success(success.updated('Payment follow-up'))
       await invalidateFollowUp()
     },
-    onError: (error) => toast.error(describeError(error)),
+    meta: { errorTitle: UPDATE_FOLLOW_UP_FAILED },
+    onError: (error) => reportFieldErrors(error, UPDATE_FOLLOW_UP_FAILED),
   })
 
   const current = detail.data

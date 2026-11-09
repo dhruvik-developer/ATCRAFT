@@ -29,7 +29,7 @@
  *     expect(await screen.findByText('A')).toBeVisible()
  */
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, type RenderResult } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement, ReactNode } from 'react'
@@ -39,6 +39,7 @@ import { expect, vi } from 'vitest'
 import { ThemeProvider } from '@/app/theme-context'
 import { AuthProvider } from '@/features/auth/auth-context'
 import { setTokens } from '@/lib/api-client'
+import { queryClient as appQueryClient } from '@/lib/query-client'
 
 // ----------------------------------------------------------------- routing --
 
@@ -239,6 +240,12 @@ export interface RenderScreenOptions {
   allowUnrouted?: boolean
   /** Set false for public pages that must not attempt cookie-backed session restoration. */
   restoreSession?: boolean
+  /**
+   * Install the application's global error toasts (`lib/query-client`), for a
+   * test about how many times a failure is announced and under which title.
+   * Off by default, so a screen test sees only what the screen itself says.
+   */
+  errorNets?: boolean
 }
 
 export interface ScreenResult extends RenderResult {
@@ -256,6 +263,7 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
     user: userOverrides = {},
     allowUnrouted = false,
     restoreSession = true,
+    errorNets = false,
   } = options
 
   const table: RouteTable = {
@@ -283,6 +291,10 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
       queries: { retry: false, gcTime: 0, staleTime: 0 },
       mutations: { retry: false },
     },
+    ...(errorNets && {
+      queryCache: new QueryCache(appQueryClient.getQueryCache().config),
+      mutationCache: new MutationCache(appQueryClient.getMutationCache().config),
+    }),
   })
 
   const wrapper = ({ children }: { children: ReactNode }) => (

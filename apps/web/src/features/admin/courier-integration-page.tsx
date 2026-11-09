@@ -21,6 +21,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { formatDateTime, humanise } from '@/lib/format'
+import { reportFieldErrors } from '@/lib/form-errors'
 import { describeError } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -65,6 +66,9 @@ interface RotatedWebhook {
   header_name: string
 }
 
+const CREATE_FAILED = 'Could not create the courier account'
+const UPDATE_FAILED = 'Could not update the courier account'
+
 const EMPTY_DRAFT: AccountDraft = {
   code: '',
   provider: 'SHIPROCKET',
@@ -93,8 +97,6 @@ export default function CourierIntegrationPage() {
 
   const refreshAccounts = () =>
     client.invalidateQueries({ queryKey: queryKeys.courierTracking.all })
-  const reportFailure = (error: unknown) =>
-    toast.error('Courier operation failed', describeError(error))
 
   const create = useMutation({
     mutationFn: () =>
@@ -108,7 +110,10 @@ export default function CourierIntegrationPage() {
         auto_confirm_delivery: draft.auto_confirm_delivery,
         is_active: draft.is_active,
       }),
-    onError: reportFailure,
+    // The global net says every other refusal under this title. The account
+    // fields are plain inputs rather than form fields, so a 422 is named here.
+    meta: { errorTitle: CREATE_FAILED },
+    onError: (error) => reportFieldErrors(error, CREATE_FAILED),
     onSuccess: async () => {
       await refreshAccounts()
       setDraft(EMPTY_DRAFT)
@@ -126,7 +131,8 @@ export default function CourierIntegrationPage() {
           ? { credentials: { email: values.email, password: values.password } }
           : {}),
       }),
-    onError: reportFailure,
+    meta: { errorTitle: UPDATE_FAILED },
+    onError: (error) => reportFieldErrors(error, UPDATE_FAILED),
     onSuccess: async () => {
       await refreshAccounts()
       setEditingId(null)
@@ -140,14 +146,14 @@ export default function CourierIntegrationPage() {
       api.post<{ connected: boolean; provider: CourierProvider }>(
         `/integrations/courier/accounts/${id}/test`,
       ),
-    onError: reportFailure,
+    meta: { errorTitle: 'Could not test the courier connection' },
     onSuccess: (result) => toast.success(`${humanise(result.provider)} connection succeeded`),
   })
 
   const rotate = useMutation({
     mutationFn: (id: string) =>
       api.post<RotatedWebhook>(`/integrations/courier/accounts/${id}/rotate-webhook`),
-    onError: reportFailure,
+    meta: { errorTitle: 'Could not rotate the webhook secret' },
     onSuccess: (result) => setRotated(result),
   })
 

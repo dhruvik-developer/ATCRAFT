@@ -19,7 +19,6 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { EMPTY_VALUE, formatDate, formatDateTime, formatMoney, humanise } from '@/lib/format'
-import { describeError } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -65,10 +64,11 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
     queryKey: (params) => queryKeys.procurement.documents(order.id, params),
   })
   const refresh = () => client.invalidateQueries({ queryKey: queryKeys.procurement.all })
-  const errorToast = (error: unknown) => toast.error(describeError(error))
+  // None of these sends anything typed here, so the global net says every
+  // refusal; each names its action so two failures in a row read apart.
   const adopt = useMutation({
     mutationFn: () => api.post(`${base}/accept-vendor-date`),
-    onError: errorToast,
+    meta: { errorTitle: 'Could not adopt the vendor date' },
     onSuccess: async () => {
       await refresh()
       toast.success('Vendor commitment adopted as the planning date')
@@ -77,7 +77,7 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
   })
   const delivered = useMutation({
     mutationFn: (shipment: Shipment) => api.post(`${base}/shipments/${shipment.id}/delivered`, {}),
-    onError: errorToast,
+    meta: { errorTitle: 'Could not record the delivery' },
     onSuccess: async () => {
       await refresh()
       toast.success('Shipment marked delivered')
@@ -89,7 +89,7 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
       api.post<{ events_recorded: number }>('/integrations/courier/refresh', {
         shipment_id: shipmentId,
       }),
-    onError: errorToast,
+    meta: { errorTitle: 'Could not refresh courier tracking' },
     onSuccess: async (result) => {
       await refresh()
       toast.success(
@@ -102,12 +102,12 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
   const download = useMutation({
     mutationFn: (file: Attachment) =>
       api.download(`/documents/${file.id}/download`, file.file_name),
-    onError: errorToast,
+    meta: { errorTitle: 'Could not download the document' },
   })
   const job = useReportJob()
   const pdf = useMutation({
     mutationFn: () => api.post<AcceptedJobData>(`${base}/pdf`),
-    onError: errorToast,
+    meta: { errorTitle: 'Could not request the purchase order PDF' },
     onSuccess: job.start,
   })
   const shipping = order.status === 'ACKNOWLEDGED' || order.status === 'PARTIALLY_RECEIVED'

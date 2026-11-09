@@ -1,9 +1,9 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import CourierIntegrationPage from './courier-integration-page'
 
@@ -38,6 +38,41 @@ describe('courier integration', () => {
     expect(screen.queryByRole('button', { name: 'Create account' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Test connection' })).toBeNull()
     expect(screen.getByText(/You have read-only access/)).toBeVisible()
+  })
+
+  it('announces a failed connection test once, naming the test', async () => {
+    const { user } = renderScreen(
+      <>
+        <CourierIntegrationPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+        route: '/admin/courier-integration',
+        errorNets: true,
+        routes: {
+          'GET /integrations/courier/accounts': page([ACCOUNT]),
+          [`POST /integrations/courier/accounts/${ACCOUNT.id}/test`]: fail(
+            409,
+            'CONFLICT',
+            'Shiprocket refused these credentials.',
+          ),
+        },
+      },
+    )
+
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    const before = within(region).queryAllByRole('alert').length
+    const testButton = await screen.findByRole('button', { name: 'Test connection' })
+    await user.click(testButton)
+
+    const title = await within(region).findByText('Could not test the courier connection')
+    expect(title.closest('[role="alert"]')).toHaveTextContent(
+      'Shiprocket refused these credentials.',
+    )
+    // The control is usable again only once both of TanStack's onError hooks ran.
+    await waitFor(() => expect(testButton).toBeEnabled())
+    expect(within(region).getAllByRole('alert')).toHaveLength(before + 1)
   })
 
   it('sends credentials only on create and never echoes them in the account response', async () => {

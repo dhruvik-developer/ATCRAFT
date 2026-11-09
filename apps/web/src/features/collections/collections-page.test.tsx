@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { cursorPage, fail, ok, page, renderScreen } from '@/test/harness'
 import type { SchemaOf } from '@/types/api'
@@ -144,6 +145,42 @@ describe('collections worklist', () => {
     expect(
       fetch.calls.some((call) => call.path === `/collections/follow-ups/${FOLLOW_UP_ID}/notes`),
     ).toBe(true)
+  })
+
+  it('announces a refused follow-up once, with a headline and the reason', async () => {
+    const { user } = renderScreen(
+      <>
+        <CollectionsPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.COLLECTION_VIEW, P.COLLECTION_MANAGE],
+        errorNets: true,
+        routes: {
+          [`GET ${WORKLIST_PATH}`]: page([worklistRow()]),
+          'POST /collections/follow-ups': fail(
+            409,
+            'CONFLICT',
+            'An open follow-up already covers this customer.',
+          ),
+        },
+      },
+    )
+
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    const before = within(region).queryAllByRole('alert').length
+    const customerButtons = await screen.findAllByRole('button', {
+      name: /D-0007.*Northline Distributors/,
+    })
+    await user.click(customerButtons[0]!)
+
+    const title = await within(region).findByText('Could not open a payment follow-up')
+    expect(title.closest('[role="alert"]')).toHaveTextContent(
+      'An open follow-up already covers this customer.',
+    )
+    // The control is usable again only once both of TanStack's onError hooks ran.
+    await waitFor(() => expect(customerButtons[0]).toBeEnabled())
+    expect(within(region).getAllByRole('alert')).toHaveLength(before + 1)
   })
 
   it('sends the contact note and payment promise payloads from the drawer', async () => {

@@ -479,7 +479,7 @@ export function SerialDetailDialog({
         method: 'POST',
         body: { serial_ids: [activeId] },
       }),
-    onError: (error) => toast.error('Serial label could not be downloaded.', describeError(error)),
+    meta: { errorTitle: 'Could not download the serial label' },
   })
 
   const serial = detail.data?.serial

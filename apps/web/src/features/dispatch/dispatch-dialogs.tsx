@@ -1815,7 +1815,7 @@ export function DispatchTimelineDialog({
           : 'No new courier events were available',
       )
     },
-    onError: (error) => toast.error('Courier refresh failed', describeError(error)),
+    meta: { errorTitle: 'Could not refresh courier tracking' },
   })
 
   return (
