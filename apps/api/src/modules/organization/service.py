@@ -63,6 +63,7 @@ from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.documents.service import DocumentService
 from src.modules.organization.models import (
     Branch,
     Company,
@@ -467,6 +468,16 @@ class CompanyService:
             company = await self._load()
             before = _company_snapshot(company)
             account_before = company.bank_account_number
+
+            # The logo is a bare document id - no foreign key, because the
+            # documents module purges on its own schedule - and the loop below
+            # copies the payload blind, so this read is all that keeps another
+            # company's file, or no file at all, off the profile. A null clears
+            # it; re-sending the logo already set is not re-checked
+            # (docs/assumptions.md §REF-1).
+            logo_id = changes.get("logo_document_id")
+            if logo_id is not None and logo_id != company.logo_document_id:
+                await DocumentService(self.session, self.tenant).require_live([logo_id])
 
             for field, value in changes.items():
                 setattr(company, field, value)

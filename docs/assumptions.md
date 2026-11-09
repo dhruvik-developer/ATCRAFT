@@ -4593,6 +4593,10 @@ checked against the caller's company when a write names it, and only when it
   `photo_document_id` that is not a live document of this company with 404,
   before any reading is written. A photo the reading already carries is not
   re-checked, so a corrected value keeps its evidence after the file expires.
+- **Company logo.** `PATCH /organization/company` refuses a `logo_document_id`
+  that is not a live document of this company with 404, before any field is
+  written. A null clears the logo, and re-sending the logo already set is not
+  re-checked, so editing the bank details keeps working after the file expires.
 - **MRP run.** `POST /mrp/runs` refuses, with 404 and no run row, a manual
   demand line whose item is not a live item of this company, and a run scope or
   demand line naming a warehouse that is not this company's or not in the
@@ -4610,7 +4614,8 @@ centre.
 **Where.** `src/modules/sales/service.py` - `_assert_transporter`;
 `src/modules/sales/repository.py` - `OrderPartyRepository.transporter_in_tenant`;
 `src/modules/quality/service.py` - `record_results`, through
-`DocumentService.require_live`; `src/modules/mrp/service.py` -
+`DocumentService.require_live`; `src/modules/organization/service.py` -
+`CompanyService.update_company`, through the same; `src/modules/mrp/service.py` -
 `_assert_run_references`, through `WarehouseRepository.ids_in_scope`.
 
 **Impact if wrong.** Check every non-null value in the helper instead; the

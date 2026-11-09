@@ -1,4 +1,5 @@
-"""Organisation masters over HTTP: branches, plants, departments, financial years.
+"""Organisation masters over HTTP: branches, plants, departments, financial years,
+and the document the company profile names as its logo.
 
 The service rules - the department tree guard, the financial-year overlap
 query, the retire guards - are pinned at service level in
@@ -16,21 +17,29 @@ has the shape production gives it.
 
 from __future__ import annotations
 
+import io
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.datastructures import Headers, UploadFile
 
+from src.core.clock import utcnow
+from src.core.config import settings
 from src.core.deps import Principal, TenantContext, get_current_principal
 from src.main import app
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.documents.models import Document, DocumentCategory
+from src.modules.documents.schemas import DocumentUploadRequest
+from src.modules.documents.service import DocumentService
 from src.modules.organization.models import (
     Branch,
+    Company,
     CostCentreType,
     Department,
     FinancialYear,
@@ -1045,3 +1054,101 @@ class TestReopenFinancialYear:
 
         assert error_of(response, 404)["code"] == "NOT_FOUND"
         assert await column(session, FinancialYear.is_closed, theirs.id) is True
+
+
+# -----------------------------------------------------------------------------
+# PATCH /organization/company - the logo it names
+# -----------------------------------------------------------------------------
+
+#: The smallest body the upload's signature check accepts as a PNG.
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + bytes(48)
+
+
+async def uploaded_logo(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
+    """A small PNG filed by ``owner``'s company. Patch ``settings.storage_path`` first."""
+    upload = UploadFile(
+        file=io.BytesIO(PNG),
+        size=len(PNG),
+        filename="logo.png",
+        headers=Headers({"content-type": "image/png"}),
+    )
+    document = await DocumentService(session, owner).upload(
+        upload, DocumentUploadRequest(category=DocumentCategory.ATTACHMENT)
+    )
+    return document.id
+
+
+class TestCompanyLogo:
+    @pytest.mark.parametrize("logo", ["another-companys-document", "no-such-document"])
+    async def test_a_logo_this_company_does_not_hold_is_not_found(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        foreign: TenantContext,
+        tmp_path,
+        monkeypatch,
+        logo: str,
+    ) -> None:
+        monkeypatch.setattr(settings, "storage_path", tmp_path)
+        theirs = await uploaded_logo(session, foreign)
+        logo_id = theirs if logo == "another-companys-document" else uuid.uuid4()
+        website = await column(session, Company.website, tenant.company_id)
+
+        response = await api_client.patch(
+            "/organization/company",
+            json={"logo_document_id": str(logo_id), "website": "https://atcraft.example"},
+        )
+
+        assert error_of(response, 404)["code"] == "NOT_FOUND"
+        assert await column(session, Company.logo_document_id, tenant.company_id) is None
+        # Refused before any field was written, not after the others were.
+        assert await column(session, Company.website, tenant.company_id) == website
+
+    async def test_this_companys_logo_is_kept_through_its_expiry_and_a_null_clears_it(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        monkeypatch.setattr(settings, "storage_path", tmp_path)
+        logo_id = await uploaded_logo(session, tenant)
+
+        data = data_of(
+            await api_client.patch("/organization/company", json={"logo_document_id": str(logo_id)})
+        )
+
+        assert data["logo_document_id"] == str(logo_id)
+        assert await column(session, Company.logo_document_id, tenant.company_id) == logo_id
+        changes = await audit_rows(
+            session, tenant.company_id, tenant.company_id, AuditAction.CONFIG_CHANGE
+        )
+        [entry] = [
+            row for row in changes if (row.new_values or {}).get("logo_document_id") == str(logo_id)
+        ]
+        assert "logo_document_id" in entry.changed_fields
+
+        # The file lapses; an edit re-sending the logo it already names still saves.
+        await session.execute(
+            update(Document)
+            .where(Document.id == logo_id)
+            .values(expires_at=utcnow() - timedelta(days=1))
+        )
+        resent = data_of(
+            await api_client.patch(
+                "/organization/company",
+                json={"logo_document_id": str(logo_id), "website": "https://atcraft.example"},
+            )
+        )
+        assert (resent["logo_document_id"], resent["website"]) == (
+            str(logo_id),
+            "https://atcraft.example",
+        )
+
+        cleared = data_of(
+            await api_client.patch("/organization/company", json={"logo_document_id": None})
+        )
+        assert cleared["logo_document_id"] is None
+        assert await column(session, Company.logo_document_id, tenant.company_id) is None
