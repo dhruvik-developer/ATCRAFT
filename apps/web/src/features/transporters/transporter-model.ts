@@ -40,31 +40,38 @@ import { useQuery } from '@tanstack/react-query'
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { success } from '@/lib/messages'
 import { P, type PermissionKey } from '@/lib/permissions'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no transporter branch, so the
- * keys live here in the same hierarchical shape as `assemblyKeys`: invalidating
- * `transporterKeys.all` clears every list, the picker options and any detail at
- * once. A lifecycle command needs exactly that - activating a carrier changes
- * both the list it is listed in and the option list the dispatch screen reads.
+ * Under `queryKeys.transporters`, in the same hierarchical shape as
+ * `assemblyKeys`: invalidating `transporterKeys.all` clears every list, the
+ * picker options and any detail at once. A lifecycle command needs exactly that
+ * - activating a carrier changes both the list it is listed in and the option
+ * list the dispatch screen reads.
  */
 export const transporterKeys = {
-  all: ['transporters'] as const,
-  list: (params: unknown) => ['transporters', 'list', params] as const,
-  detail: (id: string) => ['transporters', 'detail', id] as const,
+  all: queryKeys.transporters.all,
+  list: (params: unknown) => [...queryKeys.transporters.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.transporters.all, 'detail', id] as const,
   options: (transporterType: TransporterType | null) =>
-    ['transporters', 'options', transporterType] as const,
+    [...queryKeys.transporters.all, 'options', transporterType] as const,
+  /**
+   * The carriers an inbound shipment offers, one page at a time. Here rather
+   * than under `procurement`, where it sat for five minutes after a carrier was
+   * created without the new one in it: the transporter writes invalidate this
+   * root, not that one.
+   */
+  inbound: (params: unknown) => [...queryKeys.transporters.all, 'inbound', params] as const,
   /**
    * Keyed by the consignment number as well as by the carrier: two numbers
    * resolved against the same transporter are different answers and must not
    * read one another's cache entry.
    */
   trackingLink: (id: string, trackingId: string) =>
-    ['transporters', 'detail', id, 'tracking-link', trackingId] as const,
+    [...queryKeys.transporters.all, 'detail', id, 'tracking-link', trackingId] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

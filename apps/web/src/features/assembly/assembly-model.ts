@@ -21,24 +21,25 @@
 import Decimal from 'decimal.js'
 
 import { toDecimal } from '@/lib/format'
+import { queryKeys } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no assembly branch, so the keys
- * live here in the same hierarchical shape: invalidating `assemblyKeys.all`
- * clears every assembly list and detail at once.
+ * Under `queryKeys.assembly`, in the registry's hierarchical shape:
+ * invalidating `assemblyKeys.all` clears every assembly list and detail at once.
  */
 export const assemblyKeys = {
-  all: ['assembly'] as const,
-  list: (params: unknown) => ['assembly', 'list', params] as const,
-  detail: (id: string) => ['assembly', 'detail', id] as const,
-  components: (id: string) => ['assembly', 'detail', id, 'components'] as const,
-  availability: (id: string) => ['assembly', 'detail', id, 'availability'] as const,
-  boardLines: (params: unknown) => ['assembly', 'board', 'lines', params] as const,
-  boardOrders: (params: unknown) => ['assembly', 'board', 'orders', params] as const,
-  readyForPacking: (params: unknown) => ['assembly', 'ready-for-packing', params] as const,
+  all: queryKeys.assembly.all,
+  list: (params: unknown) => [...queryKeys.assembly.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.assembly.all, 'detail', id] as const,
+  components: (id: string) => [...queryKeys.assembly.all, 'detail', id, 'components'] as const,
+  availability: (id: string) => [...queryKeys.assembly.all, 'detail', id, 'availability'] as const,
+  boardLines: (params: unknown) => [...queryKeys.assembly.all, 'board', 'lines', params] as const,
+  boardOrders: (params: unknown) => [...queryKeys.assembly.all, 'board', 'orders', params] as const,
+  readyForPacking: (params: unknown) =>
+    [...queryKeys.assembly.all, 'ready-for-packing', params] as const,
 }
 
 /**

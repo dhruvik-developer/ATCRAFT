@@ -38,7 +38,6 @@ import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import type { CustomerRow } from './customer-types'
-import { dealerKeys } from './dealer-model'
 
 export function RetireCustomerDialog({
   customer,
@@ -62,12 +61,10 @@ export function RetireCustomerDialog({
     mutationFn: ({ target, reason: why }: { target: CustomerRow; reason: string }) =>
       api.delete(`/customers/${target.id}`, { params: { reason: why } }),
     onSuccess: (_result, { target }) => {
-      // One prefix invalidation covers every customer list and detail at once.
+      // One prefix invalidation covers every customer list and detail at once,
+      // and the dealer list filed under the same root: a retired dealer left in
+      // that cache is a row whose every action now answers 404.
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      // The dealer screen reads the same rows through `/customers/dealers` under
-      // its own key, so the customers prefix does not reach it. A retired dealer
-      // left in that cache is a row whose every action now answers 404.
-      void queryClient.invalidateQueries({ queryKey: dealerKeys.all })
       toast.success(success.retired('Customer'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },

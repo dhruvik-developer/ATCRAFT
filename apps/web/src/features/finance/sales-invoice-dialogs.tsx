@@ -30,6 +30,7 @@ import { describeError, errors, salesInvoiceMessages, success } from '@/lib/mess
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import { financeKeys } from './finance-types'
 import {
   salesInvoiceKeys,
   type SalesInvoiceDetail,
@@ -150,8 +151,13 @@ function CreditNoteDialog({
           .filter((line) => line.quantity),
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: salesInvoiceKeys.all })
-      void queryClient.invalidateQueries({ queryKey: ['finance', 'credit-notes'] })
+      // A credit note lowers the invoice's balance and the customer's
+      // outstanding and posts a journal, so it reaches the roots cancelling one
+      // reaches: `finance` (the invoice, the notes, the ledger and the ageing),
+      // the customer and dealer screens, and the dealer's own portal.
+      void queryClient.invalidateQueries({ queryKey: financeKeys.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
       toast.success(success.issued('Credit note'))
       onClose()
     },

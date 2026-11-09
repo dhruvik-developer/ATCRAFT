@@ -598,6 +598,13 @@ export function InspectionDialog({
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
       // The receipt and its purchase order carry the QC status too.
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
+      // So does every other owner of held stock, which learns the verdict in
+      // the same transaction and leaves QC_PENDING (`quality/owners.py`): an
+      // assembly or job-work order, a production booking, a sales return.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assembly.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.jobWork.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
 
       const { decision, code } = outcome
       // What actually moved, which is not the same as what was typed: this is

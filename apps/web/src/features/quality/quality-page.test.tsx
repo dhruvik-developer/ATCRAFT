@@ -29,7 +29,10 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { fail, ok, page, renderScreen } from '@/test/harness'
+import { assemblyKeys } from '@/features/assembly/assembly-model'
+import { jobWorkKeys } from '@/features/job-work/job-work-model'
+import { queryKeys } from '@/lib/query-client'
+import { fail, ok, page, renderScreen, type RenderScreenOptions } from '@/test/harness'
 
 import QualityPage from './quality-page'
 import type { QcInspectionRow } from './quality-types'
@@ -365,8 +368,10 @@ function decisionResponse() {
 async function openInspection(
   routes: Record<string, unknown>,
   permissions: string[],
+  options: Pick<RenderScreenOptions, 'cachePolicy'> = {},
 ): Promise<ReturnType<typeof renderScreen>> {
   const rendered = renderScreen(<QualityPage />, {
+    ...options,
     permissions,
     routes: {
       'GET /quality/pending': page([inspection()]),
@@ -687,6 +692,41 @@ describe('the inspection sheet', () => {
       fetch.calls.some((call) => call.path.endsWith('/results')),
       'an inspection with no parameters must not post an empty measurement set',
     ).toBe(false)
+  })
+
+  it('tells every owner of the held stock that the verdict is in', async () => {
+    // The owner learns the verdict in the same transaction and leaves
+    // QC_PENDING (quality/owners.py). Without these invalidations an assembly,
+    // job-work or production order read before the verdict was served for the
+    // thirty seconds of its staleTime, still pending and still unclosable.
+    const { user, fetch, queryClient } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail({ parameters: [] })),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
+      },
+      [P.QC_VIEW, P.QC_DECIDE],
+      { cachePolicy: 'production' },
+    )
+    const owner = '01a00000-0000-7000-8000-0000000000o1'
+    const owners = [
+      queryKeys.procurement.purchaseOrder(owner),
+      assemblyKeys.detail(owner),
+      jobWorkKeys.detail(owner),
+      queryKeys.production.detail(owner),
+      queryKeys.salesReturns.detail(owner),
+    ]
+    for (const key of owners) queryClient.setQueryData(key, { id: owner, status: 'QC_PENDING' })
+
+    await user.type(await screen.findByLabelText('Accepted'), '100')
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'No sheet, judged on sight')
+    await user.click(screen.getByRole('button', { name: /submit inspection/i }))
+
+    await waitFor(() => fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`))
+    await waitFor(() => {
+      for (const key of owners) {
+        expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+      }
+    })
   })
 
   it('sends a decide-only account straight to the decision, never to the readings post', async () => {

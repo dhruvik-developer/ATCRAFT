@@ -1,7 +1,10 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { dealerKeys } from '@/features/customers/dealer-model'
 import { P } from '@/lib/permissions'
+import { queryKeys } from '@/lib/query-client'
 import { ok, page, renderScreen } from '@/test/harness'
+import { financeKeys } from './finance-types'
 import { RaiseSalesInvoiceDialog, SalesInvoiceDetailDialog } from './sales-invoice-dialogs'
 import SalesInvoicesPage from './sales-invoices-page'
 import { SalesReceiptAllocationDialog } from './sales-receipt-allocation-dialog'
@@ -207,6 +210,42 @@ describe('sales invoices', () => {
         reason_type: 'PRICE_ADJUSTMENT',
         lines: [{ sales_invoice_line_id: 'invoice-line', quantity: '2' }],
       })
+  })
+  it("reaches the customer's outstanding, the ledger and the dealer portal once a note is issued", async () => {
+    // Issuing posts a journal and lowers the customer's outstanding, as
+    // cancelling a note raises it again; the cancel reached these roots and the
+    // issue did not, so the account kept its old balance for five minutes.
+    const { user, fetch, queryClient } = renderScreen(
+      <SalesInvoiceDetailDialog invoiceId={ID} onClose={() => {}} />,
+      {
+        cachePolicy: 'production',
+        permissions: [P.SALES_INVOICE_VIEW, P.CREDIT_NOTE_CREATE],
+        routes: {
+          [`GET /finance/sales-invoices/${ID}`]: ok(invoice()),
+          'POST /finance/credit-notes': ok({ id: 'credit-note' }),
+        },
+      },
+    )
+    const reached = [
+      queryKeys.customers.detail('customer'),
+      dealerKeys.list({ page: 1 }),
+      financeKeys.ledger('CUSTOMER', 'customer', {}),
+      financeKeys.outstanding({}),
+      queryKeys.dealerPortal.outstanding,
+    ]
+    for (const key of reached) queryClient.setQueryData(key, {})
+
+    await user.click(await screen.findByRole('button', { name: 'Issue credit note' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Issue credit note' })
+    await user.type(within(dialog).getByRole('spinbutton', { name: /credit quantity/i }), '2')
+    await user.click(within(dialog).getByRole('button', { name: 'Issue credit note' }))
+
+    await waitFor(() => fetch.requestFor('POST', '/finance/credit-notes'))
+    await waitFor(() => {
+      for (const key of reached) {
+        expect(queryClient.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+      }
+    })
   })
   it('dates a credit note by the local calendar, not the UTC one', async () => {
     // Half past midnight on 1 April in India is still 31 March in UTC: a note

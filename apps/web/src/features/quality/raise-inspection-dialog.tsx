@@ -54,6 +54,7 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
+import { qcTemplateKeys } from './qc-template-model'
 import { QC_STAGES, type QcInspectionRow } from './quality-types'
 
 /** Reference types a hand-raised inspection may quote. */
@@ -179,7 +180,7 @@ export function RaiseInspectionDialog({
   // leaving it empty inspects against the inspector's judgement. Scoped to
   // the item and stage so the list stays short.
   const templates = useQuery({
-    queryKey: ['quality', 'raise-templates', itemId, stage] as const,
+    queryKey: qcTemplateKeys.raise(itemId, stage),
     queryFn: () =>
       api.getPage<TemplateChoice>('/quality/templates', {
         params: { item_id: itemId, qc_stage: stage, is_active: true, limit: 50 },

@@ -37,6 +37,7 @@ import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } fro
 
 import type { CustomerRow } from './customer-types'
 import CustomersPage from './customers-page'
+import { dealerKeys } from './dealer-model'
 
 // ------------------------------------------------------------- fixtures ----
 
@@ -101,6 +102,7 @@ function renderCustomers(options: {
   routes: RouteTable
   route?: string
   errorNets?: boolean
+  cachePolicy?: 'test' | 'production'
 }) {
   return renderScreen(
     <TooltipProvider>
@@ -450,6 +452,29 @@ describe('retiring an account', () => {
     expect(fetch.requestFor('DELETE', `/customers/${ACME_ID}`)).toBeUndefined()
   })
 
+  it('reaches the dealer list, which files its rows under the customers root', async () => {
+    // A retired dealer left in the dealer screen's cache is a row whose every
+    // action answers 404. The production policy keeps that cache for its five
+    // minutes, which is what makes a missed invalidation visible here.
+    const { user, fetch, queryClient } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_DELETE, P.DEALER_MANAGE],
+      cachePolicy: 'production',
+      routes: {
+        'GET /customers': page([DEALER]),
+        [`DELETE /customers/${DEALER_ID}`]: ok(null),
+      },
+    })
+    const dealers = dealerKeys.list({ page: 1, limit: 50, sort_by: 'code' })
+    queryClient.setQueryData(dealers, page([DEALER]))
+
+    await user.click(await screen.findByRole('button', { name: 'Retire D-0007' }))
+    await user.type(await stable(() => screen.getByLabelText(/reason/i)), 'Channel agreement ended')
+    await user.click(screen.getByRole('button', { name: 'Retire customer' }))
+
+    await waitFor(() => fetch.requestFor('DELETE', `/customers/${DEALER_ID}`))
+    await waitFor(() => expect(queryClient.getQueryState(dealers)?.isInvalidated).toBe(true))
+  })
+
   it('holds back a reason too short for the API to accept', async () => {
     // The API's own `min_length` is 3. Sending a shorter one earns a 422 against
     // a field the dialog would then have to explain after the fact.
@@ -709,6 +734,34 @@ describe('the dealer channel in the account form', () => {
     expect(within(dialog).getByRole('button', { name: 'Block' })).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Deactivate' })).toBeVisible()
     expect(within(dialog).queryByText(/amended by the channel team/i)).not.toBeInTheDocument()
+  })
+
+  it('reaches the dealer list when a dealer is blocked', async () => {
+    // The dealer screen reads these rows through `/customers/dealers` and keeps
+    // them for five minutes. Filed apart from the customers root, a dealer
+    // blocked here went on reading 'Clear' there, with its old limit, until then.
+    const { user, fetch, queryClient } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_UPDATE, P.DEALER_MANAGE],
+      cachePolicy: 'production',
+      routes: {
+        'GET /customers': page([DEALER]),
+        [`GET /customers/${DEALER_ID}`]: ok(detailOf(DEALER)),
+        [`POST /customers/${DEALER_ID}/block`]: ok(detailOf({ ...DEALER, is_blocked: true })),
+      },
+    })
+    const dealers = dealerKeys.list({ page: 1, limit: 50, sort_by: 'code' })
+    queryClient.setQueryData(dealers, page([DEALER]))
+
+    const dialog = await openEdit(user, 'D-0007')
+    await user.click(within(dialog).getByRole('button', { name: 'Block' }))
+    await user.type(
+      await stable(() => screen.getByRole('textbox', { name: /reason/i })),
+      'Cheque returned twice',
+    )
+    await user.click(screen.getByRole('button', { name: 'Block account' }))
+
+    await waitFor(() => fetch.requestFor('POST', `/customers/${DEALER_ID}/block`))
+    await waitFor(() => expect(queryClient.getQueryState(dealers)?.isInvalidated).toBe(true))
   })
 
   it('leaves a direct account fully editable without dealer.manage', async () => {

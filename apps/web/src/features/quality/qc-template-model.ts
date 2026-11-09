@@ -33,6 +33,7 @@
  */
 
 import { formatNumber, formatQuantity, toDecimal } from '@/lib/format'
+import { queryKeys } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
 import type { QcParameterType, QcStage, QcTemplateParameter } from './quality-types'
@@ -40,15 +41,14 @@ import type { QcParameterType, QcStage, QcTemplateParameter } from './quality-ty
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has a `quality` branch for
- * inspections but none for specifications, so the keys live here in the same
- * hierarchical shape: invalidating `qcTemplateKeys.all` clears every template
- * list, detail and version history at once.
+ * Under `queryKeys.qcTemplates`, apart from the inspections' `quality` branch,
+ * in the same hierarchical shape: invalidating `qcTemplateKeys.all` clears
+ * every template list, detail, version history and raise-dialog offer at once.
  */
 export const qcTemplateKeys = {
-  all: ['qc-templates'] as const,
-  list: (params: unknown) => ['qc-templates', 'list', params] as const,
-  detail: (id: string) => ['qc-templates', 'detail', id] as const,
+  all: queryKeys.qcTemplates.all,
+  list: (params: unknown) => [...queryKeys.qcTemplates.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.qcTemplates.all, 'detail', id] as const,
   /**
    * Every revision of one code.
    *
@@ -56,7 +56,16 @@ export const qcTemplateKeys = {
    * revisions are different rows: forking v3 into v4 must invalidate the
    * history v3's dialog is showing, and only the code is common to both.
    */
-  versions: (code: string) => ['qc-templates', 'versions', code] as const,
+  versions: (code: string) => [...queryKeys.qcTemplates.all, 'versions', code] as const,
+  /**
+   * The active templates the raise dialog offers for one item and stage.
+   *
+   * Here, not under `quality`: creating, forking or retiring a template
+   * invalidates this root, and an offer filed under `quality` went on listing a
+   * retired template, and missing the new one, for its five-minute staleTime.
+   */
+  raise: (itemId: string, stage: string) =>
+    [...queryKeys.qcTemplates.all, 'raise', itemId, stage] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

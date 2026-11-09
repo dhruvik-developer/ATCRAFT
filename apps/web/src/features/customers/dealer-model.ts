@@ -39,22 +39,26 @@
 import type Decimal from 'decimal.js'
 
 import { toDecimal } from '@/lib/format'
+import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no dealer branch, so the keys
- * live here in the same hierarchical shape as `assemblyKeys`.
+ * Filed under the customers root, because a dealer is a customer row read
+ * through `GET /customers/dealers`: a save, a block or a retirement on the
+ * customer screens changes this list, and the `queryKeys.customers.all`
+ * invalidation those writes make is what has to reach it. Under a root of its
+ * own, a dealer just blocked kept reading 'Clear' for the five minutes of its
+ * staleTime.
  *
- * Deliberately *not* filed under the customers keys even though the rows come
- * from the customer table: the two lists answer different questions and a
- * dealer page must not read a cache entry populated by the unrestricted
- * customer list, which contains rows this screen may not show.
+ * Its own `dealers` segment keeps it out of the unrestricted customer list's
+ * entries (`['customers', 'list', ...]`), which hold rows this screen may not
+ * show, so the two never answer each other.
  */
 export const dealerKeys = {
-  all: ['dealers'] as const,
-  list: (params: unknown) => ['dealers', 'list', params] as const,
+  all: [...queryKeys.customers.all, 'dealers'] as const,
+  list: (params: unknown) => [...queryKeys.customers.all, 'dealers', 'list', params] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

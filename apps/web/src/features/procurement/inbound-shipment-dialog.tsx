@@ -26,6 +26,7 @@ import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
 
 import { useAuth } from '@/features/auth/auth-context'
+import { transporterKeys } from '@/features/transporters/transporter-model'
 import { P } from '@/lib/permissions'
 
 const nullableText = (max: number) => z.string().trim().max(max)
@@ -113,7 +114,7 @@ export function InboundShipmentDialog({
     queryKey:
       scope === 'vendor'
         ? queryKeys.vendorPortal.transporters({ page })
-        : queryKeys.procurement.inboundTransporters({ page }),
+        : transporterKeys.inbound({ page }),
     enabled: canReadTransporters,
     queryFn: ({ signal }) =>
       api.getPage<SchemaOf<'TransporterOption'>>(

@@ -7,7 +7,14 @@
  * both is a rejection nobody sees.
  */
 
+import { partialMatchKey } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { assemblyKeys } from '@/features/assembly/assembly-model'
+import { dealerKeys } from '@/features/customers/dealer-model'
+import { jobWorkKeys } from '@/features/job-work/job-work-model'
+import { qcTemplateKeys } from '@/features/quality/qc-template-model'
+import { transporterKeys } from '@/features/transporters/transporter-model'
 
 import * as apiClient from './api-client'
 import { ApiError } from './api-client'
@@ -217,6 +224,35 @@ describe('query keys', () => {
   it('files the approval queue and the report catalogue under their namespaces', () => {
     expect(queryKeys.audit.approvals({ limit: 6 })).toEqual(['audit', 'approvals', { limit: 6 }])
     expect(queryKeys.reports.catalogue).toEqual(['reports', 'catalogue'])
+  })
+
+  // A prefix invalidation reaches a key only when the key starts with it, so a
+  // cache filed under a root of its own is one its writers' invalidation misses.
+  // `partialMatchKey` is the comparison `invalidateQueries` itself makes.
+  it.each([
+    ['the dealer list, by every customer write', dealerKeys.list({}), queryKeys.customers.all],
+    [
+      'the raise dialog offer, by every template write',
+      qcTemplateKeys.raise('item', 'INCOMING'),
+      qcTemplateKeys.all,
+    ],
+    [
+      'the inbound carriers, by every transporter write',
+      transporterKeys.inbound({ page: 1 }),
+      transporterKeys.all,
+    ],
+    ['an assembly order, by a QC verdict', assemblyKeys.detail('id'), queryKeys.assembly.all],
+    ['a job-work order, by a QC verdict', jobWorkKeys.detail('id'), queryKeys.jobWork.all],
+  ] as const)('lets the root reach %s', (_reader, key, root) => {
+    expect(partialMatchKey(key, root)).toBe(true)
+  })
+
+  it('keeps the dealer list out of the unrestricted customer list it sits beside', () => {
+    // The customer list holds rows the dealer screen may not show: neither may
+    // answer for the other, so neither key may be a prefix of the other.
+    const params = { page: 1, limit: 50 }
+    expect(partialMatchKey(dealerKeys.list(params), queryKeys.customers.list(params))).toBe(false)
+    expect(partialMatchKey(queryKeys.customers.list(params), dealerKeys.list(params))).toBe(false)
   })
 })
 

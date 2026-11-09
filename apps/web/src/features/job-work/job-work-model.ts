@@ -27,27 +27,30 @@ import type { SetURLSearchParams } from 'react-router-dom'
 
 import { api } from '@/lib/api-client'
 import { daysUntil } from '@/lib/format'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no job-work branch, so the keys
- * live here in the same hierarchical shape: invalidating `jobWorkKeys.all`
- * clears every job-work list and detail at once.
+ * Under `queryKeys.jobWork`, in the registry's hierarchical shape: invalidating
+ * `jobWorkKeys.all` clears every job-work list and detail at once.
  */
 export const jobWorkKeys = {
-  all: ['job-work'] as const,
-  list: (params: unknown) => ['job-work', 'list', params] as const,
-  detail: (id: string) => ['job-work', 'detail', id] as const,
-  pendingAtVendor: (params: unknown) => ['job-work', 'pending-at-vendor', params] as const,
-  billableLines: (orderId: string) => ['job-work', 'billable-lines', orderId] as const,
-  challans: (params: unknown) => ['job-work', 'challans', params] as const,
-  orderChallans: (orderId: string) => ['job-work', 'order-challans', orderId] as const,
-  receipts: (orderId: string) => ['job-work', 'receipts', orderId] as const,
-  reconciliation: (orderId: string) => ['job-work', 'reconciliation', orderId] as const,
-  vendorLedger: (params: unknown) => ['job-work', 'vendor-ledger', params] as const,
+  all: queryKeys.jobWork.all,
+  list: (params: unknown) => [...queryKeys.jobWork.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.jobWork.all, 'detail', id] as const,
+  pendingAtVendor: (params: unknown) =>
+    [...queryKeys.jobWork.all, 'pending-at-vendor', params] as const,
+  billableLines: (orderId: string) =>
+    [...queryKeys.jobWork.all, 'billable-lines', orderId] as const,
+  challans: (params: unknown) => [...queryKeys.jobWork.all, 'challans', params] as const,
+  orderChallans: (orderId: string) =>
+    [...queryKeys.jobWork.all, 'order-challans', orderId] as const,
+  receipts: (orderId: string) => [...queryKeys.jobWork.all, 'receipts', orderId] as const,
+  reconciliation: (orderId: string) =>
+    [...queryKeys.jobWork.all, 'reconciliation', orderId] as const,
+  vendorLedger: (params: unknown) => [...queryKeys.jobWork.all, 'vendor-ledger', params] as const,
 }
 
 // ------------------------------------------------------------ vocabulary ----

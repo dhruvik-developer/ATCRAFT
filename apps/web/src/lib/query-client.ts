@@ -332,18 +332,28 @@ export const queryKeys = {
       ['procurement', 'po', id, 'shipments', params] as const,
     documents: (id: string, params: unknown) =>
       ['procurement', 'po', id, 'documents', params] as const,
-    inboundTransporters: (params: unknown) => ['procurement', 'transporters', params] as const,
   },
   production: {
     all: ['production'] as const,
     list: (params: unknown) => ['production', 'list', params] as const,
     detail: (id: string) => ['production', 'detail', id] as const,
   },
+  /** The root of `assemblyKeys` (features/assembly/assembly-model.ts). */
+  assembly: { all: ['assembly'] as const },
+  /** The root of `jobWorkKeys` (features/job-work/job-work-model.ts). */
+  jobWork: { all: ['job-work'] as const },
   quality: {
     all: ['quality'] as const,
     inspections: (params: unknown) => ['quality', 'inspections', params] as const,
     detail: (id: string) => ['quality', 'detail', id] as const,
   },
+  /**
+   * The root of `qcTemplateKeys` (features/quality/qc-template-model.ts),
+   * apart from `quality` because a template is a master, not an inspection.
+   */
+  qcTemplates: { all: ['qc-templates'] as const },
+  /** The root of `transporterKeys` (features/transporters/transporter-model.ts). */
+  transporters: { all: ['transporters'] as const },
   dispatch: {
     all: ['dispatch'] as const,
     list: (params: unknown) => ['dispatch', 'list', params] as const,
@@ -359,6 +369,7 @@ export const queryKeys = {
     list: (params: unknown) => ['vendors', 'list', params] as const,
     detail: (id: string) => ['vendors', 'detail', id] as const,
   },
+  /** Also the root of `dealerKeys` (features/customers/dealer-model.ts). */
   customers: {
     all: ['customers'] as const,
     list: (params: unknown) => ['customers', 'list', params] as const,

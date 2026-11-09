@@ -23,10 +23,10 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { fail, ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen, type RenderScreenOptions } from '@/test/harness'
 
 import QcTemplatesPage from './qc-templates-page'
-import type { QcTemplateRow } from './qc-template-model'
+import { qcTemplateKeys, type QcTemplateRow } from './qc-template-model'
 
 const TEMPLATE_ID = '01a00000-0000-7000-8000-0000000000t1'
 
@@ -359,8 +359,12 @@ describe('amending a version', () => {
 })
 
 describe('creating a specification', () => {
-  async function openCreate(routes: Record<string, unknown> = {}) {
+  async function openCreate(
+    routes: Record<string, unknown> = {},
+    options: Pick<RenderScreenOptions, 'cachePolicy'> = {},
+  ) {
     const rendered = renderScreen(<QcTemplatesPage />, {
+      ...options,
       permissions: [P.QC_VIEW, P.QC_TEMPLATE_MANAGE],
       routes: { 'GET /quality/templates': page([]), ...routes },
     })
@@ -387,6 +391,33 @@ describe('creating a specification', () => {
 
     expect(await screen.findByText('Choose the item this specification governs')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it("refreshes the raise dialog's offer, which files its templates under this root", async () => {
+    // The raise dialog keeps the active templates for an item and stage for
+    // five minutes. Filed under `quality`, a new specification stayed out of
+    // that offer - and a retired one stayed in it - until the time ran out.
+    const { user, fetch, queryClient } = await openCreate(
+      { 'POST /quality/templates': ok(templateDetail({ code: 'QC-NEW' })) },
+      { cachePolicy: 'production' },
+    )
+    const offer = qcTemplateKeys.raise('01a00000-0000-7000-8000-0000000000i1', 'INCOMING')
+    queryClient.setQueryData(offer, page([]))
+
+    await user.type(screen.getByRole('textbox', { name: 'Code' }), 'QC-NEW')
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'New check')
+    await user.click(screen.getByRole('combobox', { name: /applies to/i }))
+    await user.click(await screen.findByRole('option', { name: 'Stage default' }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'Name of characteristic 1' }),
+      'Overall length',
+    )
+    await user.type(screen.getByRole('textbox', { name: 'Minimum' }), '12.5')
+    await user.type(screen.getByRole('textbox', { name: 'Maximum' }), '13.5')
+    await user.click(screen.getByRole('button', { name: /create specification/i }))
+
+    await waitFor(() => fetch.requestFor('POST', '/quality/templates'))
+    await waitFor(() => expect(queryClient.getQueryState(offer)?.isInvalidated).toBe(true))
   })
 
   it('posts a stage-wide specification with the figures its plan does not use cleared', async () => {
