@@ -239,7 +239,9 @@ class Notification(TenantEntity):
     #: SMTP acceptance timestamp. Kept separate from ``delivered_at`` because a
     #: notification may be visible in-app before its e-mail is sent. Celery uses
     #: this as the idempotency guard when a late-acknowledged task is delivered
-    #: more than once.
+    #: more than once. A relay's permanent refusal of the recipient keeps it too:
+    #: the attempt is over, and NULL is what the retry and the recovery sweep
+    #: look for (docs/assumptions.md section MAIL-1).
     email_delivered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

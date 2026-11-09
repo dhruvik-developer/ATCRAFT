@@ -4851,3 +4851,37 @@ a resolver is registered for a type it does not list.
 **Impact if wrong.** Remove a registration to accept any id under that type
 again. To hold another entity type to its records, register its owner's
 `get_or_404` and move the type from the guard's unresolved list.
+
+## §MAIL-1. A relay's permanent refusal of a recipient ends the e-mail attempt
+
+**Assumed.** When the relay refuses every recipient of a message with a 5xx
+reply (`smtplib.SMTPRecipientsRefused`, RFC 5321's permanent class), the e-mail
+is not retried. A notification keeps its `email_delivered_at` marker - the
+attempt is over - and gives back the `delivered_at` stamp the claim set, since
+the message never reached anyone; a password reset clears `email_sent_at` but
+keeps its delivery copy purged, so the person asks for a new link. The task
+succeeds, reporting `delivered: false, detail: refused`, and logs
+`notifications.email_refused` or `auth.password_reset.email_refused` with the
+row's id and the reply codes, never the address or the reply text. A 4xx
+refusal (greylisting, a full or busy mailbox, a relay shedding load), a dropped
+connection and every other transport failure release the claim and are retried
+as before. The refusal is not recorded in `notification_deliveries`, whose
+channels are WhatsApp and SMS.
+
+**Why.** Every failure was retried, and every release cleared the marker the
+two-minute recovery sweep selects on, so one undeliverable address was re-sent
+for the whole of its 24-hour recovery window: about 720 retry chains and 4 300
+SMTP sessions a day, each logging the refusal, enough to invite the relay to
+throttle everything else the company sends - password resets included - and a
+hundred such rows filled the sweep's batch and starved newer notifications. A
+5xx answer to a recipient is the relay saying it will give the same answer
+again.
+
+**Where.** `src/workers/tasks/notifications.py` - `permanently_refused`,
+`SMTP_PERMANENT_REPLY_CLASS`, `_deliver_notification_email`,
+`_deliver_password_reset_email`.
+
+**Impact if wrong.** A relay that answers 5xx for a condition it later clears
+loses that one message: the notification stays in the bell, and the person
+requests another reset link. To retry such a refusal, make
+`permanently_refused` return False for that code.

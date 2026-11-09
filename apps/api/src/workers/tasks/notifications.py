@@ -872,6 +872,36 @@ def _password_reset_mail(account: User, record: PasswordResetToken, token: str) 
     )
 
 
+#: The first digit of a permanent SMTP reply (RFC 5321 section 4.2.1). A relay
+#: that answers 5yz to a recipient will answer it the same way next time.
+SMTP_PERMANENT_REPLY_CLASS = 5
+
+
+def permanently_refused(exc: BaseException) -> bool:
+    """Whether the relay refused every recipient with a permanent (5xx) reply.
+
+    ASSUMPTION (docs/assumptions.md section MAIL-1): such a message is never
+    retried. ``SMTPRecipientsRefused`` was retried like a dropped connection,
+    and every release cleared the delivery marker the recovery sweep looks
+    for, so one undeliverable address was re-sent every two minutes for a day -
+    thousands of SMTP sessions that invite the relay to throttle everything
+    else this company sends, password resets included. A 4xx refusal - a
+    greylisting server, a busy mailbox, a relay shedding load - is temporary
+    and stays retryable, as is every other transport failure.
+    """
+    if not isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return False
+    codes = _refusal_codes(exc)
+    return bool(codes) and all(code // 100 == SMTP_PERMANENT_REPLY_CLASS for code in codes)
+
+
+def _refusal_codes(exc: BaseException) -> list[int]:
+    """The relay's reply codes, which - unlike its reply text - name nobody."""
+    if not isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return []
+    return sorted({code for code, _reply in exc.recipients.values()})
+
+
 async def _deliver_notification_email(
     notification_id: str,
     company_id: str,
@@ -880,7 +910,9 @@ async def _deliver_notification_email(
     """Load, claim, send and - on failure - release one ordinary notification.
 
     Same shape as :func:`_deliver_password_reset_email`, for the same reason:
-    the SMTP conversation runs with no transaction open.
+    the SMTP conversation runs with no transaction open. A permanent refusal
+    (:func:`permanently_refused`) is not a failure to retry: the claim on the
+    e-mail marker stays, and the task reports the message undelivered.
     """
     notification_uuid = uuid.UUID(notification_id)
     company_uuid = uuid.UUID(company_id)
@@ -935,22 +967,36 @@ async def _deliver_notification_email(
 
     try:
         await deliver_email(mail)
-    except Exception:
-        release: dict[str, Any] = {"email_delivered_at": None}
+    except Exception as exc:
+        # A permanent refusal keeps the e-mail marker - the attempt is over, and
+        # the retry and the recovery sweep both key on it being NULL - and gives
+        # back only the "reached the recipient" stamp, which it never earned.
+        refused = permanently_refused(exc)
+        release: dict[str, Any] = {} if refused else {"email_delivered_at": None}
         if stamped_in_app:
             release["delivered_at"] = None
-        async with session_scope() as session:
-            await session.execute(
-                update(Notification)
-                .where(
-                    Notification.id == notification_uuid,
-                    Notification.company_id == company_uuid,
-                    Notification.email_delivered_at == claimed_at,
+        if release:
+            async with session_scope() as session:
+                await session.execute(
+                    update(Notification)
+                    .where(
+                        Notification.id == notification_uuid,
+                        Notification.company_id == company_uuid,
+                        Notification.email_delivered_at == claimed_at,
+                    )
+                    .values(**release)
+                    .execution_options(synchronize_session=False)
                 )
-                .values(**release)
-                .execution_options(synchronize_session=False)
-            )
-        raise
+        if not refused:
+            raise
+        log.warning(
+            "notifications.email_refused",
+            notification_id=notification_id,
+            company_id=company_id,
+            user_id=user_id,
+            smtp_codes=_refusal_codes(exc),
+        )
+        return {"notification_id": notification_id, "delivered": False, "detail": "refused"}
 
     log.info(
         "notifications.email_delivered",
@@ -983,7 +1029,9 @@ async def _deliver_password_reset_email(
     the row up again. A worker killed between the claim and the send leaves
     one mail unsent, which the user cures by requesting another link; the
     failure the other way round, a live credential mailed once a minute, is
-    the one that must not happen.
+    the one that must not happen. A permanent refusal
+    (:func:`permanently_refused`) clears the stamp but not the purge, for the
+    same cure: the address will be refused again, so nothing re-sends it.
     """
     company_uuid = uuid.UUID(company_id)
     reset_uuid = uuid.UUID(reset_token_id)
@@ -1061,7 +1109,11 @@ async def _deliver_password_reset_email(
 
     try:
         await deliver_email(mail)
-    except Exception:
+    except Exception as exc:
+        # A permanent refusal un-stamps the send but leaves the delivery copy
+        # purged, so neither the retry nor the sweep mails this link again; the
+        # person asks for a new one. Anything else puts the claim back.
+        refused = permanently_refused(exc)
         async with session_scope() as session:
             await session.execute(
                 update(PasswordResetToken)
@@ -1070,10 +1122,18 @@ async def _deliver_password_reset_email(
                     PasswordResetToken.company_id == company_uuid,
                     PasswordResetToken.email_sent_at == claimed_at,
                 )
-                .values(email_sent_at=None, email_token_ciphertext=ciphertext)
+                .values(email_sent_at=None, email_token_ciphertext=None if refused else ciphertext)
                 .execution_options(synchronize_session=False)
             )
-        raise
+        if not refused:
+            raise
+        log.warning(
+            "auth.password_reset.email_refused",
+            company_id=company_id,
+            reset_token_id=reset_token_id,
+            smtp_codes=_refusal_codes(exc),
+        )
+        return {"reset_token_id": reset_token_id, "delivered": False, "detail": "refused"}
 
     log.info(
         "auth.password_reset.email_delivered",

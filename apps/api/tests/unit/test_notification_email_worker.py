@@ -322,3 +322,157 @@ async def test_notification_email_releases_its_claim_when_delivery_fails(
     assert params["email_delivered_at"] is None
     # The in-app stamp was ours too, so it goes back as well.
     assert params["delivered_at"] is None
+
+
+# -----------------------------------------------------------------------------
+# A permanent refusal closes the attempt; anything else is retried
+# -----------------------------------------------------------------------------
+
+
+def _refused(code: int) -> smtplib.SMTPRecipientsRefused:
+    return smtplib.SMTPRecipientsRefused({"person@example.com": (code, b"5.1.1 User unknown")})
+
+
+@pytest.mark.parametrize(
+    ("failure", "permanent"),
+    [
+        (_refused(550), True),
+        (_refused(553), True),
+        (_refused(450), False),  # greylisting, a busy mailbox: try again later
+        (_refused(421), False),
+        (
+            smtplib.SMTPRecipientsRefused(
+                {"a@example.com": (550, b"no"), "b@example.com": (451, b"later")}
+            ),
+            False,
+        ),
+        (smtplib.SMTPRecipientsRefused({}), False),
+        (smtplib.SMTPServerDisconnected("Connection unexpectedly closed"), False),
+        (smtplib.SMTPDataError(554, b"rejected"), False),
+        (OSError("connection refused"), False),
+    ],
+)
+def test_only_a_5xx_refusal_of_every_recipient_is_permanent(
+    failure: BaseException, permanent: bool
+) -> None:
+    assert worker.permanently_refused(failure) is permanent
+
+
+def _email_notification(company_id: uuid.UUID, user_id: uuid.UUID) -> Notification:
+    return Notification(
+        id=uuid.uuid4(),
+        company_id=company_id,
+        user_id=user_id,
+        notification_type=NotificationType.SYSTEM_ANNOUNCEMENT,
+        severity=NotificationSeverity.INFO,
+        title="Planned maintenance",
+        body="The service will restart tonight.",
+        channels=[NotificationChannel.EMAIL.value],
+    )
+
+
+async def test_a_refused_notification_email_keeps_its_marker_and_is_not_retried(
+    enabled_mail: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The retry and the recovery sweep both look for a NULL marker: keeping it
+    is what stops an undeliverable address being re-sent every two minutes."""
+    company_id, user_id = uuid.uuid4(), uuid.uuid4()
+    notification = _email_notification(company_id, user_id)
+    state = _patch_recording_session(monkeypatch, (notification, _account(company_id, user_id)))
+
+    async def refuse(mail: OutboundEmail) -> None:
+        raise _refused(550)
+
+    monkeypatch.setattr(worker, "deliver_email", refuse)
+
+    result = await worker._deliver_notification_email(
+        str(notification.id), str(company_id), str(user_id)
+    )
+
+    assert result == {
+        "notification_id": str(notification.id),
+        "delivered": False,
+        "detail": "refused",
+    }
+    assert notification.email_delivered_at is not None
+    (release,) = state["scopes"][1].statements  # type: ignore[index]
+    sql, params = _compiled(release)
+    assert sql.startswith("UPDATE notifications SET delivered_at=")
+    assert "email_delivered_at=" not in sql.split(" WHERE ")[0], "the marker stays"
+    assert params["delivered_at"] is None, "it never reached the recipient"
+    out = capsys.readouterr().out
+    assert "notifications.email_refused" in out
+    assert "550" in out
+    assert "person@example.com" not in out
+
+
+async def test_a_refusal_with_no_stamp_to_give_back_writes_nothing(
+    enabled_mail: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    company_id, user_id = uuid.uuid4(), uuid.uuid4()
+    notification = _email_notification(company_id, user_id)
+    notification.channels = [NotificationChannel.IN_APP.value, NotificationChannel.EMAIL.value]
+    notification.delivered_at = utcnow()
+    state = _patch_recording_session(monkeypatch, (notification, _account(company_id, user_id)))
+
+    async def refuse(mail: OutboundEmail) -> None:
+        raise _refused(550)
+
+    monkeypatch.setattr(worker, "deliver_email", refuse)
+
+    result = await worker._deliver_notification_email(
+        str(notification.id), str(company_id), str(user_id)
+    )
+
+    assert result["detail"] == "refused"
+    assert len(state["scopes"]) == 1  # type: ignore[arg-type]
+
+
+async def test_a_temporary_refusal_releases_the_claim_for_the_retry(
+    enabled_mail: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    company_id, user_id = uuid.uuid4(), uuid.uuid4()
+    notification = _email_notification(company_id, user_id)
+    state = _patch_recording_session(monkeypatch, (notification, _account(company_id, user_id)))
+
+    async def greylist(mail: OutboundEmail) -> None:
+        raise _refused(450)
+
+    monkeypatch.setattr(worker, "deliver_email", greylist)
+
+    with pytest.raises(smtplib.SMTPRecipientsRefused):
+        await worker._deliver_notification_email(
+            str(notification.id), str(company_id), str(user_id)
+        )
+
+    (release,) = state["scopes"][1].statements  # type: ignore[index]
+    _, params = _compiled(release)
+    assert params["email_delivered_at"] is None
+
+
+async def test_a_refused_reset_is_not_mailed_again_by_the_retry_or_the_sweep(
+    enabled_mail: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The sweep selects an unsent row *with* a delivery copy; a refused one keeps
+    the copy purged, and the person asks for a new link."""
+    company_id, user_id, token = uuid.uuid4(), uuid.uuid4(), "refused-token"
+    record = _reset_record(company_id, user_id, token)
+    state = _patch_recording_session(monkeypatch, (record, _account(company_id, user_id)))
+
+    async def refuse(mail: OutboundEmail) -> None:
+        raise _refused(550)
+
+    monkeypatch.setattr(worker, "deliver_email", refuse)
+
+    result = await worker._deliver_password_reset_email(str(company_id), str(record.id))
+
+    assert result == {"reset_token_id": str(record.id), "delivered": False, "detail": "refused"}
+    (release,) = state["scopes"][1].statements  # type: ignore[index]
+    sql, params = _compiled(release)
+    assert sql.startswith("UPDATE password_reset_tokens SET")
+    assert params["email_sent_at"] is None
+    assert params["email_token_ciphertext"] is None
+    out = capsys.readouterr().out
+    assert "auth.password_reset.email_refused" in out
+    assert "person@example.com" not in out
+    assert token not in out
