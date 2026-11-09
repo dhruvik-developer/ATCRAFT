@@ -7,6 +7,7 @@ import { Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import { picker } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 
 /** Permission-specific description lookups share search/paging, never a downloaded master table. */
@@ -74,8 +75,9 @@ export function DescriptionPicker<T extends { id: string; code: string; name: st
             disabled={disabled || result.isFetching}
             className="min-w-0"
           >
+            {/* A read for the typed term is a search, said as every search picker says it. */}
             <option value="">
-              {result.isLoading ? 'Loading choices…' : `Choose ${label.toLowerCase()}`}
+              {result.isLoading ? picker.searching : `Choose ${label.toLowerCase()}`}
             </option>
             {rows
               .filter((row) => !excludedIds.includes(row.id))
