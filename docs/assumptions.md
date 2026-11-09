@@ -4584,6 +4584,12 @@ checked against the caller's company when a write names it, and only when it
   `photo_document_id` that is not a live document of this company with 404,
   before any reading is written. A photo the reading already carries is not
   re-checked, so a corrected value keeps its evidence after the file expires.
+- **MRP run.** `POST /mrp/runs` refuses, with 404 and no run row, a manual
+  demand line whose item is not a live item of this company, and a run scope or
+  demand line naming a warehouse that is not this company's or not in the
+  caller's assignment. A warehouse is accepted whatever its state, inactive or
+  retired: the nightly run replays the scope saved in its settings, and a store
+  closed since must not make every night's run fail.
 
 **Why.** A UUID is globally unique, so neither a foreign key nor the absence of
 one says which company a row belongs to; the read through the tenant-scoped
@@ -4595,7 +4601,8 @@ centre.
 **Where.** `src/modules/sales/service.py` - `_assert_transporter`;
 `src/modules/sales/repository.py` - `OrderPartyRepository.transporter_in_tenant`;
 `src/modules/quality/service.py` - `record_results`, through
-`DocumentService.require_live`.
+`DocumentService.require_live`; `src/modules/mrp/service.py` -
+`_assert_run_references`, through `WarehouseRepository.ids_in_scope`.
 
 **Impact if wrong.** Check every non-null value in the helper instead; the
 cost is that an edit of a record naming a retired transporter must also clear

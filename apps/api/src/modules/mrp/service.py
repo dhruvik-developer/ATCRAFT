@@ -92,6 +92,7 @@ from src.modules.mrp.repository import (
     MrpScheduleSettingsRepository,
     MrpSuggestionRepository,
     PackingDemandRepository,
+    PlanningItemRepository,
     ReorderDemandRepository,
     SalesDemandRepository,
     ScheduledMrpConfiguration,
@@ -416,6 +417,38 @@ async def _close_abandoned_runs(session: AsyncSession, tenant: TenantContext) ->
 # -----------------------------------------------------------------------------
 
 
+async def _assert_run_references(
+    session: AsyncSession, tenant: TenantContext, payload: MrpRunRequest
+) -> None:
+    """Every item and warehouse a run names is this company's.
+
+    The run stores them - ``mrp_runs.warehouse_ids`` and each manual line in
+    ``mrp_demands`` - and the engine only *skips* an item it cannot read, so
+    without this a run completes over another company's ids and keeps them.
+    Two queries, whatever the line count.
+
+    ASSUMPTION: a warehouse is held to tenancy and the caller's assignment,
+    active or retired - a nightly scope saved while a store was live must not
+    fail every run once the store closes (docs/assumptions.md §REF-1).
+    """
+    item_ids = [line.item_id for line in payload.manual_demand]
+    items = await PlanningItemRepository(session, tenant).planning_items(item_ids)
+    missing_items = [item_id for item_id in item_ids if item_id not in items]
+    if missing_items:
+        raise NotFoundError("Item", missing_items[0])
+
+    warehouse_ids = [
+        *payload.warehouse_ids,
+        *(line.warehouse_id for line in payload.manual_demand if line.warehouse_id is not None),
+    ]
+    known = await WarehouseRepository(session, tenant).ids_in_scope(
+        warehouse_ids, include_deleted=True
+    )
+    missing_warehouses = [value for value in warehouse_ids if value not in known]
+    if missing_warehouses:
+        raise NotFoundError("Warehouse", missing_warehouses[0])
+
+
 def _manual_demand_lines(payload: MrpRunRequest) -> list[engine.DemandLine]:
     return [
         engine.DemandLine(
@@ -637,6 +670,9 @@ async def start_run(
     token = await _acquire_planning_lock(tenant.company_id)
     hand_over_lock = False
     try:
+        # The first database work, and inside the try: a refused reference
+        # releases the planning lock like any other failure.
+        await _assert_run_references(session, tenant, payload)
         demand = await _collect_demand(
             session, tenant, payload, as_of=as_of, horizon_end=horizon_end
         )

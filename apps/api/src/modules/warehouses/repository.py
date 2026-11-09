@@ -194,6 +194,24 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def ids_in_scope(
+        self, warehouse_ids: Sequence[uuid.UUID], *, include_deleted: bool = False
+    ) -> set[uuid.UUID]:
+        """Which of a bounded set of ids name this tenant's warehouses the caller may see.
+
+        One statement, whatever the warehouses' state. ``include_deleted`` keeps
+        retired stores in, for a reference that was valid when it was saved.
+        """
+        wanted = list(dict.fromkeys(warehouse_ids))
+        if not wanted:
+            return set()
+        stmt = (
+            self._scoped(include_deleted=include_deleted)
+            .where(Warehouse.id.in_(wanted))
+            .with_only_columns(Warehouse.id)
+        )
+        return set((await self.session.execute(stmt)).scalars().all())
+
     async def location_counts(self, warehouse_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
         """Live location count per warehouse, for a whole page in one query.
 

@@ -442,35 +442,52 @@ async def test_a_malformed_run_request_is_a_field_error_and_starts_nothing(
     assert count == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: start_run stores manual_demand item/warehouse ids and warehouse_ids unchecked "
-        "(no tenant lookup); update_schedule_settings validates the same scope"
-    ),
-)
-@pytest.mark.parametrize("reference", ["demand-item", "run-scope"])
+@pytest.mark.parametrize("reference", ["demand-item", "run-scope", "demand-store"])
 async def test_a_run_naming_another_companys_records_is_refused(
-    api_client, session, tenant, other_company, unique_code, reference
+    api_client, session, tenant, other_company, plant, unique_code, reference
 ):
     their_item = await buy_item(session, other_company.id, unique_code("RM"))
     their_store = await seed_support.seed_warehouse(
         session, company_id=other_company.id, code=unique_code("WH")
     )
-    body: dict[str, Any] = (
-        {"manual_demand": [manual(their_item)]}
-        if reference == "demand-item"
-        else {"warehouse_ids": [str(their_store.id)]}
-    )
+    body: dict[str, Any] = {
+        "demand-item": {"manual_demand": [manual(their_item)]},
+        "run-scope": {"warehouse_ids": [str(their_store.id)]},
+        "demand-store": {
+            "manual_demand": [{**manual(plant.item_id), "warehouse_id": str(their_store.id)}]
+        },
+    }[reference]
 
     response = await api_client.post("/mrp/runs", json=body)
 
-    assert response.status_code in {404, 422}, response.text
-    assert response.json()["success"] is False
+    refused(response, 404, "NOT_FOUND")
     count = await session.scalar(
         select(func.count()).select_from(MrpRun).where(MrpRun.company_id == tenant.company_id)
     )
     assert count == 0
+
+
+@pytest.mark.parametrize("state", ["inactive", "retired"])
+async def test_a_run_may_still_be_scoped_to_this_companys_closed_stores(
+    api_client, session, tenant, plant, unique_code, state
+):
+    """A nightly scope saved while a store was live must not fail once it closes."""
+    closed = await seed_support.seed_warehouse(
+        session,
+        company_id=tenant.company_id,
+        code=unique_code("WH"),
+        **({"is_active": False} if state == "inactive" else {"deleted_at": utcnow()}),
+    )
+
+    data = ok(
+        await api_client.post(
+            "/mrp/runs",
+            json={"warehouse_ids": [str(plant.store_id), str(closed.id)]},
+        )
+    )
+
+    assert data["status"] == "COMPLETED"
+    assert data["warehouse_ids"] == [str(plant.store_id), str(closed.id)]
 
 
 # -----------------------------------------------------------------------------
