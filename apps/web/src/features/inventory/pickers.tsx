@@ -23,6 +23,7 @@ import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
+import type { ItemSeed } from './item-seeds'
 import type { ItemOption } from './types'
 import { useWarehouseLookup } from './use-warehouse-lookup'
 
@@ -109,6 +110,7 @@ export function ItemPicker({
   className,
   filters,
   emptyMessage,
+  seed,
 }: {
   id: string
   label: string
@@ -129,19 +131,27 @@ export function ItemPicker({
   filters?: Record<string, unknown>
   /** Shown when a search returns nothing, in place of the generic line. */
   emptyMessage?: string
+  /**
+   * The chosen item's code and name when the caller already holds them - a
+   * saved document line reads with both (`itemSeeds`). Used while `value` is
+   * that item, so the field is named without reading the item again.
+   */
+  seed?: ItemSeed | null
 }) {
   const [picked, setPicked] = useState<ItemOption | null>(null)
+  const seeded = seed && seed.id === value ? seed : null
 
   // A filter restored from a bookmarked URL arrives as a bare id with no label,
-  // so the chosen item is resolved from the API rather than shown as a UUID.
+  // so the chosen item is resolved from the API rather than shown as a UUID -
+  // unless the caller has already named it.
   const detail = useQuery({
     queryKey: queryKeys.items.detail(value ?? ''),
     queryFn: ({ signal }) => api.get<ItemOption>('/products/items/' + value, { signal }),
-    enabled: Boolean(value) && picked?.id !== value,
+    enabled: Boolean(value) && picked?.id !== value && !seeded,
     staleTime: staleTimes.master,
   })
 
-  const selected = value ? (picked?.id === value ? picked : (detail.data ?? null)) : null
+  const selected = value ? (picked?.id === value ? picked : (seeded ?? detail.data ?? null)) : null
 
   return (
     <SearchPicker<ItemOption>

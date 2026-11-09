@@ -13,11 +13,12 @@
  *    re-split those rows, and must make the merge visible.
  * 2. Quantities, percentages and money are decimal STRINGS. They stay strings
  *    all the way to the wire; `toDecimal` is the only way they are computed on.
- * 3. **A bill carries ids, not names.** `BomSummary` names `item_id` and
- *    `base_uom_id`; `BomLineRead` names `component_item_id` and `uom_id`. The
- *    only endpoint in the module that returns part numbers is the explosion,
- *    which is why the structure tab reads names from there rather than
- *    inventing a lookup per line.
+ * 3. **A bill carries ids, and names only its own lines' components.**
+ *    `BomSummary` names `item_id` and `base_uom_id`; `BomLineRead` names
+ *    `component_item_id` and `uom_id`, with the component's code and name
+ *    beside the id for the edit form. Below one level, part numbers come only
+ *    from the explosion, which is why the structure tab reads names from there
+ *    rather than inventing a lookup per line.
  */
 
 import type { DecimalString } from '@/types/api'
@@ -94,6 +95,9 @@ export interface BomLine {
   bom_id: string
   line_number: number
   component_item_id: string
+  /** The component's code and name, read with the line. */
+  component_item_code?: string | null
+  component_item_name?: string | null
   quantity_per: DecimalString
   uom_id: string
   scrap_percentage: DecimalString

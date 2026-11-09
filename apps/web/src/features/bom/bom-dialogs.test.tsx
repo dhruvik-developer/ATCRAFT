@@ -8,7 +8,7 @@
  * shown on that line rather than dropped for not matching a field.
  */
 
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
@@ -311,6 +311,45 @@ describe('editing a draft', () => {
       fixed_cost: '50.0000',
       is_outsourced: false,
     })
+  })
+
+  it("names each line's component from the bill, and reads only an item it could not name", async () => {
+    // Each line's picker read its item again: a request per line, for a name
+    // the bill had already sent.
+    const bom: BomDetail = {
+      ...DRAFT_BOM,
+      lines: [
+        {
+          ...DRAFT_BOM.lines![0]!,
+          component_item_code: SCREW.code,
+          component_item_name: SCREW.name,
+        },
+        { ...DRAFT_BOM.lines![1]!, component_item_code: null, component_item_name: null },
+      ],
+    }
+    const { fetch } = renderScreen(<BomEditDialog bom={bom} open onOpenChange={() => {}} />, {
+      permissions: [P.BOM_VIEW, P.BOM_UPDATE],
+      routes: {
+        [`GET /products/items/${ITEM.id}`]: ok(ITEM),
+        'GET /routing/work-centers': page([]),
+      },
+    })
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('combobox', { name: 'Component 1' })).toHaveTextContent(
+      'SCREW-M4 - Screw M4',
+    )
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: 'Component 2' })).toHaveTextContent(
+        'DOOR-CLOSER-A - Door closer, model A',
+      ),
+    )
+    // Which items are read, not how often: seeding the form remounts each line,
+    // which aborts a read in flight and makes it again.
+    const itemReads = new Set(
+      fetch.calls.filter((call) => call.path.startsWith('/products/items/')).map((c) => c.path),
+    )
+    expect([...itemReads]).toEqual([`/products/items/${ITEM.id}`])
   })
 
   it('says on the form when someone else saved first', async () => {

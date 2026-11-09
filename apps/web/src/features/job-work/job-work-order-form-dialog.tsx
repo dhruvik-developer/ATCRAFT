@@ -28,7 +28,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -60,6 +60,7 @@ import {
 } from '@/components/ui/primitives'
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
+import { itemSeeds } from '@/features/inventory/item-seeds'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
@@ -480,6 +481,22 @@ export function JobWorkOrderFormDialog({
   const detailQuery = useJobWorkOrder(order?.id ?? '', open && amending)
   const detail = detailQuery.data
   const isRework = Boolean(rework || detail?.source_type === 'REWORK')
+  // The order names every line's material and what it comes back as, so each
+  // picker shows them at once rather than reading every item again.
+  const seeds = useMemo(
+    () =>
+      itemSeeds(
+        linesOf(detail).flatMap((line) => [
+          { id: line.item_id, code: line.item_code, name: line.item_name },
+          {
+            id: line.expected_output_item_id,
+            code: line.expected_output_item_code,
+            name: line.expected_output_item_name,
+          },
+        ]),
+      ),
+    [detail],
+  )
 
   const {
     register,
@@ -882,6 +899,7 @@ export function JobWorkOrderFormDialog({
                                   id={`job-work-line-item-${index}`}
                                   label={`Line ${index + 1} material`}
                                   value={itemField.value || null}
+                                  seed={seeds.get(itemField.value)}
                                   onChange={(itemId, item) => {
                                     itemField.onChange(itemId ?? '')
                                     setValue(`lines.${index}.batch_id`, '')
@@ -1017,6 +1035,7 @@ export function JobWorkOrderFormDialog({
                                     id={`job-work-line-output-${index}`}
                                     label={`Line ${index + 1} comes back as`}
                                     value={outputField.value || null}
+                                    seed={seeds.get(outputField.value)}
                                     onChange={(itemId) => outputField.onChange(itemId ?? '')}
                                     placeholder="The same item"
                                     filters={JOB_WORK_OUTPUT_FILTERS}

@@ -50,6 +50,7 @@ from src.modules.assembly.schemas import (
     AssemblyOrderSummary,
 )
 from src.modules.auth.schemas import MeResponse
+from src.modules.bom.schemas import BomDetail, BomLineRead, BomSummary
 from src.modules.dispatch.schemas import DispatchDetail, DispatchLineRead, DispatchSummary
 from src.modules.inventory.schemas import ItemStockSummaryWithCost, WarehouseStockRowWithCost
 from src.modules.production.schemas import ProductionOrderDetail, ProductionOrderSummary
@@ -100,6 +101,11 @@ MIRRORS: tuple[tuple[str, str, type[BaseModel]], ...] = (
     ("features/dispatch/dispatch-types.ts", "DispatchRow", DispatchSummary),
     ("features/dispatch/dispatch-types.ts", "DispatchDetail", DispatchDetail),
     ("features/dispatch/dispatch-types.ts", "DispatchLine", DispatchLineRead),
+    # The edit form names each line's component from the line itself, so the
+    # line gained the labels and the bill's shapes are checked here.
+    ("features/bom/bom-model.ts", "BomRow", BomSummary),
+    ("features/bom/bom-model.ts", "BomDetail", BomDetail),
+    ("features/bom/bom-model.ts", "BomLine", BomLineRead),
 )
 
 #: Fields a mirror may declare that the model does not carry, with the reason.

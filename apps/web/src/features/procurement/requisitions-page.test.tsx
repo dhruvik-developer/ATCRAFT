@@ -26,6 +26,7 @@ import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import type { RequisitionRow } from './procurement-types'
+import { RequisitionFormDialog } from './requisition-form-dialog'
 import RequisitionsPage from './requisitions-page'
 
 /**
@@ -755,6 +756,44 @@ describe('the requisition form', () => {
     await user.click(within(dialog).getByRole('button', { name: /try again/i }))
     await stable(() => screen.getByRole('button', { name: 'Save draft' }))
     expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('12.5000')
+  })
+
+  it("names each line's item from the draft, reading no item", async () => {
+    // Each line's picker read its item again: a request per line, for a name
+    // the draft had already sent.
+    const detail = requisitionDetail() as { data: { lines: Record<string, unknown>[] } }
+    const [line] = detail.data.lines
+    detail.data.lines = [
+      { ...line, item_code: 'BRASS-ROD-12', item_name: 'Brass rod 12mm' },
+      {
+        ...line,
+        id: '01a00000-0000-7000-8000-0000000000l2',
+        line_number: 2,
+        item_id: ITEM_STEEL,
+        item_code: 'SS-SHEET-2',
+        item_name: 'Stainless sheet 2mm',
+      },
+    ]
+    const { fetch } = renderScreen(
+      <RequisitionFormDialog open onOpenChange={() => {}} requisitionId={REQUISITION_ID} />,
+      {
+        permissions: formPermissions,
+        routes: formRoutes({
+          [`GET /procurement/purchase-requisitions/${REQUISITION_ID}`]: detail,
+        }),
+      },
+    )
+
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: 'Line 2 item' })).toHaveTextContent(
+        'SS-SHEET-2 - Stainless sheet 2mm',
+      ),
+    )
+    expect(within(dialog).getByRole('combobox', { name: 'Line 1 item' })).toHaveTextContent(
+      'BRASS-ROD-12 - Brass rod 12mm',
+    )
+    expect(fetch.calls.filter((call) => call.path.startsWith('/products/items/'))).toEqual([])
   })
 
   it('says why it cannot be saved when the warehouse list is unreadable', async () => {

@@ -11,7 +11,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { itemSeeds } from '@/features/inventory/item-seeds'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions } from '@/features/items/item-model'
 import { optionLabel, useWorkCentreOptions } from '@/features/production/work-order-model'
@@ -770,6 +771,20 @@ export function BomEditDialog({
     if (open && bom) reset(editDefaults(bom))
   }, [open, bom, reset])
 
+  // The bill names every line's component, so each picker shows it at once
+  // rather than reading every item again.
+  const seeds = useMemo(
+    () =>
+      itemSeeds(
+        (bom?.lines ?? []).map((line) => ({
+          id: line.component_item_id,
+          code: line.component_item_code,
+          name: line.component_item_name,
+        })),
+      ),
+    [bom],
+  )
+
   const mutation = useMutation({
     mutationFn: (values: EditValues) => {
       // Sequences for brand-new operations continue past the highest kept
@@ -875,6 +890,7 @@ export function BomEditDialog({
                           label={`Component ${index + 1}`}
                           hideLabel
                           value={pick.value || null}
+                          seed={seeds.get(pick.value)}
                           onChange={(itemId) => pick.onChange(itemId ?? '')}
                           placeholder="Search the item master"
                           invalid={Boolean(errors.lines?.[index]?.component_item_id)}

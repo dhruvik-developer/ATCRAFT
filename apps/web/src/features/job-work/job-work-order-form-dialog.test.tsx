@@ -206,6 +206,58 @@ describe('job-work order form', () => {
   })
 })
 
+describe('the items on an amendment', () => {
+  it("names each line's material and what it comes back as from the order, reading no item", async () => {
+    // Every line's two pickers read their items again: a request per item, for
+    // names the order had already sent.
+    const named: JobWorkOrderDetail = {
+      ...DETAIL,
+      lines: [
+        {
+          ...DETAIL.lines![0]!,
+          item_code: ITEM.code,
+          item_name: ITEM.name,
+          expected_output_item_id: 'it-handle-pvd',
+          expected_output_item_code: 'HDL-200-PVD',
+          expected_output_item_name: 'Pull handle 200mm, PVD gold',
+        },
+        {
+          ...DETAIL.lines![0]!,
+          id: 'jl-2',
+          line_number: 2,
+          item_id: 'it-knob',
+          item_code: 'KNB-40',
+          item_name: 'Knob 40mm',
+          expected_output_item_id: 'it-knob',
+          expected_output_item_code: 'KNB-40',
+          expected_output_item_name: 'Knob 40mm',
+        },
+      ],
+    }
+    const { fetch } = renderScreen(
+      <JobWorkOrderFormDialog open onOpenChange={() => {}} order={ROW} />,
+      {
+        permissions: [P.JOB_WORK_CREATE, P.WAREHOUSE_VIEW],
+        routes: { ...routes, 'GET /job-work/jw-1': ok(named) },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox', { name: 'Line 2 material' })).toHaveTextContent(
+        'KNB-40 - Knob 40mm',
+      ),
+    )
+    expect(within(dialog).getByRole('combobox', { name: 'Line 1 material' })).toHaveTextContent(
+      'HDL-200 - Pull handle 200mm',
+    )
+    expect(
+      within(dialog).getByRole('combobox', { name: 'Line 1 comes back as' }),
+    ).toHaveTextContent('HDL-200-PVD - Pull handle 200mm, PVD gold')
+    expect(fetch.calls.filter((call) => call.path.startsWith('/products/items/'))).toEqual([])
+  })
+})
+
 describe('the expected return date on an amendment', () => {
   /** A draft whose promised date has already gone by. */
   const SLIPPED_DATE = '2020-01-10'

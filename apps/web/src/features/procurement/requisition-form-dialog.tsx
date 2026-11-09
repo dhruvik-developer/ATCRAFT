@@ -28,7 +28,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -58,6 +58,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { itemSeeds } from '@/features/inventory/item-seeds'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
@@ -274,6 +275,19 @@ export function RequisitionFormDialog({
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
 
   const loaded = detail.data
+  // The draft names every line's item, so each picker shows it at once rather
+  // than reading every item again.
+  const seeds = useMemo(
+    () =>
+      itemSeeds(
+        (loaded?.lines ?? []).map((line) => ({
+          id: line.item_id,
+          code: line.item_code,
+          name: line.item_name,
+        })),
+      ),
+    [loaded],
+  )
   useEffect(() => {
     if (!open) return
     reset(loaded && requisitionId ? valuesFrom(loaded) : emptyValues())
@@ -581,6 +595,7 @@ export function RequisitionFormDialog({
                               id={`req-line-item-${index}`}
                               label={`Line ${index + 1} item`}
                               value={itemField.value || null}
+                              seed={seeds.get(itemField.value)}
                               onChange={(itemId) => {
                                 itemField.onChange(itemId ?? '')
                                 // The description and unit carried on the line
