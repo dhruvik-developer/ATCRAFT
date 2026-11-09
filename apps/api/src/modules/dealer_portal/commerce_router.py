@@ -8,9 +8,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
 
-from src.core.deps import DbSession, Tenant, require_permission
+from src.core.deps import DbSession, Tenant, require_permission, spend_budget
 from src.core.pagination import PageParams, page_params
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import AcceptedJobResponse, ApiResponse, PaginatedResponse
 from src.modules.dealer_portal.commerce_schemas import (
     DealerCreditNoteDetail,
@@ -119,7 +120,10 @@ async def get_invoice(
     "/invoices/{invoice_id}/pdf",
     response_model=AcceptedJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    dependencies=[
+        require_permission(Permission.DEALER_PORTAL_ACCOUNT),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def invoice_pdf(
     invoice_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -158,7 +162,10 @@ async def get_credit_note(
     "/credit-notes/{note_id}/pdf",
     response_model=AcceptedJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    dependencies=[
+        require_permission(Permission.DEALER_PORTAL_ACCOUNT),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def credit_note_pdf(
     note_id: uuid.UUID, session: DbSession, tenant: Tenant

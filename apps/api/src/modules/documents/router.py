@@ -21,10 +21,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
+from src.core.deps import CurrentUser, DbSession, Tenant, require_permission, spend_budget
 from src.core.messages import success_message
 from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.core.validation import bind_request_model
 from src.modules.documents.models import DocumentCategory
@@ -94,7 +95,10 @@ FilterDep = Annotated[DocumentFilters, Depends(document_filters)]
         "configuration and must match the file's actual leading bytes; the stored path is "
         "generated server-side and never derives from the submitted file name."
     ),
-    dependencies=[require_permission(Permission.DOCUMENT_UPLOAD)],
+    dependencies=[
+        require_permission(Permission.DOCUMENT_UPLOAD),
+        spend_budget(RateLimitPolicy.FILE_UPLOAD),
+    ],
 )
 async def upload_document(
     session: DbSession,

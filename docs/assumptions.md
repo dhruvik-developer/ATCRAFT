@@ -4652,3 +4652,39 @@ to `_load_principal` and `refresh`. The remote sign-out comes back with it, so
 pair it with a CAPTCHA or a per-account notification. To restart the count after
 a lapse, reset `failed_login_attempts` in `_register_failure` when
 `locked_until` is in the past.
+
+## §RATE-1. Uploads, document PDFs and exports have their own per-user budget
+
+**Assumed.** Every route that takes a file spends `RateLimitPolicy.FILE_UPLOAD`
+(60 per 5 minutes), every route that queues one document's PDF - purchase
+order, debit note, sales invoice, credit note, job-work challan, packing list,
+from staff screens and both portals - spends `DOCUMENT_PDF` (60 per 10 minutes),
+and every route that queues an export - `/reports/export`, the inventory
+valuation, the trial balance and GSTR-1 - spends `REPORT_EXPORT` (10 per 10
+minutes). Each is keyed on the authenticated user and spent by the route after
+its permission gate, so a refused or unentitled request spends nothing, and a
+request over the budget answers `429 RATE_LIMITED` with `Retry-After` before
+anything is read. A PDF a service queues on its own - the one issuing an
+invoice queues - spends nothing. The automatic background path for a report too
+large to show inline is not budgeted: it reuses an identical job, and reading a
+report is not refused. `BULK_IMPORT` was removed: no import route exists.
+
+**Why.** The three budgets were declared and never spent, while
+`docs/security.md` said they were. Only the general 300-a-minute allowance
+applied, so one vendor or dealer account could queue about 300 permanent PDFs
+and reports-queue jobs a minute, or store 300 files of 25 MB, starving everyone
+else's exports and filling storage. The values follow the cost: an export can
+hold a reports worker for minutes, and a month-end is fewer than ten of them;
+one document's PDF is a second or two of work, and nobody working through the
+screens asks for one more often than every ten seconds; files are picked one at
+a time. The declared `REPORT_EXPORT` (10 per 10 minutes) would have refused a
+dispatch clerk's eleventh invoice in ten minutes, which is why a document's PDF
+has its own budget.
+
+**Where.** `src/core/ratelimit.py` - `RateLimitPolicy.FILE_UPLOAD`,
+`DOCUMENT_PDF`, `REPORT_EXPORT`; `src/core/deps.py` - `spend_budget`; the
+routes, held to it by `tests/unit/test_route_budgets.py`.
+
+**Impact if wrong.** Raise the constant. A site with a bulk-printing desk may
+find 60 PDFs in ten minutes tight; a finance team running many exports at
+month-end may find ten tight.

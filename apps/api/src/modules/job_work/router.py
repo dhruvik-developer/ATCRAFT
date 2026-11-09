@@ -29,10 +29,12 @@ from src.core.deps import (
     Tenant,
     require_any_permission,
     require_permission,
+    spend_budget,
 )
 from src.core.messages import success_message
 from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
@@ -278,7 +280,10 @@ async def vendor_ledger(
         "`download_url` points at the PDF in the document store. Rendering never "
         "happens on an HTTP worker (section 22)."
     ),
-    dependencies=[require_permission(Permission.JOB_WORK_VIEW)],
+    dependencies=[
+        require_permission(Permission.JOB_WORK_VIEW),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def challan_pdf(
     challan_id: uuid.UUID, session: DbSession, tenant: Tenant

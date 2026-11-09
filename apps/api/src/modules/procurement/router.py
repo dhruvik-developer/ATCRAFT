@@ -26,6 +26,7 @@ from src.core.deps import (
     forbid_vendor_users,
     require_any_permission,
     require_permission,
+    spend_budget,
 )
 from src.core.messages import success_message
 from src.core.pagination import (
@@ -38,6 +39,7 @@ from src.core.pagination import (
     sort_params,
 )
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
@@ -1583,6 +1585,7 @@ async def mark_purchase_order_shipment_delivered(
     dependencies=[
         require_permission(Permission.DOCUMENT_UPLOAD),
         Depends(forbid_vendor_users),
+        spend_budget(RateLimitPolicy.FILE_UPLOAD),
     ],
 )
 async def upload_purchase_order_document(
@@ -1647,6 +1650,7 @@ async def accept_vendor_date(
     dependencies=[
         require_permission(Permission.PURCHASE_ORDER_VIEW),
         Depends(forbid_vendor_users),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
     ],
 )
 async def purchase_order_pdf(
@@ -1811,6 +1815,7 @@ async def get_purchase_return(
     dependencies=[
         require_permission(Permission.PURCHASE_RETURN_VIEW),
         Depends(forbid_vendor_users),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
     ],
 )
 async def purchase_return_debit_note_pdf(

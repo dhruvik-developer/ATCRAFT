@@ -1069,6 +1069,65 @@ async def test_the_po_pdf_is_queued_from_both_doors(
     assert render_purchase_order_pdf(data).startswith(b"%PDF")
 
 
+async def test_a_vendor_gets_its_last_pdf_and_upload_of_the_budget_and_no_more(
+    api_client, session, tenant, principal, world, monkeypatch, tmp_path
+):
+    """The portal surface the budgets exist for: a vendor account could queue
+    about 300 permanent PDFs, or store 300 files, a minute (docs/assumptions.md
+    §RATE-1). Through the real limiter over the sliding-window stub."""
+    from src.core import ratelimit
+    from src.core.clock import utcnow as clock_now
+    from src.core.config import settings
+    from src.core.ratelimit import KEY_PREFIX, RateLimitPolicy
+    from src.modules.reports.models import ReportSnapshot
+    from src.workers import celery_app as celery_module
+    from tests.unit.test_mrp_rate_limit import FakeRedis
+
+    monkeypatch.setattr(settings, "storage_path", tmp_path)
+    monkeypatch.setattr(
+        celery_module.celery_app,
+        "send_task",
+        lambda name, **_: type("Task", (), {"id": uuid.uuid4().hex})(),
+    )
+    stub = FakeRedis()
+
+    async def _get_redis() -> FakeRedis:
+        return stub
+
+    monkeypatch.setattr(ratelimit, "get_redis", _get_redis)
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    order = await accepted_order(api_client, session, tenant, principal, world)
+    order_id = order.id
+    vendor = as_owner(principal, world)
+    now_ms = int(clock_now().timestamp() * 1000)
+    for scope, limit, _ in (RateLimitPolicy.DOCUMENT_PDF, RateLimitPolicy.FILE_UPLOAD):
+        # Everything but the last token of the window already spent.
+        stub.windows[f"{KEY_PREFIX}:rl:{scope}:{vendor.user_id}"] = [
+            (now_ms, f"spent-{n}") for n in range(limit - 1)
+        ]
+
+    async def jobs() -> int:
+        count = select(func.count()).select_from(ReportSnapshot)
+        return int(
+            await session.scalar(count.where(ReportSnapshot.created_by_id == vendor.user_id))
+        )
+
+    pdf = f"/vendor-portal/purchase-orders/{order_id}/pdf"
+    assert (await api_client.post(pdf)).status_code == 202
+    refused = await api_client.post(pdf)
+    assert refused.status_code == 429, refused.text
+    assert refused.json()["error"]["code"] == "RATE_LIMITED"
+    assert await jobs() == 1
+
+    upload = f"/vendor-portal/purchase-orders/{order_id}/documents"
+    lorry_receipt = {"file": ("lr.pdf", PDF, "application/pdf")}
+    filed = await api_client.post(upload, data={"kind": "LR_COPY"}, files=lorry_receipt)
+    assert filed.status_code == 201, filed.text
+    refused = await api_client.post(upload, data={"kind": "LR_COPY"}, files=lorry_receipt)
+    assert refused.status_code == 429, refused.text
+    assert len([path for path in tmp_path.rglob("*") if path.is_file()]) == 1
+
+
 async def test_profile_rating_and_transporters(api_client, session, tenant, principal, world):
     lock_bodies = await seed_support.seed_category(
         session, company_id=tenant.company_id, code=code("LB")

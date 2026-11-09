@@ -16,10 +16,18 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from src.core.deps import CurrentUser, DbSession, Tenant, require_permission, require_vendor_user
+from src.core.deps import (
+    CurrentUser,
+    DbSession,
+    Tenant,
+    require_permission,
+    require_vendor_user,
+    spend_budget,
+)
 from src.core.messages import success_message
 from src.core.pagination import PageParams, bind_query_filters, page_params
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
@@ -369,7 +377,8 @@ async def transporter_options(
     dependencies=[
         require_permission(
             Permission.VENDOR_PORTAL_SHIP, Permission.VENDOR_PORTAL_INVOICE, mode="any"
-        )
+        ),
+        spend_budget(RateLimitPolicy.FILE_UPLOAD),
     ],
 )
 async def upload_document(
@@ -558,7 +567,10 @@ async def rating(session: DbSession, tenant: Tenant) -> ApiResponse[VendorRating
     status_code=status.HTTP_202_ACCEPTED,
     summary="Generate the purchase order PDF",
     description="Queued; poll the portal job route it returns, then follow its download_url.",
-    dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
+    dependencies=[
+        require_permission(Permission.VENDOR_PORTAL_ACCESS),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def order_pdf(order_id: uuid.UUID, session: DbSession, tenant: Tenant) -> AcceptedJobResponse:
     return await queue_purchase_order_pdf(session, tenant, order_id, portal=True)

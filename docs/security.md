@@ -416,7 +416,14 @@ Two layers, because they see different things.
 | Application | account, then IP | targeted attacks that look fine per-IP      |
 
 Named policies (`RateLimitPolicy`) give expensive operations their own budget:
-login, password reset, refresh, MRP runs, report exports, uploads, bulk imports.
+sign-in, the MFA step, password reset, refresh, phone verification, MRP runs,
+exports, document PDFs and uploads. The last three are spent per user by the
+route itself (`core.deps.spend_budget`), after its permission gate: every route
+that takes a file spends `FILE_UPLOAD`, and every route that queues a background
+job spends `DOCUMENT_PDF` or `REPORT_EXPORT` - `tests/unit/test_route_budgets.py`
+fails the build otherwise, or when a declared policy is spent nowhere. A route and
+not a service, because only a request may spend it: issuing an invoice queues
+its PDF through the same service function and draws on nobody's budget.
 
 The application limiter uses a sliding window over a Redis sorted set, evaluated
 in a single Lua script — a fixed window lets an attacker send double the limit
@@ -445,6 +452,9 @@ which knows the authenticated user and can be both strict and fair.
 | `PASSWORD_RESET_PER_IP`            | 100 per 5 min, own count  | address            | It was the account budget below, keyed on the address, so a site's fourth reset request in an hour was refused for everyone there.     |
 | `MFA_VERIFY`                       | 5 per 5 min               | account            | Fixed security constant: codes guessed against one account, alongside the lockout.                                                     |
 | `PASSWORD_RESET`                   | 3 per hour                | account            | Fixed security constant: reset links mailed to one address.                                                                            |
+| `REPORT_EXPORT`                    | 10 per 10 min             | authenticated user | A catalogue or finance export can hold a reports worker for minutes; a month-end is fewer files than this.                             |
+| `DOCUMENT_PDF`                     | 60 per 10 min             | authenticated user | One document's PDF is a second of work; through the screens a clerk cannot ask for more than one every ten seconds.                    |
+| `FILE_UPLOAD`                      | 60 per 5 min              | authenticated user | Files are picked one at a time; this stops a script storing 300 files of 25 MB a minute.                                               |
 
 Two of these were previously set as though the address budget were the fairness
 control: `api_general` at 120 r/m refused a single operator working properly, and

@@ -200,9 +200,15 @@ class RateLimitPolicy:
     # for every MFA user there.
     MFA_VERIFY_PER_IP = ("mfa_verify_ip", PER_ADDRESS_AUTH_LIMIT, LOGIN_WINDOW_SECONDS)
     MRP_RUN = ("mrp_run", 5, 300)
+    # Per user, spent by the route (core.deps.spend_budget). ASSUMPTION:
+    # docs/assumptions.md §RATE-1 for all three. A whole-catalogue or
+    # finance export can hold a reports worker for minutes;
     REPORT_EXPORT = ("report_export", 10, 600)
+    # one document's PDF holds it for a second or two, and a clerk printing at a
+    # counter cannot ask for more than one every ten seconds through the screens;
+    DOCUMENT_PDF = ("document_pdf", 60, 600)
+    # and nobody picks sixty files in five minutes one at a time.
     FILE_UPLOAD = ("upload", 60, 300)
-    BULK_IMPORT = ("bulk_import", 3, 3600)
 
 
 async def enforce_policy(policy: tuple[str, int, int], identifier: str) -> RateLimitResult:

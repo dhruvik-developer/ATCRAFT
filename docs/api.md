@@ -472,8 +472,9 @@ X-RateLimit-Remaining: 117
 Retry-After: 43          # on 429 only
 ```
 
-Tighter budgets apply to login, MFA verification, password reset, refresh, MRP
-runs, exports, uploads and bulk imports.
+Tighter budgets apply to login, MFA verification, password reset, refresh, phone
+verification, MRP runs, exports, document PDFs and uploads; the last three are
+per user (`docs/security.md` section 8).
 
 ---
 

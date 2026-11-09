@@ -41,6 +41,7 @@ from src.core.errors import (
 )
 from src.core.logging import bind_request_context, get_logger
 from src.core.permissions import Permission, resolve_role_grants
+from src.core.ratelimit import enforce_policy
 from src.core.security import TokenPayload, decode_token
 from src.modules.users.models import User, UserSession
 
@@ -410,6 +411,31 @@ def require_any_permission(*permissions: Permission) -> DependsParam:
     return require_permission(*permissions, mode="any")
 
 
+def spend_budget(policy: tuple[str, int, int]) -> DependsParam:
+    """Dependency factory spending one token of a named rate-limit policy.
+
+        @router.post("/sales-invoices/{invoice_id}/pdf",
+                     dependencies=[require_permission(Permission.SALES_INVOICE_VIEW),
+                                   spend_budget(RateLimitPolicy.DOCUMENT_PDF)])
+
+    For the request kinds the general per-user API budget is far too coarse for:
+    an upload, a document PDF or an export each costs a stored file and, for
+    the last two, a worker on the shared reports queue. Keyed on the
+    authenticated user, so each person has their own budget, and listed after
+    the permission gate, so a refused caller spends nothing. A route, not a
+    service, because only a request spends it: issuing an invoice queues its PDF
+    through the same service function, and that must not draw on anyone's
+    budget. ``tests/unit/test_route_budgets.py`` holds every upload and every
+    queued-job route to it.
+    """
+
+    async def _dependency(principal: CurrentUser) -> None:
+        await enforce_policy(policy, str(principal.user_id))
+
+    _dependency.budget_policy = policy  # type: ignore[attr-defined]
+    return Depends(_dependency)
+
+
 async def require_superuser(principal: CurrentUser) -> Principal:
     if not principal.is_superuser:
         raise AuthorizationError("This action is restricted to platform administrators.")
@@ -528,5 +554,6 @@ __all__ = [
     "require_dealer_user",
     "require_permission",
     "require_superuser",
+    "spend_budget",
     "system_tenant",
 ]

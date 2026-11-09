@@ -34,6 +34,7 @@ from src.core.deps import (
     forbid_dealer_users,
     forbid_vendor_users,
     require_permission,
+    spend_budget,
 )
 from src.core.messages import success_message
 from src.core.pagination import (
@@ -46,6 +47,7 @@ from src.core.pagination import (
     sort_params,
 )
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
@@ -185,7 +187,10 @@ async def cancel_credit_note(
     "/credit-notes/{note_id}/pdf",
     response_model=AcceptedJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[require_permission(Permission.CREDIT_NOTE_VIEW)],
+    dependencies=[
+        require_permission(Permission.CREDIT_NOTE_VIEW),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def credit_note_pdf(
     note_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -439,6 +444,7 @@ async def trial_balance(
     dependencies=[
         require_permission(Permission.LEDGER_VIEW),
         require_permission(Permission.REPORT_EXPORT),
+        spend_budget(RateLimitPolicy.REPORT_EXPORT),
     ],
 )
 async def trial_balance_export(
@@ -1089,6 +1095,7 @@ async def inventory_valuation(
         require_permission(Permission.INVENTORY_VALUATION_VIEW, Permission.REPORT_EXPORT),
         Depends(forbid_vendor_users),
         Depends(forbid_dealer_users),
+        spend_budget(RateLimitPolicy.REPORT_EXPORT),
     ],
 )
 async def export_inventory_valuation(
@@ -1170,6 +1177,7 @@ async def gstr3b(
     dependencies=[
         require_permission(Permission.GST_REPORT_VIEW),
         require_permission(Permission.REPORT_EXPORT),
+        spend_budget(RateLimitPolicy.REPORT_EXPORT),
     ],
 )
 async def gstr1_export(
@@ -1304,7 +1312,10 @@ async def cancel_sales_invoice(
     response_model=AcceptedJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Generate a permanent GST sales invoice PDF",
-    dependencies=[require_permission(Permission.SALES_INVOICE_VIEW)],
+    dependencies=[
+        require_permission(Permission.SALES_INVOICE_VIEW),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def sales_invoice_pdf(
     invoice_id: uuid.UUID, session: DbSession, tenant: Tenant

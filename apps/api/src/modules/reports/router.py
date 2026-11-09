@@ -48,10 +48,12 @@ from src.core.deps import (
     forbid_dealer_users,
     forbid_vendor_users,
     require_permission,
+    spend_budget,
 )
 from src.core.errors import ValidationError
 from src.core.pagination import PageParams, bind_query_filters, page_params
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
@@ -283,6 +285,7 @@ async def list_reports(principal: CurrentUser) -> ApiResponse[list[ReportDescrip
     dependencies=[
         require_permission(Permission.REPORT_VIEW),
         require_permission(Permission.REPORT_EXPORT),
+        spend_budget(RateLimitPolicy.REPORT_EXPORT),
     ],
 )
 async def export_report(

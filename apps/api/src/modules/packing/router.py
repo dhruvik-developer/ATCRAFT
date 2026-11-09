@@ -20,10 +20,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from src.core.deps import DbSession, Tenant, require_permission
+from src.core.deps import DbSession, Tenant, require_permission, spend_budget
 from src.core.messages import success_message
 from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
+from src.core.ratelimit import RateLimitPolicy
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     AcceptedJobResponse,
@@ -691,7 +692,10 @@ async def carton_label(
         "fifty-carton packing list is not something an HTTP worker holds a connection "
         "open for (section 22, section 35)."
     ),
-    dependencies=[require_permission(Permission.PACKING_VIEW)],
+    dependencies=[
+        require_permission(Permission.PACKING_VIEW),
+        spend_budget(RateLimitPolicy.DOCUMENT_PDF),
+    ],
 )
 async def packing_list(
     session: DbSession, tenant: Tenant, order_id: uuid.UUID
