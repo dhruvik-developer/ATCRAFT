@@ -470,16 +470,17 @@ def _unlink(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
-def _safe_file_name(code: str) -> str:
-    """A display file name derived from a document number.
+def _safe_file_name(code: str, *, prefix: str) -> str:
+    """A display file name: what the PDF is (``prefix``), then its document number.
 
     Only the display name - the path is built by ``build_storage_key`` from
     server-side components alone, so nothing here can influence where the file
     lands. Separators are still replaced, because this string ends up in a
-    ``Content-Disposition`` header.
+    ``Content-Disposition`` header. The prefix is the caller's to state: a
+    challan once borrowed the packing list's and was downloaded as one.
     """
     cleaned = "".join(ch if ch.isalnum() else "-" for ch in code).strip("-")
-    return f"packing-list-{cleaned or 'document'}.pdf"
+    return f"{prefix}-{cleaned or 'document'}.pdf"
 
 
 # -----------------------------------------------------------------------------
@@ -543,7 +544,7 @@ async def generate_packing_list(
 
             try:
                 document = Document(
-                    file_name=_safe_file_name(str(data.get("code", ""))),
+                    file_name=_safe_file_name(str(data.get("code", "")), prefix="packing-list"),
                     storage_key=storage_key,
                     mime_type=PDF_MIME_TYPE,
                     size_bytes=len(payload),
@@ -629,6 +630,10 @@ async def generate_packing_list(
 #: The ``documents.entity_type`` a challan PDF is filed under - the challan
 #: itself, so the challan register and the order's file list both find it.
 JOB_WORK_CHALLAN_ENTITY = "job_work_challan"
+
+#: What a challan PDF is called in the document store and in the download's
+#: ``Content-Disposition``: ``job-work-challan-<code>.pdf``.
+JOB_WORK_CHALLAN_FILE_PREFIX = "job-work-challan"
 
 
 def _party_paragraphs(party: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list[Any]:
@@ -886,7 +891,9 @@ async def generate_job_work_challan(
 
             try:
                 document = Document(
-                    file_name=_safe_file_name(str(data.get("code", ""))),
+                    file_name=_safe_file_name(
+                        str(data.get("code", "")), prefix=JOB_WORK_CHALLAN_FILE_PREFIX
+                    ),
                     storage_key=storage_key,
                     mime_type=PDF_MIME_TYPE,
                     size_bytes=len(payload),
@@ -1023,9 +1030,7 @@ async def generate_sales_invoice(
 
             try:
                 document = Document(
-                    file_name=_safe_file_name(str(data.get("code", ""))).replace(
-                        "packing-list-", "sales-invoice-", 1
-                    ),
+                    file_name=_safe_file_name(str(data.get("code", "")), prefix="sales-invoice"),
                     storage_key=storage_key,
                     mime_type=PDF_MIME_TYPE,
                     size_bytes=len(payload),

@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.workers.tasks.reports import render_job_work_challan_pdf
+from src.workers.tasks.reports import (
+    JOB_WORK_CHALLAN_FILE_PREFIX,
+    _safe_file_name,
+    render_job_work_challan_pdf,
+)
 
 PDF_MAGIC = b"%PDF-"
 
@@ -120,3 +124,22 @@ def test_rendering_is_stable_for_the_same_document() -> None:
     first = render_job_work_challan_pdf(document())
     second = render_job_work_challan_pdf(document())
     assert abs(len(first) - len(second)) < 200
+
+
+def test_a_challan_is_filed_under_its_own_name_not_the_packing_lists() -> None:
+    # The stored name is the download's Content-Disposition: a challan once
+    # borrowed the packing list's prefix and was saved as packing-list-JWC-....
+    assert (
+        _safe_file_name("JWC/2026-27/00007", prefix=JOB_WORK_CHALLAN_FILE_PREFIX)
+        == "job-work-challan-JWC-2026-27-00007.pdf"
+    )
+    assert _safe_file_name("PL/0001", prefix="packing-list") == "packing-list-PL-0001.pdf"
+    assert _safe_file_name("SI/0001", prefix="sales-invoice") == "sales-invoice-SI-0001.pdf"
+
+
+def test_a_number_with_nothing_printable_still_names_the_document() -> None:
+    # Separators are replaced and trimmed; an empty number keeps the prefix.
+    assert _safe_file_name('../"x"/', prefix="packing-list") == "packing-list-x.pdf"
+    assert (
+        _safe_file_name("", prefix=JOB_WORK_CHALLAN_FILE_PREFIX) == "job-work-challan-document.pdf"
+    )

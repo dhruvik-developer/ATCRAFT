@@ -453,6 +453,14 @@ async def test_job_work_view_holder_can_retrieve_only_its_own_challan_export(
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.content.startswith(b"%PDF-")
     assert downloaded.headers["x-content-type-options"] == "nosniff"
+    # Stored and downloaded as what it is - a challan, never a packing list.
+    async with _factory(engine)() as reader:
+        challan = await reader.get(JobWorkChallan, challan_id)
+        assert challan is not None
+        challan_code = challan.code
+    file_name = f"job-work-challan-{challan_code}.pdf"
+    assert (await _filed_document(engine, document_id)).file_name == file_name
+    assert f'filename="{file_name}"' in downloaded.headers["content-disposition"]
 
     # Originating-job access cannot be used for general reports or arbitrary
     # document ids, even by the same operator who generated this PDF.
