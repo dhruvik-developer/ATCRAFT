@@ -1143,8 +1143,21 @@ async def _deliver_password_reset_email(
     return {"reset_token_id": reset_token_id, "delivered": True}
 
 
+#: The failures a mail delivery retries on. Their text can name the recipient,
+#: so they are logged by type only (``celery_app.MAIL_TASKS``).
+MAIL_TRANSPORT_ERRORS = (OSError, smtplib.SMTPException)
+
+
 async def _dispatch_pending_password_resets(*, limit: int = 100) -> dict[str, int]:
-    """Recover committed reset e-mails whose immediate broker publish was lost."""
+    """Recover committed reset e-mails whose immediate broker publish was lost.
+
+    Each row is delivered on its own, and one whose delivery fails in transport
+    is logged and left for the next tick: its claim is already released. Rows
+    are taken oldest first, so a single address the relay would not take used to
+    stop the sweep on every run until its link expired - and every other
+    person's reset with it, after a broker outage, which is the case this sweep
+    exists for. Anything else is a defect and still fails the sweep.
+    """
     async with session_scope() as session:
         expired = await session.execute(
             update(PasswordResetToken)
@@ -1164,21 +1177,36 @@ async def _dispatch_pending_password_resets(*, limit: int = 100) -> dict[str, in
                 PasswordResetToken.used_at.is_(None),
                 PasswordResetToken.expires_at > utcnow(),
             )
-            .order_by(PasswordResetToken.created_at)
+            .order_by(PasswordResetToken.created_at, PasswordResetToken.id)
             .limit(limit)
         )
         pending = list((await session.execute(stmt)).all())
 
-    delivered = 0
+    delivered = failed = 0
     for reset_id, company_id in pending:
-        result = await _deliver_password_reset_email(str(company_id), str(reset_id))
+        try:
+            result = await _deliver_password_reset_email(str(company_id), str(reset_id))
+        except MAIL_TRANSPORT_ERRORS as exc:
+            failed += 1
+            log.warning(
+                "auth.password_reset.recovery_failed",
+                company_id=str(company_id),
+                reset_token_id=str(reset_id),
+                error_type=type(exc).__name__,
+            )
+            continue
         delivered += int(result.get("delivered") is True)
-    return {"scanned": len(pending), "delivered": delivered, "expired_credentials_purged": purged}
+    return {
+        "scanned": len(pending),
+        "delivered": delivered,
+        "failed": failed,
+        "expired_credentials_purged": purged,
+    }
 
 
 _MAIL_RETRY_OPTIONS = {
     "ignore_result": True,
-    "autoretry_for": (OSError, smtplib.SMTPException),
+    "autoretry_for": MAIL_TRANSPORT_ERRORS,
     "retry_backoff": True,
     "retry_jitter": True,
     "retry_kwargs": {"max_retries": 5},

@@ -476,3 +476,81 @@ async def test_a_refused_reset_is_not_mailed_again_by_the_retry_or_the_sweep(
     assert "auth.password_reset.email_refused" in out
     assert "person@example.com" not in out
     assert token not in out
+
+
+# -----------------------------------------------------------------------------
+# The recovery sweep: one address the relay will not take stops nobody else
+# -----------------------------------------------------------------------------
+
+
+class _SweepResult:
+    def __init__(self, rows: list[tuple[uuid.UUID, uuid.UUID]]) -> None:
+        self.rows = rows
+        self.rowcount = 0
+
+    def all(self) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        return self.rows
+
+
+def _patch_sweep(
+    monkeypatch: pytest.MonkeyPatch, pending: list[tuple[uuid.UUID, uuid.UUID]]
+) -> None:
+    """The sweep's own read: an expiry purge, then the rows it will deliver."""
+
+    class _SweepSession:
+        async def execute(self, _statement: object) -> _SweepResult:
+            return _SweepResult(pending)
+
+    @asynccontextmanager
+    async def scope() -> AsyncIterator[_SweepSession]:
+        yield _SweepSession()
+
+    monkeypatch.setattr(worker, "session_scope", scope)
+
+
+async def test_the_reset_sweep_delivers_the_rest_when_one_address_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Oldest first, so the failing row used to be first on every tick until its
+    link expired - and no later reset was recovered."""
+    company_id = uuid.uuid4()
+    failing, queued_behind = uuid.uuid4(), uuid.uuid4()
+    _patch_sweep(monkeypatch, [(failing, company_id), (queued_behind, company_id)])
+    attempted: list[str] = []
+
+    async def deliver(company: str, reset_token_id: str) -> dict[str, object]:
+        attempted.append(reset_token_id)
+        if reset_token_id == str(failing):
+            raise smtplib.SMTPRecipientsRefused({"person@example.com": (452, b"mailbox full")})
+        return {"reset_token_id": reset_token_id, "delivered": True}
+
+    monkeypatch.setattr(worker, "_deliver_password_reset_email", deliver)
+
+    result = await worker._dispatch_pending_password_resets()
+
+    assert attempted == [str(failing), str(queued_behind)]
+    assert result == {
+        "scanned": 2,
+        "delivered": 1,
+        "failed": 1,
+        "expired_credentials_purged": 0,
+    }
+    out = capsys.readouterr().out
+    assert "auth.password_reset.recovery_failed" in out
+    assert str(failing) in out
+    assert "SMTPRecipientsRefused" in out
+    assert "person@example.com" not in out
+
+
+async def test_the_reset_sweep_still_fails_on_a_defect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only a transport failure is one row's problem; anything else is the code's."""
+    company_id = uuid.uuid4()
+    _patch_sweep(monkeypatch, [(uuid.uuid4(), company_id), (uuid.uuid4(), company_id)])
+
+    async def broken(company: str, reset_token_id: str) -> dict[str, object]:
+        raise KeyError("token")
+
+    monkeypatch.setattr(worker, "_deliver_password_reset_email", broken)
+
+    with pytest.raises(KeyError):
+        await worker._dispatch_pending_password_resets()
