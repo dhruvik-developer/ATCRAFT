@@ -116,3 +116,23 @@ describe('server-controlled table search', () => {
     expect(onSearchChange).toHaveBeenCalledExactlyOnceWith('')
   })
 })
+
+describe('the pagination summary', () => {
+  it('counts the total in the application locale, as the cells are', () => {
+    render(
+      <DataTable
+        columns={[{ accessorKey: 'code', header: 'Code' }]}
+        data={[{ code: 'HINGE' }]}
+        pagination={{
+          page: 1,
+          limit: 50,
+          total: 100000,
+          total_pages: 2000,
+          has_next: true,
+          has_previous: false,
+        }}
+      />,
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('1-1 of 1,00,000')
+  })
+})

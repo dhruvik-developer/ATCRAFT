@@ -15,7 +15,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { ApiError, api } from '@/lib/api-client'
 import { MESSAGING_DELIVERIES_PAGE_SIZE } from '@/lib/constants'
-import { humanise } from '@/lib/format'
+import { formatDateTime, humanise } from '@/lib/format'
 import { partitionFieldErrors } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -482,9 +482,7 @@ export default function MessagingPage() {
             <span>
               {delivery.channel} · {delivery.outcome}
             </span>
-            <time dateTime={delivery.attempted_at}>
-              {new Date(delivery.attempted_at).toLocaleString()}
-            </time>
+            <time dateTime={delivery.attempted_at}>{formatDateTime(delivery.attempted_at)}</time>
             <span className="text-muted-foreground">
               {delivery.error_code ?? delivery.provider_message_id ?? delivery.notification_id}
             </span>

@@ -24,7 +24,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
-import { addDaysISO } from '@/lib/format'
+import { addDaysISO, formatWeekday } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 import type { Machine } from '@/features/routing/routing-model'
@@ -69,12 +69,10 @@ export function boardWeek(startISO: string): string[] {
   return Array.from({ length: BOARD_DAYS }, (_, offset) => addDaysISO(startISO, offset))
 }
 
-/** Short weekday + day/month for a column header: "Mon 19". */
+/** Short weekday + day of the month for a column header: "Mon 19". */
 export function columnLabel(iso: string): string {
-  const [year, month, day] = iso.split('-').map(Number)
-  const date = new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1))
-  const weekday = date.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })
-  return `${weekday} ${day}`
+  const [, , day] = iso.split('-').map(Number)
+  return `${formatWeekday(iso)} ${day}`
 }
 
 // -------------------------------------------------------- timeline maths ----

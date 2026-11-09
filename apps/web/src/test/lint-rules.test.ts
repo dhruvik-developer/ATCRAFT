@@ -159,4 +159,20 @@ describe('the lint rules that replace review comments', () => {
 
     expect(fired).toEqual([])
   })
+
+  it('refuses the locale methods, which format in the browser locale', async () => {
+    const code = [
+      'export function labels(total: number, at: Date) {',
+      '  return [total.toLocaleString(), at.toLocaleDateString(), at.toLocaleTimeString()]',
+      '}',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code)).toEqual([
+      'no-restricted-properties',
+      'no-restricted-properties',
+      'no-restricted-properties',
+    ])
+    expect(await rulesFiredBy(code, 'src/lib/format.ts')).toEqual([])
+  })
 })

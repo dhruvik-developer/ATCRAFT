@@ -38,6 +38,21 @@ const decimalThroughNumber = {
     'An API decimal is a string for decimal.js: use toDecimal(...) from lib/format.ts to compute or compare it, and formatQuantity / formatMoney to show it.',
 }
 
+/*
+ * `no-restricted-properties` entries, named for the same reason as the syntax
+ * ones above.
+ *
+ * A locale method formats in the browser's locale, not DEFAULT_LOCALE: every
+ * paginated table's total read 100,000 beside the 1,00,000 its own cells
+ * showed. lib/format.ts holds the one formatter cache, pinned to en-IN.
+ */
+const localeFormatting = ['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString'].map(
+  (property) => ({
+    property,
+    message: `${property} formats in the browser's locale, not the application's. Use formatNumber / formatMoney / formatDate / formatDateTime from lib/format.ts.`,
+  }),
+)
+
 export default tseslint.config(
   { ignores: ['dist', 'node_modules', 'coverage'] },
   {
@@ -88,6 +103,7 @@ export default tseslint.config(
         utcDateSlice,
         decimalThroughNumber,
       ],
+      'no-restricted-properties': ['error', ...localeFormatting],
     },
   },
   {
@@ -97,6 +113,7 @@ export default tseslint.config(
     files: ['src/lib/format.ts'],
     rules: {
       'no-restricted-syntax': ['error', destructiveButtonClassName],
+      'no-restricted-properties': 'off',
     },
   },
 )

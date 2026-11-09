@@ -19,6 +19,7 @@ import {
   DATE_TIME_INPUT_PRECISE_FORMAT,
   DEFAULT_CURRENCY,
   DEFAULT_LOCALE,
+  WEEKDAY_FORMAT,
 } from '@/lib/constants'
 import type { DecimalString } from '@/types/api'
 
@@ -177,6 +178,16 @@ export function formatDate(value: string | Date | null | undefined): string {
 export function formatDateTime(value: string | Date | null | undefined): string {
   const parsed = parse(value)
   return parsed ? format(parsed, DATE_TIME_FORMAT) : '-'
+}
+
+/**
+ * The short weekday of a date ("Mon"). A date-only `YYYY-MM-DD` is read as that
+ * day on the local calendar, so the weekday is the one the date names wherever
+ * the browser is.
+ */
+export function formatWeekday(value: string | Date | null | undefined): string {
+  const parsed = parse(value)
+  return parsed ? format(parsed, WEEKDAY_FORMAT) : '-'
 }
 
 export function formatRelative(value: string | Date | null | undefined): string {

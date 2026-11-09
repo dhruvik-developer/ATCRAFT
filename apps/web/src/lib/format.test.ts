@@ -33,6 +33,7 @@ import {
   formatPercent,
   formatQuantity,
   formatUnitPrice,
+  formatWeekday,
   fromDateTimeInput,
   humanise,
   isIsoCalendarDate,
@@ -238,6 +239,12 @@ describe('dates', () => {
   it('renders absent and unparseable alike as a dash', () => {
     expect(formatDate(null)).toBe('-')
     expect(formatDate('tomorrow-ish')).toBe('-')
+  })
+
+  it('names the weekday a date-only value falls on', () => {
+    expect(formatWeekday('2026-10-19')).toBe('Mon')
+    expect(formatWeekday('2026-11-01')).toBe('Sun')
+    expect(formatWeekday(null)).toBe('-')
   })
 
   it('produces the value an <input type="date"> requires', () => {

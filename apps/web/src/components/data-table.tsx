@@ -49,6 +49,7 @@ import {
   SEARCH_DEBOUNCE_MS,
   SEARCH_MAX_LENGTH,
 } from '@/lib/constants'
+import { formatNumber } from '@/lib/format'
 import { describeError, empty } from '@/lib/messages'
 import { cn } from '@/lib/utils'
 import type { OffsetPagination } from '@/types/api'
@@ -441,8 +442,8 @@ export function DataTable<T>({
             {data.length === 0
               ? 'No records'
               : total !== null
-                ? `${rangeStart}-${rangeEnd} of ${total.toLocaleString()}`
-                : `${rangeStart}-${rangeEnd}`}
+                ? `${formatNumber(rangeStart)}-${formatNumber(rangeEnd)} of ${formatNumber(total)}`
+                : `${formatNumber(rangeStart)}-${formatNumber(rangeEnd)}`}
           </p>
 
           <div className="flex flex-wrap items-center gap-3">

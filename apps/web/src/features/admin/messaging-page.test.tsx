@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { cursorPage, fail, ok, renderScreen } from '@/test/harness'
+import { formatDateTime } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { cursorPage, fail, ok, renderScreen } from '@/test/harness'
 
 import MessagingPage from './messaging-page'
 
@@ -169,5 +170,30 @@ describe('messaging administration', () => {
     expect(await screen.findByText(`WHATSAPP · System Announcement: ${refusal}`)).toBeVisible()
     // Twice: in the summary by the Save button, and on the mapping itself.
     expect(screen.getAllByText(refusal, { exact: false })).toHaveLength(2)
+  })
+
+  it('dates each delivery attempt in the application format', async () => {
+    // Not the browser's toLocaleString, which read differently on every machine.
+    const attemptedAt = '2026-03-14T10:30:00Z'
+    renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW],
+      routes: {
+        ...routes(),
+        'GET /notifications/deliveries': cursorPage([
+          {
+            id: 'delivery-1',
+            notification_id: 'notification-1',
+            channel: 'WHATSAPP',
+            outcome: 'DELIVERED',
+            provider_message_id: 'wamid.1',
+            attempted_at: attemptedAt,
+            error_code: null,
+          },
+        ]),
+      },
+    })
+
+    const stamp = await screen.findByText(formatDateTime(attemptedAt))
+    expect(stamp).toHaveAttribute('dateTime', attemptedAt)
   })
 })

@@ -14,6 +14,7 @@ import type { WorkOrder } from './work-order-model'
 import {
   boardWeek,
   clashingWorkOrders,
+  columnLabel,
   groupCapacityByCentre,
   touchedColumns,
   windowsOverlap,
@@ -76,6 +77,11 @@ describe('the board week', () => {
   it('adds days across month boundaries', () => {
     expect(addDaysISO('2026-10-31', 1)).toBe('2026-11-01')
     expect(addDaysISO('2026-10-12', -7)).toBe('2026-10-05')
+  })
+
+  it('heads a column with its weekday and day of the month', () => {
+    expect(columnLabel('2026-10-19')).toBe('Mon 19')
+    expect(columnLabel('2026-11-01')).toBe('Sun 1')
   })
 })
 
