@@ -1571,11 +1571,13 @@ async def create_order(
 
 
 class AssemblyHandoverPort(Protocol):
-    """The two assembly calls a hand-over makes, in one transaction.
+    """The assembly calls a hand-over makes, and the one that undoes it.
 
     ``packing_facts`` locks the completed assembly and says what it produced;
-    ``mark_packed`` records the packing order that took it. Typed loosely on the
-    way back because the facts are assembly's own dataclass, read by attribute.
+    ``mark_packed`` records the packing order that took it, in the same
+    transaction. ``release_claims`` gives back every assembly a packing order
+    took, when that order is cancelled or deleted. Typed loosely on the way back
+    because the facts are assembly's own dataclass, read by attribute.
     """
 
     async def packing_facts(
@@ -1589,6 +1591,15 @@ class AssemblyHandoverPort(Protocol):
         assembly_order_id: uuid.UUID,
         *,
         packing_order_id: uuid.UUID,
+        reason: str,
+    ) -> Any: ...
+
+    async def release_claims(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        packing_order_id: uuid.UUID,
+        *,
         reason: str,
     ) -> Any: ...
 
@@ -1617,6 +1628,37 @@ class AssemblyHandover:
         return await mark_packed(
             session, tenant, assembly_order_id, packing_order_id=packing_order_id, reason=reason
         )
+
+    async def release_claims(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        packing_order_id: uuid.UUID,
+        *,
+        reason: str,
+    ) -> Any:
+        from src.modules.assembly.service import release_packing_claims
+
+        return await release_packing_claims(session, tenant, packing_order_id, reason=reason)
+
+
+async def _release_assembly_claims(
+    session: AsyncSession,
+    tenant: TenantContext,
+    packing_order_id: uuid.UUID,
+    *,
+    reason: str,
+) -> None:
+    """Give back any assembly output a packing order claimed, as the order goes.
+
+    Called inside the transaction that cancels or deletes the packing order.
+    Without it the assembly keeps naming a packing order that no longer stands,
+    is never offered for packing again, and refuses every later hand-over as
+    already taken. No assembly module deployed means nothing can have claimed it.
+    """
+    port = resolve_assembly_port()
+    if port is not None:
+        await port.release_claims(session, tenant, packing_order_id, reason=reason)
 
 
 async def packing_order_exists(
@@ -1860,7 +1902,8 @@ async def delete_draft_order(
     A draft has no cartons, no ledger rows and no obligation to anybody, so
     section 28's prohibition on hiding history does not apply - there is no
     history yet. Anything past DRAFT is cancelled or closed instead, and the
-    audit entry below is what remembers the deletion happened.
+    audit entry below is what remembers the deletion happened. A draft raised
+    from an assembly gives that assembly back, as a cancellation does.
     """
     repo = PackingOrderRepository(session, tenant)
 
@@ -1874,6 +1917,9 @@ async def delete_draft_order(
 
         captured = snapshot(order, ORDER_AUDITED_FIELDS)
         code = order.code
+        await _release_assembly_claims(
+            session, tenant, order_id, reason=f"Draft packing order {code} deleted: {reason}"
+        )
         await PackingOrderLineRepository(session, tenant).delete_for_order(order.id)
         await repo.hard_delete(order)
 
@@ -3224,7 +3270,8 @@ async def cancel_order(
     Refused once any carton has been sealed even in IN_PROGRESS: packing material
     has been consumed against the order at that point, and a cancelled order that
     ate boxes is a ledger nobody can explain. Unsealed cartons are removed first
-    so the lines are given back their packed quantities.
+    so the lines are given back their packed quantities, and any assembly the
+    order claimed is given back to be packed again.
     """
     repo = PackingOrderRepository(session, tenant)
     carton_repo = CartonRepository(session, tenant)
@@ -3269,6 +3316,12 @@ async def cancel_order(
             reason=reason,
             repo=repo,
             action=AuditAction.CANCEL,
+        )
+        # Nothing was issued from stock - boxes are paid for when sealed, and a
+        # sealed one refuses the cancel above - so the claimed output is still
+        # free stock waiting to be packed.
+        await _release_assembly_claims(
+            session, tenant, order.id, reason=f"Packing order {order.code} cancelled: {reason}"
         )
 
     return order

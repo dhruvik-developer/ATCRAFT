@@ -2243,13 +2243,19 @@ warehouse the output was received into, for the assembled quantity unless a
 smaller one is named (never more). Customer and sales order come from the
 assembly's source when it was raised for a sales order - a named customer must
 then be that customer, and a named sales order that order - otherwise the
-customer must be named. The sales-order *line* is not guessed.
+customer must be named. The sales-order *line* is not guessed. Cancelling or
+deleting the packing order gives the assembly back: its claim is cleared, with
+an audit row, and it is offered for packing again.
 
 **Why.** Guessing the line would attach the packing to the wrong promise when
 an order has several; the packer names it on the packing order itself, where
-the choice is visible.
+the choice is visible. A claim left naming a withdrawn packing order would keep
+the output off the hand-over feed for good, and refuse every later hand-over as
+already taken.
 
-**Where.** `src/modules/packing/service.py` - `create_order_from_assembly`.
+**Where.** `src/modules/packing/service.py` - `create_order_from_assembly`,
+`cancel_order`, `delete_draft_order`; `src/modules/assembly/service.py` -
+`release_packing_claims`.
 
 **Impact if wrong.** If one assembly always covers exactly one sales-order
 line, the handover can carry it once the source records the line.

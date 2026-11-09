@@ -328,6 +328,23 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
         stmt = self._scoped().where(AssemblyOrder.id == order_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def lock_claimed_by(self, packing_order_id: uuid.UUID) -> list[AssemblyOrder]:
+        """Lock every order one packing order has claimed, in primary-key order.
+
+        One statement for the whole set - ``POST /assembly/{id}/pack`` lets one
+        packing order claim several assemblies - and locked in id order so two
+        writers over overlapping orders queue rather than deadlock. Read only
+        when a packing order is cancelled or deleted, so it rides the
+        tenant-leading indexes rather than earning one of its own.
+        """
+        stmt = (
+            self._scoped()
+            .where(AssemblyOrder.packing_order_id == packing_order_id)
+            .order_by(AssemblyOrder.id)
+            .with_for_update()
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def open_output_by_item(
         self,
         item_ids: Sequence[uuid.UUID],

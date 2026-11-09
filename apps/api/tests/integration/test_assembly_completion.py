@@ -827,6 +827,59 @@ async def test_a_packing_order_raised_from_an_assembly_claims_it_once(ctx) -> No
     assert count == 1
 
 
+@pytest.mark.parametrize("withdrawal", ["cancelled", "deleted"])
+async def test_a_withdrawn_packing_order_gives_its_assembly_back_to_be_packed_again(
+    ctx, withdrawal: str
+) -> None:
+    session, tenant = ctx
+    kit = await make_kit(session, tenant, separate_output_warehouse=True)
+    order_id = await completed_order(session, tenant, kit)
+    customer = await seed_support.seed_customer(session, company_id=tenant.company_id)
+    customer_id = customer.id
+    first, _ = await packing_service.create_order_from_assembly(
+        session,
+        tenant,
+        PackingFromAssemblyCreate(assembly_order_id=order_id, customer_id=customer_id),
+    )
+    first_id = first.id
+
+    if withdrawal == "cancelled":
+        await packing_service.cancel_order(
+            session, tenant, first_id, reason="The customer changed the order"
+        )
+    else:
+        await packing_service.delete_draft_order(
+            session, tenant, first_id, reason="Raised twice by mistake"
+        )
+
+    assembly = await reload_order(session, order_id)
+    assert (assembly.packing_order_id, assembly.packed_at) == (None, None)
+    assert AssemblyOrderStatus(assembly.status) is AssemblyOrderStatus.COMPLETED
+    offered = await service.ready_for_packing(session, tenant, warehouse_id=kit.output_warehouse_id)
+    assert [row.assembly_order_id for row in offered] == [order_id]
+    release = (
+        await session.execute(
+            select(AuditLog).where(
+                AuditLog.entity_type == service.AUDIT_ASSEMBLY_ORDER,
+                AuditLog.entity_id == order_id,
+                AuditLog.summary.like("%released by packing order%"),
+            )
+        )
+    ).scalar_one()
+    assert release.old_values is not None
+    assert release.old_values["packing_order_id"] == str(first_id)
+    assert release.context is not None
+    assert withdrawal in release.context["reason"]
+
+    # One step further: a new packing order can claim what the first gave back.
+    second, _ = await packing_service.create_order_from_assembly(
+        session,
+        tenant,
+        PackingFromAssemblyCreate(assembly_order_id=order_id, customer_id=customer_id),
+    )
+    assert (await reload_order(session, order_id)).packing_order_id == second.id
+
+
 async def test_an_assembly_for_a_sales_order_is_packed_for_that_customer(ctx) -> None:
     session, tenant = ctx
     kit = await make_kit(session, tenant, separate_output_warehouse=True)

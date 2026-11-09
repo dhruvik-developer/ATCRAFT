@@ -2758,6 +2758,54 @@ async def mark_packed(
     return order
 
 
+async def release_packing_claims(
+    session: AsyncSession,
+    tenant: TenantContext,
+    packing_order_id: uuid.UUID,
+    *,
+    reason: str,
+) -> list[uuid.UUID]:
+    """Give back every assembly a packing order claimed, because that order is going.
+
+    The undo of :func:`mark_packed`, called by packing inside the transaction
+    that cancels or deletes the packing order. A claim naming a packing order
+    that no longer stands keeps the output off :func:`ready_for_packing` for
+    good - every later hand-over is refused as "already taken" - so the claim
+    goes with the order: ``packing_order_id`` and ``packed_at`` are cleared, one
+    audit row each, and the assembly is offered again for a new packing order to
+    claim. The status is not touched: the order is what it was before it was
+    claimed. Returns the ids of the orders released.
+    """
+    repo = AssemblyOrderRepository(session, tenant)
+
+    async with transaction(session):
+        orders = await repo.lock_claimed_by(packing_order_id)
+        for order in orders:
+            claimed_at = order.packed_at
+            order.packing_order_id = None
+            order.packed_at = None
+            repo.touch(order)
+            # No flush per row: the audit rows are staged and flushed once,
+            # with the cleared claims, below.
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_ASSEMBLY_ORDER,
+                entity_id=order.id,
+                entity_code=order.code,
+                summary=f"{order.code} released by packing order {packing_order_id}",
+                user_id=tenant.user_id,
+                old_values={"packing_order_id": packing_order_id, "packed_at": claimed_at},
+                new_values={"packing_order_id": None, "packed_at": None},
+                context={"reason": reason},
+                flush=False,
+            )
+        if orders:
+            await session.flush()
+    return [order.id for order in orders]
+
+
 async def open_assembly_output(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2885,6 +2933,7 @@ __all__ = [
     "record_qc_result",
     "record_quality_verdict",
     "release_order",
+    "release_packing_claims",
     "requirement_for",
     "reservation_required_date",
     "resolve_inspection_reader_port",
