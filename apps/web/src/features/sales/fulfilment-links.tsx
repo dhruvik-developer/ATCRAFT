@@ -22,7 +22,7 @@ import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui
 import { useAuth } from '@/features/auth/auth-context'
 import type { FulfilmentDocument, SalesOrderFulfilment } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
-import { formatDate, formatQuantity } from '@/lib/format'
+import { formatDate, formatQuantity, plural } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -126,7 +126,7 @@ export function FulfilmentLinks({ orderId }: { orderId: string }) {
     <Card>
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle>Fulfilment trail</CardTitle>
-        {data && total > 0 && <Badge variant="muted">{total} document(s)</Badge>}
+        {data && total > 0 && <Badge variant="muted">{plural(total, 'document')}</Badge>}
       </CardHeader>
       <CardContent className="space-y-4">
         {trail.error && <LoadError error={trail.error} onRetry={() => void trail.refetch()} />}

@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { formatNumber } from '@/lib/format'
+import { formatNumber, plural } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -185,7 +185,7 @@ export function PermissionMatrix({
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {formatNumber(selected.size)} of {formatNumber(catalogue.data?.total ?? 0)} permissions
-            selected · held by {formatNumber(role.data?.user_count ?? 0)} user(s)
+            selected · held by {plural(role.data?.user_count ?? 0, 'user')}
           </p>
         </div>
 

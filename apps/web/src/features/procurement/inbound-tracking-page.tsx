@@ -9,7 +9,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
-import { EMPTY_VALUE, formatDate, formatPercent } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatPercent, plural } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -71,7 +71,7 @@ const baseColumns: ColumnDef<InboundOrder, unknown>[] = [
       <div className="max-w-52 break-words text-sm">
         <p>{order.courier_name ?? 'Not dispatched'}</p>
         <p className="text-muted-foreground">{order.tracking_reference ?? EMPTY_VALUE}</p>
-        <p>{order.shipment_count} shipment(s)</p>
+        <p>{plural(order.shipment_count, 'shipment')}</p>
       </div>
     ),
   },
@@ -91,7 +91,8 @@ const baseColumns: ColumnDef<InboundOrder, unknown>[] = [
     header: 'Documents',
     cell: ({ row }) => (
       <span>
-        {row.original.documents_count} file(s){row.original.has_lr_copy ? ' · LR attached' : ''}
+        {plural(row.original.documents_count, 'file')}
+        {row.original.has_lr_copy ? ' · LR attached' : ''}
       </span>
     ),
   },

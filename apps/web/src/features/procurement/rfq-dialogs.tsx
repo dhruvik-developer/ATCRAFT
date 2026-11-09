@@ -70,7 +70,7 @@ import {
   REASON_MIN_LENGTH,
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatDate, toDateInput, toDecimal } from '@/lib/format'
+import { formatDate, plural, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -745,7 +745,7 @@ export function RfqFormDialog({
         isEdit ? success.updated('RFQ') : success.created('RFQ'),
         isEdit
           ? `${saved.code} still has to be sent before any vendor sees it.`
-          : `${saved.code} is a draft with ${saved.lines?.length ?? 0} line(s). Send it when the vendor list is right.`,
+          : `${saved.code} is a draft with ${plural(saved.lines?.length ?? 0, 'line')}. Send it when the vendor list is right.`,
       )
       onOpenChange(false)
       if (!isEdit) onCreated?.(saved)

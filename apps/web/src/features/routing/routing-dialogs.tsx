@@ -68,6 +68,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
@@ -511,7 +512,7 @@ export function RoutingDetailDialog({
                     {
                       label: 'Lead time',
                       value: cost.data
-                        ? `${formatNumber(cost.data.lead_time_days)} day(s) at ${formatQuantity(cost.data.working_hours_per_day)}h`
+                        ? `${plural(cost.data.lead_time_days, 'day')} at ${formatQuantity(cost.data.working_hours_per_day)}h`
                         : 'Not costed',
                     },
                     {

@@ -51,9 +51,9 @@ import { applyFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
   formatDateTime,
-  formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
@@ -686,9 +686,10 @@ function CompleteAssemblyDialog({
           ? `${result.order.code}: ${formatQuantity(result.output_quantity)} received on QC hold${
               result.qc_inspection_created ? ' and an inspection was raised' : ''
             }; it is not available stock until it passes.`
-          : `${result.order.code}: ${formatQuantity(result.output_quantity)} received into stock from ${formatNumber(
+          : `${result.order.code}: ${formatQuantity(result.output_quantity)} received into stock from ${plural(
               result.consume_movement_count,
-            )} consumption movement(s).`,
+              'consumption movement',
+            )}.`,
       )
       onOpenChange(false)
     },

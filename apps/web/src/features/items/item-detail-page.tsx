@@ -50,6 +50,7 @@ import {
   formatPercent,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
@@ -202,7 +203,7 @@ function OverviewPanel({
               { label: 'Purchase unit', value: uomLabel(item.purchase_uom_id) },
               { label: 'Sale unit', value: uomLabel(item.sale_uom_id) },
               { label: 'Production type', value: humanise(item.production_type) },
-              { label: 'Lead time', value: `${item.lead_time_days} day(s)` },
+              { label: 'Lead time', value: plural(item.lead_time_days, 'day') },
               { label: 'HSN code', value: item.hsn_code ?? '-' },
               { label: 'GST rate', value: formatPercent(item.gst_rate, 2) },
               { label: 'Reorder level', value: formatQuantity(item.reorder_level) },
@@ -211,7 +212,7 @@ function OverviewPanel({
               { label: 'Safety stock', value: formatQuantity(item.safety_stock) },
               {
                 label: 'Shelf life',
-                value: item.shelf_life_days ? `${item.shelf_life_days} day(s)` : '-',
+                value: item.shelf_life_days ? plural(item.shelf_life_days, 'day') : '-',
               },
               {
                 label: 'Tracking',

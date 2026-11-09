@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
-import { toDecimal } from '@/lib/format'
+import { plural, toDecimal } from '@/lib/format'
 import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -110,7 +110,7 @@ export function duplicateResolutionSuccess(result: DuplicateResolutionResult) {
         ? { title: 'Duplicate request discarded', description: 'No purchase order was created.' }
         : {
             title: success.cancelled('Duplicate request'),
-            description: `${result.cancelled_requisition_line_ids?.length ?? 0} requisition line(s) cancelled. Existing ordered history is retained.`,
+            description: `${plural(result.cancelled_requisition_line_ids?.length ?? 0, 'requisition line')} cancelled. Existing ordered history is retained.`,
           }
   }
 }

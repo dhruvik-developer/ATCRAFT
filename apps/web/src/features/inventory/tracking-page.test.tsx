@@ -271,7 +271,7 @@ describe('serial tracking', () => {
     await user.click(within(dialog).getByRole('combobox', { name: 'Item' }))
     await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
     await user.type(within(dialog).getByRole('textbox', { name: 'Serial numbers' }), 'SN-NEW-1')
-    await user.click(within(dialog).getByRole('button', { name: 'Register 1 serial(s)' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Register 1 serial' }))
 
     await waitFor(() => {
       expect(fetch.requestFor('POST', '/inventory/serials/labels')).toEqual({
@@ -313,14 +313,14 @@ describe('serial tracking', () => {
       'sn-new-1 SN-NEW-1',
     )
     expect(within(dialog).getByText('1 serial captured.')).toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: 'Register 1 serial(s)' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Register 1 serial' })).toBeEnabled()
 
     await user.click(within(dialog).getByText('Generate a label range'))
     await user.type(within(dialog).getByRole('textbox', { name: 'Prefix' }), 'sn-')
     await user.clear(within(dialog).getByRole('textbox', { name: 'To' }))
     await user.type(within(dialog).getByRole('textbox', { name: 'To' }), '2')
     await user.click(within(dialog).getByRole('button', { name: 'Add range' }))
-    await user.click(within(dialog).getByRole('button', { name: 'Register 3 serial(s)' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Register 3 serials' }))
 
     await waitFor(() =>
       expect(fetch.requestFor('POST', '/inventory/serials/bulk')).toMatchObject({

@@ -20,7 +20,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { downloadCsv } from '@/lib/csv'
-import { formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
+import { formatDate, formatMoney, formatQuantity, plural, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
@@ -220,7 +220,10 @@ export default function JobWorkLedgerTab() {
           disabled={rows.length === 0}
           onClick={() => {
             downloadLedgerCsv(vendor?.code ?? 'vendor', rows)
-            toast.success(success.exported('Ledger'), `${rows.length} row(s) downloaded as CSV.`)
+            toast.success(
+              success.exported('Ledger'),
+              `${plural(rows.length, 'row')} downloaded as CSV.`,
+            )
           }}
         >
           <Download />

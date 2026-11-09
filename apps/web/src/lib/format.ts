@@ -160,6 +160,16 @@ export function formatNumber(value: number | null | undefined, fractionDigits = 
   }).format(value)
 }
 
+/**
+ * A count with its noun, singular for exactly one: `plural(1, 'line')` reads
+ * "1 line", `plural(3, 'line')` "3 lines" and `plural(2, 'box', 'boxes')`
+ * "2 boxes". The count is grouped like every other number on screen. It
+ * replaces "line(s)", which printed "1 line(s) are short" on a toast.
+ */
+export function plural(count: number, one: string, many = `${one}s`): string {
+  return `${formatNumber(count)} ${count === 1 ? one : many}`
+}
+
 export function formatPercent(
   value: DecimalString | number | null | undefined,
   fractionDigits = 1,

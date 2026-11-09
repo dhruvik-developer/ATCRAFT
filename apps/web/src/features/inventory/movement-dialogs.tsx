@@ -61,6 +61,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDateInput,
   toDecimal,
 } from '@/lib/format'
@@ -1100,8 +1101,8 @@ export function ConfirmPhysicalCountDialog({
           ' posted ' +
           formatMoney(result.variance_value) +
           ' of variance across ' +
-          formatNumber(result.variance_line_count) +
-          ' line(s).',
+          plural(result.variance_line_count, 'line') +
+          '.',
       )
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       // Stock that just changed changes what can be promised from it.
@@ -1332,7 +1333,7 @@ function CountedSerialsCell({ line }: { line: PhysicalCountLineRow }) {
         className="min-h-14 text-xs"
       />
       <p className="text-right text-xs text-muted-foreground">
-        {formatNumber(splitSerialNumbers(value).length)} unit(s)
+        {plural(splitSerialNumbers(value).length, 'unit')}
       </p>
       <FieldError message={message} />
     </div>
@@ -1469,8 +1470,8 @@ export function EnterCountsDialog({
     onSuccess: (result, entries) => {
       toast.success(
         success.saved('Counts'),
-        formatNumber(entries.length) +
-          ' line(s) recorded on ' +
+        plural(entries.length, 'line') +
+          ' recorded on ' +
           result.code +
           (result.status === 'COUNTED'
             ? '. Every line is counted, so the sheet is ready to confirm.'
@@ -1619,7 +1620,7 @@ export function EnterCountsDialog({
           <p className="text-xs text-muted-foreground" role="status">
             {pending.length === 0
               ? 'Nothing keyed yet.'
-              : formatNumber(pending.length) + ' figure(s) keyed and not yet saved.'}
+              : plural(pending.length, 'figure') + ' keyed and not yet saved.'}
           </p>
         </DialogBody>
 

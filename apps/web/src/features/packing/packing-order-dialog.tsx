@@ -90,6 +90,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
@@ -468,7 +469,7 @@ function AddContentsForm({
       }
       if (!toDecimal(quantity).equals(serialIds.length)) {
         return setProblem(
-          `${serialIds.length} serial(s) chosen for a quantity of ${formatQuantity(quantity)} - name exactly one per unit.`,
+          `${plural(serialIds.length, 'serial')} chosen for a quantity of ${formatQuantity(quantity)} - name exactly one per unit.`,
         )
       }
     }
@@ -1270,8 +1271,8 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
         toast.success(
           success.completed('Packing'),
           short.length > 0
-            ? `${completion.total_cartons} carton(s), ${formatQuantity(completion.total_gross_weight)} kg gross. Line(s) ${short.join(', ')} went out short.`
-            : `${completion.total_cartons} carton(s), ${formatQuantity(completion.total_gross_weight)} kg gross.`,
+            ? `${plural(completion.total_cartons, 'carton')}, ${formatQuantity(completion.total_gross_weight)} kg gross. ${short.length === 1 ? 'Line' : 'Lines'} ${short.join(', ')} went out short.`
+            : `${plural(completion.total_cartons, 'carton')}, ${formatQuantity(completion.total_gross_weight)} kg gross.`,
         )
       } else {
         toast.success(done[next], order.code)

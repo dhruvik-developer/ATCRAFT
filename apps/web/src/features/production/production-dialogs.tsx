@@ -55,7 +55,7 @@ import {
   LOOKUP_LIST_LIMIT,
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
+import { formatQuantity, humanise, plural, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -966,9 +966,10 @@ export function IssueMaterialDialog({
       // grounds for on a partial kit.
       toast.success(
         `Material issued on ${orderCode}`,
-        `${result.issue.code} posted ${formatQuantity(result.issue.total_quantity)} across ${
-          result.issue.line_count
-        } line(s). The order is now ${humanise(result.order_status).toLowerCase()}.`,
+        `${result.issue.code} posted ${formatQuantity(result.issue.total_quantity)} across ${plural(
+          result.issue.line_count,
+          'line',
+        )}. The order is now ${humanise(result.order_status).toLowerCase()}.`,
       )
       onOpenChange(false)
     },
@@ -1335,9 +1336,10 @@ export function ReturnMaterialDialog({
       // the order on, so nothing here claims it did.
       toast.success(
         `Material returned from ${orderCode}`,
-        `${result.issue.code} put ${formatQuantity(result.issue.total_quantity)} back into store across ${
-          result.issue.line_count
-        } line(s).`,
+        `${result.issue.code} put ${formatQuantity(result.issue.total_quantity)} back into store across ${plural(
+          result.issue.line_count,
+          'line',
+        )}.`,
       )
       setPending(null)
       onOpenChange(false)

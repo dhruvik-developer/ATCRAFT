@@ -38,7 +38,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { formatDate, formatQuantity, humanise, plural, toDecimal } from '@/lib/format'
 import { api } from '@/lib/api-client'
 import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -131,7 +131,7 @@ export default function GoodsReceiptsPage() {
       // the inspection when it is there to raise it.
       const held =
         result.qc_hold_line_count > 0
-          ? `${result.qc_hold_line_count} line(s) went to QC hold rather than free stock, ${
+          ? `${plural(result.qc_hold_line_count, 'line')} went to QC hold rather than free stock, ${
               result.qc_inspections_created
                 ? 'and an inspection has been raised.'
                 : 'and quality will pick them up.'

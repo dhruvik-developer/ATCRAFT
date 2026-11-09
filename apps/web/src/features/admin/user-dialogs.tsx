@@ -64,6 +64,7 @@ import { useVendorCategoryOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { plural } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -871,7 +872,10 @@ export function RoleAssignmentDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
       const held = saved.roles?.length ?? 0
-      toast.success(success.updated('Roles'), `${saved.full_name} now holds ${held} role(s)`)
+      toast.success(
+        success.updated('Roles'),
+        `${saved.full_name} now holds ${plural(held, 'role')}`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -1091,7 +1095,7 @@ export function ResetPasswordDialog({
       setIssued(result)
       toast.success(
         success.reset('Password'),
-        `${result.sessions_revoked} session(s) revoked for ${user.email}`,
+        `${plural(result.sessions_revoked, 'session')} revoked for ${user.email}`,
       )
     },
     onError: (error) => applyFieldErrors(error, setError),

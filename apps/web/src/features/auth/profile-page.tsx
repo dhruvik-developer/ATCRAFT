@@ -38,7 +38,7 @@ import {
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
-import { formatDateTime, formatRelative } from '@/lib/format'
+import { formatDateTime, formatRelative, plural } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -360,7 +360,7 @@ export function ChangePasswordCard({ autoFocus }: { autoFocus: boolean }) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.auth.sessions })
       toast.success(
         success.changed('Password'),
-        `${result.revoked_sessions} other session(s) were signed out.`,
+        `Signed out of ${plural(result.revoked_sessions, 'other session')}.`,
       )
       // Clears `must_change_password` so the shell stops nagging.
       await refreshUser()
@@ -503,7 +503,7 @@ function MfaCard() {
       setSetupResult(null)
       toast.success(
         success.enabled('Two-factor authentication'),
-        `${result.revoked_sessions} other session(s) were signed out.`,
+        `Signed out of ${plural(result.revoked_sessions, 'other session')}.`,
       )
       await refreshUser()
     },
@@ -520,7 +520,7 @@ function MfaCard() {
       setCode('')
       toast.success(
         success.disabled('Two-factor authentication'),
-        `${result.revoked_sessions} other session(s) were signed out.`,
+        `Signed out of ${plural(result.revoked_sessions, 'other session')}.`,
       )
       await refreshUser()
     },

@@ -68,7 +68,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { ApiError, api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
-import { formatDate, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import { formatDate, formatQuantity, plural, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, errorDescription, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -538,7 +538,7 @@ export function GrnReceiveDialog({
           toast.success(
             success.posted('Goods receipt'),
             posted.qc_hold_line_count > 0
-              ? `${code} is posted. ${posted.qc_hold_line_count} line(s) went to QC hold rather than free stock.`
+              ? `${code} is posted. ${plural(posted.qc_hold_line_count, 'line')} went to QC hold rather than free stock.`
               : `${code} is posted and the accepted quantity is available stock.`,
           )
           break

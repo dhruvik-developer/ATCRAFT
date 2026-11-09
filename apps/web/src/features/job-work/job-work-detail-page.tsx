@@ -437,7 +437,7 @@ function ReceiptsCard({
                   ],
                 })
               }
-              title={`Create a draft for ${worst.rejected_quantity} returned rejected unit(s)`}
+              title={`Create a rework draft for the ${formatQuantity(worst.rejected_quantity)} returned as rejected`}
             >
               <Repeat />
               Create rework draft

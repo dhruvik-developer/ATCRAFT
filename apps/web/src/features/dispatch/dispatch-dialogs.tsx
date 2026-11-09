@@ -81,6 +81,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDateInput,
   toDateTimeInput,
   toDecimal,
@@ -170,7 +171,7 @@ function LineEditor({
       }
       if (!toDecimal(quantity).equals(serialIds.length)) {
         return setProblem(
-          `${serialIds.length} serial(s) chosen for a quantity of ${formatQuantity(quantity)} - a serialised line needs exactly one per unit.`,
+          `${plural(serialIds.length, 'serial')} chosen for a quantity of ${formatQuantity(quantity)} - a serialised line needs exactly one per unit.`,
         )
       }
     }
@@ -440,7 +441,7 @@ function orderLineProblem(line: OrderDraftLine, item: ItemFacts | undefined): st
     return `${item.code} is batch tracked - name the batch being shipped.`
   }
   if (item?.is_serial_tracked && !toDecimal(quantity).equals(line.serialIds.length)) {
-    return `${line.serialIds.length} serial(s) chosen for a quantity of ${formatQuantity(quantity)} - a serialised line needs exactly one per unit.`
+    return `${plural(line.serialIds.length, 'serial')} chosen for a quantity of ${formatQuantity(quantity)} - a serialised line needs exactly one per unit.`
   }
   return null
 }
@@ -1143,7 +1144,7 @@ export function CreateDispatchDialog({
                             {formatQuantity(draft.line.quantity)}
                             {draft.line.batch_id ? ' - batch named' : ''}
                             {draft.line.serial_ids.length > 0
-                              ? ` - ${draft.line.serial_ids.length} serial(s) identified`
+                              ? ` - ${plural(draft.line.serial_ids.length, 'serial')} identified`
                               : ''}
                           </span>
                         </div>

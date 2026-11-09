@@ -38,7 +38,7 @@ import {
 import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
+import { formatDate, formatMoney, formatQuantity, plural, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
@@ -77,7 +77,7 @@ function expiryHint(expiresOn: string | null): { label: string; tone: string } {
   )
   if (days < 0) return { label: `${formatDate(expiresOn)} - expired`, tone: 'text-destructive' }
   if (days <= 30) {
-    return { label: `${formatDate(expiresOn)} - ${days} day(s) left`, tone: 'text-warning' }
+    return { label: `${formatDate(expiresOn)} - ${plural(days, 'day')} left`, tone: 'text-warning' }
   }
   return { label: formatDate(expiresOn), tone: 'text-muted-foreground' }
 }

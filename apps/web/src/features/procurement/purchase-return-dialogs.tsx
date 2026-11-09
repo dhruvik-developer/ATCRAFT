@@ -85,6 +85,7 @@ import {
   formatMoney,
   formatPercent,
   formatQuantity,
+  plural,
   toDateInput,
   toDecimal,
 } from '@/lib/format'
@@ -1153,7 +1154,7 @@ export function PurchaseReturnPostDialog({
         : 'No finance journal was needed because the return has zero value.'
       toast.success(
         success.posted('Purchase return'),
-        `${result.purchase_return.code} wrote ${result.movements.length} stock movement(s). The receipt and the order now show the returned quantity. ${financialMessage}`,
+        `${result.purchase_return.code} wrote ${plural(result.movements.length, 'stock movement')}. The receipt and the order now show the returned quantity. ${financialMessage}`,
       )
       onOpenChange(false)
     },
@@ -1196,8 +1197,13 @@ export function PurchaseReturnPostDialog({
                   single figure summing NOS to KG would be a number that means
                   nothing. */}
               <li>
-                Take {lines.length > 0 ? `all ${lines.length} line(s)` : 'every line'} of this
-                return out of{' '}
+                Take{' '}
+                {lines.length === 1
+                  ? 'the one line'
+                  : lines.length > 0
+                    ? `all ${plural(lines.length, 'line')}`
+                    : 'every line'}{' '}
+                of this return out of{' '}
                 {warehouse ? `${warehouse.code} - ${warehouse.name}` : 'the receiving warehouse'},
                 against the same lot each line arrived on.
               </li>

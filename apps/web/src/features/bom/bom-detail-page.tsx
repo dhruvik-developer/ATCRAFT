@@ -86,6 +86,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
 } from '@/lib/format'
 import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -393,7 +394,7 @@ function SourcePathsCell({ component }: { component: ExplodedComponent }) {
           variant="ghost"
           size="sm"
           className="h-auto max-w-[15rem] justify-start gap-1.5 whitespace-normal px-1.5 py-1 text-left"
-          aria-label={`Show the ${paths.length} path(s) that contribute to ${component.item_code}`}
+          aria-label={`Show ${plural(paths.length, 'path')} contributing to ${component.item_code}`}
         >
           {merged ? (
             <>

@@ -856,7 +856,7 @@ describe('physical counts', () => {
       within(dialog).getByRole('textbox', { name: 'Serial numbers found for BRASS-ROD-12' }),
       'SN-001\nSN-002',
     )
-    expect(within(dialog).getByText('2 unit(s)')).toBeInTheDocument()
+    expect(within(dialog).getByText('2 units')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: /save counts/i }))
 
     await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
@@ -911,7 +911,7 @@ describe('physical counts', () => {
       within(dialog).getByRole('textbox', { name: 'Serial numbers found for BRASS-ROD-12' }),
       'sn-001\nSN-001 SN-002',
     )
-    expect(within(dialog).getByText('2 unit(s)')).toBeInTheDocument()
+    expect(within(dialog).getByText('2 units')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: /save counts/i }))
 
     await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)

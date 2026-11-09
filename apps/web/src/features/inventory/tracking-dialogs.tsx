@@ -32,6 +32,7 @@ import {
   formatMoney,
   formatQuantity,
   humanise,
+  plural,
   toDateInput,
   toDecimal,
 } from '@/lib/format'
@@ -355,7 +356,7 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
         notes: notes.trim() || null,
       }),
     onSuccess: async (created) => {
-      toast.success(success.created('Serials'), `${created.length} unit(s)`)
+      toast.success(success.created('Serials'), plural(created.length, 'unit'))
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       try {
         await api.download('/inventory/serials/labels', 'serial-labels.pdf', {
@@ -453,7 +454,9 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
             disabled={!itemId || numbers.length === 0 || overLimit}
             onClick={() => create.mutate()}
           >
-            Register {numbers.length || ''} serial(s)
+            {numbers.length > 0
+              ? `Register ${plural(numbers.length, 'serial')}`
+              : 'Register serials'}
           </Button>
         </DialogFooter>
       </DialogContent>

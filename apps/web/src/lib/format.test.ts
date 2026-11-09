@@ -39,6 +39,7 @@ import {
   fromDateTimeInput,
   humanise,
   isIsoCalendarDate,
+  plural,
   toDateInput,
   toDateTimeInput,
   toDecimal,
@@ -243,6 +244,20 @@ describe('formatNumber', () => {
 
   it('groups in lakhs like every other number on screen', () => {
     expect(formatNumber(1234567)).toBe('12,34,567')
+  })
+})
+
+describe('plural', () => {
+  it('names one of a thing in the singular and any other count in the plural', () => {
+    expect(plural(1, 'line')).toBe('1 line')
+    expect(plural(0, 'line')).toBe('0 lines')
+    expect(plural(2, 'line')).toBe('2 lines')
+  })
+
+  it('takes an irregular plural and groups a large count', () => {
+    expect(plural(2, 'box', 'boxes')).toBe('2 boxes')
+    expect(plural(1, 'box', 'boxes')).toBe('1 box')
+    expect(plural(123456, 'serial')).toBe('1,23,456 serials')
   })
 })
 

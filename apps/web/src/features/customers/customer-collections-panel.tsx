@@ -5,7 +5,7 @@ import { LoadError, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { formatDate, formatMoney } from '@/lib/format'
+import { formatDate, formatMoney, plural } from '@/lib/format'
 import { CURSOR_PAGE_SIZE } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -59,7 +59,8 @@ export function CustomerCollectionsPanel({ customerId }: { customerId: string })
                     {formatMoney(row.overdue_amount, { currency: row.currency })} overdue
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {row.overdue_invoice_count} invoice(s) · oldest {row.oldest_overdue_days} days
+                    {plural(row.overdue_invoice_count, 'invoice')} · oldest{' '}
+                    {plural(row.oldest_overdue_days, 'day')}
                     overdue
                   </p>
                 </div>

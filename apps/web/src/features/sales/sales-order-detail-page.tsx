@@ -71,6 +71,7 @@ import {
   formatMoney,
   formatPercent,
   formatQuantity,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { fulfilment, success } from '@/lib/messages'
@@ -651,10 +652,8 @@ export default function SalesOrderDetailPage() {
         result.allocation.fully_allocated
           ? `${result.order.code} has stock reserved against every line.`
           : planned > 0
-            ? `${result.order.code} is confirmed. ${planned} draft document${
-                planned === 1 ? '' : 's'
-              } now cover the ${result.allocation.total_shortfall_lines} short line(s); a planner still reviews and submits each draft.`
-            : `${result.order.code} is confirmed. ${result.allocation.total_shortfall_lines} line(s) are short and need planning.`,
+            ? `${result.order.code} is confirmed. Drafts cover the short stock: ${plural(planned, 'document')} for ${plural(result.allocation.total_shortfall_lines, 'line')}. A planner still reviews and submits each draft.`
+            : `${result.order.code} is confirmed. Short of stock and waiting for planning: ${plural(result.allocation.total_shortfall_lines, 'line')}.`,
       )
       setConfirmOpen(false)
     },

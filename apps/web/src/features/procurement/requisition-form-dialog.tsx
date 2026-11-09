@@ -63,7 +63,7 @@ import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
+import { formatMoney, plural, toDateInput, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -329,7 +329,7 @@ export function RequisitionFormDialog({
         isAmend ? success.updated('Requisition') : success.created('Requisition'),
         isAmend
           ? `${saved.code} is still a draft. Submit it when the lines are right.`
-          : `${saved.code} is saved as a draft with ${saved.lines?.length ?? 0} line(s). Submit it for approval when the lines are right.`,
+          : `${saved.code} is saved as a draft with ${plural(saved.lines?.length ?? 0, 'line')}. Submit it for approval when the lines are right.`,
       )
       onOpenChange(false)
     },

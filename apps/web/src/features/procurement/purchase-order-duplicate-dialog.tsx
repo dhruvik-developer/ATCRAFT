@@ -26,7 +26,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { formatDate, formatQuantity } from '@/lib/format'
+import { formatDate, formatQuantity, plural } from '@/lib/format'
 import { describeError, messages } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
@@ -191,8 +191,8 @@ export function PurchaseOrderDuplicateDialog({
         <DialogHeader>
           <DialogTitle>This requirement may already be on order</DialogTitle>
           <DialogDescription>
-            No purchase order was created. {conflict.candidate_count} open order line(s) may cover
-            this demand. Review a candidate and choose an action.
+            No purchase order was created. {plural(conflict.candidate_count, 'open order line')} may
+            cover this demand. Review a candidate and choose an action.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-5">

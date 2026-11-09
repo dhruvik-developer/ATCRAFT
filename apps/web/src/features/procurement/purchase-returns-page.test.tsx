@@ -388,7 +388,7 @@ describe('posting the return', () => {
     expect(
       within(dialog).getByText(/posts the vendor debit note and input-tax reversal/i),
     ).toBeVisible()
-    await stable(() => within(dialog).getByText(/all 2 line\(s\)/i))
+    await stable(() => within(dialog).getByText(/all 2 lines of this return/i))
     expect(within(dialog).getByText(/WH-MAIN - Main store/)).toBeVisible()
   })
 

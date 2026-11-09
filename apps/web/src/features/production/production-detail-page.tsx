@@ -71,6 +71,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { success } from '@/lib/messages'
@@ -1020,7 +1021,7 @@ export default function ProductionDetailPage() {
         // must be told, or the job reaches the floor unkitted.
         toast.warning(
           `${updated.code} released short`,
-          `${formatNumber(isEnvelope(result) ? (result.shortages?.length ?? 0) : 0)} component(s) could not be reserved in full. Issue what there is and plan the rest.`,
+          `${plural(isEnvelope(result) ? (result.shortages?.length ?? 0) : 0, 'component')} could not be reserved in full. Issue what there is and plan the rest.`,
         )
         return
       }

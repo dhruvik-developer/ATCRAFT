@@ -47,6 +47,7 @@ import {
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
   toDecimal,
 } from '@/lib/format'
 import { prompts, success } from '@/lib/messages'
@@ -185,8 +186,8 @@ function nextAdjustmentAction(
         ' changes now, by ' +
         value +
         ' of value across ' +
-        formatNumber(adjustment.line_count) +
-        ' line(s). The ledger entry cannot be deleted afterwards.',
+        plural(adjustment.line_count, 'line') +
+        '. The ledger entry cannot be deleted afterwards.',
       confirmLabel: 'Post adjustment',
       successTitle: success.posted('Adjustment'),
       successBody: adjustment.code + ' is on the ledger.',

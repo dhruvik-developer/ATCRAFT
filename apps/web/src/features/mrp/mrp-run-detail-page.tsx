@@ -89,13 +89,14 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
 import {
-  EMPTY_VALUE,
   daysUntil,
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatNumber,
   formatQuantity,
   humanise,
+  plural,
 } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -1087,7 +1088,7 @@ export default function MrpRunDetailPage() {
                 parameters?.manual_demand_lines === undefined ||
                 parameters.manual_demand_lines === null
                   ? 'Not reported'
-                  : `${formatNumber(parameters.manual_demand_lines)} line(s)`,
+                  : plural(parameters.manual_demand_lines, 'line'),
             },
           ]}
         />
