@@ -31,6 +31,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import normalise_code
+from src.common.document_access import register_document_attach_policy
 from src.core.cache import CacheNamespace, cache_delete, cache_get, cache_set, make_key
 from src.core.clock import today
 from src.core.database import transaction
@@ -134,6 +135,18 @@ AUDIT_ITEM = "item"
 AUDIT_CATEGORY = "item_category"
 AUDIT_UOM = "unit_of_measure"
 AUDIT_ITEM_ATTRIBUTE = "item_attribute"
+
+#: ``documents.entity_type`` of a file filed against an item - its images and
+#: attachments. Stable: the dealer catalogue reads it.
+ITEM_DOCUMENT_ENTITY = "item"
+
+# ASSUMPTION: filing a document against an item is an edit of the item, so the
+# generic upload needs item.update as well as document.upload. Every JPEG, PNG
+# or WebP filed against a sellable item is shown and served to every dealer
+# (src.modules.dealer_portal.repository.primary_images), which makes such a file
+# a change to the item's public face rather than an internal note. Files filed
+# before this rule stay where they are. docs/assumptions.md §DOC-1.
+register_document_attach_policy(ITEM_DOCUMENT_ENTITY, Permission.ITEM_UPDATE)
 
 #: What an audit row records for an attribute. `attribute` is absent because
 #: it cannot be changed - see ItemAttributeUpdate.
@@ -1700,7 +1713,7 @@ async def set_item_image(
             document = await DocumentService(session, tenant).get_document(document_id)
             if (
                 document.mime_type not in {"image/jpeg", "image/png", "image/webp"}
-                or document.entity_type != "item"
+                or document.entity_type != ITEM_DOCUMENT_ENTITY
                 or document.entity_id != item.id
             ):
                 raise ValidationError("Choose a JPEG, PNG or WebP image uploaded for this item.")
@@ -2863,6 +2876,7 @@ async def list_vendor_links(
 __all__ = [
     "BRAND_LIFECYCLE",
     "CAPABILITY_FIELDS",
+    "ITEM_DOCUMENT_ENTITY",
     "ITEM_LIFECYCLE",
     "ITEM_MASTER_FALLBACK_FIELD",
     "MANUFACTURER_LIFECYCLE",

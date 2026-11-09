@@ -356,7 +356,11 @@ into `ORDER BY`.
   and absolute-path inputs;
 - downloads are authenticated and tenant-scoped, served through the API with
   `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`;
-- SHA-256 checksum stored on upload.
+- SHA-256 checksum stored on upload;
+- filing against an entity type whose owner registered an attach policy needs
+  that right too, checked before a byte is read: the dealer catalogue publishes
+  every image filed against a sellable item, so `entity_type=item` needs
+  `item.update` (docs/assumptions.md §DOC-1).
 
 The ASGI request-body limit counts received bytes even when `Content-Length`
 is absent or incorrect. Multipart resources and partially written files are

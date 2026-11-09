@@ -4722,3 +4722,39 @@ stored silently.
 any `user.create`/`user.update` holder set any assignment. The user screen does
 not edit assignments yet, so an administrator assigned to some warehouses cannot
 create an account from it until it does; one with no assignment still can.
+
+## §DOC-1. Filing a document against an item needs the right to change the item
+
+**Assumed.** `POST /documents` with `entity_type=item` needs `item.update` as
+well as `document.upload`, and answers `403 PERMISSION_DENIED` naming it before
+any byte is read or stored. Filing under any other entity type, or under none,
+needs only `document.upload`, as before. The rule is an attach policy the
+products module registers for its own entity type; another module can register
+one for an entity type it publishes the same way. Files filed before the rule
+stay where they are, so an image already filed against a sellable item stays in
+the catalogue until someone with `document.delete` removes it. Modules that file
+against their own typed records (a purchase order's shared files) gate their
+own routes and are not affected.
+
+**Why.** The dealer catalogue shows and serves every JPEG, PNG or WebP filed
+against a sellable item to every dealer, by `documents.entity_type` alone. The
+store keeper, purchase executive, QC inspector and dispatch manager presets hold
+`document.upload` without `item.update`, so a defect photo or an internal
+drawing filed against an item from the Documents screen reached every dealer,
+and only the item image panel checked `item.update`. Filing an image there is a
+change to the item's public face. Restricting the catalogue to one document
+category was not chosen: the category is a storage classification that nothing
+reads as a permission, and an image chosen as the item's primary image may carry
+any category.
+
+**Where.** `src/common/document_access.py` - `register_document_attach_policy`,
+`assert_may_attach`; `src/modules/products/service.py` - the registration for
+`ITEM_DOCUMENT_ENTITY`; `src/modules/documents/service.py` -
+`DocumentService.upload(principal=...)`; `src/modules/documents/router.py` -
+`upload_document`. `tests/unit/test_document_attach_policy.py` fails if an
+entity type the dealer catalogue publishes loses its policy.
+
+**Impact if wrong.** Remove the registration to let any `document.upload`
+holder file against an item again. If some uploads against an item must stay
+internal for people who may edit items, the catalogue needs a typed link, as
+the vendor portal has (§C1-3), rather than a wider upload right.

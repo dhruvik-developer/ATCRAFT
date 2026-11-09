@@ -103,6 +103,7 @@ FilterDep = Annotated[DocumentFilters, Depends(document_filters)]
 async def upload_document(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     file: Annotated[UploadFile, File(description="The file to store")],
     category: Annotated[DocumentCategory, Form()] = DocumentCategory.DOCUMENT,
     entity_type: Annotated[str | None, Form(max_length=48)] = None,
@@ -123,7 +124,10 @@ async def upload_document(
             "expires_at": expires_at,
         },
     )
-    document = await DocumentService(session, tenant).upload(file, payload)
+    # The principal carries the attach right an entity type's owner may demand
+    # on top of document.upload - filing an image against an item publishes it
+    # in the dealer catalogue.
+    document = await DocumentService(session, tenant).upload(file, payload, principal=principal)
     return ApiResponse[DocumentRead].ok(document, success_message("File", "uploaded"))
 
 
