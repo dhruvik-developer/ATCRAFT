@@ -26,6 +26,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.messages import duplicate_line_numbers
 from src.modules.sales.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -142,7 +143,7 @@ def _validate_line_set(lines: list[SalesOrderLineIn]) -> list[SalesOrderLineIn]:
     numbers = [line.line_number for line in lines]
     duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
     if duplicates:
-        raise ValueError(f"Duplicate line numbers: {duplicates}")
+        raise ValueError(duplicate_line_numbers(duplicates))
     return lines
 
 

@@ -82,12 +82,12 @@ def test_a_routing_needs_at_least_one_operation() -> None:
 def test_duplicate_sequences_are_rejected() -> None:
     """Two steps numbered 20 cannot both exist: the traveller and the unique
     constraint both address a step by its sequence."""
-    with pytest.raises(ValidationError, match="Duplicate operation sequences"):
+    with pytest.raises(ValidationError, match=r"Duplicate operation sequence: 20\."):
         routing_payload(operations=[op(sequence=20), op(sequence=20, operation_code="DRILL")])
 
 
 def test_duplicate_operation_codes_are_rejected() -> None:
-    with pytest.raises(ValidationError, match="Duplicate operation codes"):
+    with pytest.raises(ValidationError, match="Duplicate operation code: "):
         routing_payload(operations=[op(sequence=10), op(sequence=20)])
 
 

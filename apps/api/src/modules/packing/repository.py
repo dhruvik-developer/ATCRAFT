@@ -186,6 +186,7 @@ class SalesLinePackFacts:
     """Ordered and dispatched quantity for a locked sales-order line."""
 
     sales_order_id: uuid.UUID
+    line_number: int
     item_id: uuid.UUID
     quantity: Decimal
     dispatched_quantity: Decimal
@@ -435,6 +436,7 @@ class SalesOrderLookupRepository(BaseRepository[SalesOrder]):
         return {
             row.id: SalesLinePackFacts(
                 sales_order_id=row.sales_order_id,
+                line_number=row.line_number,
                 item_id=row.item_id,
                 quantity=Decimal(row.quantity),
                 dispatched_quantity=Decimal(row.dispatched_quantity),

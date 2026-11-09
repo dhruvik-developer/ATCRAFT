@@ -31,6 +31,7 @@ from pydantic import (
 )
 
 from src.common.codes import normalise_code
+from src.core.messages import duplicate_operation_sequences, listed
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
     MAX_WORKING_HOURS_PER_DAY,
@@ -333,12 +334,13 @@ def _validate_operation_set(operations: list[RoutingOperationIn]) -> list[Routin
     sequences = [operation.sequence for operation in operations]
     duplicates = sorted({s for s in sequences if sequences.count(s) > 1})
     if duplicates:
-        raise ValueError(f"Duplicate operation sequences: {duplicates}")
+        raise ValueError(duplicate_operation_sequences(duplicates))
 
     codes = [operation.operation_code for operation in operations]
     repeated = sorted({c for c in codes if codes.count(c) > 1})
     if repeated:
-        raise ValueError(f"Duplicate operation codes: {repeated}")
+        noun = "operation code" if len(repeated) == 1 else "operation codes"
+        raise ValueError(f"Duplicate {noun}: {listed(repeated)}.")
     return operations
 
 

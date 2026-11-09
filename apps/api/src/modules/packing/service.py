@@ -918,11 +918,13 @@ async def _validate_lines(
         )
         if requested > available:
             raise BusinessRuleError(
-                f"Packing quantity for sales order line {line_id} exceeds the "
-                f"{available} still available after existing packing and dispatch plans.",
+                f"Packing quantity for sales order line {facts.line_number} exceeds the "
+                f"{to_quantity(available)} still available after existing packing and "
+                "dispatch plans.",
                 code=ErrorCode.CONFLICT,
                 details={
                     "sales_order_line_id": str(line_id),
+                    "sales_order_line_number": facts.line_number,
                     "requested_quantity": str(to_quantity(requested)),
                     "ordered_quantity": str(to_quantity(facts.quantity)),
                     "dispatched_quantity": str(to_quantity(facts.dispatched_quantity)),

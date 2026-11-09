@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
 from src.core.demand_provenance import DemandReference
+from src.core.messages import duplicate_line_numbers, listed
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -92,7 +93,7 @@ def _validate_line_numbers(numbers: list[int], document: str) -> None:
         raise ValueError(f"A {document} cannot have more than {MAX_LINES_PER_DOCUMENT} lines.")
     if len(set(numbers)) != len(numbers):
         duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
-        raise ValueError(f"Duplicate line numbers on the {document}: {duplicates}")
+        raise ValueError(duplicate_line_numbers(duplicates, document))
 
 
 # =============================================================================
@@ -1071,8 +1072,16 @@ class RequisitionConversionRequest(BaseModel):
     def _check_payload(self) -> RequisitionConversionRequest:
         line_ids = [override.requisition_line_id for override in self.lines]
         if len(set(line_ids)) != len(line_ids):
-            duplicates = sorted({str(i) for i in line_ids if line_ids.count(i) > 1})
-            raise ValueError(f"Each requisition line can be overridden once: {duplicates}")
+            # Named by position in the list: the request holds the line only by id.
+            positions = [
+                position
+                for position, line_id in enumerate(line_ids, start=1)
+                if line_ids.count(line_id) > 1
+            ]
+            raise ValueError(
+                "Each requisition line can be overridden once; overrides "
+                f"{listed(positions)} repeat a line."
+            )
         acknowledgement = (self.duplicate_acknowledgement_reason or "").strip()
         if self.acknowledge_duplicates and not acknowledgement:
             raise ValueError(

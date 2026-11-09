@@ -13,7 +13,12 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from src.core.messages import FIELDS_NEED_ATTENTION, RATE_LIMITED, UNEXPECTED_ERROR
+from src.core.messages import (
+    FIELDS_NEED_ATTENTION,
+    RATE_LIMITED,
+    UNEXPECTED_ERROR,
+    failed_unexpectedly,
+)
 
 
 class ErrorCode(StrEnum):
@@ -124,6 +129,20 @@ def is_refusal(exc: BaseException) -> bool:
     that is not an ``AppError`` at all are faults.
     """
     return isinstance(exc, AppError) and exc.status_code < 500
+
+
+def failure_message(exc: BaseException, subject: str, *, logged_against: str) -> str:
+    """The sentence a failed job writes on its row for the person waiting on it.
+
+    A deliberate :class:`AppError` carries text written for a user and passes
+    through. Anything else is a defect: its string can hold SQL and row data
+    (section 53) and its class name is an internal, so the row says only that
+    ``subject`` failed and where the full error is - ``logged_against``, e.g.
+    ``"worker log against this task id"``. The type stays in the log line.
+    """
+    if isinstance(exc, AppError):
+        return exc.message
+    return failed_unexpectedly(subject, logged_against)
 
 
 # --- 4xx ---------------------------------------------------------------------
@@ -356,5 +375,6 @@ __all__ = [
     "TenantMismatchError",
     "TokenExpiredError",
     "ValidationError",
+    "failure_message",
     "is_refusal",
 ]

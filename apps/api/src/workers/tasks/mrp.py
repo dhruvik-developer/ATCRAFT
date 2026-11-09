@@ -32,7 +32,12 @@ from typing import Any
 
 from src.core.database import session_scope
 from src.core.deps import TenantContext, system_tenant
-from src.core.errors import AppError, InvalidStateTransitionError, RateLimitedError, is_refusal
+from src.core.errors import (
+    InvalidStateTransitionError,
+    RateLimitedError,
+    failure_message,
+    is_refusal,
+)
 from src.core.logging import get_logger
 from src.core.observability import count_sweep_failure
 from src.modules.mrp import service
@@ -96,17 +101,9 @@ async def scheduled_run(request_id: str | None = None, **_: Any) -> dict[str, in
 
 
 def _failure_message(exc: BaseException) -> str:
-    """A message safe to persist on the run row.
-
-    A deliberate :class:`AppError` carries text written for a user. Anything else
-    is a bug, and a driver's exception string can contain SQL and row data, so
-    only the type name is recorded and the traceback stays in the log (section 53).
-    """
-    if isinstance(exc, AppError):
-        return exc.message
-    return (
-        f"The planning run failed with an unexpected {type(exc).__name__}. "
-        "The full error is in the worker log against this task id."
+    """A message safe to persist on the run row; the traceback stays in the log."""
+    return failure_message(
+        exc, "The planning run", logged_against="worker log against this task id"
     )
 
 

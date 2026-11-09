@@ -1491,6 +1491,89 @@ async def test_rework_issues_only_the_exact_returned_reject_and_does_not_reserve
     assert Decimal(unchanged.job_work_quantity) == Decimal("10.0000")
 
 
+async def test_a_rework_issue_beyond_the_rejects_still_held_names_both_lines(
+    ctx, job: PvdJob
+) -> None:
+    """The refusal names the order line and the receipt line by number, not UUID."""
+    session, tenant = ctx
+    original, _ = await issued_order(ctx, job)
+    receipt_result = await service.receive(
+        session,
+        tenant,
+        principal_for(tenant),
+        original.id,
+        ReceiveRequest(
+            reason="Ten rejected pieces returned for rework",
+            lines=[
+                ReceiptLineIn(
+                    line_number=1,
+                    output_quantity=Decimal("90"),
+                    rejected_quantity=Decimal("10"),
+                    rejection_action=RejectionAction.RETURN_TO_STOCK,
+                    is_final=True,
+                )
+            ],
+        ),
+    )
+    source_line = receipt_result.receipt.lines[0]
+
+    async def approved_rework(quantity: str) -> uuid.UUID:
+        order, _ = await service.create_order(
+            session,
+            tenant,
+            JobWorkOrderCreate(
+                vendor_id=job.vendor_id,
+                process_type=JobWorkProcess.PVD,
+                process_description="Reprocess returned PVD output",
+                expected_return_date=today() + timedelta(days=7),
+                warehouse_id=job.warehouse_id,
+                source_type=JobWorkSourceType.REWORK,
+                source_id=receipt_result.receipt.id,
+                lines=[
+                    JobWorkOrderLineCreate(
+                        line_number=1,
+                        item_id=job.coated_item_id,
+                        quantity_to_issue=Decimal(quantity),
+                        expected_output_item_id=job.coated_item_id,
+                        source_receipt_line_id=source_line.id,
+                    )
+                ],
+            ),
+        )
+        await service.approve_order(session, tenant, order.id, reason="Rework returned rejects")
+        return order.id
+
+    first = await approved_rework("6")
+    second = await approved_rework("10")
+    await service.issue_order(
+        session,
+        tenant,
+        first,
+        IssueRequest(
+            reason="Reissue six of the returned rejects",
+            lines=[IssueLineIn(line_number=1, issued_quantity=Decimal("6"))],
+        ),
+    )
+
+    with pytest.raises(BusinessRuleError) as refused:
+        await service.issue_order(
+            session,
+            tenant,
+            second,
+            IssueRequest(
+                reason="Reissue all ten again",
+                lines=[IssueLineIn(line_number=1, issued_quantity=Decimal("10"))],
+            ),
+        )
+
+    assert refused.value.message == (
+        f"Line 1 would issue 10.0000 for rework, more than the 4.0000 still rejected on "
+        f"receipt line {source_line.line_number}."
+    )
+    assert refused.value.details["source_receipt_line_id"] == str(source_line.id)
+    assert refused.value.details["source_receipt_line_number"] == source_line.line_number
+
+
 async def test_rework_leaves_the_material_at_the_vendor_and_the_order_open(
     ctx, job: PvdJob
 ) -> None:

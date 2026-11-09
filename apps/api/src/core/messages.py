@@ -16,10 +16,11 @@ Rules for adding shared copy here:
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Literal
 
-# --- counts -------------------------------------------------------------------
+# --- counts and lists -----------------------------------------------------------
 
 
 def plural(count: int | Decimal, one: str, many: str | None = None) -> str:
@@ -32,6 +33,15 @@ def plural(count: int | Decimal, one: str, many: str | None = None) -> str:
     """
     noun = one if count == 1 else (f"{one}s" if many is None else many)
     return f"{count} {noun}"
+
+
+def listed(values: Iterable[object]) -> str:
+    """``"3, 5, 9"``: values written for a sentence, never a Python list's repr.
+
+    Interpolating a list straight into an f-string gives ``[3, 5]`` - or, for
+    codes, ``['CUT', 'WELD']`` - which is Python syntax, not a sentence.
+    """
+    return ", ".join(str(value) for value in values)
 
 
 # --- successes ----------------------------------------------------------------
@@ -116,6 +126,18 @@ RATE_LIMITED = "Too many requests. Please slow down."
 SERVICE_UNAVAILABLE = "The service is temporarily unavailable. Please try again."
 UNEXPECTED_ERROR = "An unexpected error occurred. Quote the request id when reporting this."
 
+
+def failed_unexpectedly(subject: str, logged_against: str) -> str:
+    """``"The report failed unexpectedly. The full error is in the worker log ..."``
+
+    What a background job writes on its row when it fails on a defect: that it
+    failed, and where support finds the error - never the exception's class,
+    which names an internal and tells the person waiting nothing. Built by
+    :func:`src.core.errors.failure_message`.
+    """
+    return f"{subject} failed unexpectedly. The full error is in the {logged_against}."
+
+
 # --- updates ------------------------------------------------------------------
 
 #: A PATCH/PUT whose body, after ``exclude_unset``, changes nothing.
@@ -130,6 +152,26 @@ def cannot_be_null(field: str) -> str:
     a client says "keep the stored value".
     """
     return f"{field} cannot be null. Omit it to leave it unchanged."
+
+
+# --- document lines -------------------------------------------------------------
+
+
+def duplicate_line_numbers(numbers: Sequence[int], document: str | None = None) -> str:
+    """``"Duplicate line numbers: 3, 5."`` or ``"Duplicate line number on the purchase order: 3."``
+
+    A line set checked before the insert, so the refusal names the number typed
+    twice rather than the unique constraint it would have hit.
+    """
+    noun = "line number" if len(numbers) == 1 else "line numbers"
+    where = f" on the {document}" if document else ""
+    return f"Duplicate {noun}{where}: {listed(numbers)}."
+
+
+def duplicate_operation_sequences(sequences: Sequence[int]) -> str:
+    """``"Duplicate operation sequences: 10, 20."`` - a BOM's or a routing's steps."""
+    noun = "operation sequence" if len(sequences) == 1 else "operation sequences"
+    return f"Duplicate {noun}: {listed(sequences)}."
 
 
 # --- authentication -----------------------------------------------------------
@@ -207,8 +249,12 @@ __all__ = [
     "SuccessAction",
     "cannot_be_null",
     "date_before",
+    "duplicate_line_numbers",
+    "duplicate_operation_sequences",
+    "failed_unexpectedly",
     "held_for_inspection",
     "inactive_record",
+    "listed",
     "plural",
     "success_message",
     "verdict_differs_from_inspection",

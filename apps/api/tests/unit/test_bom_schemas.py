@@ -64,7 +64,7 @@ def test_a_valid_structure_is_accepted() -> None:
 
 def test_duplicate_line_numbers_are_refused() -> None:
     """``(bom_id, line_number)`` is unique; catching it here names the number."""
-    with pytest.raises(ValidationError, match="Duplicate line numbers"):
+    with pytest.raises(ValidationError, match=r"Duplicate line number: 1\."):
         BomCreate(**bom(lines=[line(1, SCREW), line(1, BUSH)]))
 
 
@@ -80,7 +80,7 @@ def test_a_component_may_repeat_when_the_second_line_is_a_substitute() -> None:
 
 
 def test_a_substitute_pointing_at_a_line_that_does_not_exist_is_refused() -> None:
-    with pytest.raises(ValidationError, match="unknown line numbers"):
+    with pytest.raises(ValidationError, match=r"an unknown line number: 9\."):
         BomCreate(**bom(lines=[line(1, SCREW), line(2, BUSH, substitute_for_line_number=9)]))
 
 
@@ -195,7 +195,7 @@ def test_an_update_cannot_re_point_the_structure_at_another_item() -> None:
 
 
 def test_a_replacement_line_set_is_validated_the_same_way() -> None:
-    with pytest.raises(ValidationError, match="Duplicate line numbers"):
+    with pytest.raises(ValidationError, match=r"Duplicate line number: 1\."):
         BomUpdate(lines=[BomLineIn(**line(1, SCREW)), BomLineIn(**line(1, BUSH))])
 
 
@@ -209,7 +209,7 @@ def test_duplicate_operation_sequences_are_refused() -> None:
         {"operation_sequence": 10, "name": "Machine"},
         {"operation_sequence": 10, "name": "Polish"},
     ]
-    with pytest.raises(ValidationError, match="Duplicate operation sequences"):
+    with pytest.raises(ValidationError, match=r"Duplicate operation sequence: 10\."):
         BomCreate(**bom(operations=operations))
 
 

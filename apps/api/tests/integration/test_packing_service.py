@@ -654,6 +654,50 @@ async def test_over_packing_a_line_across_two_cartons_is_refused(
         await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="20"))
 
 
+async def test_planning_more_than_a_sales_line_holds_names_the_line_by_its_number(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    session, tenant = ctx
+    order = await seed_support.seed_sales_order(
+        session,
+        company_id=tenant.company_id,
+        customer_id=bench.customer_id,
+        warehouse_id=bench.warehouse_id,
+    )
+    sales_line = await seed_support.seed_sales_order_line(
+        session,
+        order=order,
+        item_id=bench.goods_item_id,
+        uom_id=bench.uom_id,
+        line_number=3,
+        quantity=Decimal("10"),
+    )
+    payload = PackingOrderCreate(
+        customer_id=bench.customer_id,
+        warehouse_id=bench.warehouse_id,
+        planned_date=date(2026, 9, 1),
+        sales_order_id=order.id,
+        lines=[
+            PackingOrderLineIn(
+                item_id=bench.goods_item_id,
+                quantity_to_pack=Decimal("15"),
+                uom_id=bench.uom_id,
+                sales_order_line_id=sales_line.id,
+            )
+        ],
+    )
+
+    with pytest.raises(BusinessRuleError) as refused:
+        await service.create_order(session, tenant, payload)
+
+    assert refused.value.message == (
+        "Packing quantity for sales order line 3 exceeds the 10.0000 still available "
+        "after existing packing and dispatch plans."
+    )
+    assert refused.value.details["sales_order_line_number"] == 3
+    assert refused.value.details["sales_order_line_id"] == str(sales_line.id)
+
+
 # -----------------------------------------------------------------------------
 # Lifecycle and the dispatch handover
 # -----------------------------------------------------------------------------

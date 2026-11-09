@@ -27,6 +27,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.messages import duplicate_line_numbers, duplicate_operation_sequences, listed
 from src.modules.bom.models import BomStatus, BomType
 
 # --- reusable constrained scalars --------------------------------------------
@@ -152,7 +153,7 @@ def _validate_line_set(lines: list[BomLineIn]) -> list[BomLineIn]:
     numbers = [line.line_number for line in lines]
     duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
     if duplicates:
-        raise ValueError(f"Duplicate line numbers: {duplicates}")
+        raise ValueError(duplicate_line_numbers(duplicates))
 
     known = set(numbers)
     dangling = sorted(
@@ -164,15 +165,24 @@ def _validate_line_set(lines: list[BomLineIn]) -> list[BomLineIn]:
         }
     )
     if dangling:
-        raise ValueError(f"Substitute lines reference unknown line numbers: {dangling}")
+        unknown = "an unknown line number" if len(dangling) == 1 else "unknown line numbers"
+        raise ValueError(f"Substitute lines reference {unknown}: {listed(dangling)}.")
 
     # Two lines for the same component would be summed by the explosion into a
     # quantity nobody typed. A genuine second usage belongs on one line with the
     # combined quantity; a substitute is marked as one.
-    primary = [line.component_item_id for line in lines if line.substitute_for_line_number is None]
-    repeated = sorted({str(i) for i in primary if primary.count(i) > 1})
+    # Named by line number: the person typed those, and the item's id is not
+    # something they can act on.
+    primary: dict[uuid.UUID, list[int]] = {}
+    for line in lines:
+        if line.substitute_for_line_number is None:
+            primary.setdefault(line.component_item_id, []).append(line.line_number)
+    repeated = sorted(number for group in primary.values() if len(group) > 1 for number in group)
     if repeated:
-        raise ValueError(f"An item appears on more than one primary line: {repeated}")
+        raise ValueError(
+            f"An item appears on more than one primary line: lines {listed(repeated)}. "
+            "Combine them into one line, or mark the extra one as a substitute."
+        )
 
     return lines
 
@@ -181,7 +191,7 @@ def _validate_operation_set(operations: list[BomOperationIn]) -> list[BomOperati
     sequences = [op.operation_sequence for op in operations]
     duplicates = sorted({s for s in sequences if sequences.count(s) > 1})
     if duplicates:
-        raise ValueError(f"Duplicate operation sequences: {duplicates}")
+        raise ValueError(duplicate_operation_sequences(duplicates))
     return operations
 
 

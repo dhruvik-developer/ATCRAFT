@@ -453,6 +453,63 @@ class TestSerialMovement:
             )
         return item, warehouse, registered
 
+    async def test_a_unit_named_under_another_lot_is_refused_by_its_own_lot_number(
+        self, session, tenant, unique_code
+    ) -> None:
+        """The refusal names the lot to use by its number, never by its UUID."""
+        item = await seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=unique_code("BS"),
+            is_batch_tracked=True,
+            is_serial_tracked=True,
+        )
+        warehouse = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("WH")
+        )
+        own = await _lot(session, tenant, item, number=unique_code("L"))
+        other = await _lot(session, tenant, item, number=unique_code("L"))
+        trace = TraceabilityService(session, tenant)
+        units = []
+        for lot in (own, other):
+            [unit] = await trace.bulk_create_serials(
+                StockSerialBulkCreate(
+                    item_id=item.id,
+                    serial_numbers=[unique_code("SN")],
+                    batch_id=lot.id,
+                    warehouse_id=warehouse.id,
+                    unit_cost=Decimal("12"),
+                    received_on=today(),
+                )
+            )
+            await _receive(
+                session, tenant, item, warehouse, "1", "12", batch_id=lot.id, serial_id=unit.id
+            )
+            units.append(unit)
+
+        with pytest.raises(BusinessRuleError) as refused:
+            await post_movement(
+                session,
+                tenant,
+                item_id=item.id,
+                warehouse_id=warehouse.id,
+                quantity=Decimal("1"),
+                transaction_type=TransactionType.MATERIAL_ISSUE,
+                reference_type="test",
+                reference_id=None,
+                reference_code=None,
+                reason="Issue the first unit under the wrong lot",
+                batch_id=other.id,
+                serial_id=units[0].id,
+            )
+
+        assert refused.value.message == (
+            f"Serial {units[0].serial_number} belongs to batch {own.batch_number}; "
+            "name that batch on the movement."
+        )
+        assert refused.value.details["serial_batch_number"] == own.batch_number
+        assert refused.value.details["serial_batch_id"] == str(own.id)
+
     async def test_a_transfer_parks_named_units_in_transit_and_lands_them(
         self, session, tenant, unique_code
     ) -> None:

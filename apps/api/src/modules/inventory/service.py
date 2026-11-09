@@ -2656,6 +2656,7 @@ class MovementEngine:
             master = replace(
                 master,
                 serials=serial_ids_locked,
+                batches=await self._with_disowned_lots(movements, serial_ids_locked, master),
                 received_serials=await self._received_serials(movements, serial_ids_locked),
                 job_work_serials=await self._job_work_serials(movements),
             )
@@ -3302,6 +3303,31 @@ class MovementEngine:
                 ) from exc
             raise
 
+    async def _with_disowned_lots(
+        self,
+        movements: list[MovementRequest],
+        serials: dict[uuid.UUID, StockSerial],
+        master: _MasterData,
+    ) -> dict[uuid.UUID, BatchFacts]:
+        """``master.batches`` plus the lot of any unit a movement names under another lot.
+
+        :meth:`_decide_serial` refuses such a movement, and the refusal names the
+        unit's own lot by its number - the one thing the person can act on. Only
+        that case reads anything, so a posting that will succeed costs no query.
+        """
+        disowned = [
+            serial.batch_id
+            for movement in movements
+            if movement.serial_id is not None
+            and (serial := serials.get(movement.serial_id)) is not None
+            and serial.batch_id is not None
+            and serial.batch_id != movement.batch_id
+            and serial.batch_id not in master.batches
+        ]
+        if not disowned:
+            return master.batches
+        return {**master.batches, **await self.balances.batch_facts(disowned)}
+
     def _validate(self, movement: MovementRequest, master: _MasterData) -> None:
         item = master.items.get(movement.item_id)
         if item is None:
@@ -3667,12 +3693,14 @@ class MovementEngine:
         # A unit belongs to one lot. Naming the other lot would draw from a
         # position the unit is not in and leave both records disagreeing.
         if serial.batch_id is not None and movement.batch_id != serial.batch_id:
+            own_lot = master.batches.get(serial.batch_id)
+            lot = f"batch {own_lot.batch_number}" if own_lot is not None else "another batch"
             raise BusinessRuleError(
-                f"Serial {serial.serial_number} belongs to a different batch "
-                f"({serial.batch_id}); name that batch on the movement.",
+                f"Serial {serial.serial_number} belongs to {lot}; name that batch on the movement.",
                 details={
                     "serial_number": serial.serial_number,
                     "serial_batch_id": str(serial.batch_id),
+                    "serial_batch_number": own_lot.batch_number if own_lot is not None else None,
                     "movement_batch_id": str(movement.batch_id) if movement.batch_id else None,
                 },
             )

@@ -58,7 +58,14 @@ from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import TenantContext
-from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError, is_refusal
+from src.core.errors import (
+    AppError,
+    BusinessRuleError,
+    ErrorCode,
+    NotFoundError,
+    failure_message,
+    is_refusal,
+)
 from src.core.logging import get_logger
 from src.core.observability import mrp_run_duration, mrp_runs_total
 from src.core.pagination import PageParams, SortParams
@@ -301,18 +308,9 @@ def _run_read(run: MrpRun, *, status_counts: dict[str, int] | None = None) -> Mr
 
 
 def _safe_error(exc: BaseException) -> str:
-    """A failure message safe to persist and show.
-
-    An :class:`AppError` was raised deliberately and its message is written for a
-    user. Anything else is a bug: the type name is recorded so the log line can be
-    found, and nothing else - a driver error string can contain SQL and row data
-    (section 53).
-    """
-    if isinstance(exc, AppError):
-        return exc.message
-    return (
-        f"The planning run failed with an unexpected {type(exc).__name__}. "
-        "The full error is in the server log against this run's request id."
+    """A failure message safe to persist on the run row and show the planner."""
+    return failure_message(
+        exc, "The planning run", logged_against="server log against this run's request id"
     )
 
 

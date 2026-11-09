@@ -2435,11 +2435,15 @@ async def issue_order(
                     Decimal(source.rejected_quantity) - rework_issued.get(source_id, ZERO)
                 )
                 if quantity > remaining:
+                    # Every source is a line of the one receipt this rework names,
+                    # so its line number identifies it; the id is in details.
                     raise BusinessRuleError(
-                        "The requested rework issue exceeds the rejected quantity still available "
-                        f"from receipt line {source.id}.",
+                        f"Line {line.line_number} would issue {quantity} for rework, more than "
+                        f"the {remaining} still rejected on receipt line {source.line_number}.",
                         details={
+                            "line_number": line.line_number,
                             "source_receipt_line_id": str(source.id),
+                            "source_receipt_line_number": source.line_number,
                             "remaining_quantity": str(remaining),
                             "requested_quantity": str(quantity),
                         },
