@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
@@ -221,6 +222,51 @@ describe('SalesReturnsPage', () => {
       damaged: [],
       scrapped: [],
     })
+  })
+
+  it("names a refused disposition from the 422's field detail, once", async () => {
+    const row = salesReturnRow({ status: 'RECEIVED' })
+    const { user } = renderScreen(
+      <>
+        <SalesReturnsPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+        errorNets: true,
+        routes: {
+          'GET /sales-returns': page([row]),
+          'GET /sales-returns/sr-1': ok({
+            ...row,
+            lines: [
+              {
+                id: 'line-1',
+                serial_ids: ['serial-1'],
+                accepted_serial_ids: [],
+                damaged_serial_ids: [],
+                scrapped_serial_ids: [],
+              },
+            ],
+          }),
+          'POST /sales-returns/sr-1/units': fail(
+            422,
+            'VALIDATION_ERROR',
+            'Some fields need attention.',
+            { fields: { accepted: ['serial-1 was not received on this return'] } },
+          ),
+        },
+      },
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
+    await user.click(await screen.findByRole('button', { name: 'Dispose serial units' }))
+    await user.click(screen.getByRole('combobox', { name: 'Disposition for serial-1' }))
+    await user.click(await screen.findByRole('option', { name: 'Accepted' }))
+    await user.click(screen.getByRole('button', { name: 'Save dispositions' }))
+
+    expect(await screen.findByText('serial-1 was not received on this return')).toBeVisible()
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
 
   it('finds an older delivery by searching the server, and returns against it', async () => {

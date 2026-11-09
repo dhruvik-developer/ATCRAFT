@@ -1,9 +1,10 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import OperationTab from './operation-tabs'
 
@@ -232,6 +233,50 @@ describe('inventory operation documents', () => {
         },
       ],
     })
+  })
+
+  it("names a refused line in the dialog from the 422's field detail, once", async () => {
+    // The lines are plain inputs, so the detail is said in words: describeError
+    // alone gave only "Some fields need attention.".
+    const { user } = renderScreen(
+      <>
+        <OperationTab kind="scrap-disposals" />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.INVENTORY_VIEW, P.INVENTORY_SCRAP_DISPOSE, P.LOCATION_VIEW, P.ITEM_VIEW],
+        errorNets: true,
+        routes: {
+          'GET /inventory/scrap-disposals': page([]),
+          'GET /warehouses': page([WAREHOUSE]),
+          'GET /products/items': page([ITEM]),
+          [`GET /products/items/${ITEM.id}`]: ok(ITEM),
+          'GET /warehouses/locations': page([BIN]),
+          'POST /inventory/scrap-disposals': fail(
+            422,
+            'VALIDATION_ERROR',
+            'Some fields need attention.',
+            { fields: { 'lines.0.quantity': ['Input should be greater than 0'] } },
+          ),
+        },
+      },
+    )
+    await user.click(await screen.findByRole('button', { name: /new scrap disposal/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
+    await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Reason' }),
+      'Write off the damaged brass',
+    )
+    await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
+    await user.click(await screen.findByRole('option', { name: /BRASS/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Quantity' }), '1.0000')
+    await user.click(within(dialog).getByRole('button', { name: /post scrap disposal/i }))
+
+    expect(await within(dialog).findByText('Input should be greater than 0')).toBeVisible()
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
 
   it('creates an internal issue with the selected serial unit', async () => {
