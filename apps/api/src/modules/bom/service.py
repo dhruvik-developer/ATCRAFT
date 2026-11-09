@@ -32,6 +32,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
@@ -80,6 +81,7 @@ from src.modules.bom.schemas import (
     ExplodedComponentRead,
     WhereUsedRead,
 )
+from src.modules.products.models import Item
 
 log = get_logger(__name__)
 
@@ -529,10 +531,12 @@ async def get_bom_detail(
     bom = await BomRepository(session, tenant).get_or_404(bom_id)
     lines = await BomLineRepository(session, tenant).list_for_bom(bom_id)
     operations = await BomOperationRepository(session, tenant).list_for_bom(bom_id)
-    return bom_detail_response(bom, lines, operations, principal)
+    return await bom_detail_response(session, tenant, bom, lines, operations, principal)
 
 
-def bom_detail_response(
+async def bom_detail_response(
+    session: AsyncSession,
+    tenant: TenantContext,
     bom: Bom,
     lines: Sequence[BomLine],
     operations: Sequence[BomOperation],
@@ -543,12 +547,23 @@ def bom_detail_response(
     The costed model is a different class rather than nulled-out fields, so a
     principal without ``bom.cost_view`` receives a payload in which the roll-up
     simply does not exist (the same pattern the item master uses for
-    ``standard_cost``).
+    ``standard_cost``). Each line names its component, one statement for the
+    whole structure.
     """
+    items = await labels_by_id(
+        session, tenant, (line.component_item_id for line in lines), Item.code, Item.name
+    )
+    reads: list[BomLineRead] = []
+    for line in lines:
+        read = BomLineRead.model_validate(line)
+        item = items.get(line.component_item_id)
+        read.component_item_code = item.code if item else None
+        read.component_item_name = item.name if item else None
+        reads.append(read)
     payload = {
         **{field: getattr(bom, field) for field in BomSummary.model_fields},
         "notes": bom.notes,
-        "lines": [BomLineRead.model_validate(line) for line in lines],
+        "lines": reads,
         "operations": [BomOperationRead.model_validate(op) for op in operations],
     }
     if principal.has(Permission.BOM_COST_VIEW):

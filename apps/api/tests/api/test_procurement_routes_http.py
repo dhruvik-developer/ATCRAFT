@@ -56,6 +56,8 @@ from src.modules.procurement.schemas import (
 from src.modules.products.models import ItemGroup, ItemVendorLink
 from src.modules.users.models import User
 from src.modules.vendors.models import VendorType
+from src.modules.warehouses.schemas import StorageLocationCreate
+from src.modules.warehouses.service import StorageLocationService
 from tests import seed_support
 from tests.integration.test_procurement_service import (
     make_order,
@@ -457,6 +459,50 @@ class TestBatchConversionPreview:
             404,
             "NOT_FOUND",
         )
+
+
+# -----------------------------------------------------------------------------
+# Requisition lines name their item
+# -----------------------------------------------------------------------------
+
+
+class TestRequisitionLinesNameTheirItem:
+    """Each line carries its item's code and name.
+
+    The requisition form labelled every line's item picker with a separate
+    ``GET /products/items/{id}``; the line read now says which item it is.
+    """
+
+    async def test_create_read_and_edit_name_the_item(
+        self, api_client: AsyncClient, masters: dict[str, Any]
+    ) -> None:
+        item = masters["item"]
+        label = (item.code, item.name)
+        line = {"line_number": 1, "item_id": str(masters["item_id"]), "quantity": "5"}
+
+        created = ok(
+            await api_client.post(
+                "/procurement/purchase-requisitions",
+                json={
+                    "required_date": (today() + timedelta(days=14)).isoformat(),
+                    "warehouse_id": str(masters["warehouse_id"]),
+                    "lines": [line],
+                },
+            ),
+            201,
+        )
+        assert [(row["item_code"], row["item_name"]) for row in created["lines"]] == [label]
+
+        read = ok(await api_client.get(f"/procurement/purchase-requisitions/{created['id']}"))
+        assert [(row["item_code"], row["item_name"]) for row in read["lines"]] == [label]
+
+        edited = ok(
+            await api_client.patch(
+                f"/procurement/purchase-requisitions/{created['id']}",
+                json={"lines": [{**line, "quantity": "8"}]},
+            )
+        )
+        assert [(row["item_code"], row["item_name"]) for row in edited["lines"]] == [label]
 
 
 # -----------------------------------------------------------------------------
@@ -1226,6 +1272,72 @@ class TestUpdatePurchaseOrder:
             422,
             "BUSINESS_RULE_VIOLATION",
         )
+
+
+class TestOrderLinesSayWhereTheItemGoes:
+    """Each line names its item and unit, and carries the item's default bin.
+
+    The goods-receipt dialog read every line's item, then that item's bin, to
+    propose where to put the line away - two requests per line. The order read
+    now carries both, in three statements for the whole order.
+    """
+
+    async def test_a_line_carries_its_items_default_bin(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        masters: dict[str, Any],
+        unique_code,
+    ) -> None:
+        put_away = await StorageLocationService(session, tenant).create_location(
+            masters["warehouse_id"],
+            StorageLocationCreate(
+                code=unique_code("BIN"), name="Receiving rack A1", location_type="BIN"
+            ),
+        )
+        item = masters["item"]
+        item.default_warehouse_id = masters["warehouse_id"]
+        item.default_location_id = put_away.id
+        await session.flush()
+        named = (item.code, item.name, masters["uom"].code)
+        order_id, _ = await draft_order(session, tenant, principal, masters)
+
+        (line,) = ok(await api_client.get(f"/procurement/purchase-orders/{order_id}"))["lines"]
+
+        assert (line["item_code"], line["item_name"], line["uom_code"]) == named
+        assert line["item_default_warehouse_id"] == str(masters["warehouse_id"])
+        assert line["item_default_location_id"] == str(put_away.id)
+        assert (line["item_default_location_code"], line["item_default_location_name"]) == (
+            put_away.code,
+            "Receiving rack A1",
+        )
+
+    async def test_an_item_with_no_default_bin_carries_none(
+        self,
+        api_client: AsyncClient,
+        session: AsyncSession,
+        tenant: TenantContext,
+        principal: Principal,
+        masters: dict[str, Any],
+    ) -> None:
+        item_code = masters["item"].code
+        order_id, _ = await draft_order(session, tenant, principal, masters)
+
+        (line,) = ok(
+            await api_client.patch(
+                f"/procurement/purchase-orders/{order_id}", json={"notes": NOTES}
+            )
+        )["lines"]
+
+        assert line["item_code"] == item_code
+        assert (
+            line["item_default_warehouse_id"],
+            line["item_default_location_id"],
+            line["item_default_location_code"],
+            line["item_default_location_name"],
+        ) == (None, None, None, None)
 
 
 class TestAcknowledgePurchaseOrder:

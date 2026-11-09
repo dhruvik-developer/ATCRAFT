@@ -139,6 +139,10 @@ class RequisitionLineRead(BaseModel):
     requisition_id: uuid.UUID
     line_number: int
     item_id: uuid.UUID
+    #: The item's code and name, so a line's item picker is labelled from the
+    #: requisition itself rather than by reading each item separately.
+    item_code: str | None = None
+    item_name: str | None = None
     description: str | None
     quantity: Decimal
     uom_id: uuid.UUID
@@ -679,7 +683,9 @@ class PurchaseOrderLineIn(BaseModel):
         return self
 
 
-class PurchaseOrderLineRead(BaseModel):
+class PurchaseOrderLineTerms(BaseModel):
+    """One order line's own terms and progress - what an amendment freezes."""
+
     item_code: str | None = None
     item_name: str | None = None
     item_category_id: uuid.UUID | None = None
@@ -710,6 +716,21 @@ class PurchaseOrderLineRead(BaseModel):
     source_allocations: list[PurchaseOrderSourceAllocationRead] = Field(default_factory=list)
     quotation_line_id: uuid.UUID | None
     notes: str | None
+
+
+class PurchaseOrderLineRead(PurchaseOrderLineTerms):
+    """A line as the order reads it: its terms, and where its item is put away.
+
+    The item master's default warehouse and bin travel with the line, so a
+    receipt can propose each line's bin without reading every item and every bin
+    separately. They are facts of the item, not terms of the order, so an
+    amendment's frozen line terms leave them out.
+    """
+
+    item_default_warehouse_id: uuid.UUID | None = None
+    item_default_location_id: uuid.UUID | None = None
+    item_default_location_code: str | None = None
+    item_default_location_name: str | None = None
 
 
 class PurchaseOrderCreate(BaseModel):
@@ -1306,7 +1327,7 @@ class PurchaseOrderDuplicateResolutionResult(BaseModel):
     discarded: bool = False
 
 
-class PurchaseOrderAmendmentLineRead(PurchaseOrderLineRead):
+class PurchaseOrderAmendmentLineRead(PurchaseOrderLineTerms):
     """Frozen line terms at the revision boundary, including source quantities."""
 
 
@@ -1739,6 +1760,7 @@ __all__ = [
     "PurchaseOrderFilters",
     "PurchaseOrderLineIn",
     "PurchaseOrderLineRead",
+    "PurchaseOrderLineTerms",
     "PurchaseOrderSummary",
     "PurchaseOrderTracking",
     "PurchaseOrderUpdate",

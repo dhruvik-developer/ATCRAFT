@@ -48,6 +48,7 @@ from src.modules.job_work.models import (
     JobWorkReceipt,
 )
 from src.modules.job_work.schemas import ReceiptLineIn, ReceiveRequest
+from src.modules.products.models import Item
 from src.workers import celery_app as celery_module
 from tests import seed_support
 from tests.integration.test_job_work_service import (
@@ -780,6 +781,55 @@ class TestCancelOrder:
 
         refused(response, 422, "INVALID_STATE_TRANSITION")
         assert await column(session, JobWorkOrder.status, order_id) == "ISSUED"
+
+
+# -----------------------------------------------------------------------------
+# Order lines name their material and output
+# -----------------------------------------------------------------------------
+
+
+def line_labels(order: dict[str, Any]) -> list[tuple[str, str, str, str]]:
+    return [
+        (
+            line["item_code"],
+            line["item_name"],
+            line["expected_output_item_code"],
+            line["expected_output_item_name"],
+        )
+        for line in order["lines"]
+    ]
+
+
+class TestOrderLinesNameTheirItems:
+    """Each line carries its material's and its output's code and name.
+
+    The order form labelled both item pickers on every line with a separate
+    ``GET /products/items/{id}``; the line read now says which items they are.
+    """
+
+    async def test_every_order_read_names_both_items(
+        self, api_client: AsyncClient, session, tenant, job
+    ) -> None:
+        raw_code = await column(session, Item.code, job.raw_item_id)
+        coated_code = await column(session, Item.code, job.coated_item_id)
+        expected = [(raw_code, f"Item {raw_code}", coated_code, f"Item {coated_code}")]
+        await stock_in(session, tenant, job.raw_item_id, job.warehouse_id, "100")
+
+        created = ok(await api_client.post("/job-work", json=create_body(job)), 201)
+        assert line_labels(created) == expected
+        order_id = created["id"]
+
+        assert line_labels(ok(await api_client.get(f"/job-work/{order_id}"))) == expected
+        edited = ok(await api_client.patch(f"/job-work/{order_id}", json={"notes": "Recheck"}))
+        assert line_labels(edited) == expected
+        approved_order = ok(
+            await api_client.post(f"/job-work/{order_id}/approve", json={"reason": REASON})
+        )
+        assert line_labels(approved_order) == expected
+        issued_result = ok(
+            await api_client.post(f"/job-work/{order_id}/issue", json={"reason": "Handed over"})
+        )
+        assert line_labels(issued_result["order"]) == expected
 
 
 # -----------------------------------------------------------------------------

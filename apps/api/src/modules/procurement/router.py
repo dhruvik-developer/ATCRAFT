@@ -452,7 +452,7 @@ async def create_requisition(
 ) -> ApiResponse[RequisitionDetail]:
     requisition, lines = await service.create_requisition(session, tenant, principal, payload)
     return ApiResponse[RequisitionDetail].ok(
-        service.requisition_detail(requisition, lines),
+        await service.requisition_detail(session, tenant, requisition, lines),
         success_message(f"Requisition {requisition.code}", "raised"),
     )
 
@@ -485,7 +485,7 @@ async def update_requisition(
 ) -> ApiResponse[RequisitionDetail]:
     requisition, lines = await service.update_requisition(session, tenant, requisition_id, payload)
     return ApiResponse[RequisitionDetail].ok(
-        service.requisition_detail(requisition, lines),
+        await service.requisition_detail(session, tenant, requisition, lines),
         success_message(f"Requisition {requisition.code}", "updated"),
     )
 

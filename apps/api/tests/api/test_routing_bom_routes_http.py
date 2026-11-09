@@ -31,7 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.deps import Principal, TenantContext
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.bom import service as bom_service
@@ -1345,6 +1345,68 @@ class TestUpdateBom:
         response = await api_client.patch(f"/bom/{theirs.id}", json={"revision": "X"})
 
         refused(response, 404, "NOT_FOUND")
+
+
+class TestBomLinesNameTheirComponents:
+    """Each line carries its component's code and name.
+
+    The structure editor labelled every line's item picker with a separate
+    ``GET /products/items/{id}``; the line read now says which item it is.
+    """
+
+    async def test_create_read_and_edit_name_every_component(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
+    ) -> None:
+        parent = await make_parent_item(session, tenant, unique_code("KIT"))
+        screw = await make_component_item(session, tenant, unique_code("SCREW"))
+        washer = await make_component_item(session, tenant, unique_code("WASH"))
+        screw_label, washer_label = (screw.code, screw.name), (washer.code, washer.name)
+
+        created = ok(
+            await api_client.post(
+                "/bom",
+                json={"item_id": str(parent.id), "lines": [bom_line(screw.id)]},
+            ),
+            201,
+        )
+        (line,) = created["lines"]
+        assert (line["component_item_code"], line["component_item_name"]) == screw_label
+
+        read = ok(await api_client.get(f"/bom/{created['id']}"))
+        assert [
+            (row["component_item_code"], row["component_item_name"]) for row in read["lines"]
+        ] == [screw_label]
+
+        edited = ok(
+            await api_client.patch(
+                f"/bom/{created['id']}",
+                json={
+                    "lines": [
+                        bom_line(screw.id, quantity="2"),
+                        bom_line(washer.id, line_number=2, quantity="1"),
+                    ]
+                },
+            )
+        )
+        assert {
+            (row["component_item_code"], row["component_item_name"]) for row in edited["lines"]
+        } == {screw_label, washer_label}
+
+    async def test_a_retired_component_still_names_its_line(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
+    ) -> None:
+        """A structure keeps naming a part that has since been archived (section 28)."""
+        parent = await make_parent_item(session, tenant, unique_code("KIT"))
+        screw = await make_component_item(session, tenant, unique_code("SCREW"))
+        screw_label = (screw.code, screw.name)
+        bom = await make_bom(session, tenant, parent, screw)
+        bom_id = bom.id
+        screw.deleted_at = utcnow()
+        await session.flush()
+
+        (line,) = ok(await api_client.get(f"/bom/{bom_id}"))["lines"]
+
+        assert (line["component_item_code"], line["component_item_name"]) == screw_label
 
 
 # -----------------------------------------------------------------------------

@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.actors import actor_id
 from src.core.clock import today, utcnow
@@ -261,8 +262,10 @@ from src.modules.procurement.service_rules import (
     single_order_category,
     sum_document_totals,
 )
+from src.modules.products.models import Item, UnitOfMeasure
 from src.modules.vendors.models import Vendor
 from src.modules.vendors.service import can_receive_purchase_orders
+from src.modules.warehouses.models import StorageLocation
 
 log = get_logger(__name__)
 
@@ -990,11 +993,24 @@ async def _assignee_still_fits(
 # =============================================================================
 
 
-def requisition_detail(
-    requisition: PurchaseRequisition, lines: Sequence[PurchaseRequisitionLine]
+async def requisition_detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    requisition: PurchaseRequisition,
+    lines: Sequence[PurchaseRequisitionLine],
 ) -> RequisitionDetail:
+    """The requisition with each line naming its item - one statement for the lines."""
     detail = RequisitionDetail.model_validate(requisition)
-    detail.lines = [RequisitionLineRead.model_validate(line) for line in lines]
+    items = await labels_by_id(
+        session, tenant, (line.item_id for line in lines), Item.code, Item.name
+    )
+    detail.lines = []
+    for line in lines:
+        read = RequisitionLineRead.model_validate(line)
+        item = items.get(line.item_id)
+        read.item_code = item.code if item else None
+        read.item_name = item.name if item else None
+        detail.lines.append(read)
     return detail
 
 
@@ -1461,7 +1477,7 @@ async def get_requisition_detail(
     if requisition is None:
         raise NotFoundError("Purchase requisition", requisition_id)
     lines = await RequisitionLineRepository(session, tenant).list_for_requisition(requisition_id)
-    return requisition_detail(requisition, lines)
+    return await requisition_detail(session, tenant, requisition, lines)
 
 
 # =============================================================================
@@ -3527,19 +3543,65 @@ async def get_purchase_order_detail(
     return await describe_purchase_order(session, tenant, order, lines)
 
 
+async def _label_order_lines(
+    session: AsyncSession, tenant: TenantContext, reads: Sequence[PurchaseOrderLineRead]
+) -> None:
+    """Name each line's item and unit, and say where its item is put away.
+
+    The item's default warehouse and bin let the receiving screen propose a bin
+    per line without reading every item and every bin on its own (one request
+    per line was the N+1 it paid). Items, their default bins and the units are
+    one statement each.
+    """
+    items = await labels_by_id(
+        session,
+        tenant,
+        (read.item_id for read in reads),
+        Item.code,
+        Item.name,
+        Item.category_id,
+        Item.default_warehouse_id,
+        Item.default_location_id,
+    )
+    bins = await labels_by_id(
+        session,
+        tenant,
+        (item.default_location_id for item in items.values()),
+        StorageLocation.code,
+        StorageLocation.name,
+    )
+    units = await labels_by_id(session, tenant, (read.uom_id for read in reads), UnitOfMeasure.code)
+    for read in reads:
+        unit = units.get(read.uom_id)
+        read.uom_code = unit.code if unit else None
+        item = items.get(read.item_id)
+        if item is None:
+            continue
+        read.item_code = item.code
+        read.item_name = item.name
+        read.item_category_id = item.category_id
+        read.item_default_warehouse_id = item.default_warehouse_id
+        read.item_default_location_id = item.default_location_id
+        location = bins.get(item.default_location_id) if item.default_location_id else None
+        read.item_default_location_code = location.code if location else None
+        read.item_default_location_name = location.name if location else None
+
+
 async def describe_purchase_order(
     session: AsyncSession,
     tenant: TenantContext,
     order: PurchaseOrder,
     lines: Sequence[PurchaseOrderLine],
 ) -> PurchaseOrderDetail:
-    """The detail view, with the category and the assignee named.
+    """The detail view, with the category, the assignee and every line named.
 
     A buyer holds ``purchase_order.view`` but usually neither ``category.view``
     nor ``user.view``, so the two ids alone would read as two UUIDs. At most two
-    small reads, and none when the order has neither.
+    small reads, and none when the order has neither. The lines cost three more
+    statements for the whole order, never one per line.
     """
     detail = order_detail(order, lines)
+    await _label_order_lines(session, tenant, detail.lines)
     detail.has_receipt_history = await has_receipt_history(session, tenant, order.id)
     allocations = await SourceAllocationRepository(session, tenant).list_for_lines(
         [line.id for line in lines]

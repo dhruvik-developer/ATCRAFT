@@ -16689,11 +16689,15 @@ export interface components {
              * Format: uuid
              */
             bom_id: string;
+            /** Component Item Code */
+            component_item_code?: string | null;
             /**
              * Component Item Id
              * Format: uuid
              */
             component_item_id: string;
+            /** Component Item Name */
+            component_item_name?: string | null;
             /**
              * Id
              * Format: uuid
@@ -24932,11 +24936,15 @@ export interface components {
             batch_id: string | null;
             /** Expected Loss Percentage */
             expected_loss_percentage: string;
+            /** Expected Output Item Code */
+            expected_output_item_code?: string | null;
             /**
              * Expected Output Item Id
              * Format: uuid
              */
             expected_output_item_id: string;
+            /** Expected Output Item Name */
+            expected_output_item_name?: string | null;
             /** Expected Output Quantity */
             expected_output_quantity: string;
             /**
@@ -24950,11 +24958,15 @@ export interface components {
             is_serial_tracked: boolean;
             /** Issued Quantity */
             issued_quantity: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /**
              * Job Work Order Id
              * Format: uuid
@@ -32410,7 +32422,15 @@ export interface components {
             /** Uom Id */
             uom_id?: string | null;
         };
-        /** PurchaseOrderLineRead */
+        /**
+         * PurchaseOrderLineRead
+         * @description A line as the order reads it: its terms, and where its item is put away.
+         *
+         *     The item master's default warehouse and bin travel with the line, so a
+         *     receipt can propose each line's bin without reading every item and every bin
+         *     separately. They are facts of the item, not terms of the order, so an
+         *     amendment's frozen line terms leave them out.
+         */
         PurchaseOrderLineRead: {
             /** Accepted Quantity */
             accepted_quantity: string;
@@ -32429,6 +32449,14 @@ export interface components {
             item_category_id?: string | null;
             /** Item Code */
             item_code?: string | null;
+            /** Item Default Location Code */
+            item_default_location_code?: string | null;
+            /** Item Default Location Id */
+            item_default_location_id?: string | null;
+            /** Item Default Location Name */
+            item_default_location_name?: string | null;
+            /** Item Default Warehouse Id */
+            item_default_warehouse_id?: string | null;
             /**
              * Item Id
              * Format: uuid
@@ -34787,11 +34815,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Line Number */
             line_number: number;
             /** Notes */

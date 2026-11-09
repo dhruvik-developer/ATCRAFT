@@ -11610,10 +11610,32 @@
             "title": "Bom Id",
             "type": "string"
           },
+          "component_item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Item Code"
+          },
           "component_item_id": {
             "format": "uuid",
             "title": "Component Item Id",
             "type": "string"
+          },
+          "component_item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Item Name"
           },
           "id": {
             "format": "uuid",
@@ -35764,10 +35786,32 @@
             "title": "Expected Loss Percentage",
             "type": "string"
           },
+          "expected_output_item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Output Item Code"
+          },
           "expected_output_item_id": {
             "format": "uuid",
             "title": "Expected Output Item Id",
             "type": "string"
+          },
+          "expected_output_item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Output Item Name"
           },
           "expected_output_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -35792,10 +35836,32 @@
             "title": "Issued Quantity",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "job_work_order_id": {
             "format": "uuid",
@@ -53479,6 +53545,7 @@
         "type": "object"
       },
       "PurchaseOrderLineRead": {
+        "description": "A line as the order reads it: its terms, and where its item is put away.\n\nThe item master's default warehouse and bin travel with the line, so a\nreceipt can propose each line's bin without reading every item and every bin\nseparately. They are facts of the item, not terms of the order, so an\namendment's frozen line terms leave them out.",
         "properties": {
           "accepted_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -53533,6 +53600,52 @@
               }
             ],
             "title": "Item Code"
+          },
+          "item_default_location_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Default Location Code"
+          },
+          "item_default_location_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Default Location Id"
+          },
+          "item_default_location_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Default Location Name"
+          },
+          "item_default_warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Default Warehouse Id"
           },
           "item_id": {
             "format": "uuid",
@@ -60306,10 +60419,32 @@
             "title": "Id",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "line_number": {
             "title": "Line Number",

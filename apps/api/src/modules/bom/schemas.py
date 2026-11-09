@@ -81,6 +81,10 @@ class BomLineRead(BaseModel):
     bom_id: uuid.UUID
     line_number: int
     component_item_id: uuid.UUID
+    #: The component's code and name, so a line's item picker is labelled from
+    #: the structure itself rather than by reading each item separately.
+    component_item_code: str | None = None
+    component_item_name: str | None = None
     quantity_per: Decimal
     uom_id: uuid.UUID
     scrap_percentage: Decimal

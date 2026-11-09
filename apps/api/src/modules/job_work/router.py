@@ -337,7 +337,7 @@ async def create_order(
 ) -> ApiResponse[JobWorkOrderDetail]:
     order, lines = await service.create_order(session, tenant, payload)
     return ApiResponse[JobWorkOrderDetail].ok(
-        service.order_detail(order, lines),
+        await service.order_detail(session, tenant, order, lines),
         success_message(f"Job work order {order.code}", "created"),
     )
 
@@ -372,7 +372,7 @@ async def update_order(
 ) -> ApiResponse[JobWorkOrderDetail]:
     order, lines = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[JobWorkOrderDetail].ok(
-        service.order_detail(order, lines),
+        await service.order_detail(session, tenant, order, lines),
         success_message(f"Job work order {order.code}", "updated"),
     )
 
@@ -490,7 +490,7 @@ async def approve_order(
 ) -> ApiResponse[JobWorkOrderDetail]:
     order, lines = await service.approve_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[JobWorkOrderDetail].ok(
-        service.order_detail(order, lines),
+        await service.order_detail(session, tenant, order, lines),
         success_message(f"Job work order {order.code} approved and material", "reserved"),
     )
 

@@ -150,6 +150,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
@@ -952,9 +953,34 @@ def held_output_by_item(lines: Iterable[tuple[uuid.UUID, Decimal]]) -> dict[uuid
 # -----------------------------------------------------------------------------
 
 
-def order_detail(order: JobWorkOrder, lines: Sequence[JobWorkOrderLine]) -> JobWorkOrderDetail:
+async def order_detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: JobWorkOrder,
+    lines: Sequence[JobWorkOrderLine],
+) -> JobWorkOrderDetail:
+    """The order with each line naming its material and its expected output.
+
+    One statement labels both items on every line.
+    """
     detail = JobWorkOrderDetail.model_validate(order)
-    detail.lines = [JobWorkOrderLineRead.model_validate(row) for row in lines]
+    items = await labels_by_id(
+        session,
+        tenant,
+        (item_id for row in lines for item_id in (row.item_id, row.expected_output_item_id)),
+        Item.code,
+        Item.name,
+    )
+    detail.lines = []
+    for row in lines:
+        read = JobWorkOrderLineRead.model_validate(row)
+        material = items.get(row.item_id)
+        read.item_code = material.code if material else None
+        read.item_name = material.name if material else None
+        output = items.get(row.expected_output_item_id)
+        read.expected_output_item_code = output.code if output else None
+        read.expected_output_item_name = output.name if output else None
+        detail.lines.append(read)
     return detail
 
 
@@ -1432,7 +1458,7 @@ async def get_order_detail(
 ) -> JobWorkOrderDetail:
     order = await JobWorkOrderRepository(session, tenant).get_or_404(order_id)
     lines = await JobWorkOrderLineRepository(session, tenant).list_for_order(order.id)
-    detail = order_detail(order, lines)
+    detail = await order_detail(session, tenant, order, lines)
     source_ids = [
         line.source_receipt_line_id for line in lines if line.source_receipt_line_id is not None
     ]
@@ -2640,7 +2666,7 @@ async def issue_order(
         )
 
     return IssueResult(
-        order=order_detail(order, lines),
+        order=await order_detail(session, tenant, order, lines),
         challan=challan_detail(challan, challan_lines),
         movement_count=len(posted),
         quantity_at_vendor=to_quantity(
@@ -3349,7 +3375,7 @@ async def receive(
         )
 
     return ReceiptResult(
-        order=order_detail(order, lines),
+        order=await order_detail(session, tenant, order, lines),
         receipt=receipt_detail(receipt, receipt_lines),
         movement_count=len(posted),
         output_held_for_qc=held_for_qc,

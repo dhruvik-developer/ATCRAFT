@@ -155,7 +155,7 @@ async def create_bom(
     payload: BomCreate, session: DbSession, tenant: Tenant, principal: CurrentUser
 ) -> ApiResponse[BomDetail]:
     bom, lines, operations = await service.create_bom(session, tenant, payload)
-    detail = service.bom_detail_response(bom, lines, operations, principal)
+    detail = await service.bom_detail_response(session, tenant, bom, lines, operations, principal)
     return ApiResponse[BomDetail].ok(detail, success_message("Bill of materials", "created"))
 
 
@@ -186,7 +186,7 @@ async def update_bom(
     principal: CurrentUser,
 ) -> ApiResponse[BomDetail]:
     bom, lines, operations = await service.update_bom(session, tenant, bom_id, payload)
-    detail = service.bom_detail_response(bom, lines, operations, principal)
+    detail = await service.bom_detail_response(session, tenant, bom, lines, operations, principal)
     return ApiResponse[BomDetail].ok(detail, success_message("Bill of materials", "updated"))
 
 
@@ -291,7 +291,7 @@ async def copy_as_new_version(
     principal: CurrentUser,
 ) -> ApiResponse[BomDetail]:
     bom, lines, operations = await service.copy_as_new_version(session, tenant, bom_id, payload)
-    detail = service.bom_detail_response(bom, lines, operations, principal)
+    detail = await service.bom_detail_response(session, tenant, bom, lines, operations, principal)
     return ApiResponse[BomDetail].ok(detail, f"Created version {bom.version}")
 
 

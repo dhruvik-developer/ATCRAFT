@@ -192,6 +192,10 @@ class JobWorkOrderLineRead(BaseModel):
     job_work_order_id: uuid.UUID
     line_number: int
     item_id: uuid.UUID
+    #: The material's and the expected output's codes and names, so a line's two
+    #: item pickers are labelled from the order rather than by reading each item.
+    item_code: str | None = None
+    item_name: str | None = None
     is_batch_tracked: bool
     is_serial_tracked: bool
     serial_ids: list[uuid.UUID]
@@ -203,6 +207,8 @@ class JobWorkOrderLineRead(BaseModel):
     issued_quantity: Decimal
     received_quantity: Decimal
     expected_output_item_id: uuid.UUID
+    expected_output_item_code: str | None = None
+    expected_output_item_name: str | None = None
     expected_output_quantity: Decimal
     received_output_quantity: Decimal
     rejected_quantity: Decimal
