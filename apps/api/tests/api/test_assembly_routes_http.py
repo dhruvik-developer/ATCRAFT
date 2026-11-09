@@ -576,26 +576,40 @@ class TestMarkPacked:
         refused(response, 422, "BUSINESS_RULE_VIOLATION")
         assert await column(session, AssemblyOrder.packing_order_id, order_id) is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: POST /assembly/{id}/pack claims the output for a packing_order_id that "
-            "names no packing order in the caller's company"
-        ),
-    )
+    @pytest.mark.parametrize("named", ["no-such-order", "another-companys-order"])
     async def test_a_packing_order_that_does_not_exist_is_not_found(
-        self, api_client: AsyncClient, session, tenant, kit
+        self, api_client: AsyncClient, session, tenant, foreign, kit, named
     ) -> None:
         order_id = await completed_order(session, tenant, kit)
+        packing_order_id = (
+            uuid.uuid4()
+            if named == "no-such-order"
+            else await packing_order_for(session, foreign, await make_kit(session, foreign))
+        )
 
         response = await api_client.post(
             f"/assembly/{order_id}/pack",
-            json={"packing_order_id": str(uuid.uuid4()), "reason": "Typed from a label"},
+            json={"packing_order_id": str(packing_order_id), "reason": "Typed from a label"},
         )
 
         refused(response, 404, "NOT_FOUND")
         assert await column(session, AssemblyOrder.packing_order_id, order_id) is None
         assert str(order_id) in await ready_for_packing(api_client, kit)
+
+    async def test_without_a_packing_module_no_claim_can_name_an_order(
+        self, api_client: AsyncClient, session, tenant, kit, monkeypatch
+    ) -> None:
+        order_id = await completed_order(session, tenant, kit)
+        packing_order_id = await packing_order_for(session, tenant, kit)
+        monkeypatch.setattr(service, "resolve_packing_order_reader_port", lambda: None)
+
+        response = await api_client.post(
+            f"/assembly/{order_id}/pack",
+            json={"packing_order_id": str(packing_order_id), "reason": "Packed for dispatch"},
+        )
+
+        refused(response, 404, "NOT_FOUND")
+        assert await column(session, AssemblyOrder.packing_order_id, order_id) is None
 
     @pytest.mark.parametrize(
         ("body", "field"),

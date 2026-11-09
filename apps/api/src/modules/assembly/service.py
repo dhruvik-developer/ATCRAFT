@@ -872,6 +872,31 @@ def resolve_inspection_reader_port() -> InspectionReaderPort | None:
     return reader if callable(reader) else None
 
 
+class PackingOrderReaderPort(Protocol):
+    """The packing module's answer to "does this company hold that packing order?"."""
+
+    async def __call__(
+        self, session: AsyncSession, tenant: TenantContext, packing_order_id: uuid.UUID
+    ) -> bool: ...
+
+
+def resolve_packing_order_reader_port() -> PackingOrderReaderPort | None:
+    """The packing module's ``packing_order_exists``, if it is deployed.
+
+    Read by :func:`mark_packed`. ``packing_order_id`` is a bare UUID with no
+    foreign key, so this tenant-scoped read is the only check that a claim names
+    a packing order at all - and a foreign key would not have been a tenant check
+    anyway.
+    """
+    try:
+        from src.modules.packing import service as packing_service
+    except ImportError:
+        return None
+
+    reader = getattr(packing_service, "packing_order_exists", None)
+    return reader if callable(reader) else None
+
+
 # -----------------------------------------------------------------------------
 # Shared helpers
 # -----------------------------------------------------------------------------
@@ -2692,6 +2717,11 @@ async def mark_packed(
     so two packers cannot both plan around the same output. Idempotent only for
     the same packing order - a second, different claim is refused rather than
     silently overwriting the first.
+
+    The packing order must be one this company holds. A typed id that names
+    nothing - or another company's order - would otherwise take the output off
+    the feed with no packing order behind it, and nothing would ever offer it
+    again. No packing module deployed means no packing order can exist.
     """
     repo = AssemblyOrderRepository(session, tenant)
 
@@ -2700,6 +2730,9 @@ async def mark_packed(
         if order is None:
             raise NotFoundError("Assembly order", order_id)
         _assert_packable(order, packing_order_id=packing_order_id)
+        reader = resolve_packing_order_reader_port()
+        if reader is None or not await reader(session, tenant, packing_order_id):
+            raise NotFoundError("Packing order", packing_order_id)
 
         order.packing_order_id = packing_order_id
         order.packed_at = order.packed_at or utcnow()
@@ -2814,6 +2847,7 @@ __all__ = [
     "KitShortageError",
     "Lateness",
     "PackingHandoverFacts",
+    "PackingOrderReaderPort",
     "QualityPort",
     "approve_order",
     "awaiting_quality_verdicts",
@@ -2850,6 +2884,7 @@ __all__ = [
     "requirement_for",
     "reservation_required_date",
     "resolve_inspection_reader_port",
+    "resolve_packing_order_reader_port",
     "resolve_quality_port",
     "start_assembly",
     "update_order",

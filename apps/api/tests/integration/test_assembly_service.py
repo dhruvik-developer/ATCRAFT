@@ -65,6 +65,8 @@ from src.modules.inventory.models import (
 )
 from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import TraceabilityService
+from src.modules.packing import service as packing_service
+from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
 from src.modules.products.models import ItemGroup, ProductionType
 from src.modules.quality import service as quality_service
 from src.modules.quality.schemas import DecideRequest
@@ -1179,10 +1181,26 @@ async def test_an_assembly_a_packing_order_has_claimed_stops_being_offered(ctx) 
         order.id,
         CompleteRequest(assembled_quantity=Decimal("10"), reason="Ready to pack"),
     )
-    packing_order_id = uuid.uuid4()
+    customer = await seed_support.seed_customer(session, company_id=tenant.company_id)
+    packing_order, _ = await packing_service.create_order(
+        session,
+        tenant,
+        PackingOrderCreate(
+            customer_id=customer.id,
+            warehouse_id=setup.output_warehouse_id,
+            planned_date=today(),
+            lines=[
+                PackingOrderLineIn(
+                    item_id=setup.output_item_id,
+                    quantity_to_pack=Decimal("10"),
+                    uom_id=setup.uom_id,
+                )
+            ],
+        ),
+    )
 
     await service.mark_packed(
-        session, tenant, order.id, packing_order_id=packing_order_id, reason="Packed"
+        session, tenant, order.id, packing_order_id=packing_order.id, reason="Packed"
     )
 
     rows = await service.ready_for_packing(session, tenant, warehouse_id=setup.output_warehouse_id)

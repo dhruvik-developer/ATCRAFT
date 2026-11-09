@@ -1619,6 +1619,18 @@ class AssemblyHandover:
         )
 
 
+async def packing_order_exists(
+    session: AsyncSession, tenant: TenantContext, packing_order_id: uuid.UUID
+) -> bool:
+    """Whether this company holds the packing order - assembly's hand-over claim check.
+
+    ``assembly_orders.packing_order_id`` is a bare UUID this module owns the
+    target of, so assembly asks here (``resolve_packing_order_reader_port``)
+    rather than trusting the id it was sent.
+    """
+    return await PackingOrderRepository(session, tenant).exists(id=packing_order_id)
+
+
 def resolve_assembly_port() -> AssemblyHandoverPort | None:
     """The assembly module's hand-over calls, if it is deployed."""
     try:
@@ -3471,6 +3483,7 @@ __all__ = [
     "order_detail",
     "packing_list_data",
     "packing_list_parameters",
+    "packing_order_exists",
     "plan_contents",
     "queue_packing_list",
     "ready_for_dispatch",
