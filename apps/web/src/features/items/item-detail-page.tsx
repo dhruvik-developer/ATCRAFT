@@ -40,9 +40,10 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemImagesPanel } from '@/features/dealer-portal/item-images-panel'
-import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -853,10 +854,19 @@ function PricesPanel({ itemId }: { itemId: string }) {
 
 // -------------------------------------------------------------- Vendors -----
 
-interface VendorOption {
-  id: string
-  code: string
-  name: string
+/**
+ * Who supplies the item, as the link itself names them.
+ *
+ * The link carries its vendor's code and name, a retired vendor's included. They
+ * used to come from the first two hundred vendors, so a supplier past that page -
+ * and every supplier, to an account that may not read the vendor list - showed
+ * its own name for the part in place of who it is.
+ */
+function vendorLabel(link: ItemVendorLink): string {
+  if (link.vendor_code) {
+    return link.vendor_name ? `${link.vendor_code} - ${link.vendor_name}` : link.vendor_code
+  }
+  return link.vendor_item_name ?? EMPTY_VALUE
 }
 
 function VendorsPanel({
@@ -914,30 +924,6 @@ function VendorsPanel({
     onError: (error) => reportFieldErrors(error, 'Could not remove this vendor link'),
   })
 
-  const vendors = useQuery({
-    // Its own shape: this stores an array, where the list page stores a page
-    // envelope under `list` and `useVendorOptions` stores `VendorOption[]`
-    // under `options`. An invalidation of `vendors.all` still reaches it.
-    queryKey: [...queryKeys.vendors.all, 'label-lookup', LOOKUP_LIST_LIMIT] as const,
-    // A vendor name is a label on someone else's screen. If this account may
-    // not read vendors the cell falls back to the vendor's own item name rather
-    // than replacing a working panel with an error; any other failure is one.
-    queryFn: async ({ signal }) => {
-      try {
-        return (
-          await api.getPage<VendorOption>('/vendors', {
-            params: { limit: LOOKUP_LIST_LIMIT },
-            signal,
-          })
-        ).data
-      } catch (error) {
-        return emptyOnPermissionError<VendorOption>(error)
-      }
-    },
-    staleTime: staleTimes.master,
-    enabled: canViewVendors,
-  })
-  const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
   // Which maker's part a source supplies. Displayed from the cached maker
   // list; edited through the link dialog, not from this table.
   const makers = useManufacturerOptions(canViewMakers)
@@ -952,19 +938,12 @@ function VendorsPanel({
         id: 'vendor',
         header: 'Vendor',
         enableSorting: false,
-        cell: ({ row }) => {
-          const vendor = vendorById.get(row.original.vendor_id)
-          return (
-            <span className="flex items-center gap-2">
-              <span className="font-medium">
-                {vendor
-                  ? `${vendor.code} - ${vendor.name}`
-                  : (row.original.vendor_item_name ?? '-')}
-              </span>
-              {row.original.is_preferred && <Badge variant="success">Preferred</Badge>}
-            </span>
-          )
-        },
+        cell: ({ row }) => (
+          <span className="flex items-center gap-2">
+            <span className="font-medium">{vendorLabel(row.original)}</span>
+            {row.original.is_preferred && <Badge variant="success">Preferred</Badge>}
+          </span>
+        ),
       },
       {
         id: 'vendor_item_code',
@@ -1083,7 +1062,7 @@ function VendorsPanel({
     }
 
     return defs
-  }, [vendorById, makerLabel, canEdit, setPreferred])
+  }, [makerLabel, canEdit, setPreferred])
 
   return (
     <div className="space-y-4">

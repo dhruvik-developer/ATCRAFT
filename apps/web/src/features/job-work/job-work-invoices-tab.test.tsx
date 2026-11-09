@@ -2,15 +2,16 @@
  * The job-work "Invoices" tab: bills raised against job-work orders.
  *
  * The tab lists the vendor-invoice register narrowed to `invoice_type =
- * JOB_WORK` and resolves each row's order code from one bounded orders read.
+ * JOB_WORK`, and each row names its order from the read itself.
  * Recording is gated on `vendor_invoice.create` - the right the API declares
  * on the create and the submit alike - and the tab itself is offered only to
  * an account that may see vendor invoices at all.
  */
 
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 import type { RouteRequest } from '@/test/harness'
@@ -70,6 +71,7 @@ const INVOICE: VendorInvoiceSummary = {
   goods_receipt_id: null,
   invoice_type: 'JOB_WORK',
   job_work_order_id: 'jw-1',
+  job_work_order_code: 'JW-0001',
   cost_centre_id: null,
   created_at: '2026-05-12T09:00:00Z',
 }
@@ -99,6 +101,47 @@ describe('the invoices tab', () => {
     expect(await screen.findByText('CHR/2026/0101')).toBeVisible()
     expect(screen.getByText('JW-0001')).toBeVisible()
     expect(seen.url?.searchParams.get('invoice_type')).toBe('JOB_WORK')
+  })
+
+  it('names an older order from the bill itself, with no lookup of orders', async () => {
+    // The code used to come from the newest two hundred orders, so a bill
+    // against an order past them showed a short id instead. The orders route
+    // knows only JW-0001 here, so JW-0007 can only come from the bill.
+    const orderReads: URL[] = []
+    renderInvoices([P.VENDOR_INVOICE_VIEW], {
+      'GET /job-work': ({ url }: RouteRequest) => {
+        orderReads.push(url)
+        return page([ORDER])
+      },
+      'GET /finance/vendor-invoices': page([
+        INVOICE,
+        {
+          ...INVOICE,
+          id: 'vi-2',
+          vendor_invoice_number: 'CHR/2024/0007',
+          job_work_order_id: 'jw-old',
+          job_work_order_code: 'JW-0007',
+        },
+        {
+          ...INVOICE,
+          id: 'vi-3',
+          vendor_invoice_number: 'CHR/2026/0200',
+          job_work_order_id: null,
+          job_work_order_code: null,
+        },
+      ]),
+    })
+
+    const older = (await screen.findByText('CHR/2024/0007')).closest('tr')!
+    expect(within(older).getByText('JW-0007')).toBeVisible()
+    expect(within(older).queryByText(/jw-old/)).toBeNull()
+    const unbilled = screen.getByText('CHR/2026/0200').closest('tr')!
+    expect(within(unbilled).getAllByRole('cell')[1]).toHaveTextContent(/^-$/)
+    // The orders tab shows while the session resolves and reads its own page;
+    // nothing reads the orders as a lookup.
+    expect(
+      orderReads.filter((url) => url.searchParams.get('limit') === String(LOOKUP_LIST_LIMIT)),
+    ).toHaveLength(0)
   })
 
   it('is offered only to an account that may see vendor invoices', async () => {

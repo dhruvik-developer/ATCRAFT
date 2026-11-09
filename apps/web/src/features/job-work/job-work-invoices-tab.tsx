@@ -2,11 +2,10 @@
  * Job-work invoices: every bill raised against a job-work order.
  *
  * This is the same register the vendor-invoices screen shows, narrowed to
- * `invoice_type=JOB_WORK` through the list endpoint's filter. The order column
- * resolves the code from one bounded orders read, the way the orders panel
- * resolves vendor names - an order missing from that projection (a company
- * with more than two hundred of them) reads as a short id rather than a
- * blank.
+ * `invoice_type=JOB_WORK` through the list endpoint's filter. Each row names its
+ * order itself (`job_work_order_code` on the read). It used to be looked up in
+ * the newest two hundred orders, so a bill against an older order lost its code
+ * to a short id - and the lookup cost a request of its own.
  *
  * Recording happens here too. "Record job-work invoice" opens the dialog that
  * picks the vendor, the order and the receipt lines, and the row opens the
@@ -15,7 +14,6 @@
  * screen.
  */
 
-import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Plus } from 'lucide-react'
 import { Suspense, lazy, useMemo, useState } from 'react'
@@ -28,31 +26,13 @@ import { useAuth } from '@/features/auth/auth-context'
 import { financeKeys, type VendorInvoiceSummary } from '@/features/finance/finance-types'
 import { VendorInvoiceMatchDialog } from '@/features/finance/vendor-invoice-match-dialog'
 import { useListQuery } from '@/hooks/use-list-query'
-import { api } from '@/lib/api-client'
-import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
-import { formatDate, formatMoney, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
-import { indexById } from '@/lib/utils'
-
-import { jobWorkKeys, type JobWorkOrderRow } from './job-work-model'
 
 const JobWorkInvoiceDialog = lazy(() =>
   import('./job-work-invoice-dialog').then((m) => ({ default: m.JobWorkInvoiceDialog })),
 )
-
-/** The order codes behind the invoice rows, in one bounded read. */
-function useOrderCodes() {
-  return useQuery({
-    queryKey: [...jobWorkKeys.all, 'order-codes'] as const,
-    queryFn: ({ signal }) =>
-      api.getPage<JobWorkOrderRow>('/job-work', {
-        params: { limit: LOOKUP_LIST_LIMIT, sort_by: 'created_at', sort_dir: 'desc' },
-        signal,
-      }),
-    staleTime: staleTimes.live,
-  })
-}
 
 export default function JobWorkInvoicesTab() {
   const { can } = useAuth()
@@ -70,9 +50,6 @@ export default function JobWorkInvoicesTab() {
     staleTime: staleTimes.transactional,
     filters: { invoice_type: 'JOB_WORK' },
   })
-
-  const ordersQuery = useOrderCodes()
-  const orderById = useMemo(() => indexById(ordersQuery.data?.data ?? []), [ordersQuery.data])
 
   const columns = useMemo<ColumnDef<VendorInvoiceSummary, unknown>[]>(
     () => [
@@ -101,20 +78,12 @@ export default function JobWorkInvoicesTab() {
         id: 'job_work_order',
         header: 'Order',
         enableSorting: false,
-        cell: ({ row }) => {
-          const order = row.original.job_work_order_id
-            ? orderById.get(row.original.job_work_order_id)
-            : undefined
-          if (order) return <span className="font-medium">{order.code}</span>
-          if (row.original.job_work_order_id) {
-            return (
-              <span className="font-mono text-xs" title={row.original.job_work_order_id}>
-                {row.original.job_work_order_id.slice(0, 8)}
-              </span>
-            )
-          }
-          return <span className="text-muted-foreground">-</span>
-        },
+        cell: ({ row }) =>
+          row.original.job_work_order_code ? (
+            <span className="font-medium">{row.original.job_work_order_code}</span>
+          ) : (
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
+          ),
       },
       {
         accessorKey: 'invoice_date',
@@ -154,7 +123,7 @@ export default function JobWorkInvoicesTab() {
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
     ],
-    [orderById],
+    [],
   )
 
   const recordButton = canRecord ? (

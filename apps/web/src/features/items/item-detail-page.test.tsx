@@ -1145,6 +1145,31 @@ describe('vendor link management', () => {
     expect(screen.getAllByRole('button', { name: /edit link/i })).toHaveLength(2)
   })
 
+  it('names each source from the link itself, never from a page of vendors', async () => {
+    // The vendor list's first two hundred rows used to name the links, so a
+    // supplier past them - and every supplier, to an account without
+    // vendor.view - showed its name for the part in place of who it is.
+    const { fetch } = renderVendors({
+      permissions: [P.ITEM_VIEW, P.VENDOR_VIEW],
+      links: [
+        { ...LINK_A, vendor_code: 'FASTNERS', vendor_name: 'Fastners & Co' },
+        {
+          ...LINK_B,
+          vendor_id: 'vendor-late',
+          vendor_code: 'V-0412',
+          vendor_name: 'Late Supplier',
+        },
+        { ...LINK_B, id: 'link-c', vendor_item_code: 'NO-CODE', vendor_code: null },
+      ],
+    })
+
+    expect(await screen.findByText('FASTNERS - Fastners & Co')).toBeVisible()
+    expect(screen.getByText('V-0412 - Late Supplier')).toBeVisible()
+    const unnamed = screen.getByText('NO-CODE').closest('tr')!
+    expect(within(unnamed).getByText('Alternate source')).toBeVisible()
+    expect(fetch.calls.some((call) => call.path === '/vendors')).toBe(false)
+  })
+
   it('withholds Link vendor when the vendor list is not readable', async () => {
     renderVendors({ permissions: [P.ITEM_VIEW, P.ITEM_UPDATE] })
 
