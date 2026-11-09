@@ -1714,7 +1714,9 @@ class TestCloseGuards:
         lot = await seed_lot(session, tenant)
         inspection = await raise_incoming(session, tenant, lot)
 
-        with pytest.raises(BusinessRuleError):
+        # The real reason - no verdict to close - not a complaint that the
+        # quantities of a verdict nobody recorded do not reconcile.
+        with pytest.raises(InvalidStateTransitionError):
             await service.close_inspection(
                 session, tenant, inspection.id, reason=CloseRequest(reason="tidy up").reason
             )

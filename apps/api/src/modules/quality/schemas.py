@@ -148,6 +148,22 @@ class TemplateParameterIn(BaseModel):
         return self
 
 
+def _assert_sheet_is_distinct(parameters: list[TemplateParameterIn]) -> None:
+    """One check sheet asks each question once, at its own place in the order.
+
+    Shared by every request that writes a sheet - create, amend and new
+    version - so a sheet the create refuses cannot be stored by the other two:
+    a repeated name is stored silently, and a repeated sequence would reach the
+    database's unique constraint as a conflict naming no field.
+    """
+    sequences = [parameter.sequence for parameter in parameters]
+    if len(set(sequences)) != len(sequences):
+        raise ValueError("Parameter sequence numbers repeat.")
+    names = [parameter.parameter_name.strip().lower() for parameter in parameters]
+    if len(set(names)) != len(names):
+        raise ValueError("Two parameters share a name; a check sheet cannot ask twice.")
+
+
 class TemplateCreate(BaseModel):
     """Create version 1 of an inspection specification."""
 
@@ -188,12 +204,7 @@ class TemplateCreate(BaseModel):
         if self.sampling_plan is not SamplingPlan.FIXED_SAMPLE and self.sample_size is not None:
             raise ValueError("sample_size applies to the FIXED_SAMPLE plan only.")
 
-        sequences = [parameter.sequence for parameter in self.parameters]
-        if len(set(sequences)) != len(sequences):
-            raise ValueError("Parameter sequence numbers repeat.")
-        names = [parameter.parameter_name.strip().lower() for parameter in self.parameters]
-        if len(set(names)) != len(names):
-            raise ValueError("Two parameters share a name; a check sheet cannot ask twice.")
+        _assert_sheet_is_distinct(self.parameters)
         return self
 
 
@@ -233,6 +244,8 @@ class TemplateUpdate(BaseModel):
             raise ValueError("A template applies to one item or to one category, not both.")
         if self.parameters is not None and not self.parameters:
             raise ValueError("A template with no parameters cannot inspect anything.")
+        if self.parameters is not None:
+            _assert_sheet_is_distinct(self.parameters)
         return self
 
 
@@ -261,6 +274,12 @@ class TemplateVersionRequest(BaseModel):
     #: Whether the superseded version stops being selected. Almost always true;
     #: false only while both revisions are deliberately in use during a changeover.
     retire_previous: bool = True
+
+    @model_validator(mode="after")
+    def _replacement_sheet_is_distinct(self) -> Self:
+        if self.parameters is not None:
+            _assert_sheet_is_distinct(self.parameters)
+        return self
 
 
 class TemplateParameterRead(BaseModel):

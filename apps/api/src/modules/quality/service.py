@@ -1245,18 +1245,20 @@ async def create_template_version(
             is_active=True,
             version=next_version,
         )
-        repo.add(template)
         _assert_plan_is_complete(template)
+        # The scope is checked before the new row joins the session, whether or
+        # not the source was retired - a retired source does not free a scope
+        # another active version holds. Checked after the add, the read would
+        # autoflush the new active row and the partial unique index would answer
+        # first, naming an index instead of the template that owns the scope.
+        await _assert_scope_is_free(
+            repo,
+            item_id=template.item_id,
+            category_id=template.item_category_id,
+            stage=QcStage(template.qc_stage),
+        )
+        repo.add(template)
         await session.flush()
-
-        if not payload.retire_previous:
-            await _assert_scope_is_free(
-                repo,
-                item_id=template.item_id,
-                category_id=template.item_category_id,
-                stage=QcStage(template.qc_stage),
-                exclude_id=template.id,
-            )
 
         if payload.parameters is not None:
             _write_parameters(session, tenant, template, payload.parameters)
@@ -2338,7 +2340,15 @@ async def _close(
     repo: QcInspectionRepository,
     reason: str,
 ) -> QcInspection:
-    """Close a decided inspection, once nothing of it is still held."""
+    """Close a decided inspection, once nothing of it is still held.
+
+    The edge is asserted before any arithmetic, for the reason
+    :func:`_assert_decidable` gives: an undecided inspection is refused because
+    it has no verdict to close, not because its quantities do not reconcile.
+    """
+    QC_INSPECTION_LIFECYCLE.assert_transition(
+        InspectionStatus(inspection.status), InspectionStatus.CLOSED
+    )
     disposition = Disposition.from_inspection(inspection)
     validate_disposition(Decimal(inspection.inspected_quantity), disposition)
     if disposition.still_held > ZERO:

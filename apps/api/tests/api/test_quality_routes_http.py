@@ -453,16 +453,13 @@ async def test_a_version_can_follow_a_template_that_is_no_longer_selected(api_cl
     assert (data["version"], data["is_active"]) == (2, True)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: create_template_version flushes the new active row before "
-        "_assert_scope_is_free, so the partial unique index answers with no owning template"
-    ),
-)
 async def test_keeping_the_previous_version_live_names_the_template_owning_the_scope(
     api_client, session, lab
 ):
+    template_code = await session.scalar(
+        select(QcTemplate.code).where(QcTemplate.id == lab.template_id)
+    )
+
     error = refused(
         await api_client.post(
             f"/quality/templates/{lab.template_id}/versions",
@@ -472,6 +469,34 @@ async def test_keeping_the_previous_version_live_names_the_template_owning_the_s
         "DUPLICATE_DOCUMENT",
     )
     assert (error.get("details") or {}).get("template_id") == str(lab.template_id), error
+    versions = await session.scalar(
+        select(func.count()).select_from(QcTemplate).where(QcTemplate.code == template_code)
+    )
+    assert versions == 1
+
+
+async def test_forking_a_retired_version_names_the_version_that_owns_the_scope(
+    api_client, session, lab
+):
+    # v2 retires v1 and takes the scope. Forking v1 again retires nothing new,
+    # and the friendly check must still name v2 rather than the index.
+    current = ok(
+        await api_client.post(
+            f"/quality/templates/{lab.template_id}/versions",
+            json={"reason": "Tolerance review after field returns"},
+        ),
+        201,
+    )
+
+    error = refused(
+        await api_client.post(
+            f"/quality/templates/{lab.template_id}/versions",
+            json={"reason": "Second fork of the first revision"},
+        ),
+        409,
+        "DUPLICATE_DOCUMENT",
+    )
+    assert (error.get("details") or {}).get("template_id") == current["id"], error
 
 
 async def test_a_versioned_percentage_plan_needs_its_percentage(api_client, session, lab):
@@ -511,13 +536,6 @@ async def test_a_malformed_version_request_is_a_field_error(api_client, lab, bod
     assert field in fields, fields
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: TemplateUpdate and TemplateVersionRequest skip TemplateCreate's repeated "
-        "sequence/name checks (a repeated name is stored; a repeated sequence is a 409)"
-    ),
-)
 @pytest.mark.parametrize("route", ["amend", "version"])
 @pytest.mark.parametrize("repeated", ["parameter_name", "sequence"])
 async def test_a_sheet_the_create_refuses_is_refused_by_amend_and_version(
@@ -826,13 +844,6 @@ async def test_closing_needs_a_reason(api_client, session, tenant, lab):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: quality._close validates the disposition before the state machine, so "
-        "closing an undecided inspection is a quantity complaint, not INVALID_STATE_TRANSITION"
-    ),
-)
 async def test_an_undecided_inspection_cannot_be_closed(api_client, session, tenant, lab):
     inspection_id = await plain_inspection(session, tenant, lab)
 
