@@ -1218,6 +1218,27 @@ describe('vendor link management', () => {
       expect(await screen.findByRole('button', { name: /add specification/i })).toBeVisible()
       expect(await screen.findByRole('button', { name: /edit specification/i })).toBeVisible()
     })
+
+    it('says its own check in words, and sends nothing', async () => {
+      // The check was wrapped in an Error and shown through describeError, which
+      // says only "An unexpected error occurred." for anything the API did not write.
+      const { user, fetch } = renderDetail({
+        permissions: [P.ITEM_VIEW, P.PACKING_MANAGE],
+        tab: 'packing',
+        routes: baseRoutes(packingRoutes),
+      })
+
+      await user.click(await screen.findByRole('button', { name: /add specification/i }))
+      const dialog = await screen.findByRole('dialog')
+      await user.click(within(dialog).getByRole('button', { name: 'Save specification' }))
+
+      expect(
+        await within(dialog).findByText(
+          'Choose a material and enter a positive value for the selected quantity rule.',
+        ),
+      ).toBeVisible()
+      expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    })
   })
 
   it('removes a link only after confirmation, with a bare DELETE', async () => {

@@ -20,6 +20,7 @@ import { ItemPicker } from '@/features/inventory/pickers'
 import { useAuth } from '@/features/auth/auth-context'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { formatQuantity } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { api } from '@/lib/api-client'
@@ -48,7 +49,10 @@ function PackingSpecDialog({
   const [ratioMode, setRatioMode] = useState<RatioMode>('quantity_per_unit')
   const [ratio, setRatio] = useState('1')
   const [isDefault, setIsDefault] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
+  // A sentence, not an Error: describeError rightly says only "An unexpected
+  // error occurred." for anything the API did not write, so the dialog's own
+  // check used to reach the user as exactly that.
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -61,10 +65,10 @@ function PackingSpecDialog({
   }, [open, spec])
 
   const save = useMutation({
-    mutationFn: async () => {
-      if (!materialId) throw new Error('Choose a packing material item.')
+    // The material arrives checked: the submit handler refuses a spec without one.
+    mutationFn: async (material: string) => {
       const body = {
-        packing_material_item_id: materialId,
+        packing_material_item_id: material,
         quantity_per_unit: ratioMode === 'quantity_per_unit' ? ratio : null,
         units_per_carton: ratioMode === 'units_per_carton' ? Number(ratio) : null,
         is_default: isDefault,
@@ -80,7 +84,9 @@ function PackingSpecDialog({
       )
       onOpenChange(false)
     },
-    onError: (reason) => setError(reason as Error),
+    onError: (reason) => setError(fieldErrorSummary(reason) || describeError(reason)),
+    // Said at the top of the dialog; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -101,7 +107,7 @@ function PackingSpecDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <FieldError className="mt-0 text-sm" message={error ? describeError(error) : undefined} />
+          <FieldError className="mt-0 text-sm" message={error ?? undefined} />
           <ItemPicker
             id="packing-spec-material"
             label="Packing material"
@@ -165,13 +171,12 @@ function PackingSpecDialog({
                 (ratioMode === 'units_per_carton' && !Number.isInteger(parsed))
               ) {
                 setError(
-                  new Error(
-                    'Choose a material and enter a positive value for the selected quantity rule.',
-                  ),
+                  'Choose a material and enter a positive value for the selected quantity rule.',
                 )
                 return
               }
-              save.mutate()
+              setError(null)
+              save.mutate(materialId)
             }}
             disabled={save.isPending}
           >
