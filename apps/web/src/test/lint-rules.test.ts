@@ -13,8 +13,11 @@ import { describe, expect, it } from 'vitest'
 const eslint = new ESLint()
 
 /** Rule ids reported for `code`, linted as if it were a component under src/. */
-async function rulesFiredBy(code: string): Promise<string[]> {
-  const [result] = await eslint.lintText(code, { filePath: 'src/lint-rule-fixture.tsx' })
+async function rulesFiredBy(
+  code: string,
+  filePath = 'src/lint-rule-fixture.tsx',
+): Promise<string[]> {
+  const [result] = await eslint.lintText(code, { filePath })
   return (result?.messages ?? []).map((message) => message.ruleId ?? 'parse-error')
 }
 
@@ -73,5 +76,56 @@ describe('the lint rules that replace review comments', () => {
     )
 
     expect(fired).toEqual([])
+  })
+
+  it('refuses a slice of toISOString, which is the UTC date or time', async () => {
+    const fired = await rulesFiredBy(
+      [
+        'export function stamps(shippedAt: Date) {',
+        '  const today = new Date().toISOString().slice(0, 10)',
+        '  const shipped = shippedAt.toISOString().substring(0, 10)',
+        '  const clock = new Date(Date.now()).toISOString().substr(11, 5)',
+        '  return [today, shipped, clock]',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired.filter((rule) => rule === 'no-restricted-syntax')).toHaveLength(3)
+  })
+
+  it('accepts the local-date helpers and a whole instant', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { toDateInput, toDateTimeInput } from '@/lib/format'",
+        '',
+        'export function stamps(shippedAt: Date) {',
+        '  const today = toDateInput(new Date())',
+        '  const local = toDateTimeInput(shippedAt)',
+        '  const instant = shippedAt.toISOString()',
+        "  const code = 'INV-2026-0001'.slice(0, 3)",
+        '  return [today, local, instant, code]',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired).toEqual([])
+  })
+
+  it('lets lib/format.ts keep its UTC calendar arithmetic', async () => {
+    const code = [
+      'export function addDaysISO(iso: string, delta: number): string {',
+      '  const date = new Date(`${iso}T00:00:00Z`)',
+      '  date.setUTCDate(date.getUTCDate() + delta)',
+      '  return date.toISOString().slice(0, 10)',
+      '}',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code, 'src/lib/format.ts')).toEqual([])
+    expect(await rulesFiredBy(code, 'src/features/production/planning-model.ts')).toEqual([
+      'no-restricted-syntax',
+    ])
   })
 })

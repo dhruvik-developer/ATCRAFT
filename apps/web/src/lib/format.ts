@@ -15,6 +15,8 @@ import {
   DATE_FORMAT,
   DATE_INPUT_FORMAT,
   DATE_TIME_FORMAT,
+  DATE_TIME_INPUT_FORMAT,
+  DATE_TIME_INPUT_PRECISE_FORMAT,
   DEFAULT_CURRENCY,
   DEFAULT_LOCALE,
 } from '@/lib/constants'
@@ -190,10 +192,69 @@ export function daysUntil(value: string | Date | null | undefined): number | nul
   return Math.round((startOfDay(parsed) - startOfDay(new Date())) / 86_400_000)
 }
 
-/** yyyy-MM-dd for <input type="date"> and query parameters. */
+/**
+ * yyyy-MM-dd for <input type="date"> and query parameters, on the browser's
+ * own calendar.
+ *
+ * `toDateInput(new Date())` is how a screen says "today". A business date is
+ * the local one: `new Date().toISOString().slice(0, 10)` is the UTC date, which
+ * in India is still yesterday until 05:30, so a credit note issued then was
+ * dated the day before - on 1 April, into the previous financial year and an
+ * already-filed GST month. The lint rule in `eslint.config.js` refuses that
+ * slice outside this file.
+ */
 export function toDateInput(value: string | Date | null | undefined): string {
   const parsed = parse(value)
   return parsed ? format(parsed, DATE_INPUT_FORMAT) : ''
+}
+
+/**
+ * The value an `<input type="datetime-local">` holds: the browser's wall clock,
+ * never UTC. `milliseconds` is for an input with `step="0.001"`, where a stored
+ * instant has to survive an edit that leaves the field alone.
+ */
+export function toDateTimeInput(
+  value: string | Date | null | undefined,
+  options: { milliseconds?: boolean } = {},
+): string {
+  const parsed = parse(value)
+  if (!parsed) return ''
+  return format(
+    parsed,
+    options.milliseconds ? DATE_TIME_INPUT_PRECISE_FORMAT : DATE_TIME_INPUT_FORMAT,
+  )
+}
+
+/** The instant a `datetime-local` value names, as the UTC ISO string the API stores. */
+export function fromDateTimeInput(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const parsed = new Date(trimmed)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+}
+
+/*
+ * Calendar arithmetic on a date-only `YYYY-MM-DD`.
+ *
+ * These two work in UTC on purpose, and are the only sanctioned
+ * `toISOString().slice` in the application: no instant is involved, so no zone
+ * is either, and UTC is the zone with no daylight-saving gap to lose a day in.
+ * Neither may be used to ask what day it is - that is `toDateInput(new Date())`.
+ */
+
+/** A real calendar date in `YYYY-MM-DD` form - no 30 February, no year 0000. */
+export function isIsoCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return false
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value
+}
+
+/** Add whole days to a `YYYY-MM-DD`, staying in date arithmetic, never instants. */
+export function addDaysISO(iso: string, delta: number): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1))
+  date.setUTCDate(date.getUTCDate() + delta)
+  return date.toISOString().slice(0, 10)
 }
 
 // ------------------------------------------------------------------ misc ----

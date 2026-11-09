@@ -1,11 +1,5 @@
-import { toDateInput, toDecimal } from '@/lib/format'
+import { isIsoCalendarDate, toDateInput, toDecimal } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
-
-export function isIsoCalendarDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return false
-  const parsed = new Date(`${value}T00:00:00Z`)
-  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value
-}
 
 export function dealerQuantity(value: string): string {
   if (!/^\d{1,14}(\.\d{1,4})?$/.test(value) || !toDecimal(value).greaterThan(0)) {

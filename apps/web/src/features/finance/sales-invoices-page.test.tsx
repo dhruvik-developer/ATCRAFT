@@ -1,5 +1,5 @@
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 import { RaiseSalesInvoiceDialog, SalesInvoiceDetailDialog } from './sales-invoice-dialogs'
@@ -207,6 +207,35 @@ describe('sales invoices', () => {
         reason_type: 'PRICE_ADJUSTMENT',
         lines: [{ sales_invoice_line_id: 'invoice-line', quantity: '2' }],
       })
+  })
+  it('dates a credit note by the local calendar, not the UTC one', async () => {
+    // Half past midnight on 1 April in India is still 31 March in UTC: a note
+    // dated from the UTC clock landed in the previous financial year.
+    vi.stubEnv('TZ', 'Asia/Kolkata')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 3, 1, 0, 30))
+    try {
+      const { user, fetch } = renderScreen(
+        <SalesInvoiceDetailDialog invoiceId={ID} onClose={() => {}} />,
+        {
+          permissions: [P.SALES_INVOICE_VIEW, P.CREDIT_NOTE_CREATE],
+          routes: {
+            [`GET /finance/sales-invoices/${ID}`]: ok(invoice()),
+            'POST /finance/credit-notes': ok({ id: 'credit-note' }),
+          },
+        },
+      )
+      await user.click(await screen.findByRole('button', { name: 'Issue credit note' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Issue credit note' })
+      await user.type(within(dialog).getByRole('spinbutton', { name: /credit quantity/i }), '2')
+      await user.click(within(dialog).getByRole('button', { name: 'Issue credit note' }))
+      await expect
+        .poll(() => fetch.requestFor('POST', '/finance/credit-notes'))
+        .toMatchObject({ note_date: '2026-04-01' })
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+    }
   })
   it('sends an audited cancellation reason when allowed', async () => {
     const { user, fetch } = renderScreen(

@@ -1,7 +1,5 @@
-import { toDecimal } from '@/lib/format'
+import { isIsoCalendarDate, toDecimal } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
-
-import { isIsoCalendarDate } from './dealer-payloads'
 
 function member<const T extends readonly string[]>(value: string, choices: T): T[number] {
   if (!choices.includes(value)) throw new Error('Choose a valid promotion option.')

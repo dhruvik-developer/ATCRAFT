@@ -15,7 +15,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { format, isValid, parseISO } from 'date-fns'
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -44,7 +43,13 @@ import { P } from '@/lib/permissions'
 import type { SchemaOf } from '@/types/api'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, SELECT_NONE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
-import { formatDateTime, humanise } from '@/lib/format'
+import {
+  formatDateTime,
+  fromDateTimeInput,
+  humanise,
+  toDateInput,
+  toDateTimeInput,
+} from '@/lib/format'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
@@ -59,21 +64,6 @@ import {
   type WorkOrderTransitionPayload,
   type WorkOrderUpdatePayload,
 } from './work-order-model'
-
-/** `datetime-local` wants `yyyy-MM-ddTHH:mm` in the browser's own zone. */
-function toDateTimeInput(value: string | null | undefined): string {
-  if (!value) return ''
-  const parsed = parseISO(value)
-  return isValid(parsed) ? format(parsed, "yyyy-MM-dd'T'HH:mm") : ''
-}
-
-/** The API stores UTC; the picker collects local time. */
-function fromDateTimeInput(value: string): string | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const parsed = new Date(trimmed)
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
-}
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
@@ -190,9 +180,8 @@ export function WorkOrderAssignDialog({
 
   const operatorId = watch('operator_user_id')
   const shiftId = watch('shift_id')
-  const rosterDate = workOrder?.planned_start_at
-    ? toDateTimeInput(workOrder.planned_start_at).slice(0, 10)
-    : format(new Date(), 'yyyy-MM-dd')
+  // The local date the operation starts on, or today's: the roster is kept by local day.
+  const rosterDate = toDateInput(workOrder?.planned_start_at || new Date())
   const roster = useQuery({
     queryKey: [
       ...queryKeys.routing.all,

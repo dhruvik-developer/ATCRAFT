@@ -9,7 +9,7 @@
  */
 
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
@@ -68,6 +68,23 @@ async function fillTheMinimum(
   await user.click(within(dialog).getByRole('combobox', { name: 'Component 1' }))
   await user.click(await screen.findByRole('option', { name: /DOOR-CLOSER-A/ }))
 }
+
+describe('a new bill', () => {
+  it('is effective from today on the local calendar, not the UTC one', async () => {
+    // Half past midnight on 1 April in India is still 31 March in UTC.
+    vi.stubEnv('TZ', 'Asia/Kolkata')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 3, 1, 0, 30))
+    try {
+      renderDialog()
+      const dialog = await screen.findByRole('dialog')
+      expect(within(dialog).getByLabelText(/effective from/i)).toHaveValue('2026-04-01')
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+    }
+  })
+})
 
 describe('an alternate bill', () => {
   it('names the bill it replaces, chosen from the same item, and sends it', async () => {

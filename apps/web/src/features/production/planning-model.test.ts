@@ -8,9 +8,10 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { addDaysISO } from '@/lib/format'
+
 import type { WorkOrder } from './work-order-model'
 import {
-  addDaysISO,
   boardWeek,
   clashingWorkOrders,
   groupCapacityByCentre,

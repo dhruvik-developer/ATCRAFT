@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { isIsoCalendarDate } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
 
-import {
-  dealerCheckoutPayload,
-  dealerQuantity,
-  dealerReturnPayload,
-  isIsoCalendarDate,
-} from './dealer-payloads'
+import { dealerCheckoutPayload, dealerQuantity, dealerReturnPayload } from './dealer-payloads'
 import { bannerPayload, offerPayload } from './promotion-payloads'
 
 function fields(values: Record<string, string>) {

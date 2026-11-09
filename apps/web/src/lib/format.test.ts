@@ -20,10 +20,11 @@
  */
 
 import Decimal from 'decimal.js'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   __resetFormatterCache,
+  addDaysISO,
   daysUntil,
   formatDate,
   formatFileSize,
@@ -32,8 +33,11 @@ import {
   formatPercent,
   formatQuantity,
   formatUnitPrice,
+  fromDateTimeInput,
   humanise,
+  isIsoCalendarDate,
   toDateInput,
+  toDateTimeInput,
   toDecimal,
 } from './format'
 
@@ -248,6 +252,61 @@ describe('dates', () => {
     expect(daysUntil(new Date(Date.now() + 3 * day))).toBe(3)
     expect(daysUntil(new Date(Date.now() - 3 * day))).toBeLessThan(0)
     expect(daysUntil(null)).toBeNull()
+  })
+})
+
+describe('the local calendar and wall clock', () => {
+  // India, where the UTC date lags the local one until 05:30. The instants
+  // below are built from local fields, so they mean the same wall-clock time
+  // in whatever zone actually applies.
+  beforeEach(() => {
+    vi.stubEnv('TZ', 'Asia/Kolkata')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('takes today from the local calendar, not the UTC one', () => {
+    const justAfterMidnight = new Date(2026, 3, 1, 0, 30)
+    expect(toDateInput(justAfterMidnight)).toBe('2026-04-01')
+  })
+
+  it('fills a datetime-local input with the local wall clock', () => {
+    const instant = new Date(2026, 3, 1, 0, 30, 15, 250)
+    expect(toDateTimeInput(instant)).toBe('2026-04-01T00:30')
+    expect(toDateTimeInput(instant, { milliseconds: true })).toBe('2026-04-01T00:30:15.250')
+    expect(toDateTimeInput(instant.toISOString(), { milliseconds: true })).toBe(
+      '2026-04-01T00:30:15.250',
+    )
+    expect(toDateTimeInput(null)).toBe('')
+    expect(toDateTimeInput('not a time')).toBe('')
+  })
+
+  it('reads a datetime-local value back as the instant it names', () => {
+    const instant = new Date(2026, 3, 1, 0, 30, 15, 250)
+    expect(fromDateTimeInput('2026-04-01T00:30:15.250')).toBe(instant.toISOString())
+    // An untouched precise field sends back exactly the stored instant.
+    expect(fromDateTimeInput(toDateTimeInput(instant, { milliseconds: true }))).toBe(
+      instant.toISOString(),
+    )
+    expect(fromDateTimeInput('   ')).toBeNull()
+    expect(fromDateTimeInput('not a time')).toBeNull()
+  })
+})
+
+describe('calendar arithmetic on a date-only value', () => {
+  it('adds whole days across a month and a year end', () => {
+    expect(addDaysISO('2026-03-31', 1)).toBe('2026-04-01')
+    expect(addDaysISO('2026-12-31', 1)).toBe('2027-01-01')
+    expect(addDaysISO('2028-03-01', -1)).toBe('2028-02-29')
+  })
+
+  it('accepts only real calendar dates', () => {
+    expect(isIsoCalendarDate('2028-02-29')).toBe(true)
+    expect(isIsoCalendarDate('2026-02-29')).toBe(false)
+    expect(isIsoCalendarDate('2026-13-01')).toBe(false)
+    expect(isIsoCalendarDate('0000-01-01')).toBe(false)
+    expect(isIsoCalendarDate('2026-4-1')).toBe(false)
   })
 })
 

@@ -139,6 +139,12 @@ export const DEFAULT_CURRENCY = 'INR'
 export const DATE_FORMAT = 'dd MMM yyyy'
 export const DATE_TIME_FORMAT = 'dd MMM yyyy, HH:mm'
 export const DATE_INPUT_FORMAT = 'yyyy-MM-dd'
+/**
+ * `<input type="datetime-local">`, in the browser's own zone: to the minute, or
+ * to the millisecond for an input with `step="0.001"`.
+ */
+export const DATE_TIME_INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm"
+export const DATE_TIME_INPUT_PRECISE_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS"
 
 // ----------------------------------------------------- error reporting -----
 

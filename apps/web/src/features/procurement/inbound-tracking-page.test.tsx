@@ -184,6 +184,32 @@ describe('purchase order inbound controls', () => {
     })
   })
 
+  it('compares expected delivery with the local dispatch date, not the UTC one', async () => {
+    // Half past midnight on 20 October in India is still 19 October in UTC, so
+    // a delivery promised for the 19th precedes this dispatch.
+    vi.stubEnv('TZ', 'Asia/Kolkata')
+    try {
+      const patch = vi.fn((_request: RouteRequest) => ok(shipment))
+      const early = {
+        ...shipment,
+        shipped_at: new Date(2026, 9, 20, 0, 30).toISOString(),
+        expected_delivery_date: '2026-10-19',
+      }
+      const { user } = renderScreen(
+        <InboundShipmentDialog order={order} shipment={early} scope="staff" onClose={vi.fn()} />,
+        {
+          permissions: [P.PURCHASE_ORDER_UPDATE],
+          routes: { [`PATCH ${BASE}/shipments/${SHIPMENT}`]: patch },
+        },
+      )
+      await user.click(await screen.findByRole('button', { name: 'Save shipment' }))
+      expect(await screen.findByText('Expected delivery cannot precede dispatch')).toBeVisible()
+      expect(patch).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('validates missing dispatch details without posting an invalid shipment', async () => {
     const create = vi.fn(() => ok(shipment))
     const { user } = renderScreen(

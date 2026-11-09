@@ -39,7 +39,7 @@ import { optionLabel, useWorkCentreOptions } from '@/features/production/work-or
 import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { humanise } from '@/lib/format'
+import { humanise, toDateInput } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -105,8 +105,9 @@ const createSchema = z
 
 type CreateValues = z.infer<typeof createSchema>
 
+/** Today on the local calendar - the UTC date is still yesterday in India until 05:30. */
 function todayInput(): string {
-  return new Date().toISOString().slice(0, 10)
+  return toDateInput(new Date())
 }
 
 function emptyLine(): z.infer<typeof lineSchema> {

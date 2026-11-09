@@ -76,6 +76,7 @@ import {
   formatQuantity,
   humanise,
   toDateInput,
+  toDateTimeInput,
   toDecimal,
 } from '@/lib/format'
 import { describeError, fulfilment, success, validation } from '@/lib/messages'
@@ -1211,15 +1212,13 @@ const eventSchema = z.object({
 
 type EventFormValues = z.infer<typeof eventSchema>
 
-/** `datetime-local` wants `yyyy-MM-ddTHH:mm` in the browser's own zone. */
-function nowForInput(): string {
-  const now = new Date()
-  const offset = now.getTimezoneOffset() * 60_000
-  return new Date(now.getTime() - offset).toISOString().slice(0, 16)
-}
-
 function emptyEvent(): EventFormValues {
-  return { event_status: 'IN_TRANSIT', event_time: nowForInput(), location: '', remark: '' }
+  return {
+    event_status: 'IN_TRANSIT',
+    event_time: toDateTimeInput(new Date()),
+    location: '',
+    remark: '',
+  }
 }
 
 function AddTrackingEventForm({ dispatchId }: { dispatchId: string }) {

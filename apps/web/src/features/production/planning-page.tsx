@@ -44,11 +44,11 @@ import {
   TabsTrigger,
 } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
+import { addDaysISO } from '@/lib/format'
 import { ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 
 import { WorkOrderAssignDialog } from './work-order-dialogs'
 import {
-  addDaysISO,
   boardWeek,
   clashingWorkOrders,
   columnLabel,

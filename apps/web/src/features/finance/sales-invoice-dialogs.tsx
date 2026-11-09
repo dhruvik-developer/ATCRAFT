@@ -18,7 +18,7 @@ import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity } from '@/lib/format'
+import { formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
 import { describeError, salesInvoiceMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -132,7 +132,8 @@ function CreditNoteDialog({
     mutationFn: () =>
       api.post('/finance/credit-notes', {
         sales_invoice_id: invoice.id,
-        note_date: new Date().toISOString().slice(0, 10),
+        // Today on the local calendar: the UTC date is yesterday in India until 05:30.
+        note_date: toDateInput(new Date()),
         reason_type: 'PRICE_ADJUSTMENT',
         lines: invoice.lines
           .map((line) => ({

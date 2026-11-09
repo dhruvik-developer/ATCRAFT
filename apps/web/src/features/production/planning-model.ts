@@ -24,6 +24,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
+import { addDaysISO } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 import type { Machine } from '@/features/routing/routing-model'
@@ -61,14 +62,6 @@ export function localTodayISO(): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
   return `${now.getFullYear()}-${month}-${day}`
-}
-
-/** Add whole days to a `YYYY-MM-DD`, staying in date arithmetic, never instants. */
-export function addDaysISO(iso: string, delta: number): string {
-  const [year, month, day] = iso.split('-').map(Number)
-  const date = new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1))
-  date.setUTCDate(date.getUTCDate() + delta)
-  return date.toISOString().slice(0, 10)
 }
 
 /** The seven dates the board shows starting from `startISO`. */

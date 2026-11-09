@@ -19,6 +19,7 @@ import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { toDateInput, toDateTimeInput } from '@/lib/format'
 import { describeError } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -26,13 +27,6 @@ import type { SchemaOf } from '@/types/api'
 
 import { useAuth } from '@/features/auth/auth-context'
 import { P } from '@/lib/permissions'
-
-/** datetime-local edits must preserve the local wall clock before converting back to UTC. */
-function localDateTime(value: string): string {
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 23)
-}
 
 const nullableText = (max: number) => z.string().trim().max(max)
 const amount = z
@@ -87,7 +81,9 @@ const shipmentSchema = z
     if (
       !Number.isNaN(shippedDate.valueOf()) &&
       value.expected_delivery_date &&
-      value.expected_delivery_date < shippedDate.toISOString().slice(0, 10)
+      // Both sides on the local calendar: the dispatch date is the day the
+      // person keying it saw, not the UTC date of that instant.
+      value.expected_delivery_date < toDateInput(shippedDate)
     )
       ctx.addIssue({
         code: 'custom',
@@ -138,7 +134,9 @@ export function InboundShipmentDialog({
       vehicle_number: shipment?.vehicle_number ?? '',
       driver_name: shipment?.driver_name ?? '',
       driver_mobile: shipment?.driver_mobile ?? '',
-      shipped_at: shipment ? localDateTime(shipment.shipped_at) : '',
+      // To the millisecond (the input has step="0.001"), so an edit that leaves
+      // the dispatch time alone sends back exactly the stored instant.
+      shipped_at: shipment ? toDateTimeInput(shipment.shipped_at, { milliseconds: true }) : '',
       expected_delivery_date: shipment?.expected_delivery_date ?? '',
       packages: shipment?.packages?.toString() ?? '',
       weight_kg: shipment?.weight_kg ?? '',
