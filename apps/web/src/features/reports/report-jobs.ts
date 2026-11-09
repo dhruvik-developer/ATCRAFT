@@ -97,7 +97,10 @@ export function toApiPath(statusUrl: string): string {
 export interface ReportJobController {
   phase: ReportJobPhase
   job: ReportJob | null
-  /** Why the watch failed, when the status URL itself could not be read. */
+  /**
+   * Why the watch failed, when the status URL itself could not be read. Not
+   * toasted: whatever renders the controller says it, as `ReportJobPanel` does.
+   */
   error: Error | null
   /** Begin watching the job an endpoint just handed back with its 202. */
   start: (accepted: AcceptedJobData) => void
@@ -134,6 +137,10 @@ export function useReportJob({ fileName }: ReportJobOptions = {}): ReportJobCont
       query.state.status === 'error' || !isJobInFlight(query.state.data?.status)
         ? false
         : POLL_INTERVAL_MS,
+    // `error` is every watcher's to say, beside the job and with its retry -
+    // the strip's failed state, the line under a challan or debit-note button -
+    // so the global net does not toast it as well.
+    meta: { suppressErrorToast: true },
   })
 
   const data = job.data ?? null
