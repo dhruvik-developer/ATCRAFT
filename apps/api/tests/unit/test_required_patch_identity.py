@@ -3,6 +3,7 @@
 import pytest
 from pydantic import BaseModel, ValidationError, field_validator
 
+from src.core.messages import cannot_be_null
 from src.core.validation import reject_null
 from src.modules.customers.schemas import ContactUpdate, CustomerUpdate
 from src.modules.inventory.schemas import StockTransferUpdate
@@ -19,6 +20,8 @@ pytestmark = pytest.mark.unit
         (CustomerUpdate, "name"),
         (ContactUpdate, "name"),
         (RoleUpdate, "name"),
+        (RoleUpdate, "is_active"),
+        (RoleUpdate, "permissions"),
         (UserUpdate, "full_name"),
         (UserUpdate, "email"),
         (ProductionOrderUpdate, "planned_quantity"),
@@ -81,6 +84,16 @@ def test_reject_null_names_the_field_it_refuses():
     [problem] = error.value.errors()
     assert problem["loc"] == ("kept",)
     assert str(problem["ctx"]["error"]) == "kept cannot be null. Omit it to leave it unchanged."
+
+
+@pytest.mark.parametrize("field", ["is_active", "permissions"])
+def test_a_role_update_refuses_a_null_in_the_shared_sentence(field):
+    with pytest.raises(ValidationError) as error:
+        RoleUpdate.model_validate({field: None})
+
+    [problem] = error.value.errors()
+    assert problem["loc"] == (field,)
+    assert str(problem["ctx"]["error"]) == cannot_be_null(field)
 
 
 def test_reject_null_passes_a_value_an_omission_and_other_fields_through():

@@ -35,7 +35,9 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import clean_name, strip_optional
+from src.core.messages import cannot_be_null
 from src.core.permissions import Permission
+from src.core.validation import reject_null
 
 #: Bounds only - the policy itself lives in ``src.core.security``.
 PasswordField = Field(min_length=1, max_length=128)
@@ -504,19 +506,13 @@ class RoleUpdate(BaseModel):
 
     _name = field_validator("name")(clean_name)
     _description = field_validator("description")(strip_optional)
-
-    @field_validator("is_active")
-    @classmethod
-    def _is_active(cls, value: bool | None) -> bool:
-        if value is None:
-            raise ValueError("is_active cannot be null. Omit it to leave it unchanged.")
-        return value
+    _is_active = field_validator("is_active")(reject_null)
 
     @field_validator("permissions")
     @classmethod
     def _permissions(cls, value: list[str] | None) -> list[str]:
         if value is None:
-            raise ValueError("permissions cannot be null. Omit it to leave it unchanged.")
+            raise ValueError(cannot_be_null("permissions"))
         return _validate_permissions(value)
 
 
