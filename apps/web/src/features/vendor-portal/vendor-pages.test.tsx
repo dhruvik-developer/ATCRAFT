@@ -490,6 +490,51 @@ describe('vendor order action payloads', () => {
     expect(view.fetch.calls.some((call) => call.path.startsWith('/reports/jobs/'))).toBe(false)
     download.mockRestore()
   })
+
+  it('names each document download in full while showing the long file name only once', async () => {
+    // A button never wraps, so a 60-character name inside it pushed the list
+    // wider than a phone; the name is already shown beside the button.
+    const fileName = 'LR-copy-Safe-Logistics-shipment-2-of-PO-2026-27-0007-scan.pdf'
+    const download = vi.spyOn(api, 'download').mockResolvedValue()
+    const current = order()
+    current.documents = [
+      {
+        id: RECEIPT,
+        category: 'ATTACHMENT',
+        checksum_sha256: 'a'.repeat(64),
+        created_at: '2026-09-10T04:00:00Z',
+        entity_id: ID,
+        entity_type: 'purchase_order',
+        expires_at: null,
+        file_name: fileName,
+        is_public: false,
+        kind: 'LR_COPY',
+        mime_type: 'application/pdf',
+        shipment_id: null,
+        size_bytes: 1024,
+        updated_at: '2026-09-10T04:00:00Z',
+        uploaded_by_id: null,
+      },
+    ]
+    current.documents_count = 1
+    const view = detail('SENT', rights, { [`GET ${BASE}`]: ok(current) })
+
+    const button = await screen.findByRole('button', { name: `Download ${fileName}` })
+    // The visible label is the verb; the name it reads in full is screen-reader only.
+    expect(within(button).getByText(fileName)).toHaveClass('sr-only')
+    const shown = screen.getAllByText(fileName).filter((node) => !node.closest('button'))
+    expect(shown).toHaveLength(1)
+    expect(shown[0]).not.toHaveClass('sr-only')
+
+    await view.user.click(button)
+    await waitFor(() =>
+      expect(download).toHaveBeenCalledWith(
+        `/vendor-portal/documents/${RECEIPT}/download`,
+        fileName,
+      ),
+    )
+    download.mockRestore()
+  })
 })
 
 describe('vendor bills, receipts and payments', () => {

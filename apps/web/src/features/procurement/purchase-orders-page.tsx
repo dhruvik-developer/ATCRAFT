@@ -401,8 +401,10 @@ export default function PurchaseOrdersPage() {
               </Select>
             ) : (
               categoryFilterName && (
-                <Badge variant="secondary" className="gap-1.5 py-1">
-                  Category: {categoryFilterName}
+                <Badge variant="secondary" className="max-w-full gap-1.5 py-1">
+                  <span className="min-w-0 truncate" title={categoryFilterName}>
+                    Category: {categoryFilterName}
+                  </span>
                   <BadgeDismiss
                     label="Remove the category filter"
                     onClick={() => setParam('item_category_id', undefined)}

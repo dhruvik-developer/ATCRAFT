@@ -660,7 +660,9 @@ function OrderRelatedList({
                 disabled={download.isPending}
                 onClick={() => download.mutate(file)}
               >
-                Download {file.file_name}
+                {/* The name is already shown beside the button; a long one kept
+                    on one line here pushed the list wider than a phone. */}
+                Download<span className="sr-only"> {file.file_name}</span>
               </Button>
             </li>
           ))}

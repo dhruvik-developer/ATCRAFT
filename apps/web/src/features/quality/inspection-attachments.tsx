@@ -119,13 +119,16 @@ export function PhotoThumb({ documentId, label }: { documentId: string; label: s
   }, [documentId, isImage])
 
   const download = (
+    // A button never wraps its text, so a long file name is truncated inside it
+    // rather than pushing the attachment row past a phone's width.
     <Button
       variant="outline"
       size="sm"
+      className="max-w-full"
       onClick={() => void api.download(`/documents/${documentId}/download`, label)}
     >
       <Download />
-      {label}
+      <span className="min-w-0 truncate">{label}</span>
     </Button>
   )
 
