@@ -136,4 +136,49 @@ describe('recording a job-work invoice', () => {
 
     await waitFor(() => fetch.requestFor('POST', '/finance/vendor-invoices/vi-1/submit'))
   }, 120_000)
+
+  it("finds an order beyond the first page by searching the vendor's orders", async () => {
+    // Only a search naming it brings this order back: a fixed first page of the
+    // vendor's orders used to be the only way in, so it could not be billed.
+    const searches: URL[] = []
+    const { user, fetch } = renderScreen(<JobWorkInvoiceDialog open onOpenChange={() => {}} />, {
+      permissions: [P.VENDOR_INVOICE_CREATE, P.VENDOR_VIEW, P.JOB_WORK_VIEW],
+      routes: {
+        'GET /vendors': page([VENDOR]),
+        'GET /vendors/vn-1': ok(VENDOR),
+        'GET /job-work': ({ url }) => {
+          searches.push(url)
+          // The first page holds a newer order and says there are more.
+          return url.searchParams.get('search') === 'JW-0001'
+            ? page([ORDER])
+            : page([{ ...ORDER, id: 'jw-300', code: 'JW-0300' }], { has_next: true })
+        },
+        'GET /job-work/jw-1/billable-lines': ok([BILLABLE]),
+        'POST /finance/vendor-invoices': ok(CREATED),
+        'POST /finance/vendor-invoices/vi-1/submit': ok(SUBMITTED),
+      },
+    })
+
+    await screen.findByRole('dialog')
+    await user.click(await screen.findByRole('combobox', { name: 'Vendor' }))
+    await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
+    await user.click(await screen.findByRole('combobox', { name: 'Job-work order' }))
+    expect(await screen.findByText(/Type more of the code/)).toBeVisible()
+    await user.type(screen.getByRole('textbox', { name: 'Search job-work orders' }), 'JW-0001')
+    await user.click(await screen.findByRole('option', { name: /JW-0001/ }))
+
+    expect(await screen.findByDisplayValue('58.0000')).toBeVisible()
+    await user.type(
+      screen.getByRole('textbox', { name: /vendor invoice number/i }),
+      'CHR/2026/0101',
+    )
+    await user.click(screen.getByRole('button', { name: /save and submit/i }))
+
+    const body = (await waitFor(() =>
+      fetch.requestFor('POST', '/finance/vendor-invoices'),
+    )) as Record<string, unknown>
+    expect(body.job_work_order_id).toBe('jw-1')
+    const named = searches.find((url) => url.searchParams.get('search') === 'JW-0001')
+    expect(named?.searchParams.get('vendor_id')).toBe('vn-1')
+  }, 120_000)
 })

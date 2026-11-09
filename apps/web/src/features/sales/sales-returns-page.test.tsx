@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
+import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import SalesReturnsPage, { type SalesReturnRow } from './sales-returns-page'
@@ -23,6 +24,46 @@ function salesReturnRow(overrides: Partial<SalesReturnRow> = {}): SalesReturnRow
     ...overrides,
   }
 }
+
+const OLD_DELIVERY: DispatchRow = {
+  sales_invoice_id: null,
+  id: 'dispatch-101',
+  code: 'DSP-0101',
+  dispatch_type: 'SALES',
+  status: 'DELIVERED',
+  customer_id: 'customer-1',
+  vendor_id: null,
+  warehouse_id: 'warehouse-1',
+  sales_order_id: 'order-1',
+  dispatch_date: '2026-01-05',
+  expected_delivery_date: null,
+  actual_delivery_date: '2026-01-07',
+  transporter_id: null,
+  courier_name: null,
+  tracking_id: null,
+  total_boxes: 1,
+  total_weight_kg: '2.0000',
+  created_at: '2026-01-05T09:00:00Z',
+}
+
+const OLD_DELIVERY_DETAIL = {
+  ...OLD_DELIVERY,
+  lines: [
+    {
+      id: 'dispatch-line-1',
+      line_number: 1,
+      sales_order_line_id: 'order-line-1',
+      item_id: 'item-1',
+      quantity: '4.0000',
+      batch_id: null,
+      serial_ids: [],
+      carton_ids: [],
+      reservation_id: null,
+      inventory_transaction_id: null,
+      notes: null,
+    },
+  ],
+} as unknown as DispatchDetail
 
 describe('SalesReturnsPage', () => {
   it('shows only valid actions for a draft return', async () => {
@@ -180,5 +221,48 @@ describe('SalesReturnsPage', () => {
       damaged: [],
       scrapped: [],
     })
+  })
+
+  it('finds an older delivery by searching the server, and returns against it', async () => {
+    // Not on the first page: only a search that names it brings it back. A fixed
+    // first page used to be the only way in, so this return could not be raised.
+    const searches: URL[] = []
+    const { user, fetch } = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+      routes: {
+        'GET /sales-returns': page([]),
+        'GET /warehouses/options': ok([]),
+        'GET /dispatch': ({ url }) => {
+          searches.push(url)
+          return url.searchParams.get('search') === 'DSP-0101'
+            ? page([OLD_DELIVERY])
+            : page([], { has_next: false })
+        },
+        'GET /dispatch/dispatch-101': ok(OLD_DELIVERY_DETAIL),
+        'POST /sales-returns': ok(salesReturnRow({ dispatch_id: 'dispatch-101' })),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'New return' }))
+    const dialog = await screen.findByRole('dialog', { name: 'New sales return' })
+    await user.click(within(dialog).getByRole('combobox', { name: 'Sales dispatch' }))
+    await user.type(await screen.findByRole('textbox', { name: 'Search dispatches' }), 'DSP-0101')
+    await user.click(await screen.findByRole('option', { name: /DSP-0101/ }))
+
+    await user.type(
+      await within(dialog).findByRole('spinbutton', { name: 'Return quantity for item-1' }),
+      '1',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/sales-returns')).toMatchObject({
+        dispatch_id: 'dispatch-101',
+        lines: [{ dispatch_line_id: 'dispatch-line-1', quantity: '1' }],
+      }),
+    )
+    const named = searches.find((url) => url.searchParams.get('search') === 'DSP-0101')
+    expect(named?.searchParams.get('dispatch_type')).toBe('SALES')
+    expect(named?.searchParams.get('status')).toBe('DELIVERED')
   })
 })

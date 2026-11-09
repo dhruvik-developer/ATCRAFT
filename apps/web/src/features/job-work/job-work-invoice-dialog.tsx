@@ -15,10 +15,9 @@
  * finance feature, which mirrors the server's pricing step for step.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 
-import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -28,11 +27,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from '@/components/ui/overlays'
 import {
   Alert,
@@ -53,11 +47,9 @@ import {
 } from '@/features/finance/finance-types'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
-import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { formatDate, formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import type { DecimalString } from '@/types/api'
 
@@ -67,6 +59,7 @@ import {
   type BillableLine,
   type JobWorkOrderRow,
 } from './job-work-model'
+import { JobWorkOrderPicker } from './job-work-order-picker'
 
 /** `Quantity` is NUMERIC(18,4), `UnitPrice` NUMERIC(18,6). */
 const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
@@ -90,24 +83,6 @@ function editFrom(line: BillableLine): LineEdit {
   }
 }
 
-/** The orders of one vendor, newest first, for the order step. */
-function useVendorOrders(vendorId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: [...jobWorkKeys.all, 'vendor-orders', vendorId] as const,
-    queryFn: () =>
-      api.getPage<JobWorkOrderRow>('/job-work', {
-        params: {
-          vendor_id: vendorId,
-          limit: LOOKUP_LIST_LIMIT,
-          sort_by: 'created_at',
-          sort_dir: 'desc',
-        },
-      }),
-    staleTime: staleTimes.transactional,
-    enabled: enabled && Boolean(vendorId),
-  })
-}
-
 export function JobWorkInvoiceDialog({
   open,
   onOpenChange,
@@ -123,6 +98,8 @@ export function JobWorkInvoiceDialog({
 
   const [vendorId, setVendorId] = useState<string | null>(null)
   const [orderId, setOrderId] = useState<string>('')
+  /** The picked order's row: its code and SAC go on the bill. */
+  const [order, setOrder] = useState<JobWorkOrderRow | null>(null)
   const [edits, setEdits] = useState<Record<string, LineEdit>>({})
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(() => toDateInput(new Date()))
@@ -137,16 +114,13 @@ export function JobWorkInvoiceDialog({
     if (!open) return
     setVendorId(null)
     setOrderId('')
+    setOrder(null)
     setEdits({})
     setInvoiceNumber('')
     setInvoiceDate(toDateInput(new Date()))
     setIsInterstate(false)
     setTouched(false)
   }, [open])
-
-  const ordersQuery = useVendorOrders(vendorId ?? '', open && Boolean(vendorId))
-  const orders = useMemo(() => ordersQuery.data?.data ?? [], [ordersQuery.data])
-  const order = orders.find((entry) => entry.id === orderId) ?? null
 
   const linesQuery = useBillableLines(orderId, open && Boolean(orderId))
   const billable: BillableLine[] = useMemo(() => linesQuery.data ?? [], [linesQuery.data])
@@ -300,48 +274,27 @@ export function JobWorkInvoiceDialog({
               onChange={(next) => {
                 setVendorId(next)
                 setOrderId('')
+                setOrder(null)
                 setEdits({})
               }}
               placeholder="Search the vendor master"
             />
 
-            <div>
-              <Label htmlFor="jw-invoice-order" required>
-                Job-work order
-              </Label>
-              <Select
-                value={orderId || SELECT_NONE}
-                onValueChange={(value) => {
-                  setOrderId(value === SELECT_NONE ? '' : value)
-                  setEdits({})
-                }}
-                disabled={!vendorId || ordersQuery.isLoading}
-              >
-                <SelectTrigger id="jw-invoice-order" className="mt-1.5">
-                  <SelectValue
-                    placeholder={
-                      !vendorId
-                        ? 'Choose a vendor first'
-                        : ordersQuery.isLoading
-                          ? 'Loading orders…'
-                          : 'Choose an order'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SELECT_NONE}>Choose an order</SelectItem>
-                  {orders.map((entry) => (
-                    <SelectItem key={entry.id} value={entry.id}>
-                      {entry.code} - {humanise(entry.status)}
-                      {entry.receipt_count === 0 ? ' (no receipts)' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {ordersQuery.error && !ordersQuery.isLoading && (
-                <FieldError message={describeError(ordersQuery.error)} />
-              )}
-            </div>
+            {/* Searched on the server: a fixed first page of the vendor's orders
+                made a bill for any older order impossible to record. */}
+            <JobWorkOrderPicker
+              id="jw-invoice-order"
+              label="Job-work order"
+              required
+              vendorId={vendorId}
+              value={orderId || null}
+              onChange={(next, row) => {
+                setOrderId(next ?? '')
+                setOrder(row)
+                setEdits({})
+              }}
+              placeholder={vendorId ? 'Search this vendor’s orders' : 'Choose a vendor first'}
+            />
           </div>
 
           {orderId !== '' && (

@@ -29,7 +29,8 @@ import { api } from '@/lib/api-client'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
-import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
+import { DispatchPicker } from '@/features/dispatch/dispatch-picker'
+import { dispatchKeys, type DispatchDetail } from '@/features/dispatch/dispatch-types'
 import type { SchemaOf } from '@/types/api'
 
 export type SalesReturnRow = SchemaOf<'SalesReturnSummary'>
@@ -81,23 +82,8 @@ function NewSalesReturnDialog({
   const [serials, setSerials] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState('')
-  const dispatches = useQuery({
-    queryKey: ['dispatch', 'returnable'],
-    queryFn: () =>
-      api.getPage<DispatchRow>('/dispatch', {
-        params: {
-          limit: 100,
-          dispatch_type: 'SALES',
-          status: 'DELIVERED',
-          sort_by: 'dispatch_date',
-          sort_dir: 'desc',
-        },
-      }),
-    enabled: open,
-    staleTime: staleTimes.transactional,
-  })
   const detail = useQuery({
-    queryKey: ['dispatch', 'detail', dispatchId],
+    queryKey: dispatchKeys.detail(dispatchId),
     queryFn: () => api.get<DispatchDetail>(`/dispatch/${dispatchId}`),
     enabled: Boolean(dispatchId),
   })
@@ -145,30 +131,21 @@ function NewSalesReturnDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="return-dispatch">Sales dispatch</Label>
-            <Select
-              value={dispatchId}
-              onValueChange={(value) => {
-                setDispatchId(value)
-                setQuantities({})
-                setSerials({})
-                setReasons({})
-              }}
-            >
-              <SelectTrigger id="return-dispatch">
-                <SelectValue placeholder="Choose a dispatch" />
-              </SelectTrigger>
-              <SelectContent>
-                {(dispatches.data?.data ?? []).map((dispatch) => (
-                  <SelectItem key={dispatch.id} value={dispatch.id}>
-                    {dispatch.code} · {dispatch.dispatch_date}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {dispatches.error && <FieldError message={describeError(dispatches.error)} />}
-          </div>
+          {/* Searched on the server: a fixed first page made any older delivery
+              impossible to return against. */}
+          <DispatchPicker
+            id="return-dispatch"
+            label="Sales dispatch"
+            value={dispatchId || null}
+            onChange={(next) => {
+              setDispatchId(next ?? '')
+              setQuantities({})
+              setSerials({})
+              setReasons({})
+            }}
+            filters={{ dispatch_type: 'SALES', status: 'DELIVERED' }}
+            placeholder="Search delivered sales dispatches"
+          />
           <div className="space-y-2">
             <Label htmlFor="return-warehouse">Return warehouse (optional)</Label>
             <Select value={warehouseId} onValueChange={setWarehouseId}>
