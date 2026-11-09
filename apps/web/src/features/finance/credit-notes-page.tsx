@@ -6,12 +6,21 @@ import { useMemo, useState } from 'react'
 import { DataTable } from '@/components/data-table'
 import { ConfirmDialog, FieldError, LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/overlays'
 import { Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatMoney, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { P } from '@/lib/permissions'
@@ -146,6 +155,11 @@ export default function CreditNotesPage() {
   const serverReasonError =
     cancel.error instanceof ApiError && Boolean(cancel.error.fieldErrors.reason?.length)
 
+  function closeDetail() {
+    job.reset()
+    setSelected(null)
+  }
+
   async function generatePdf() {
     if (!selected) return
     pdf.mutate()
@@ -175,130 +189,134 @@ export default function CreditNotesPage() {
         emptyTitle="No credit notes"
         emptyDescription="Issued customer credits will appear here."
       />
-      {selected && (
-        <div className="rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="flex items-center justify-between">
-            <strong>{selected.code}</strong>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                job.reset()
-                setSelected(null)
-              }}
-              disabled={cancel.isPending}
-            >
-              Close
-            </Button>
-          </div>
-          <p className="mt-2 text-muted-foreground">
-            {selected.buyer_name} ·{' '}
-            {formatMoney(selected.total_amount, { currency: selected.currency })}
-          </p>
-          {detail.isLoading && <p className="mt-4 text-muted-foreground">Loading line details…</p>}
-          {detail.error && (
-            <LoadError
-              className="mt-4"
-              error={detail.error}
-              onRetry={() => void detail.refetch()}
-            />
-          )}
-          {detail.data && (
-            <div className="mt-4 space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div>
-                  <span className="text-muted-foreground">Taxable</span>
-                  <p>
-                    {formatMoney(detail.data.taxable_amount, { currency: detail.data.currency })}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Tax</span>
-                  <p>{formatMoney(detail.data.tax_amount, { currency: detail.data.currency })}</p>
-                </div>
-                {!toDecimal(detail.data.round_off_amount).isZero() && (
-                  <div>
-                    <span className="text-muted-foreground">Round off</span>
-                    <p>
-                      {formatMoney(detail.data.round_off_amount, {
-                        currency: detail.data.currency,
-                      })}
-                    </p>
+      {/* A dialog, like every sibling list's detail: opened from a row anywhere
+          in a long list, a panel under the table would open off-screen. */}
+      <Dialog
+        open={Boolean(selected)}
+        onOpenChange={(open) => {
+          if (!open && !cancel.isPending) closeDetail()
+        }}
+      >
+        {selected && (
+          <DialogContent size="lg">
+            <DialogHeader>
+              <DialogTitle>{selected.code}</DialogTitle>
+              <DialogDescription>
+                {selected.buyer_name} ·{' '}
+                {formatMoney(selected.total_amount, { currency: selected.currency })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogBody className="space-y-4 text-sm">
+              {detail.isLoading && <p className="text-muted-foreground">Loading line details…</p>}
+              {detail.error && (
+                <LoadError error={detail.error} onRetry={() => void detail.refetch()} />
+              )}
+              {detail.data && (
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <span className="text-muted-foreground">Taxable</span>
+                      <p>
+                        {formatMoney(detail.data.taxable_amount, {
+                          currency: detail.data.currency,
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Tax</span>
+                      <p>
+                        {formatMoney(detail.data.tax_amount, { currency: detail.data.currency })}
+                      </p>
+                    </div>
+                    {!toDecimal(detail.data.round_off_amount).isZero() && (
+                      <div>
+                        <span className="text-muted-foreground">Round off</span>
+                        <p>
+                          {formatMoney(detail.data.round_off_amount, {
+                            currency: detail.data.currency,
+                          })}
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-muted-foreground">Invoice</span>
+                      <p className="font-mono text-xs">{detail.data.sales_invoice_id}</p>
+                    </div>
                   </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Invoice</span>
-                  <p className="font-mono text-xs">{detail.data.sales_invoice_id}</p>
+                  <div
+                    className="overflow-x-auto"
+                    role="region"
+                    aria-label="Credit note line details"
+                    tabIndex={0}
+                  >
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground">
+                          <th className="whitespace-nowrap p-2">Item</th>
+                          <th className="whitespace-nowrap p-2">HSN</th>
+                          <th className="whitespace-nowrap p-2">Quantity</th>
+                          <th className="whitespace-nowrap p-2 text-right">Taxable</th>
+                          <th className="whitespace-nowrap p-2 text-right">Tax</th>
+                          <th className="whitespace-nowrap p-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.data.lines.map((line) => (
+                          <tr key={line.id} className="border-b">
+                            <td className="p-2 font-mono text-xs">{line.item_id}</td>
+                            <td className="p-2">{line.hsn_code ?? EMPTY_VALUE}</td>
+                            <td className="p-2 tabular">
+                              {line.quantity ? formatQuantity(line.quantity) : EMPTY_VALUE}
+                            </td>
+                            <td className="p-2 text-right tabular">
+                              {formatMoney(line.taxable_amount, { currency: detail.data.currency })}
+                            </td>
+                            <td className="p-2 text-right tabular">
+                              {formatMoney(line.tax_amount, { currency: detail.data.currency })}
+                            </td>
+                            <td className="p-2 text-right tabular">
+                              {formatMoney(line.line_total, { currency: detail.data.currency })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-              <div
-                className="overflow-x-auto"
-                role="region"
-                aria-label="Credit note line details"
-                tabIndex={0}
-              >
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="whitespace-nowrap p-2">Item</th>
-                      <th className="whitespace-nowrap p-2">HSN</th>
-                      <th className="whitespace-nowrap p-2">Quantity</th>
-                      <th className="whitespace-nowrap p-2 text-right">Taxable</th>
-                      <th className="whitespace-nowrap p-2 text-right">Tax</th>
-                      <th className="whitespace-nowrap p-2 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.data.lines.map((line) => (
-                      <tr key={line.id} className="border-b">
-                        <td className="p-2 font-mono text-xs">{line.item_id}</td>
-                        <td className="p-2">{line.hsn_code ?? '-'}</td>
-                        <td className="p-2">{line.quantity ?? '-'}</td>
-                        <td className="p-2 text-right tabular">
-                          {formatMoney(line.taxable_amount, { currency: detail.data.currency })}
-                        </td>
-                        <td className="p-2 text-right tabular">
-                          {formatMoney(line.tax_amount, { currency: detail.data.currency })}
-                        </td>
-                        <td className="p-2 text-right tabular">
-                          {formatMoney(line.line_total, { currency: detail.data.currency })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          {canCancel && (
-            <Button
-              variant="destructive"
-              className="mt-4"
-              disabled={detail.isLoading || Boolean(detail.error)}
-              onClick={() => {
-                cancel.reset()
-                setCancelReason('')
-                setReasonTouched(false)
-                setCancelOpen(true)
-              }}
-            >
-              Cancel credit note
-            </Button>
-          )}
-          {can(P.CREDIT_NOTE_VIEW) && (
-            <Button
-              variant="outline"
-              className="mt-4 ml-2"
-              loading={pdf.isPending}
-              onClick={() => void generatePdf()}
-            >
-              Generate PDF
-            </Button>
-          )}
-          <div className="mt-4">
-            <ReportJobPanel controller={job} label="Credit note PDF" />
-          </div>
-        </div>
-      )}
+              )}
+              <ReportJobPanel controller={job} label="Credit note PDF" />
+            </DialogBody>
+            <DialogFooter>
+              {canCancel && (
+                <Button
+                  variant="destructive"
+                  disabled={detail.isLoading || Boolean(detail.error)}
+                  onClick={() => {
+                    cancel.reset()
+                    setCancelReason('')
+                    setReasonTouched(false)
+                    setCancelOpen(true)
+                  }}
+                >
+                  Cancel credit note
+                </Button>
+              )}
+              {can(P.CREDIT_NOTE_VIEW) && (
+                <Button
+                  variant="outline"
+                  loading={pdf.isPending}
+                  onClick={() => void generatePdf()}
+                >
+                  Generate PDF
+                </Button>
+              )}
+              <Button variant="outline" onClick={closeDetail} disabled={cancel.isPending}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
       <ConfirmDialog
         open={cancelOpen && Boolean(selected)}
         onOpenChange={(open) => {

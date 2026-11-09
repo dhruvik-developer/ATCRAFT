@@ -253,6 +253,8 @@ describe('SalesReturnsPage', () => {
       await within(dialog).findByRole('spinbutton', { name: 'Return quantity for item-1' }),
       '1',
     )
+    // A quantity, not the API's four-place string.
+    expect(within(dialog).getByText('Dispatched: 4')).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Create return' }))
 
     await waitFor(() =>

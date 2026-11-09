@@ -24,7 +24,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { useAuth } from '@/features/auth/auth-context'
-import { formatDate } from '@/lib/format'
+import { formatDate, formatQuantity } from '@/lib/format'
 import { api } from '@/lib/api-client'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
@@ -170,7 +170,9 @@ function NewSalesReturnDialog({
                 >
                   <div>
                     <p className="font-mono text-xs">{line.item_id}</p>
-                    <p className="text-sm text-muted-foreground">Dispatched: {line.quantity}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Dispatched: {formatQuantity(line.quantity)}
+                    </p>
                     {line.serial_ids.length > 0 && (
                       <p className="break-all text-xs text-muted-foreground">
                         Available serial IDs: {line.serial_ids.join(', ')}

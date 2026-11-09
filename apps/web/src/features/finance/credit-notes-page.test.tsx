@@ -65,6 +65,39 @@ describe('credit note settlement breakdown', () => {
   )
 })
 
+describe('credit note detail', () => {
+  it('opens as a dialog over the list and prints a line quantity as a quantity', async () => {
+    await openCreditNote({
+      permissions: [P.CREDIT_NOTE_VIEW],
+      detail: creditNote({
+        lines: [
+          {
+            id: 'line-1',
+            sales_invoice_line_id: 'invoice-line-1',
+            item_id: 'item-1',
+            hsn_code: null,
+            quantity: '2.0000',
+            taxable_amount: '0.99',
+            tax_rate: '18.00',
+            cgst_amount: '0.09',
+            sgst_amount: '0.09',
+            igst_amount: '0.00',
+            tax_amount: '0.18',
+            line_total: '1.17',
+          },
+        ],
+      }),
+    })
+    // Opened from a row anywhere in a long list, the detail is in view, not
+    // under a page of rows.
+    const dialog = screen.getByRole('dialog', { name: 'CN-001' })
+    const row = within(dialog).getAllByRole('row')[1]!
+    const cells = within(row).getAllByRole('cell')
+    expect(cells[1]).toHaveTextContent(/^-$/)
+    expect(cells[2]).toHaveTextContent(/^2$/)
+  })
+})
+
 describe('credit note cancellation', () => {
   it('requires the actual audit reason, prevents duplicate requests, and refreshes affected balances', async () => {
     let complete!: (body: RouteBody) => void
