@@ -65,6 +65,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -298,7 +299,7 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
           const elsewhere = row.original.available_elsewhere ?? []
           const [first] = elsewhere
           if (!first) {
-            return <span className="text-muted-foreground">—</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           const rest = elsewhere.length - 1
           return (

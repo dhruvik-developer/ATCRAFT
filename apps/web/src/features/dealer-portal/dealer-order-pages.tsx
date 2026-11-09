@@ -34,7 +34,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -505,7 +505,7 @@ export function DealerOrderPage() {
               items={[
                 { label: 'Placed', value: formatDate(order.order_date) },
                 { label: 'Required', value: formatDate(order.required_date) },
-                { label: 'PO reference', value: order.customer_po_number || '—' },
+                { label: 'PO reference', value: order.customer_po_number || EMPTY_VALUE },
                 {
                   label: 'Total',
                   value: formatMoney(order.total_amount, { currency: order.currency }),
@@ -559,10 +559,10 @@ export function DealerOrderPage() {
                         items={[
                           {
                             label: 'Carrier',
-                            value: dispatch.courier_name || dispatch.transport_name || '—',
+                            value: dispatch.courier_name || dispatch.transport_name || EMPTY_VALUE,
                           },
-                          { label: 'Tracking ID', value: dispatch.tracking_id || '—' },
-                          { label: 'LR number', value: dispatch.lr_number || '—' },
+                          { label: 'Tracking ID', value: dispatch.tracking_id || EMPTY_VALUE },
+                          { label: 'LR number', value: dispatch.lr_number || EMPTY_VALUE },
                           {
                             label: 'Expected delivery',
                             value: formatDate(dispatch.expected_delivery_date),

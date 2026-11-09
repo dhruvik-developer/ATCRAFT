@@ -17,7 +17,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
-import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -344,7 +344,7 @@ export function DealerItemPage() {
                 <DescriptionList
                   items={[
                     { label: 'Code', value: item.code },
-                    { label: 'HSN', value: item.hsn_code || '—' },
+                    { label: 'HSN', value: item.hsn_code || EMPTY_VALUE },
                     { label: 'GST', value: `${formatQuantity(item.gst_rate)}%` },
                     {
                       label: 'Returns',

@@ -23,7 +23,14 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { reportFieldErrors } from '@/lib/form-errors'
-import { formatDate, formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatQuantity,
+  humanise,
+} from '@/lib/format'
 import { describeError, empty, fileMessages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -85,7 +92,7 @@ function Value({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words text-sm">{children ?? '—'}</dd>
+      <dd className="mt-1 break-words text-sm">{children ?? EMPTY_VALUE}</dd>
     </div>
   )
 }
@@ -277,12 +284,12 @@ export function VendorHomePage() {
                 <Value label="Score">{rating.data.rating ?? 'Not enough evidence'}</Value>
                 <Value label="On time">
                   {rating.data.on_time_percentage == null
-                    ? '—'
+                    ? EMPTY_VALUE
                     : `${formatQuantity(rating.data.on_time_percentage)}%`}
                 </Value>
                 <Value label="Rejected">
                   {rating.data.rejection_percentage == null
-                    ? '—'
+                    ? EMPTY_VALUE
                     : `${formatQuantity(rating.data.rejection_percentage)}%`}
                 </Value>
                 <Value label="Period and sample">
@@ -500,20 +507,20 @@ function Shipments({ rows, canDeliver = false }: { rows: VendorShipment[]; canDe
           </div>
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Value label="Courier">
-              {row.courier_name ?? (row.transporter_id ? 'Registered transporter' : '—')}
+              {row.courier_name ?? (row.transporter_id ? 'Registered transporter' : EMPTY_VALUE)}
             </Value>
             <Value label="Tracking / LR">
-              {[row.tracking_reference, row.lr_number].filter(Boolean).join(' · ') || '—'}
+              {[row.tracking_reference, row.lr_number].filter(Boolean).join(' · ') || EMPTY_VALUE}
             </Value>
             <Value label="Dispatched">{formatDateTime(row.shipped_at)}</Value>
             <Value label="Expected delivery">{formatDate(row.expected_delivery_date)}</Value>
             <Value label="Packages / weight">
-              {row.packages ?? '—'} / {formatQuantity(row.weight_kg)} kg
+              {row.packages ?? EMPTY_VALUE} / {formatQuantity(row.weight_kg)} kg
             </Value>
             <Value label="Vehicle / driver">
               {[row.vehicle_number, row.driver_name, row.driver_mobile]
                 .filter(Boolean)
-                .join(' · ') || '—'}
+                .join(' · ') || EMPTY_VALUE}
             </Value>
           </dl>
           {row.notes && <p className="mt-3 break-words text-sm">{row.notes}</p>}

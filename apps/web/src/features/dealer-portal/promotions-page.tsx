@@ -30,7 +30,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { formatDate, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, humanise } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -527,7 +527,7 @@ export default function PromotionsPage() {
               cell: ({ row }: { row: { original: Promotion } }) =>
                 'discount_percentage' in row.original
                   ? `${formatQuantity(row.original.discount_percentage)}%`
-                  : '—',
+                  : EMPTY_VALUE,
             },
           ]
         : []),

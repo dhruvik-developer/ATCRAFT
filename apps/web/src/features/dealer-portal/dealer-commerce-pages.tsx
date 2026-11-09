@@ -21,7 +21,7 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
@@ -158,7 +158,7 @@ export function DealerInvoicePage() {
                 { label: 'Invoice date', value: formatDate(invoice.invoice_date) },
                 { label: 'Due date', value: formatDate(invoice.due_date) },
                 { label: 'Seller', value: invoice.seller_name },
-                { label: 'GSTIN', value: invoice.seller_gstin || '—' },
+                { label: 'GSTIN', value: invoice.seller_gstin || EMPTY_VALUE },
                 { label: 'Bill to', value: invoice.billing_address },
                 { label: 'Ship to', value: invoice.shipping_address },
                 {
@@ -196,7 +196,7 @@ export function DealerInvoicePage() {
                   {invoice.lines.map((line) => (
                     <tr key={line.id} className="border-t">
                       <td className="p-2">{line.description}</td>
-                      <td className="p-2">{line.hsn_code || '—'}</td>
+                      <td className="p-2">{line.hsn_code || EMPTY_VALUE}</td>
                       <td className="p-2">
                         {formatQuantity(line.quantity)} {line.uom_code}
                       </td>

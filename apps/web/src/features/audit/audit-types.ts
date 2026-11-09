@@ -10,6 +10,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
+import { EMPTY_VALUE } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
 import type { CursorEnvelope } from '@/types/api'
 
@@ -257,7 +258,7 @@ export function changedFields(row: AuditLogDetail): FieldChange[] {
 
 /** Renders a JSONB value as one readable line. */
 export function formatAuditValue(value: unknown): string {
-  if (value === null || value === undefined) return '—'
+  if (value === null || value === undefined) return EMPTY_VALUE
   if (typeof value === 'string') return value === '' ? '(empty)' : value
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value === 'number') return String(value)

@@ -97,6 +97,13 @@ export const MONEY_PLACES = 2
 export const UNIT_PRICE_PLACES = 6
 
 /**
+ * What a cell, a description or a formatter shows for a value that is not
+ * there. One spelling, so a blank reads the same on every screen - and a test
+ * or a person scanning for an empty field finds every one of them.
+ */
+export const EMPTY_VALUE = '-'
+
+/**
  * A unit price as currency.
  *
  * Distinct from `formatMoney` because a unit price is not money at two places:
@@ -146,7 +153,7 @@ export function formatQuantity(
 }
 
 export function formatNumber(value: number | null | undefined, fractionDigits = 0): string {
-  if (value === null || value === undefined) return '-'
+  if (value === null || value === undefined) return EMPTY_VALUE
   return formatter({
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -172,12 +179,12 @@ function parse(value: string | Date | null | undefined): Date | null {
 /** Date only. The API stores UTC; dates are shown in the browser's zone. */
 export function formatDate(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? format(parsed, DATE_FORMAT) : '-'
+  return parsed ? format(parsed, DATE_FORMAT) : EMPTY_VALUE
 }
 
 export function formatDateTime(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? format(parsed, DATE_TIME_FORMAT) : '-'
+  return parsed ? format(parsed, DATE_TIME_FORMAT) : EMPTY_VALUE
 }
 
 /**
@@ -187,12 +194,12 @@ export function formatDateTime(value: string | Date | null | undefined): string 
  */
 export function formatWeekday(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? format(parsed, WEEKDAY_FORMAT) : '-'
+  return parsed ? format(parsed, WEEKDAY_FORMAT) : EMPTY_VALUE
 }
 
 export function formatRelative(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? `${formatDistanceToNowStrict(parsed)} ago` : '-'
+  return parsed ? `${formatDistanceToNowStrict(parsed)} ago` : EMPTY_VALUE
 }
 
 /** Whole days from today; negative means overdue. Used for delay badges. */
@@ -279,7 +286,7 @@ export function formatFileSize(bytes: number | null | undefined): string {
 
 /** Turn CONSTANT_CASE enum values into readable labels. */
 export function humanise(value: string | null | undefined): string {
-  if (!value) return '-'
+  if (!value) return EMPTY_VALUE
   return value
     .toLowerCase()
     .split('_')

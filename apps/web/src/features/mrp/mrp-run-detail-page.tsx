@@ -89,6 +89,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   daysUntil,
   formatDate,
   formatDateTime,
@@ -669,7 +670,7 @@ export default function MrpRunDetailPage() {
             )
           }
           if (row.original.suggestion_type !== 'TRANSFER') {
-            return <span className="text-muted-foreground">—</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           if (warehouses.isLoading) {
             return <span className="text-muted-foreground">Loading warehouses…</span>

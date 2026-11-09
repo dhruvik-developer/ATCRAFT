@@ -18,7 +18,7 @@ import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
-import { formatDate, formatDateTime, formatMoney, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatDateTime, formatMoney, humanise } from '@/lib/format'
 import { describeError } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -139,7 +139,7 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
             { label: 'Vendor committed date', value: formatDate(order.vendor_committed_date) },
             { label: 'Vendor acknowledged', value: formatDateTime(order.acknowledged_at) },
             { label: 'Ready for dispatch', value: formatDateTime(order.ready_for_dispatch_at) },
-            { label: 'Packages ready', value: order.ready_packages?.toString() ?? '—' },
+            { label: 'Packages ready', value: order.ready_packages?.toString() ?? EMPTY_VALUE },
           ]}
         />
         <div className="flex flex-wrap gap-2">
@@ -175,7 +175,7 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
                 enableSorting: false,
                 cell: ({ row }) => (
                   <div>
-                    {row.original.tracking_reference ?? '—'}
+                    {row.original.tracking_reference ?? EMPTY_VALUE}
                     <p className="text-xs text-muted-foreground">{row.original.lr_number}</p>
                   </div>
                 ),
@@ -197,7 +197,8 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
                 cell: ({ row }) => (
                   <div className="text-xs">
                     <p>
-                      {row.original.packages ?? '—'} packages · {row.original.weight_kg ?? '—'} kg
+                      {row.original.packages ?? EMPTY_VALUE} packages ·{' '}
+                      {row.original.weight_kg ?? EMPTY_VALUE} kg
                     </p>
                     <p>
                       {row.original.vehicle_number} {row.original.driver_name}{' '}

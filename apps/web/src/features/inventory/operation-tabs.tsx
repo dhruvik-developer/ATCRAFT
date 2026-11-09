@@ -29,7 +29,14 @@ import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatMoney,
+  formatQuantity,
+  humanise,
+  toDecimal,
+} from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -86,7 +93,7 @@ function OperationLines({ document }: { document: Operation }) {
                   <span className="block text-xs text-muted-foreground">{line.item_name}</span>
                 </td>
                 <td className="p-2">
-                  {line.batch_code ?? (line.batch_id ? 'Batch unavailable' : '—')}
+                  {line.batch_code ?? (line.batch_id ? 'Batch unavailable' : EMPTY_VALUE)}
                 </td>
                 <td className="p-2">
                   {'from_location_id' in line
@@ -97,7 +104,7 @@ function OperationLines({ document }: { document: Operation }) {
                   <td className="p-2">
                     {'serial_numbers' in line && (line.serial_numbers?.length ?? 0) > 0
                       ? line.serial_numbers?.join(', ')
-                      : '—'}
+                      : EMPTY_VALUE}
                   </td>
                 )}
                 <td className="p-2 text-right tabular">{formatQuantity(line.quantity)}</td>

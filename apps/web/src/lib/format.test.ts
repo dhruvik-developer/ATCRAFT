@@ -26,7 +26,9 @@ import {
   __resetFormatterCache,
   addDaysISO,
   daysUntil,
+  EMPTY_VALUE,
   formatDate,
+  formatDateTime,
   formatFileSize,
   formatMoney,
   formatNumber,
@@ -214,6 +216,19 @@ describe('formatPercent', () => {
 
   it('renders absent as zero rather than NaN%', () => {
     expect(formatPercent(null)).toBe('0.0%')
+  })
+})
+
+describe('EMPTY_VALUE', () => {
+  it('is the one blank every formatter and description shows', () => {
+    // One spelling on every screen: the helpers below, DescriptionList and the
+    // feature cells all render a missing value as this, never an em dash.
+    expect(EMPTY_VALUE).toBe('-')
+    expect(formatNumber(null)).toBe(EMPTY_VALUE)
+    expect(formatDate(undefined)).toBe(EMPTY_VALUE)
+    expect(formatDateTime('not a date')).toBe(EMPTY_VALUE)
+    expect(formatWeekday(null)).toBe(EMPTY_VALUE)
+    expect(humanise('')).toBe(EMPTY_VALUE)
   })
 })
 

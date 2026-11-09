@@ -46,7 +46,7 @@ import {
 } from '@/components/ui/primitives'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { humanise } from '@/lib/format'
+import { EMPTY_VALUE, humanise } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 // ------------------------------------------------------------ PanelLoader ---
@@ -607,7 +607,7 @@ export function DescriptionList({
           <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {item.label}
           </dt>
-          <dd className="mt-0.5 break-words text-sm">{item.value ?? '-'}</dd>
+          <dd className="mt-0.5 break-words text-sm">{item.value ?? EMPTY_VALUE}</dd>
         </div>
       ))}
     </dl>

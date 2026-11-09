@@ -10,7 +10,7 @@ import { entityLink } from '@/features/audit/audit-types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { APPROVAL_PERMISSIONS } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
-import { formatDateTime, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDateTime, humanise } from '@/lib/format'
 import type { SchemaOf } from '@/types/api'
 
 type ApprovalRequest = SchemaOf<'ApprovalRequestRead'>
@@ -52,7 +52,7 @@ export default function ApprovalsPage() {
         accessorKey: 'reason',
         header: 'Reason',
         enableSorting: false,
-        cell: ({ row }) => row.original.reason ?? '—',
+        cell: ({ row }) => row.original.reason ?? EMPTY_VALUE,
       },
       {
         accessorKey: 'created_at',

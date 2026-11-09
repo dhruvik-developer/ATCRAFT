@@ -279,6 +279,21 @@ describe('dealer shopping and orders', () => {
     ).toHaveLength(1)
   })
 
+  it('shows a blank PO reference as the same dash every other screen uses', async () => {
+    renderScreen(<DealerOrderPage />, {
+      route: '/dealer/orders/order',
+      path: '/dealer/orders/:orderId',
+      permissions: [P.DEALER_PORTAL_ORDER],
+      routes: {
+        'GET /dealer-portal/orders/order': ok(order),
+        'GET /dealer-portal/orders/order/dispatches': ok([]),
+      },
+    })
+    await screen.findByRole('heading', { name: 'SO/1' })
+    expect(screen.getByText('PO reference').nextElementSibling).toHaveTextContent(/^-$/)
+    expect(document.body).not.toHaveTextContent('—')
+  })
+
   it.each(['DRAFT', 'CONFIRMED'] as const)(
     'only a DRAFT order exposes cancellation (%s)',
     async (status) => {
