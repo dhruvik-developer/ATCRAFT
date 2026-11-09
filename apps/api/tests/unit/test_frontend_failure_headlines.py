@@ -10,11 +10,12 @@ screen it happened on.
 
 The rule reads a headline wherever a screen sets one: the title of
 ``toast.error`` and ``toast.failure``, the title ``reportFieldErrors`` toasts, a
-mutation's ``meta.errorTitle``, an ``errorHeadline`` prop, and an
-``AlertTitle``'s text. Each position is read as an expression, so a title
-chosen by a condition (``cancelled ? 'MRP run cancelled' : 'MRP run failed'``)
-has both its results checked and neither its condition nor a call argument. A
-description under the headline is free to be a sentence; the headline is not.
+mutation's ``meta.errorTitle``, an ``errorHeadline`` prop, a ``LoadError``'s
+``title`` and an ``AlertTitle``'s text. Each position is read as an expression,
+so a title chosen by a condition (``cancelled ? 'MRP run cancelled' : 'MRP run
+failed'``) has both its results checked and neither its condition nor a call
+argument. A description under the headline is free to be a sentence; the
+headline is not.
 
 An alert's headline is read only when it is an ``AlertTitle``, so an alert may
 not open with a headline it styles itself. The messaging page drew four that
@@ -53,6 +54,9 @@ _FIRST_ARGUMENT_TITLE = re.compile(r"\btoast\.error\s*\(\s*")
 _SECOND_ARGUMENT_TITLE = re.compile(r"\b(?:toast\.failure|reportFieldErrors)\s*\(\s*")
 _META_TITLE = re.compile(r"(?<![\w$.])errorTitle\s*:\s*")
 _HEADLINE_PROP = re.compile(r"(?<![\w-])errorHeadline=(?:(?P<quoted>\")|\{\s*)")
+#: ``LoadError``, whose headline is its ``title`` prop.
+_LOAD_ERROR = re.compile(r"<LoadError\b")
+_TITLE_PROP = re.compile(r"(?<![\w-])title=(?:(?P<quoted>\")|\{\s*)")
 _ALERT_TITLE = re.compile(r"<AlertTitle(?:\s[^>]*)?>(?P<body>.*?)</AlertTitle>", re.S)
 #: An ``<Alert>`` and its body; ``AlertTitle``, ``AlertDescription`` and
 #: ``AlertDialog`` do not match, because the name must end at a space or ``>``.
@@ -99,6 +103,14 @@ def _headlines(source: str) -> list[tuple[int, str]]:
     def read(offset: int, expression: str) -> None:
         found.extend((offset, text) for text in _shown_literals(expression))
 
+    def read_prop(offset: int, prop: re.Match[str]) -> None:
+        """A JSX prop's value: a quoted literal, or an expression in braces."""
+        if prop.group("quoted"):
+            if (text := _literal_at(source, prop.end() - 1)) is not None:
+                found.append((offset, text))
+        else:
+            read(offset, _value(source, prop.end()))
+
     for match in _FIRST_ARGUMENT_TITLE.finditer(source):
         read(match.start(), _value(source, match.end()))
     for match in _SECOND_ARGUMENT_TITLE.finditer(source):
@@ -108,11 +120,13 @@ def _headlines(source: str) -> list[tuple[int, str]]:
     for match in _META_TITLE.finditer(source):
         read(match.start(), _value(source, match.end()))
     for match in _HEADLINE_PROP.finditer(source):
-        if match.group("quoted"):
-            if (text := _literal_at(source, match.end() - 1)) is not None:
-                found.append((match.start(), text))
-        else:
-            read(match.start(), _value(source, match.end()))
+        read_prop(match.start(), match)
+    for match in _LOAD_ERROR.finditer(source):
+        # Read within the tag only; left out, the title is the catalogue's own.
+        close = source.find("/>", match.end())
+        end = close if close != -1 else len(source)
+        if prop := _TITLE_PROP.search(source, match.end(), end):
+            read_prop(match.start(), prop)
     for match in _ALERT_TITLE.finditer(source):
         # An icon beside the words is not part of them.
         text, expressions = _jsx_children(_TAG.sub(" ", match.group("body")))
@@ -209,6 +223,12 @@ def test_the_rule_finds_the_shapes_that_shipped() -> None:
             "<AlertTitle asChild>",
             "  <p>The templates were not saved</p>",
             "</AlertTitle>",
+            '<LoadError title="Approvals could not be loaded" error={q.error} />',
+            "<LoadError",
+            "  error={q.error}",
+            "  onRetry={() => void q.refetch()}",
+            "  title={stale ? 'The list was not refreshed' : 'Could not load the list'}",
+            "/>",
         ]
     )
 
@@ -223,6 +243,8 @@ def test_the_rule_finds_the_shapes_that_shipped() -> None:
         "line 9: 'Unable to load item variants'",
         "line 10: 'MRP run failed'",
         "line 11: 'The templates were not saved'",
+        "line 14: 'Approvals could not be loaded'",
+        "line 15: 'The list was not refreshed'",
     ]
 
 
@@ -243,6 +265,9 @@ def test_the_rule_leaves_the_catalogue_form_and_descriptions_alone() -> None:
             "</AlertTitle>",
             "toast.error(status === 'FAILED.' ? errors.unexpected : 'Could not post', why)",
             "<AlertTitle>{`Could not post ${receipt.code}`}</AlertTitle>",
+            '<LoadError title="Could not load this bill" error={q.error} onRetry={retry} />',
+            "<LoadError error={q.error} onRetry={() => void q.refetch()} />",
+            '<img title="The photo could not be loaded." alt="" />',
         ]
     )
 
