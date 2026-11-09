@@ -375,16 +375,18 @@ describe('production transition validation', () => {
       status: 'IN_PROCESS',
       permission: P.PRODUCTION_ENTRY_CREATE,
       field: 'produced_quantity',
+      label: 'Produced quantity',
     },
     {
       action: 'close',
       status: 'COMPLETED',
       permission: P.PRODUCTION_ORDER_CLOSE,
       field: 'closure_note',
+      label: 'Closure note',
     },
   ] as const)(
     'reports server field errors when $action is refused',
-    async ({ action, status, permission, field }) => {
+    async ({ action, status, permission, field, label }) => {
       const errorToast = vi.spyOn(toast, 'error')
       const { user } = renderDetail([P.PRODUCTION_ORDER_VIEW, permission], {
         [`GET /production/${ORDER_ID}`]: ok(detail({ status })),
@@ -403,10 +405,11 @@ describe('production transition validation', () => {
       await user.click(
         await screen.findByRole('button', { name: new RegExp(`^${action} order$`, 'i') }),
       )
+      // The toast names the refused field in words, not by its API key.
       await waitFor(() =>
         expect(errorToast).toHaveBeenCalledWith(
           'Could not update this production order',
-          `${field}: The supplied value is outside the allowed range`,
+          `${label}: The supplied value is outside the allowed range`,
         ),
       )
       expect(screen.getByRole('dialog')).toBeVisible()
