@@ -1,12 +1,19 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './api-client'
 import {
   applyFieldErrors,
   fieldErrorSummary,
+  fieldLabel,
   partitionFieldErrors,
   remapArrayIndices,
+  reportFieldErrors,
 } from './form-errors'
+import { toast } from './toast'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 /** A 422 as the API shapes it: `details.fields`, keyed by dotted path. */
 function validationError(fields: Record<string, string[]>): ApiError {
@@ -168,5 +175,65 @@ describe('fieldErrorSummary', () => {
   it('is null when there is nothing field-level to show', () => {
     expect(fieldErrorSummary(new ApiError(409, 'CONFLICT', 'Changed by someone else'))).toBeNull()
     expect(fieldErrorSummary(new Error('network'))).toBeNull()
+  })
+})
+
+describe('fieldLabel', () => {
+  it('numbers a line from one, in place of its collection', () => {
+    expect(fieldLabel('lines.0.quantity')).toBe('Line 1 quantity')
+    expect(fieldLabel('lines.4')).toBe('Line 5')
+    expect(fieldLabel('lines')).toBe('Lines')
+  })
+
+  it('puts a snake_case key into words', () => {
+    expect(fieldLabel('promised_date')).toBe('Promised date')
+    expect(fieldLabel('rules.2.threshold_days')).toBe('Rule 3 threshold days')
+  })
+
+  it('names the item of any collection in the singular', () => {
+    expect(fieldLabel('entries.0.amount')).toBe('Entry 1 amount')
+    expect(fieldLabel('batches.1.batch_id')).toBe('Batch 2 batch id')
+    expect(fieldLabel('addresses.0.city')).toBe('Address 1 city')
+    expect(fieldLabel('suggestion_ids.3')).toBe('Suggestion id 4')
+  })
+
+  it('numbers a bare index as a line', () => {
+    expect(fieldLabel('0.quantity')).toBe('Line 1 quantity')
+  })
+})
+
+describe('reportFieldErrors', () => {
+  const toastError = () => vi.spyOn(toast, 'error').mockImplementation(() => '')
+
+  it('names each field in words, numbered from one, joined with a dash', () => {
+    const shown = toastError()
+    reportFieldErrors(
+      new ApiError(422, 'VALIDATION_ERROR', 'Some fields need attention.', {
+        fields: {
+          'lines.0.quantity': ['Input should be greater than 0'],
+          promised_date: ['Input should be a valid date'],
+        },
+      }),
+      'Could not save these lines',
+    )
+    expect(shown).toHaveBeenCalledOnce()
+    expect(shown).toHaveBeenCalledWith(
+      'Could not save these lines',
+      'Line 1 quantity: Input should be greater than 0 - Promised date: Input should be a valid date',
+    )
+  })
+
+  it('says nothing the global net already says', () => {
+    const shown = toastError()
+    reportFieldErrors(new TypeError('boom'), 'Could not save')
+    reportFieldErrors(new ApiError(409, 'CONFLICT', 'Changed by someone else.'), 'Could not save')
+    // Orphans are the net's: it toasts a model-level or query refusal itself.
+    reportFieldErrors(
+      new ApiError(422, 'VALIDATION_ERROR', 'Some fields need attention.', {
+        fields: { _root: ['The order is closed'], 'query.reason': ['Too short'] },
+      }),
+      'Could not save',
+    )
+    expect(shown).not.toHaveBeenCalled()
   })
 })

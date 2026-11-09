@@ -111,6 +111,37 @@ export function fieldErrorSummary(error: unknown): string | null {
   return joinValidationMessages(messages) || null
 }
 
+/** "lines" -> "line", "entries" -> "entry", "batches" -> "batch"; anything else as it is. */
+function singular(noun: string): string {
+  if (noun.endsWith('ies')) return `${noun.slice(0, -3)}y`
+  if (/(?:ss|x|ch|sh)es$/.test(noun)) return noun.slice(0, -2)
+  if (/[^s]s$/.test(noun)) return noun.slice(0, -1)
+  return noun
+}
+
+/**
+ * A 422 key in words, for a message that has to name its field.
+ *
+ * The API's keys are dotted body paths, zero-based and snake_case
+ * (`lines.0.quantity`), while every screen numbers its lines from one - so the
+ * raw key sent an operator to "line 0", the wrong line, under a column name.
+ * An index takes the place of its collection's name: `lines.0.quantity` reads
+ * "Line 1 quantity", `promised_date` "Promised date".
+ */
+export function fieldLabel(path: string): string {
+  const words: string[] = []
+  for (const segment of path.split('.')) {
+    if (/^\d+$/.test(segment)) {
+      const collection = words.pop()
+      words.push(`${collection ? singular(collection) : 'line'} ${Number(segment) + 1}`)
+    } else if (segment) {
+      words.push(segment.replace(/_/g, ' '))
+    }
+  }
+  const label = words.join(' ')
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
 /**
  * Surface a 422 that the mutation cache deliberately stays quiet about.
  *
@@ -126,6 +157,8 @@ export function reportFieldErrors(error: unknown, title: string): void {
   if (fields.length === 0) return
   toast.error(
     title,
-    fields.map(([field, messages]) => `${field}: ${joinValidationMessages(messages)}`).join(' - '),
+    fields
+      .map(([field, messages]) => `${fieldLabel(field)}: ${joinValidationMessages(messages)}`)
+      .join(' - '),
   )
 }
