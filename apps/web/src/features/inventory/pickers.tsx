@@ -23,7 +23,8 @@ import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
-import { WAREHOUSE_LOOKUP_PARAMS, type ItemOption, type WarehouseOption } from './types'
+import type { ItemOption } from './types'
+import { useWarehouseLookup } from './use-warehouse-lookup'
 
 /** Radix Select forbids an empty item value, so "no filter" needs a sentinel. */
 const ALL = '__all__'
@@ -56,12 +57,7 @@ export function WarehouseSelect({
   disabled?: boolean
   className?: string
 }) {
-  const params = WAREHOUSE_LOOKUP_PARAMS
-  const warehouses = useQuery({
-    queryKey: queryKeys.warehouses.list(params),
-    queryFn: ({ signal }) => api.getPage<WarehouseOption>('/warehouses', { params, signal }),
-    staleTime: staleTimes.master,
-  })
+  const warehouses = useWarehouseLookup()
 
   const rows = warehouses.data?.data ?? []
 

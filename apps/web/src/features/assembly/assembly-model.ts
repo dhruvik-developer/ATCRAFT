@@ -20,7 +20,7 @@
 
 import Decimal from 'decimal.js'
 
-import { toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
 
@@ -154,6 +154,9 @@ export interface AssemblyOrderRow {
   version: number
 
   item_id: string
+  /** The item's code and name, read with the order. */
+  item_code?: string | null
+  item_name?: string | null
   bom_id: string
   /** Where the components are drawn from. */
   warehouse_id: string
@@ -212,6 +215,9 @@ export interface AssemblyComponent {
   assembly_order_id: string
   line_number: number
   item_id: string
+  /** The component's code and name, read with it. */
+  item_code?: string | null
+  item_name?: string | null
   uom_id: string
 
   required_quantity: DecimalString
@@ -224,8 +230,10 @@ export interface AssemblyComponent {
   issued_batch_id: string | null
   /** The lot actually consumed, once the order is completed. */
   consumed_batch_id: string | null
-  /** The serials already eaten by this order; ids only, no serial numbers. */
+  /** The serials already eaten by this order. */
   consumed_serial_ids: string[]
+  /** Their labels, in `consumed_serial_ids` order (`labelSerials` pairs them). */
+  consumed_serial_numbers?: string[]
 
   reservation_id: string | null
   notes: string | null
@@ -320,6 +328,16 @@ export interface StockSerial {
 }
 
 // -------------------------------------------------------------- derived -----
+
+/**
+ * The item an order builds, or a component draws, as a person reads it: its
+ * code, then its name. The read names both - an archived item too - so the
+ * empty mark is for an id the API could not resolve, never a UUID prefix.
+ */
+export function itemLabel(row: { item_code?: string | null; item_name?: string | null }): string {
+  if (!row.item_code) return EMPTY_VALUE
+  return row.item_name ? `${row.item_code} - ${row.item_name}` : row.item_code
+}
 
 const ZERO = new Decimal(0)
 

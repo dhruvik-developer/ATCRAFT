@@ -18,7 +18,7 @@
  * hides a wrong gate.
  */
 
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -36,6 +36,8 @@ function assemblyOrder(overrides: Partial<AssemblyOrderRow> = {}): AssemblyOrder
     status: 'RELEASED',
     version: 1,
     item_id: 'item-aaa-0001',
+    item_code: 'LOCK-SET-01',
+    item_name: 'Mortise lock set',
     bom_id: 'bom-1',
     warehouse_id: 'wh-1',
     output_warehouse_id: 'wh-2',
@@ -69,6 +71,8 @@ function assemblyComponent(overrides: Partial<AssemblyComponent> = {}): Assembly
     assembly_order_id: 'asm-1',
     line_number: 1,
     item_id: 'item-bbb-0001',
+    item_code: 'SCREW-M4',
+    item_name: 'Screw M4 x 20',
     uom_id: 'uom-1',
     required_quantity: '100.0000',
     issued_quantity: '40.0000',
@@ -177,6 +181,21 @@ describe('the assembly register', () => {
     expect(sent.get('date_from')).toBeNull()
   })
 
+  it("names each order's item by its code and name, not by a UUID prefix", async () => {
+    renderScreen(<AssemblyPage />, {
+      permissions: [P.ASSEMBLY_ORDER_VIEW],
+      routes: { 'GET /assembly': page([assemblyOrder()]) },
+    })
+
+    const row = (await screen.findByText('ASM-0001')).closest('tr')!
+    expect(within(row).getByRole('link', { name: 'LOCK-SET-01' })).toHaveAttribute(
+      'href',
+      '/items/item-aaa-0001',
+    )
+    expect(within(row).getByText('Mortise lock set')).toBeVisible()
+    expect(within(row).queryByText(/item-aaa/)).toBeNull()
+  })
+
   it('says an empty register is empty, and a refused one refused', async () => {
     const empty = renderScreen(<AssemblyPage />, {
       permissions: [P.ASSEMBLY_ORDER_VIEW],
@@ -193,6 +212,38 @@ describe('the assembly register', () => {
     })
     expect(await screen.findByText('Could not load this list')).toBeVisible()
     expect(screen.getByText('Assembly orders are not yours to see')).toBeVisible()
+  })
+})
+
+// -------------------------------------------------------------- the panel --
+
+describe('what the order panel names', () => {
+  it('names the item, each component and each consumed unit as a person reads them', async () => {
+    // Every one of these was an eight-character UUID prefix: the order's item,
+    // the component's, and the consumed serials a warranty claim is traced by.
+    const order = assemblyOrder({ status: 'COMPLETED' })
+    const { user } = renderScreen(<AssemblyPage />, {
+      permissions: [P.ASSEMBLY_ORDER_VIEW],
+      routes: panelRoutes(order, [
+        assemblyComponent({
+          is_serial_tracked_component: true,
+          consumed_quantity: '2.0000',
+          consumed_serial_ids: ['ser-1', 'ser-2'],
+          consumed_serial_numbers: ['LK-0001', 'LK-0002'],
+        }),
+      ]),
+    })
+    await openPanel(user)
+    const dialog = screen.getByRole('dialog')
+
+    expect(await within(dialog).findByText('LOCK-SET-01 - Mortise lock set')).toBeVisible()
+    const component = within(dialog).getAllByRole('row')[1]!
+    expect(within(component).getByRole('link', { name: 'SCREW-M4' })).toBeVisible()
+    expect(within(component).getByText('Screw M4 x 20')).toBeVisible()
+    expect(within(dialog).getByText('2 serials consumed')).toBeVisible()
+    expect(within(dialog).getByText('LK-0001')).toBeVisible()
+    expect(within(dialog).getByText('LK-0002')).toBeVisible()
+    expect(within(dialog).queryByText(/item-aaa|item-bbb|ser-1/)).toBeNull()
   })
 })
 
@@ -279,6 +330,8 @@ describe('issuing components', () => {
             id: 'ac-2',
             line_number: 2,
             item_id: 'item-ccc-0002',
+            item_code: 'SPRING-07',
+            item_name: 'Return spring',
             required_quantity: '5.0000',
             issued_quantity: '0.0000',
           }),
@@ -290,10 +343,10 @@ describe('issuing components', () => {
     await user.click(screen.getByRole('button', { name: /issue components/i }))
 
     // Pre-filled with the requirement, not with what is outstanding.
-    const first = await screen.findByLabelText('Line 1 - item-bbb')
+    const first = await screen.findByLabelText('Line 1 - SCREW-M4')
     expect(first).toHaveValue('100')
 
-    const second = screen.getByLabelText('Line 2 - item-ccc')
+    const second = screen.getByLabelText('Line 2 - SPRING-07')
     await user.clear(second)
     await user.type(second, '0')
     await user.click(screen.getByRole('button', { name: 'Issue components' }))
@@ -321,7 +374,7 @@ describe('issuing components', () => {
     })
     await openPanel(user)
     await user.click(screen.getByRole('button', { name: /issue components/i }))
-    await screen.findByLabelText('Line 1 - item-bbb')
+    await screen.findByLabelText('Line 1 - SCREW-M4')
     await user.click(screen.getByRole('button', { name: 'Issue components' }))
 
     expect(await screen.findByText('Above the reserved quantity for this line')).toBeVisible()

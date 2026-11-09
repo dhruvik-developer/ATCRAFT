@@ -44,6 +44,11 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+from src.modules.assembly.schemas import (
+    AssemblyComponentRead,
+    AssemblyOrderDetail,
+    AssemblyOrderSummary,
+)
 from src.modules.auth.schemas import MeResponse
 from src.modules.inventory.schemas import ItemStockSummaryWithCost, WarehouseStockRowWithCost
 from src.modules.production.schemas import ProductionOrderDetail, ProductionOrderSummary
@@ -84,6 +89,11 @@ MIRRORS: tuple[tuple[str, str, type[BaseModel]], ...] = (
     # body is read here, and the row's fields are checked through the row.
     ("features/production/production-model.ts", "ProductionOrderRow", ProductionOrderSummary),
     ("features/production/production-model.ts", "ProductionOrderDetail", ProductionOrderDetail),
+    # Registered when the item and serial labels were added to them: every screen
+    # of the module drew a UUID prefix until the read named what it references.
+    ("features/assembly/assembly-model.ts", "AssemblyOrderRow", AssemblyOrderSummary),
+    ("features/assembly/assembly-model.ts", "AssemblyOrderDetail", AssemblyOrderDetail),
+    ("features/assembly/assembly-model.ts", "AssemblyComponent", AssemblyComponentRead),
 )
 
 #: Fields a mirror may declare that the model does not carry, with the reason.

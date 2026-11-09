@@ -44,12 +44,13 @@ import { useAuth } from '@/features/auth/auth-context'
 import { BatchSelect } from '@/features/dispatch/stock-pickers'
 import MovementBatchPicker from '@/features/inventory/movement-batch-picker'
 import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
-import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
+import { labelSerials, splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatQuantity,
@@ -80,6 +81,7 @@ import {
   isEditable,
   isReleasable,
   isStartable,
+  itemLabel,
   onBenchQuantity,
   outstandingQuantity,
   remainingToAssemble,
@@ -139,12 +141,13 @@ type IssueFormValues = z.infer<typeof issueSchema>
 function issueDefaults(components: AssemblyComponent[]): IssueFormValues {
   return {
     reason: 'Component issue to assembly order',
-    // The component carries an item id and nothing else - no code, no name -
-    // so the label is the line number and the id it points at.
+    // The line number as well as the code: two lines may draw the same item.
     lines: components.map((component) => ({
       line_number: component.line_number,
       item_id: component.item_id,
-      label: `Line ${component.line_number} - ${component.item_id.slice(0, 8)}`,
+      label: component.item_code
+        ? `Line ${component.line_number} - ${component.item_code}`
+        : `Line ${component.line_number}`,
       batch_id: component.issued_batch_id ?? '',
       quantity: toDecimal(component.required_quantity).toFixed(),
     })),
@@ -365,9 +368,11 @@ function SerialTraceability({ components }: { components: AssemblyComponent[] })
   return (
     <div className="space-y-3">
       {tracked.map((component) => {
-        // The API returns the consumed serials as ids only - it carries no
-        // serial numbers on this payload - so the id is what can be shown.
-        const serialIds = component.consumed_serial_ids
+        // By label: the number on the unit is what a warranty claim quotes.
+        const serials = labelSerials(
+          component.consumed_serial_ids,
+          component.consumed_serial_numbers,
+        )
         return (
           <div key={component.id} className="rounded-md border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -375,27 +380,27 @@ function SerialTraceability({ components }: { components: AssemblyComponent[] })
                 Line {component.line_number}
                 <Link
                   to={`/items/${component.item_id}`}
-                  className="ml-2 font-mono text-xs font-normal hover:underline"
+                  className="ml-2 text-xs font-normal hover:underline"
                 >
-                  {component.item_id.slice(0, 8)}
+                  {itemLabel(component)}
                 </Link>
               </p>
               <span className="text-xs text-muted-foreground">
-                {serialIds.length} serial{serialIds.length === 1 ? '' : 's'} consumed
+                {plural(serials.length, 'serial')} consumed
               </span>
             </div>
 
-            {serialIds.length === 0 ? (
+            {serials.length === 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 Nothing consumed yet. Serials are recorded as the assembly is completed.
               </p>
             ) : (
               <ul className="mt-2 flex flex-wrap gap-1.5">
-                {serialIds.map((serialId) => (
-                  <li key={serialId}>
+                {serials.map((serial) => (
+                  <li key={serial.id}>
                     <Badge variant="outline" className="font-mono">
                       <ScanBarcode className="h-3 w-3" aria-hidden />
-                      {serialId.slice(0, 8)}
+                      {serial.label}
                     </Badge>
                   </li>
                 ))}
@@ -486,12 +491,12 @@ function SerialPicker({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium">
           Line {component.line_number}
-          <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
-            {component.item_id.slice(0, 8)}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {itemLabel(component)}
           </span>
         </p>
         <span className="text-xs text-muted-foreground">
-          {selected.length} serial{selected.length === 1 ? '' : 's'} named
+          {plural(selected.length, 'serial')} named
         </span>
       </div>
 
@@ -842,8 +847,8 @@ function CompleteAssemblyDialog({
                   <div key={component.id} className="rounded-md border p-3">
                     <p className="mb-2 text-sm font-medium">
                       Line {component.line_number}
-                      <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
-                        {component.item_id.slice(0, 8)}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {itemLabel(component)}
                       </span>
                     </p>
                     <BatchSelect
@@ -1100,11 +1105,16 @@ export function AssemblyDetailDialog({
             </span>
             <Link
               to={`/items/${row.original.item_id}`}
-              className="font-mono text-xs hover:underline"
+              className="font-medium hover:underline"
               title="Open this item"
             >
-              {row.original.item_id.slice(0, 8)}
+              {row.original.item_code ?? EMPTY_VALUE}
             </Link>
+            {row.original.item_name && (
+              <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+                {row.original.item_name}
+              </span>
+            )}
           </div>
         ),
       },
@@ -1315,14 +1325,10 @@ export function AssemblyDetailDialog({
                   columns={3}
                   items={[
                     {
-                      // The order carries ids only - no codes, no names.
                       label: 'Item',
                       value: (
-                        <Link
-                          to={`/items/${order.item_id}`}
-                          className="font-mono text-xs hover:underline"
-                        >
-                          {order.item_id.slice(0, 8)}
+                        <Link to={`/items/${order.item_id}`} className="hover:underline">
+                          {itemLabel(order)}
                         </Link>
                       ),
                     },

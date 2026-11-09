@@ -13,6 +13,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
@@ -72,6 +73,8 @@ function draft(overrides: Partial<AssemblyOrderRow> = {}): AssemblyOrderRow {
     status: 'DRAFT',
     version: 1,
     item_id: ITEM.id,
+    item_code: ITEM.code,
+    item_name: ITEM.name,
     bom_id: 'bom-1',
     warehouse_id: 'wh-1',
     output_warehouse_id: 'wh-2',
@@ -177,6 +180,41 @@ describe('raising an assembly order', () => {
     expect(await screen.findByText('ASM-0001')).toBeVisible()
   })
 
+  it('says what was raised and where from in words, not by a warehouse id', async () => {
+    // The confirmation printed `assemble 25.0000 from <eight characters of a
+    // UUID>`; the dialog already holds the warehouse list it was chosen from.
+    const { user } = renderScreen(
+      <>
+        <AssemblyPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_ORDER_MANAGE],
+        routes: {
+          'GET /assembly': page([]),
+          ...lookups,
+          'POST /assembly': ok(draft({ planned_quantity: '25.0000' })),
+          'GET /assembly/asm-1': ok(draft()),
+          'GET /assembly/asm-1/components': ok([]),
+        },
+      },
+    )
+    const dialog = await openCreate(user)
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Item to assemble' }))
+    await user.click(await screen.findByRole('option', { name: /LOCK-SET-01/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: 'Component warehouse' }))
+    await user.click(await screen.findByRole('option', { name: 'MAIN - Main store' }))
+    await user.type(within(dialog).getByRole('textbox', { name: /planned quantity/i }), '25')
+    await user.click(within(dialog).getByRole('button', { name: 'Raise order' }))
+
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText('Assembly order created')).toBeVisible()
+    expect(
+      within(toasts).getByText('ASM-0001: assemble 25 of LOCK-SET-01 from MAIN - Main store.'),
+    ).toBeVisible()
+  })
+
   it('requires the item, the quantity and the component warehouse', async () => {
     const { user, fetch } = renderScreen(<AssemblyPage />, {
       permissions: [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_ORDER_MANAGE],
@@ -206,16 +244,22 @@ describe('raising an assembly order', () => {
 describe('amending a draft', () => {
   it('sends the editable fields and never the item or the recipe', async () => {
     const order = draft()
-    const { user, fetch } = renderScreen(<AssemblyPage />, {
-      permissions: [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_ORDER_MANAGE],
-      routes: {
-        'GET /assembly': page([order]),
-        [`GET /assembly/${order.id}`]: ok(order),
-        [`GET /assembly/${order.id}/components`]: ok([]),
-        ...lookups,
-        [`PATCH /assembly/${order.id}`]: ok({ ...order, planned_quantity: '25.0000' }),
+    const { user, fetch } = renderScreen(
+      <>
+        <AssemblyPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_ORDER_MANAGE],
+        routes: {
+          'GET /assembly': page([order]),
+          [`GET /assembly/${order.id}`]: ok(order),
+          [`GET /assembly/${order.id}/components`]: ok([]),
+          ...lookups,
+          [`PATCH /assembly/${order.id}`]: ok({ ...order, planned_quantity: '25.0000' }),
+        },
       },
-    })
+    )
     await screen.findByText('ASM-0001')
     await user.click(screen.getByRole('button', { name: 'Open' }))
     await screen.findByRole('dialog')
@@ -231,5 +275,13 @@ describe('amending a draft', () => {
     expect(body.planned_quantity).toBe('25')
     expect(body).not.toHaveProperty('item_id')
     expect(body).not.toHaveProperty('bom_id')
+    // The warehouse came with the draft rather than from a pick, and is still
+    // named from the list its select reads.
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(
+      await within(toasts).findByText(
+        'ASM-0001: assemble 25 of LOCK-SET-01 from MAIN - Main store.',
+      ),
+    ).toBeVisible()
   })
 })

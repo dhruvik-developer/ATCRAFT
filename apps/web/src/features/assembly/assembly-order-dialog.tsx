@@ -54,6 +54,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
+import { useWarehouseLookup } from '@/features/inventory/use-warehouse-lookup'
 import { api } from '@/lib/api-client'
 import {
   ASSEMBLY_LINE_MAX_LENGTH,
@@ -62,7 +63,7 @@ import {
   DEFAULT_ASSEMBLY_PRIORITY,
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { humanise, toDateInput } from '@/lib/format'
+import { formatQuantity, humanise, toDateInput } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -161,6 +162,9 @@ export function AssemblyOrderFormDialog({
   })
 
   const itemId = watch('item_id')
+  // The list both warehouse selects already read, so the confirmation can name
+  // the chosen one without a request of its own.
+  const warehouses = useWarehouseLookup()
 
   useEffect(() => {
     if (open) reset(defaultsFor(order))
@@ -229,9 +233,12 @@ export function AssemblyOrderFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: assemblyKeys.all })
+      const warehouse = warehouses.data?.data.find((row) => row.id === saved.warehouse_id)
       toast.success(
         editing ? success.updated('Assembly order') : success.created('Assembly order'),
-        `${saved.code}: assemble ${saved.planned_quantity} from ${saved.warehouse_id.slice(0, 8)}.`,
+        `${saved.code}: assemble ${formatQuantity(saved.planned_quantity)}` +
+          (saved.item_code ? ` of ${saved.item_code}` : '') +
+          (warehouse ? ` from ${warehouse.code} - ${warehouse.name}.` : '.'),
       )
       onSaved?.(saved)
       onOpenChange(false)

@@ -31,7 +31,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -132,16 +132,22 @@ export default function AssemblyPage() {
         id: 'item',
         header: 'Item',
         enableSorting: false,
-        // The row carries an item id and nothing else - no code, no name.
         cell: ({ row }) => (
-          <Link
-            to={`/items/${row.original.item_id}`}
-            className="font-mono text-xs hover:underline"
-            onClick={(event) => event.stopPropagation()}
-            title="Open this item"
-          >
-            {row.original.item_id.slice(0, 8)}
-          </Link>
+          <div className="min-w-0">
+            <Link
+              to={`/items/${row.original.item_id}`}
+              className="font-medium hover:underline"
+              onClick={(event) => event.stopPropagation()}
+              title="Open this item"
+            >
+              {row.original.item_code ?? EMPTY_VALUE}
+            </Link>
+            {row.original.item_name && (
+              <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+                {row.original.item_name}
+              </span>
+            )}
+          </div>
         ),
       },
       {
