@@ -1,4 +1,4 @@
-"""A listbox in the web app is the shared search picker's.
+"""A listbox in the web app is one of the two shared pickers'.
 
 Thirteen pickers - customer, vendor, item, bin, batch, dispatch, job-work order,
 purchase order, goods receipt, RFQ, requisition - each wrote a
@@ -12,10 +12,15 @@ copies had drifted apart as well ("Loading bins...", a skeleton).
 ``components/ui/search-picker.tsx`` is that keyboard model written once, with
 the status said in a ``role="status"`` region beside the list, 44px rows and a
 popover that fits a 320px screen, and every server-search picker renders it.
-So the two roles are spelled there and nowhere else: a new search renders
-``SearchPicker``, and a fixed set of choices is a ``Select``, whose listbox
-Radix writes itself. Comment lines are skipped, so the history can still be
-told beside the code it happened in.
+``components/ui/multi-select-list.tsx`` is the same model for several choices:
+the serial picker had drawn every unit as its own toggle button, up to fifty
+Tab stops at 34px, and the MRP warehouse choice a column of hand-written
+``role="checkbox"`` buttons the arrow keys could not reach. So the roles are
+spelled in those two files and nowhere else: a new search renders
+``SearchPicker``, several choices render ``MultiSelectList``, a fixed set of
+choices is a ``Select``, whose listbox Radix writes itself, and a single tick is
+the ``Checkbox`` primitive, whose role Radix writes too. Comment lines are
+skipped, so the history can still be told beside the code it happened in.
 """
 
 from __future__ import annotations
@@ -29,14 +34,18 @@ pytestmark = pytest.mark.unit
 
 WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
 
-#: The one file that implements the listbox keyboard model.
-HOME = WEB_SRC / "components" / "ui" / "search-picker.tsx"
+#: The files that implement the listbox keyboard model: one choice, and several.
+HOMES = (
+    WEB_SRC / "components" / "ui" / "search-picker.tsx",
+    WEB_SRC / "components" / "ui" / "multi-select-list.tsx",
+)
 
-#: ``role="listbox"``, ``role='option'``, ``role={'listbox'}`` and a role chosen
-#: in an expression, ``role={open ? 'listbox' : undefined}``.
+#: ``role="listbox"``, ``role='option'``, ``role={'listbox'}``, a role chosen in
+#: an expression, ``role={open ? 'listbox' : undefined}``, and a hand-written
+#: ``role="checkbox"``, which no home needs either.
 _ROLE = re.compile(
-    r"""role=(?:(["'])(?P<plain>listbox|option)\1"""
-    r"""|\{[^}]*?(["'`])(?P<expr>listbox|option)\3[^}]*\})"""
+    r"""role=(?:(["'])(?P<plain>listbox|option|checkbox)\1"""
+    r"""|\{[^}]*?(["'`])(?P<expr>listbox|option|checkbox)\3[^}]*\})"""
 )
 _COMMENT_LINE = re.compile(r"^\s*(?://|/\*|\*|\{/\*)")
 
@@ -63,21 +72,22 @@ def _sources() -> list[Path]:
     )
 
 
-def test_the_shared_picker_is_where_the_listbox_lives() -> None:
+@pytest.mark.parametrize("home", HOMES, ids=lambda path: path.name)
+def test_the_shared_pickers_are_where_the_listbox_lives(home: Path) -> None:
     """A move or rename would otherwise leave the exemption pointing at nothing."""
-    source = HOME.read_text(encoding="utf-8")
+    source = home.read_text(encoding="utf-8")
     roles = {line.rsplit("=", 1)[1] for line in hand_rolled_listboxes(source)}
-    assert roles == {"listbox", "option"}, f"{HOME.name} no longer writes both roles: {roles}"
+    assert roles == {"listbox", "option"}, f"{home.name} no longer writes both roles: {roles}"
     # The roles are a promise of the arrow keys; the picker is what keeps it.
     for key in ("ArrowDown", "ArrowUp", "Home", "End"):
-        assert f"'{key}'" in source, f"{HOME.name} no longer handles {key}"
+        assert f"'{key}'" in source, f"{home.name} no longer handles {key}"
 
 
 def test_no_other_file_writes_a_listbox_by_hand() -> None:
     offenders = {
         path.relative_to(WEB_SRC).as_posix(): found
         for path in _sources()
-        if path != HOME and (found := hand_rolled_listboxes(path.read_text(encoding="utf-8")))
+        if path not in HOMES and (found := hand_rolled_listboxes(path.read_text(encoding="utf-8")))
     }
     assert not offenders, (
         "These files write a listbox by hand, which announces a keyboard model "
@@ -85,7 +95,8 @@ def test_no_other_file_writes_a_listbox_by_hand() -> None:
         "implement themselves:\n  "
         + "\n  ".join(f"{name}: {found}" for name, found in offenders.items())
         + "\n\nRender SearchPicker from components/ui/search-picker.tsx for a search on the "
-        "server, or Select from components/ui/select.tsx for a fixed set of choices."
+        "server, MultiSelectList from components/ui/multi-select-list.tsx for several choices, "
+        "Select from components/ui/select.tsx for a fixed set, or Checkbox for one tick."
     )
 
 
@@ -99,6 +110,7 @@ def test_the_rule_rejects_a_listbox_however_it_is_written() -> None:
         "<li role={'option'}>\n"
         "<div role={open ? 'listbox' : undefined}>\n"
         '<ul role={"listbox"}><li role="option">One</li></ul>\n'
+        '<button type="button" role="checkbox" aria-checked={isSelected}>\n'
     )
     assert hand_rolled_listboxes(source) == [
         "line 1: role=listbox",
@@ -107,6 +119,7 @@ def test_the_rule_rejects_a_listbox_however_it_is_written() -> None:
         "line 4: role=listbox",
         "line 5: role=listbox",
         "line 5: role=option",
+        "line 6: role=checkbox",
     ]
 
 
@@ -116,6 +129,7 @@ def test_the_rule_ignores_what_only_mentions_one() -> None:
         ' * out by hand: a popover, a search box, a `role="listbox"` of `role="option"`\n'
         '{/* It was a role="listbox" of buttons before. */}\n'
         "screen.getByRole('listbox', { name: 'Batches' })\n"
+        "screen.getByRole('checkbox', { name: 'Enable nightly planning' })\n"
         '<SelectTrigger aria-haspopup="listbox" aria-controls={listboxId}>\n'
         '<p role="status" className="text-sm">\n'
         '<div role="group" aria-label="Options">\n'

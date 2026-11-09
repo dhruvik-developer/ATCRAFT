@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
@@ -40,22 +40,75 @@ describe('server-paged serial selection', () => {
         },
       },
     })
-    await user.click(await screen.findByRole('button', { name: 'SERIAL-1' }))
+    await user.click(await screen.findByRole('option', { name: 'SERIAL-1' }))
     await user.click(screen.getByRole('button', { name: 'Next units' }))
-    await user.click(await screen.findByRole('button', { name: 'SERIAL-51' }))
+    await user.click(await screen.findByRole('option', { name: 'SERIAL-51' }))
     expect(screen.getByText('2 of 2 identified')).toBeVisible()
     await user.click(screen.getByRole('button', { name: 'Previous units' }))
-    expect(await screen.findByRole('button', { name: /SERIAL-1/ })).toHaveAttribute(
-      'aria-pressed',
+    expect(await screen.findByRole('option', { name: /SERIAL-1/ })).toHaveAttribute(
+      'aria-selected',
       'true',
     )
     await user.type(screen.getByLabelText('Serial numbers'), 'SPECIAL')
-    expect(await screen.findByRole('button', { name: 'SERIAL-900' })).toBeVisible()
+    expect(await screen.findByRole('option', { name: 'SERIAL-900' })).toBeVisible()
     expect(
       urls.find((url) => url.searchParams.get('search') === 'SPECIAL')?.searchParams.get('page'),
     ).toBe('1')
     expect(urls.every((url) => url.searchParams.get('warehouse_id') === 'wh')).toBe(true)
     expect(screen.getByText('2 of 2 identified')).toBeVisible()
+  })
+})
+
+describe('naming units from the keyboard', () => {
+  it('enters the list from the search box, ticks with Space and leaves it in one Tab', async () => {
+    // Every unit was its own Tab stop: fifty of them between the search box and
+    // the form's next field, each 34px tall.
+    const searches: string[] = []
+    const { user } = renderScreen(<ControlledSerials />, {
+      permissions: [P.INVENTORY_VIEW],
+      routes: {
+        'GET /inventory/serials': ({ url }) => {
+          searches.push(url.searchParams.get('search') ?? '')
+          return page(
+            [1, 2, 3].map((index) => ({
+              id: `unit-${index}`,
+              serial_number: `SERIAL-${index}`,
+              status: index === 2 ? 'DAMAGED' : 'IN_STOCK',
+            })),
+            { has_next: false },
+          )
+        },
+      },
+    })
+    const list = await screen.findByRole('listbox', { name: 'Serial numbers found' })
+    expect(await screen.findByRole('status')).toHaveTextContent('3 units')
+
+    await user.click(screen.getByLabelText('Serial numbers'))
+    await user.keyboard('{ArrowDown}')
+    expect(within(list).getByRole('option', { name: 'SERIAL-1' })).toHaveFocus()
+    await user.keyboard(' ')
+    // A unit the document cannot take is read, with its reason, but not ticked.
+    await user.keyboard('{ArrowDown} ')
+    expect(within(list).getByRole('option', { name: 'SERIAL-2 Damaged' })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+    await user.keyboard('{ArrowDown}{Enter}')
+    expect(screen.getByText('2 of 2 identified')).toBeVisible()
+    for (const option of within(list).getAllByRole('option')) {
+      expect(option).toHaveClass('min-h-11')
+    }
+
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Previous units' })).not.toHaveFocus()
+    expect(list).not.toContainElement(document.activeElement as HTMLElement)
+
+    // A character typed in the list goes on into the search.
+    await user.tab({ shift: true })
+    await user.keyboard('9')
+    expect(screen.getByLabelText('Serial numbers')).toHaveValue('9')
+    expect(screen.getByLabelText('Serial numbers')).toHaveFocus()
+    await waitFor(() => expect(searches).toContain('9'))
   })
 })
 
@@ -118,8 +171,8 @@ describe('source-scoped rework serial selection', () => {
       },
     })
 
-    expect(await screen.findByRole('button', { name: /^SERIAL-1 Chosen$/ })).toBeVisible()
-    expect(await screen.findByRole('button', { name: /^SERIAL-101 Chosen$/ })).toBeVisible()
+    expect(await screen.findByRole('option', { name: 'SERIAL-1', selected: true })).toBeVisible()
+    expect(await screen.findByRole('option', { name: 'SERIAL-101', selected: true })).toBeVisible()
     expect(screen.getByText('101 of 101 identified')).toBeVisible()
     expect(groups.map((ids) => ids.length)).toEqual([100, 1])
     expect(groups.flat()).toHaveLength(101)

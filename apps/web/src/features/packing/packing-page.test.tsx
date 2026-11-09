@@ -739,14 +739,14 @@ describe('what a transition sends', () => {
     await user.click(screen.getByRole('button', { name: 'Start packing' }))
     await user.click(await screen.findByRole('textbox', { name: 'Reason' }))
     await user.paste('Named units sent for final checking')
-    await screen.findByRole('button', { name: 'FINAL-001' })
+    await screen.findByRole('option', { name: 'FINAL-001' })
     await user.click(screen.getByRole('button', { name: 'Start packing' }))
     expect(
       await screen.findByText('Choose one distinct serial unit for every unit requiring final QC.'),
     ).toBeVisible()
     expect(fetch.calls.some((call) => call.path.endsWith('/start'))).toBe(false)
-    await user.click(screen.getByRole('button', { name: 'FINAL-001' }))
-    await user.click(screen.getByRole('button', { name: 'FINAL-002' }))
+    await user.click(screen.getByRole('option', { name: 'FINAL-001' }))
+    await user.click(screen.getByRole('option', { name: 'FINAL-002' }))
     await user.click(screen.getByRole('button', { name: 'Start packing' }))
     await waitFor(() =>
       expect(fetch.requestFor('POST', `/packing/${ORDER_ID}/start`)).toMatchObject({
@@ -785,12 +785,15 @@ describe('what a transition sends', () => {
     await user.click(await screen.findByRole('button', { name: 'Replace rejected QC lot' }))
     await user.click(await screen.findByRole('textbox', { name: 'Reason' }))
     await user.paste('Replace the rejected coating unit')
-    expect(await screen.findByRole('button', { name: /REJECTED-001/ })).toBeDisabled()
+    expect(await screen.findByRole('option', { name: /REJECTED-001/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
     await user.click(screen.getByRole('button', { name: 'Raise replacement inspection' }))
     expect(
       await screen.findByText('Select one replacement serial for every unit on this line.'),
     ).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'REPLACEMENT-001' }))
+    await user.click(screen.getByRole('option', { name: 'REPLACEMENT-001' }))
     await user.click(screen.getByRole('button', { name: 'Raise replacement inspection' }))
     await waitFor(() =>
       expect(fetch.requestFor('POST', `/packing/${ORDER_ID}/lines/${line.id}/reinspect`)).toEqual({

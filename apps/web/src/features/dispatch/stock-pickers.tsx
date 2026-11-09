@@ -20,17 +20,18 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { ScanBarcode } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Label, Badge, Input, Skeleton } from '@/components/ui/primitives'
+import { MultiSelectList, type MultiSelectListHandle } from '@/components/ui/multi-select-list'
+import { Label, Badge, Input } from '@/components/ui/primitives'
 import { SearchPicker } from '@/components/ui/search-picker'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
-import { formatQuantity, humanise, toDecimal } from '@/lib/format'
-import { describeError } from '@/lib/messages'
+import { formatQuantity, humanise, plural, toDecimal } from '@/lib/format'
+import { describeError, picker } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
@@ -197,6 +198,9 @@ export function SerialPicker({
 }) {
   const [term, setTerm] = useState('')
   const [page, setPage] = useState(1)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<MultiSelectListHandle>(null)
+  const listId = useId()
 
   const debounced = useDebouncedValue(term)
 
@@ -274,6 +278,8 @@ export function SerialPicker({
   const rows = serials.data?.data ?? []
   const wanted = toDecimal(quantity)
   const chosen = selected.length
+  const available = (serial: StockSerial) =>
+    allowedStatuses.includes(serial.status) && !excludedIds.includes(serial.id)
 
   const toggle = (serialId: string) =>
     onChange(
@@ -281,6 +287,24 @@ export function SerialPicker({
         ? selected.filter((id) => id !== serialId)
         : [...selected, serialId],
     )
+
+  // Said beside the list in its live region, as the shared search picker says
+  // it. A failed read is the LoadError below and never passes for an empty one.
+  let listStatus: string | null = null
+  let listStatusClassName = 'sr-only'
+  if (serials.isLoading) {
+    listStatus = picker.searching
+    listStatusClassName = 'py-3 text-center'
+  } else if (serials.error) {
+    listStatus = null
+  } else if (rows.length === 0) {
+    listStatus =
+      'No eligible serial units match these filters. Search by the label or check the stock ' +
+      'position before proceeding.'
+    listStatusClassName = 'py-3 text-center text-warning'
+  } else {
+    listStatus = plural(rows.length, 'unit')
+  }
 
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -307,57 +331,54 @@ export function SerialPicker({
       ) : (
         <>
           <Input
+            ref={searchRef}
             id={`${idPrefix}-serial-search`}
             value={term}
             onChange={(event) => {
               setTerm(event.target.value)
               setPage(1)
             }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' && rows.length > 0) {
+                event.preventDefault()
+                listRef.current?.focus()
+              }
+            }}
+            aria-controls={rows.length > 0 ? listId : undefined}
             placeholder="Search the serial register"
             autoComplete="off"
           />
 
-          <div className="max-h-48 space-y-1 overflow-y-auto">
-            {serials.isLoading && <Skeleton className="h-16 w-full" />}
-
-            {!serials.isLoading && !serials.error && rows.length === 0 && (
-              <p className="py-3 text-center text-xs text-warning">
-                No eligible serial units match these filters. Search by the label or check the stock
-                position before proceeding.
-              </p>
+          <MultiSelectList
+            id={listId}
+            handleRef={listRef}
+            label={`${label} found`}
+            rows={rows}
+            getKey={(serial) => serial.id}
+            isSelected={(serial) => selected.includes(serial.id)}
+            // A unit already chosen can always be given back, whatever its status now.
+            isDisabled={(serial) => !available(serial) && !selected.includes(serial.id)}
+            onToggle={(serial) => toggle(serial.id)}
+            renderOption={(serial) => (
+              <span className="flex items-center justify-between gap-2">
+                <span className="truncate font-mono text-xs">{serial.serial_number}</span>
+                {!available(serial) && (
+                  <Badge variant="muted">
+                    {excludedIds.includes(serial.id) ? 'Already assigned' : humanise(serial.status)}
+                  </Badge>
+                )}
+              </span>
             )}
-
-            {rows.map((serial) => {
-              const inStock =
-                allowedStatuses.includes(serial.status) && !excludedIds.includes(serial.id)
-              const isChosen = selected.includes(serial.id)
-              return (
-                <button
-                  key={serial.id}
-                  type="button"
-                  disabled={!inStock && !isChosen}
-                  aria-pressed={isChosen}
-                  onClick={() => toggle(serial.id)}
-                  className={cn(
-                    'flex w-full items-center justify-between gap-2 rounded-sm border px-2 py-1.5 text-left text-sm',
-                    isChosen ? 'border-primary bg-primary/5' : 'border-transparent',
-                    inStock ? 'hover:bg-accent' : 'cursor-not-allowed opacity-60',
-                  )}
-                >
-                  <span className="truncate font-mono text-xs">{serial.serial_number}</span>
-                  {inStock ? (
-                    isChosen && <Badge variant="success">Chosen</Badge>
-                  ) : (
-                    <Badge variant="muted">
-                      {excludedIds.includes(serial.id)
-                        ? 'Already assigned'
-                        : humanise(serial.status)}
-                    </Badge>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+            status={listStatus}
+            statusClassName={listStatusClassName}
+            className="max-h-48"
+            onLeaveTop={() => searchRef.current?.focus()}
+            onType={(character) => {
+              setTerm((current) => current + character)
+              setPage(1)
+              searchRef.current?.focus()
+            }}
+          />
           {serials.error && (
             <LoadError error={serials.error} onRetry={() => void serials.refetch()} />
           )}

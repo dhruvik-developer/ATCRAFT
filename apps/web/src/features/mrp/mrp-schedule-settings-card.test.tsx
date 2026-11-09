@@ -73,7 +73,7 @@ describe('MRP schedule settings', () => {
     await user.type(horizon, '365')
 
     await user.click(screen.getByRole('combobox', { name: 'Warehouse scope' }))
-    await user.click(screen.getByRole('checkbox', { name: /PLANT-1 Main plant/ }))
+    await user.click(screen.getByRole('option', { name: /PLANT-1 Main plant/ }))
     await user.click(screen.getByRole('checkbox', { name: 'Protect safety stock' }))
     await user.click(screen.getByRole('button', { name: 'Save schedule' }))
 

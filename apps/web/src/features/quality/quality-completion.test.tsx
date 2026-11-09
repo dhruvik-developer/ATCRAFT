@@ -178,18 +178,18 @@ describe('raising an inspection by hand', () => {
     await user.click(screen.getByRole('button', { name: /raise inspection/i }))
     expect(await screen.findByText('Select one serial unit for each inspected unit.')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
-    await user.click(await screen.findByRole('button', { name: 'SERIAL-001' }))
-    expect(screen.getByRole('button', { name: /SERIAL-001/ })).toHaveAttribute(
-      'aria-pressed',
+    await user.click(await screen.findByRole('option', { name: 'SERIAL-001' }))
+    expect(screen.getByRole('option', { name: /SERIAL-001/ })).toHaveAttribute(
+      'aria-selected',
       'true',
     )
     await user.click(screen.getByRole('combobox', { name: 'Warehouse' }))
     await user.click(await screen.findByRole('option', { name: /QC -/ }))
-    expect(await screen.findByRole('button', { name: 'SERIAL-001' })).toHaveAttribute(
-      'aria-pressed',
+    expect(await screen.findByRole('option', { name: 'SERIAL-001' })).toHaveAttribute(
+      'aria-selected',
       'false',
     )
-    await user.click(screen.getByRole('button', { name: 'SERIAL-001' }))
+    await user.click(screen.getByRole('option', { name: 'SERIAL-001' }))
     await user.click(screen.getByRole('button', { name: /raise inspection/i }))
     await waitFor(() =>
       expect(fetch.requestFor('POST', '/quality/inspections')).toMatchObject({

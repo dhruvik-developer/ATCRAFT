@@ -15,7 +15,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { CheckCircle2, PackageMinus, ScanBarcode } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
 import { z } from 'zod'
@@ -39,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
+import { MultiSelectList, type MultiSelectListHandle } from '@/components/ui/multi-select-list'
 import { Alert, AlertDescription, Badge, Input, Label, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { BatchSelect } from '@/features/dispatch/stock-pickers'
@@ -439,6 +440,9 @@ function SerialPicker({
   canSearch: boolean
 }) {
   const [term, setTerm] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<MultiSelectListHandle>(null)
+  const listId = useId()
 
   // One request per keystroke would put a scan of the serial register behind
   // every character typed.
@@ -464,7 +468,15 @@ function SerialPicker({
   })
 
   const chosen = new Set(selected.map((serial) => serial.id))
-  const rows = (results.data?.data ?? []).filter((serial) => !chosen.has(serial.id))
+  // A named serial stays in the list, ticked, and in the chips above it, which
+  // keep it in sight once a new search has moved the list on.
+  const rows = results.data?.data ?? []
+  const toggle = (serial: StockSerial) =>
+    onChange(
+      chosen.has(serial.id)
+        ? selected.filter((row) => row.id !== serial.id)
+        : [...selected, serial],
+    )
 
   // Said beside the list in one live region, as the shared search picker says
   // it, so a screen reader hears the search answer. A failed search is the
@@ -525,36 +537,44 @@ function SerialPicker({
       ) : (
         <>
           <Input
+            ref={searchRef}
             aria-label={`Search a serial number for line ${component.line_number}`}
             value={term}
             onChange={(event) => setTerm(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' && rows.length > 0) {
+                event.preventDefault()
+                listRef.current?.focus()
+              }
+            }}
+            aria-controls={rows.length > 0 ? listId : undefined}
             autoComplete="off"
             placeholder="Search a serial number..."
             className="mt-2"
           />
-          {rows.length > 0 && (
-            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto overscroll-contain">
-              {rows.map((serial) => (
-                <li key={serial.id}>
-                  {/* 44px tall for a thumb, as the shared search picker's rows are. */}
-                  <button
-                    type="button"
-                    className="flex min-h-11 w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
-                    onClick={() => onChange([...selected, serial])}
-                  >
-                    <span className="font-mono">{serial.serial_number}</span>
-                    <span className="text-muted-foreground">{humanise(serial.status)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p
-            role="status"
-            className={statusVisible ? 'mt-2 text-xs text-muted-foreground' : 'sr-only'}
-          >
-            {status}
-          </p>
+          <MultiSelectList
+            id={listId}
+            handleRef={listRef}
+            label={`Serials for line ${component.line_number}`}
+            rows={rows}
+            getKey={(serial) => serial.id}
+            isSelected={(serial) => chosen.has(serial.id)}
+            onToggle={toggle}
+            renderOption={(serial) => (
+              <span className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-mono">{serial.serial_number}</span>
+                <span className="text-muted-foreground">{humanise(serial.status)}</span>
+              </span>
+            )}
+            status={status}
+            statusClassName={statusVisible ? 'mt-2' : 'sr-only'}
+            className="mt-2 max-h-48"
+            onLeaveTop={() => searchRef.current?.focus()}
+            onType={(character) => {
+              setTerm((current) => current + character)
+              searchRef.current?.focus()
+            }}
+          />
           {!results.isLoading && results.error ? (
             <FieldError message={describeError(results.error)} />
           ) : null}

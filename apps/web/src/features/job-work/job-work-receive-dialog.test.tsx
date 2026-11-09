@@ -198,8 +198,8 @@ describe('named serial processing', () => {
       await screen.findByText('Choose one distinct serial unit for every issued unit.'),
     ).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
-    await user.click(await screen.findByRole('button', { name: 'SERIAL-001' }))
-    await user.click(screen.getByRole('button', { name: 'SERIAL-002' }))
+    await user.click(await screen.findByRole('option', { name: 'SERIAL-001' }))
+    await user.click(screen.getByRole('option', { name: 'SERIAL-002' }))
     await user.click(screen.getByRole('button', { name: 'Issue and create challan' }))
     await waitFor(() =>
       expect(fetch.requestFor('POST', '/job-work/jw-1/issue')).toMatchObject({
@@ -242,15 +242,15 @@ describe('named serial processing', () => {
       const search = screen.getByLabelText(label)
       const picker = search.parentElement!.closest('div.space-y-2')!
       await user.click(
-        within(picker as HTMLElement).getByRole('button', { name: `SERIAL-00${index + 1}` }),
+        within(picker as HTMLElement).getByRole('option', { name: `SERIAL-00${index + 1}` }),
       )
       if (index === 0) {
         const otherPicker = screen
           .getByLabelText('Rejected serials')
           .parentElement!.closest('div.space-y-2')!
         expect(
-          within(otherPicker as HTMLElement).getByRole('button', { name: /SERIAL-001/ }),
-        ).toBeDisabled()
+          within(otherPicker as HTMLElement).getByRole('option', { name: /SERIAL-001/ }),
+        ).toHaveAttribute('aria-disabled', 'true')
       }
     }
     await user.click(screen.getByRole('button', { name: 'Record receipt' }))

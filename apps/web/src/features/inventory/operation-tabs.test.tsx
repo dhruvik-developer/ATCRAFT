@@ -312,7 +312,7 @@ describe('inventory operation documents', () => {
     await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
     await user.click(await screen.findByRole('option', { name: /BRASS/ }))
     await user.type(within(dialog).getByRole('textbox', { name: 'Quantity' }), '1')
-    await user.click(await within(dialog).findByRole('button', { name: /BRASS-UNIT-1/ }))
+    await user.click(await within(dialog).findByRole('option', { name: /BRASS-UNIT-1/ }))
     await user.click(within(dialog).getByRole('button', { name: /create draft issue/i }))
     await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
     expect(fetch.requestFor('POST', '/inventory/internal-issues')).toEqual({
@@ -401,7 +401,7 @@ describe('inventory operation documents', () => {
     await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
     await user.click(await screen.findByRole('option', { name: /BRASS/ }))
     await user.type(within(dialog).getByRole('textbox', { name: 'Quantity' }), '1')
-    await user.click(await within(dialog).findByRole('button', { name: /BRASS-UNIT-1/ }))
+    await user.click(await within(dialog).findByRole('option', { name: /BRASS-UNIT-1/ }))
     await user.click(within(dialog).getByRole('combobox', { name: 'To bin' }))
     await user.click(await screen.findByRole('option', { name: /BIN-B/ }))
     await user.click(within(dialog).getByRole('button', { name: /post bin move/i }))

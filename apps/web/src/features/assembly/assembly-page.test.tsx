@@ -541,10 +541,14 @@ describe('completing an assembly', () => {
     await openPanel(user)
     await user.click(screen.getByRole('button', { name: 'Complete' }))
 
-    await user.click(await screen.findByRole('button', { name: /^SN-0002/ }))
-    // Named, it leaves the list for the chips above it, which can take it back.
+    await user.click(await screen.findByRole('option', { name: /^SN-0002/ }))
+    // Named, it is ticked in the list and shown in the chips above it, which keep
+    // it in sight once a new search moves the list on, and can take it back.
+    expect(screen.getByRole('option', { name: /^SN-0002/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
     expect(screen.getByRole('button', { name: 'Remove serial SN-0002' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: /^SN-0002/ })).toBeNull()
     expect(searches.at(-1)?.get('item_id')).toBe('item-bbb-0001')
     expect(searches.at(-1)?.get('warehouse_id')).toBe('wh-1')
     await user.click(screen.getByRole('button', { name: 'Complete assembly' }))
