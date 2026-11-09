@@ -18,7 +18,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Plus } from 'lucide-react'
 import { Suspense, lazy, useMemo, useState } from 'react'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/primitives'
@@ -58,16 +58,14 @@ export default function JobWorkInvoicesTab() {
         header: 'Invoice',
         cell: ({ row }) => (
           <div>
-            <button
-              type="button"
+            <CellButton
               onClick={(event) => {
                 event.stopPropagation()
                 setOpenInvoiceId(row.original.id)
               }}
-              className="font-medium hover:underline"
             >
               {row.original.vendor_invoice_number}
-            </button>
+            </CellButton>
             <span className="block font-mono text-2xs text-muted-foreground">
               {row.original.code}
             </span>

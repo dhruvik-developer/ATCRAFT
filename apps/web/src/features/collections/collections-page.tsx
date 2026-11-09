@@ -4,7 +4,7 @@ import { CalendarClock, CirclePlus, ExternalLink } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -183,23 +183,18 @@ export default function CollectionsPage() {
         cell: ({ row }) => (
           <div className="min-w-36">
             {row.original.follow_up_id ? (
-              <button
-                type="button"
-                className="font-medium hover:underline"
-                onClick={() => setSelectedId(row.original.follow_up_id ?? null)}
-              >
+              <CellButton onClick={() => setSelectedId(row.original.follow_up_id ?? null)}>
                 {row.original.customer_code} · {row.original.customer_name}
-              </button>
+              </CellButton>
             ) : canManage ? (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 font-medium hover:underline"
+              <CellButton
+                className="inline-flex items-center gap-1"
                 disabled={openFollowUp.isPending}
                 onClick={() => openFollowUp.mutate(row.original)}
               >
                 <CirclePlus className="h-3.5 w-3.5" />
                 {row.original.customer_code} · {row.original.customer_name}
-              </button>
+              </CellButton>
             ) : (
               <span className="font-medium">
                 {row.original.customer_code} · {row.original.customer_name}
@@ -287,13 +282,9 @@ export default function CollectionsPage() {
         header: 'Follow-up',
         enableSorting: false,
         cell: ({ row }) => (
-          <button
-            type="button"
-            className="font-medium hover:underline"
-            onClick={() => setSelectedId(row.original.id)}
-          >
+          <CellButton onClick={() => setSelectedId(row.original.id)}>
             {row.original.code}
-          </button>
+          </CellButton>
         ),
       },
       {

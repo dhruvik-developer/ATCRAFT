@@ -36,7 +36,7 @@ import { BookOpen, ListTree, Lock, Scale, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { DescriptionList, EmptyState, PageHeader, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -419,16 +419,15 @@ export default function AccountsPage() {
         // A real button, not only the row's click handler: the row is a <tr>
         // with an onClick and is unreachable from the keyboard on its own.
         cell: ({ row }) => (
-          <button
-            type="button"
+          <CellButton
             onClick={(event) => {
               event.stopPropagation()
               setSelected(row.original)
             }}
-            className="rounded-sm font-mono text-xs font-medium hover:underline"
+            className="font-mono text-xs"
           >
             {row.original.code}
-          </button>
+          </CellButton>
         ),
       },
       {

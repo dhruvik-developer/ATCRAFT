@@ -1,7 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { PageHeader, StatusBadge } from '@/components/shared'
 import {
   Select,
@@ -49,12 +49,7 @@ export default function SalesInvoicesPage() {
         accessorKey: 'code',
         header: 'Invoice',
         cell: ({ row }) => (
-          <button
-            className="font-medium hover:underline"
-            onClick={() => setOpenId(row.original.id)}
-          >
-            {row.original.code}
-          </button>
+          <CellButton onClick={() => setOpenId(row.original.id)}>{row.original.code}</CellButton>
         ),
       },
       {

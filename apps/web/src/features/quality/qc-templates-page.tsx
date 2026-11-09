@@ -30,7 +30,7 @@ import { ExternalLink, GitBranch, MoreHorizontal, Pencil, Plus, Trash2, X } from
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -216,16 +216,15 @@ export default function QcTemplatesPage() {
         // A real button, not only the row's click handler: the row is a <tr>
         // with an onClick and is unreachable from the keyboard on its own.
         cell: ({ row }) => (
-          <button
-            type="button"
+          <CellButton
             onClick={(event) => {
               event.stopPropagation()
               setDetailId(row.original.id)
             }}
-            className="rounded-sm font-mono font-medium hover:underline"
+            className="font-mono"
           >
             {row.original.code}
-          </button>
+          </CellButton>
         ),
       },
       {

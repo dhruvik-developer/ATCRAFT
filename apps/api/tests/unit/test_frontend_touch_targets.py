@@ -165,9 +165,12 @@ def test_the_scan_reaches_the_raw_buttons_it_polices() -> None:
     The floor only has to tell some from none. It sat at 50 while there were 61;
     folding thirteen pickers' option buttons into one in
     ``components/ui/search-picker.tsx`` left 49, which is the point of sharing.
+    Folding twenty-four row-open cells into ``CellButton``, the serial and
+    warehouse lists into ``components/ui/multi-select-list.tsx`` and the shell's
+    triggers into ``Button`` left 22.
     """
     raw = sum(len(_OPENING.findall(path.read_text("utf-8"))) for path in _sources())
-    assert raw > 30, f"found only {raw} raw buttons; is the scan looking elsewhere?"
+    assert raw > 15, f"found only {raw} raw buttons; is the scan looking elsewhere?"
 
 
 def test_every_icon_only_button_is_big_enough_to_press() -> None:

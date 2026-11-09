@@ -32,8 +32,8 @@ import { Plus, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
-import { BadgeDismiss, DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
+import { CellButton, DataTable } from '@/components/data-table'
+import { DateRangeFilter, FilterChip, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -209,9 +209,8 @@ export default function PurchaseOrdersPage() {
             return <span className="text-muted-foreground">-</span>
           }
           return (
-            <button
-              type="button"
-              className="block max-w-[12rem] truncate text-left hover:underline"
+            <CellButton
+              className="font-normal block max-w-[12rem] truncate"
               title={`Show only ${name} orders`}
               aria-label={`Show only ${name} orders`}
               onClick={(event) => {
@@ -221,7 +220,7 @@ export default function PurchaseOrdersPage() {
               }}
             >
               {name}
-            </button>
+            </CellButton>
           )
         },
       },
@@ -401,15 +400,11 @@ export default function PurchaseOrdersPage() {
               </Select>
             ) : (
               categoryFilterName && (
-                <Badge variant="secondary" className="max-w-full gap-1.5 py-1">
-                  <span className="min-w-0 truncate" title={categoryFilterName}>
-                    Category: {categoryFilterName}
-                  </span>
-                  <BadgeDismiss
-                    label="Remove the category filter"
-                    onClick={() => setParam('item_category_id', undefined)}
-                  />
-                </Badge>
+                <FilterChip
+                  label={`Category: ${categoryFilterName}`}
+                  removeLabel="Remove the category filter"
+                  onRemove={() => setParam('item_category_id', undefined)}
+                />
               )
             )}
 

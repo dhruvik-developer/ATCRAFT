@@ -24,7 +24,7 @@ import { CornerDownRight, Layers, X } from 'lucide-react'
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { DescriptionList, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -139,14 +139,13 @@ function LocationDetailDialog({
     } else if (parent.data) {
       const above = parent.data
       parentValue = (
-        <button
-          type="button"
+        <CellButton
           onClick={() => onFilterByParent(above.id)}
           aria-label={`Show every location inside ${above.code}`}
-          className="rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="font-normal"
         >
           {above.code} - {above.name}
-        </button>
+        </CellButton>
       )
     } else {
       parentValue = <span className="text-muted-foreground">Could not be resolved</span>
@@ -398,11 +397,10 @@ export default function LocationsPage() {
         // a handler on the whole row would swallow it and be unreachable from
         // the keyboard.
         cell: ({ row }) => (
-          <button
-            type="button"
+          <CellButton
             onClick={() => setDetailRow(row.original)}
             aria-label={`Show details of location ${row.original.code}`}
-            className="max-w-[12rem] rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="font-normal max-w-[12rem]"
           >
             <span className="block truncate font-medium">{row.original.code}</span>
             {/* Search matches code, name AND barcode server-side, so the barcode
@@ -412,7 +410,7 @@ export default function LocationsPage() {
                 {row.original.barcode}
               </span>
             )}
-          </button>
+          </CellButton>
         ),
       },
       {

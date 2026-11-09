@@ -19,9 +19,9 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
 import {
-  BadgeDismiss,
   DateRangeFilter,
   FieldError,
+  FilterChip,
   LoadError,
   PageHeader,
   SectionHeader,
@@ -512,13 +512,11 @@ export default function PackingPage() {
             </div>
 
             {salesOrderId && (
-              <Badge variant="muted" className="gap-1">
-                One sales order's packing
-                <BadgeDismiss
-                  label="Show every sales order"
-                  onClick={() => setParam('sales_order_id', undefined)}
-                />
-              </Badge>
+              <FilterChip
+                label="One sales order's packing"
+                removeLabel="Show every sales order"
+                onRemove={() => setParam('sales_order_id', undefined)}
+              />
             )}
 
             {filterCount > 0 && (

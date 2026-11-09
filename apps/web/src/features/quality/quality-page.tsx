@@ -26,7 +26,7 @@ import {
 import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -147,17 +147,15 @@ function OpenInspectionButton({
   onOpen: (inspection: QcInspectionRow) => void
 }) {
   return (
-    <button
-      type="button"
+    <CellButton
       onClick={(event) => {
         // The row opens the same dialog; the click must not reach it as well.
         event.stopPropagation()
         onOpen(inspection)
       }}
-      className="rounded-sm font-medium hover:underline"
     >
       {inspection.code}
-    </button>
+    </CellButton>
   )
 }
 

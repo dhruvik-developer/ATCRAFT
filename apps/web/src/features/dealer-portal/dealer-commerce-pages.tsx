@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import {
   DescriptionList,
   FieldError,
@@ -581,13 +581,9 @@ export function DealerReturnsPage() {
         accessorKey: 'code',
         header: 'Return',
         cell: ({ row }) => (
-          <button
-            type="button"
-            onClick={() => setDetailId(row.original.id)}
-            className="min-h-11 font-medium underline"
-          >
+          <CellButton onClick={() => setDetailId(row.original.id)} className="min-h-11 underline">
             {row.original.code}
-          </button>
+          </CellButton>
         ),
         enableSorting: false,
       },

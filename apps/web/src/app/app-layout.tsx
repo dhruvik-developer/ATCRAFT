@@ -231,10 +231,7 @@ export function AppLayout() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent"
-                  >
+                  <Button type="button" variant="ghost" className="h-auto gap-2 px-1.5 py-1">
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                       {initials(user?.full_name ?? '?')}
                     </span>
@@ -244,8 +241,8 @@ export function AppLayout() {
                     >
                       {user?.full_name}
                     </span>
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  </button>
+                    <ChevronDown className="text-muted-foreground" />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-60">
                   <DropdownMenuLabel className="font-normal">
@@ -309,13 +306,15 @@ function MobileNavigation({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Trigger asChild>
-        <button
+        <Button
           type="button"
-          className="rounded-md p-1.5 hover:bg-accent lg:hidden"
+          variant="ghost"
+          size="icon-sm"
+          className="lg:hidden [&_svg]:size-5"
           aria-label="Open navigation"
         >
-          <Menu className="h-5 w-5" />
-        </button>
+          <Menu />
+        </Button>
       </DialogPrimitive.Trigger>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-30 bg-overlay" />

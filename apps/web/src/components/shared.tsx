@@ -359,6 +359,37 @@ export function BadgeDismiss({ label, onClick }: { label: string; onClick: () =>
   )
 }
 
+// ------------------------------------------------------------ FilterChip ----
+
+/**
+ * A filter the list is narrowed by, shown as a chip with the control that
+ * removes it.
+ *
+ * Four toolbars drew theirs four ways - muted or secondary, 22, 28 or 36px tall,
+ * one with a long category name that pushed the toolbar past a phone. The label
+ * truncates inside the chip, and its full text stays on the label's title.
+ */
+export function FilterChip({
+  label,
+  removeLabel,
+  onRemove,
+}: {
+  /** What the list is narrowed to: "One goods receipt", "Category: Mortise locks". */
+  label: string
+  /** The remove control's name: "Stop filtering to one goods receipt". */
+  removeLabel: string
+  onRemove: () => void
+}) {
+  return (
+    <Badge variant="secondary" className="max-w-full gap-1.5 py-1">
+      <span className="min-w-0 truncate" title={label}>
+        {label}
+      </span>
+      <BadgeDismiss label={removeLabel} onClick={onRemove} />
+    </Badge>
+  )
+}
+
 // -------------------------------------------------------------- StatTile ----
 
 export function StatTile({

@@ -12,7 +12,7 @@ import { Plus, X } from 'lucide-react'
 import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -116,16 +116,14 @@ export default function AssemblyPage() {
         // A button rather than a link: the order opens in a panel, and this
         // screen has to stay usable from the keyboard alone.
         cell: ({ row }) => (
-          <button
-            type="button"
-            className="font-medium hover:underline focus-visible:outline-none focus-visible:underline"
+          <CellButton
             onClick={(event) => {
               event.stopPropagation()
               setOpenOrderId(row.original.id)
             }}
           >
             {row.original.code}
-          </button>
+          </CellButton>
         ),
       },
       {

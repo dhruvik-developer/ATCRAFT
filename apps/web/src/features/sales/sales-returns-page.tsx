@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import {
   DescriptionList,
   FieldError,
@@ -494,13 +494,7 @@ export default function SalesReturnsPage() {
         accessorKey: 'code',
         header: 'Return',
         cell: ({ row }) => (
-          <button
-            type="button"
-            className="font-medium underline-offset-4 hover:underline"
-            onClick={() => setSelected(row.original.id)}
-          >
-            {row.original.code}
-          </button>
+          <CellButton onClick={() => setSelected(row.original.id)}>{row.original.code}</CellButton>
         ),
       },
       {

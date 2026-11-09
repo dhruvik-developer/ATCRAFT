@@ -28,8 +28,8 @@ import { Ban, ExternalLink, Undo2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
-import { BadgeDismiss, DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
+import { CellButton, DataTable } from '@/components/data-table'
+import { DateRangeFilter, FilterChip, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -38,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
@@ -154,16 +153,14 @@ export default function PurchaseReturnsPage() {
         cell: ({ row }) => (
           // A real button, not just the row's click handler: the row is a <tr>
           // with an onClick and is unreachable from the keyboard on its own.
-          <button
-            type="button"
+          <CellButton
             onClick={(event) => {
               event.stopPropagation()
               setDetailId(row.original.id)
             }}
-            className="rounded-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {row.original.code}
-          </button>
+          </CellButton>
         ),
       },
       {
@@ -426,13 +423,11 @@ export default function PurchaseReturnsPage() {
             />
 
             {goodsReceiptId && (
-              <Badge variant="secondary" className="h-9 gap-1.5 px-3">
-                One goods receipt
-                <BadgeDismiss
-                  label="Stop filtering to one goods receipt"
-                  onClick={() => setParam('goods_receipt_id', undefined)}
-                />
-              </Badge>
+              <FilterChip
+                label="One goods receipt"
+                removeLabel="Stop filtering to one goods receipt"
+                onRemove={() => setParam('goods_receipt_id', undefined)}
+              />
             )}
 
             {filterCount > 0 && (

@@ -6,7 +6,7 @@ import { SEARCH_DEBOUNCE_MS, SEARCH_MAX_LENGTH } from '@/lib/constants'
 import { ApiError } from '@/lib/api-client'
 import { errors } from '@/lib/messages'
 
-import { DataTable } from './data-table'
+import { CellButton, DataTable } from './data-table'
 
 afterEach(() => vi.useRealTimers())
 
@@ -134,5 +134,61 @@ describe('the pagination summary', () => {
       />,
     )
     expect(screen.getByRole('status')).toHaveTextContent('1-1 of 1,00,000')
+  })
+})
+
+describe('CellButton', () => {
+  it('opens the row from the keyboard and never submits a form around the table', async () => {
+    const user = userEvent.setup()
+    const onOpen = vi.fn()
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault())
+    render(
+      <form onSubmit={onSubmit}>
+        {/* A caller asking for submit still gets a plain button: a code is not a form action. */}
+        <CellButton type="submit" onClick={() => onOpen('INV-0001')}>
+          INV-0001
+        </CellButton>
+      </form>,
+    )
+
+    const code = screen.getByRole('button', { name: 'INV-0001' })
+    expect(code).toHaveAttribute('type', 'button')
+    expect(code).toHaveClass('font-medium', 'hover:underline', 'focus-visible:ring-2')
+    code.focus()
+    await user.keyboard('{Enter}')
+    expect(onOpen).toHaveBeenCalledWith('INV-0001')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('opens the record once when its handler stops the row click', async () => {
+    const user = userEvent.setup()
+    const onRowClick = vi.fn()
+    const onOpen = vi.fn()
+    render(
+      <DataTable
+        columns={[
+          {
+            accessorKey: 'code',
+            header: 'Code',
+            cell: ({ row }) => (
+              <CellButton
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onOpen(row.original.code)
+                }}
+              >
+                {row.original.code}
+              </CellButton>
+            ),
+          },
+        ]}
+        data={[{ code: 'PO-0001' }]}
+        onRowClick={onRowClick}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'PO-0001' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onRowClick).not.toHaveBeenCalled()
   })
 })

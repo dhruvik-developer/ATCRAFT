@@ -17,7 +17,7 @@ import { BadgeCheck, MoreHorizontal, Pencil, Plus, Star, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { ConfirmDialog, DescriptionList, FieldError, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -519,17 +519,16 @@ export default function VendorsPage() {
         // it is. The figures behind it are a separate endpoint, fetched for the
         // one vendor asked about rather than for every row of the grid.
         cell: ({ row }) => (
-          <button
-            type="button"
+          <CellButton
             onClick={() => setRatingVendor(row.original)}
             aria-label={`Show how ${row.original.code} was rated`}
-            className="rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="font-normal"
           >
             <RatingStars
               rating={row.original.rating}
               sampleSize={row.original.rating_sample_size}
             />
-          </button>
+          </CellButton>
         ),
       },
       {

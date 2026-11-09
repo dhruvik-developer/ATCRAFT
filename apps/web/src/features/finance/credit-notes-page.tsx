@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { ConfirmDialog, FieldError, LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -81,13 +81,7 @@ export default function CreditNotesPage() {
         accessorKey: 'code',
         header: 'Credit note',
         cell: ({ row }) => (
-          <button
-            type="button"
-            className="font-medium hover:underline"
-            onClick={() => setSelected(row.original)}
-          >
-            {row.original.code}
-          </button>
+          <CellButton onClick={() => setSelected(row.original)}>{row.original.code}</CellButton>
         ),
       },
       {

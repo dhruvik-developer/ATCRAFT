@@ -30,7 +30,7 @@ import { GitCompareArrows, MoreHorizontal, Plus, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -184,16 +184,14 @@ export default function QuotationsPage() {
         // not sortable, so the header does not offer a sort the API refuses.
         enableSorting: false,
         cell: ({ row }) => (
-          <button
-            type="button"
+          <CellButton
             onClick={(event) => {
               event.stopPropagation()
               setDetailId(row.original.id)
             }}
-            className="rounded-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {row.original.vendor_reference}
-          </button>
+          </CellButton>
         ),
       },
       {

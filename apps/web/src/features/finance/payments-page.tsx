@@ -32,7 +32,7 @@ import { MoreHorizontal, Plus, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -200,16 +200,14 @@ export default function PaymentsPage() {
         header: 'Document',
         cell: ({ row }) => (
           <div>
-            <button
-              type="button"
+            <CellButton
               onClick={(event) => {
                 event.stopPropagation()
                 setDetailId(row.original.id)
               }}
-              className="font-medium hover:underline"
             >
               {row.original.code}
-            </button>
+            </CellButton>
             {row.original.reference_number && (
               <span className="block truncate font-mono text-2xs text-muted-foreground">
                 {row.original.reference_number}

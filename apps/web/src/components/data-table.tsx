@@ -31,7 +31,16 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  forwardRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -87,6 +96,33 @@ export interface DataTableProps<T> {
   stickyHeader?: boolean
   className?: string
 }
+
+/**
+ * The code or name in a cell that opens its row's record, or acts on the row.
+ *
+ * A clickable row is not a keyboard target, so a list that opens a record from
+ * its row makes a cell a real button too (test_frontend_row_click_keyboard.py).
+ * Twenty of those were written by hand in eleven class strings - bold or not,
+ * underlined on hover or always, a focus ring or none - and one, with no type,
+ * was a submit button inside whatever form held the table. The type is fixed
+ * here, and a caller's handler stops the row's own click where both would run.
+ */
+export const CellButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(
+  ({ className, ...props }, ref) => (
+    <button
+      ref={ref}
+      {...props}
+      type="button"
+      className={cn(
+        'rounded-sm text-left font-medium underline-offset-4 hover:underline',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:no-underline',
+        className,
+      )}
+    />
+  ),
+)
+CellButton.displayName = 'CellButton'
 
 /**
  * A readable name for a column that renders no header of its own.

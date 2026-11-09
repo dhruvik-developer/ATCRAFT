@@ -16,7 +16,7 @@ import { Cpu, Factory, Pencil, Plus, Route, Star, Wrench, X } from 'lucide-react
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { EmptyState, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -86,16 +86,14 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
         // A real button, not only the row's click handler: the row is a <tr>
         // with an onClick and is unreachable from the keyboard on its own.
         cell: ({ row }) => (
-          <button
-            type="button"
+          <CellButton
             onClick={(event) => {
               event.stopPropagation()
               setOpenRoutingId(row.original.id)
             }}
-            className="rounded-sm font-medium hover:underline"
           >
             {row.original.code}
-          </button>
+          </CellButton>
         ),
       },
       {

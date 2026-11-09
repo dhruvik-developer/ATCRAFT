@@ -29,7 +29,7 @@ import { Plus, X } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -178,16 +178,14 @@ export default function VendorInvoicesPage() {
         header: 'Invoice',
         cell: ({ row }) => (
           <div>
-            <button
-              type="button"
+            <CellButton
               onClick={(event) => {
                 event.stopPropagation()
                 setOpenInvoiceId(row.original.id)
               }}
-              className="font-medium hover:underline"
             >
               {row.original.vendor_invoice_number}
-            </button>
+            </CellButton>
             <span className="block font-mono text-2xs text-muted-foreground">
               {row.original.code}
             </span>

@@ -39,7 +39,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Factory } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { EmptyState, SectionHeader } from '@/components/shared'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -134,14 +134,12 @@ export function WipBoardPanel({
           const label = centre ? optionLabel(centre) : 'Work centre (name unavailable)'
           if (!onSelectWorkCentre) return <span className="font-medium">{label}</span>
           return (
-            <button
-              type="button"
+            <CellButton
               onClick={() => onSelectWorkCentre(row.original.work_center_id)}
               aria-label={`Show the operations queued at ${label}`}
-              className="rounded-sm text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {label}
-            </button>
+            </CellButton>
           )
         },
       },

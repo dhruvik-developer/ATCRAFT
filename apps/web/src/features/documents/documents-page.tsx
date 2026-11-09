@@ -43,7 +43,7 @@ import {
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { DataTable } from '@/components/data-table'
+import { CellButton, DataTable } from '@/components/data-table'
 import { ConfirmDialog, DescriptionList, FieldError, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -767,8 +767,7 @@ export default function DocumentsPage() {
           return (
             <div className="flex items-center gap-2">
               <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-              <button
-                type="button"
+              <CellButton
                 // The row itself opens the detail; the controls inside it stop
                 // the click travelling so they do not fire twice over.
                 onClick={(event) => {
@@ -776,7 +775,7 @@ export default function DocumentsPage() {
                   setDetailDoc(row.original)
                 }}
                 aria-label={`Show the details of ${row.original.file_name}`}
-                className="min-w-0 rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="font-normal min-w-0"
               >
                 <span className="block max-w-[22rem] truncate font-medium">
                   {row.original.file_name}
@@ -784,7 +783,7 @@ export default function DocumentsPage() {
                 <span className="block text-2xs text-muted-foreground">
                   {fileKindLabel(row.original.mime_type)}
                 </span>
-              </button>
+              </CellButton>
             </div>
           )
         },
@@ -812,14 +811,13 @@ export default function DocumentsPage() {
           if (!type || !id) return <span className="text-xs text-muted-foreground">Standalone</span>
 
           return (
-            <button
-              type="button"
+            <CellButton
               onClick={(event) => {
                 event.stopPropagation()
                 showAttachmentsOf(type, id)
               }}
               aria-label={`Show every file attached to this ${humanise(type)}`}
-              className="rounded-sm text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="font-normal"
             >
               <span className="flex items-center gap-1.5 text-xs">
                 <Paperclip className="h-3 w-3 text-muted-foreground" aria-hidden />
@@ -828,7 +826,7 @@ export default function DocumentsPage() {
               <span className="block font-mono text-2xs text-muted-foreground">
                 {id.slice(0, 8)}
               </span>
-            </button>
+            </CellButton>
           )
         },
       },

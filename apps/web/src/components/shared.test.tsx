@@ -10,6 +10,7 @@ import {
   BadgeDismiss,
   DateRangeFilter,
   FieldError,
+  FilterChip,
   LoadError,
   PanelDenied,
   ReasonDialog,
@@ -132,6 +133,23 @@ describe('CardTitle', () => {
       </CardTitle>,
     )
     expect(screen.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible()
+  })
+})
+
+describe('FilterChip', () => {
+  it('names the filter and removes it from its labelled control', async () => {
+    const onRemove = vi.fn()
+    const label = `Category: ${'Mortise locks and their keeps '.repeat(3).trim()}`
+    render(
+      <FilterChip label={label} removeLabel="Remove the category filter" onRemove={onRemove} />,
+    )
+
+    // A long name truncates inside the chip and keeps its full text on hover.
+    const text = screen.getByText(label)
+    expect(text).toHaveClass('truncate')
+    expect(text).toHaveAttribute('title', label)
+    await userEvent.click(screen.getByRole('button', { name: 'Remove the category filter' }))
+    expect(onRemove).toHaveBeenCalledTimes(1)
   })
 })
 
