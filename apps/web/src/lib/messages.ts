@@ -229,6 +229,15 @@ export const empty = {
     'Your role does not include the permission this panel needs. Ask an administrator if you believe this is wrong.',
 } as const
 
+// ------------------------------------------------------------ pickers ------
+
+/** The status line every search picker speaks (`components/ui/search-picker.tsx`). */
+export const picker = {
+  searching: 'Searching...',
+  /** Under a page of matches that the server says is not all of them. */
+  more: (shown: number) => `Showing the first ${shown}. Type more to narrow the search.`,
+} as const
+
 // ------------------------------------------------------------ prompts ------
 
 export const prompts = {
@@ -271,6 +280,7 @@ export const messages = {
   success,
   errors,
   empty,
+  picker,
   prompts,
   fulfilment,
   errorTitle,
