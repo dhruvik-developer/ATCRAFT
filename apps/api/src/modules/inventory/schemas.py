@@ -36,7 +36,13 @@ from pydantic import (
 )
 
 from src.common.codes import clean_text
-from src.core.constants import MAX_LINE_NOTES_LENGTH, MAX_NOTES_LENGTH, MAX_SERIAL_BULK
+from src.core.constants import (
+    MAX_LINE_NOTES_LENGTH,
+    MAX_NOTES_LENGTH,
+    MAX_SERIAL_BULK,
+    REASON_MIN_LENGTH,
+)
+from src.core.messages import REASON_TOO_SHORT
 from src.core.validation import reject_null
 from src.modules.inventory.models import (
     MAX_SERIALS_PER_BIN_MOVE_LINE,
@@ -63,7 +69,7 @@ Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 #: A document line's free-text notes (docs/assumptions.md §INPUT-1).
 LineNotes = Annotated[str, Field(max_length=MAX_LINE_NOTES_LENGTH)]
 
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 PositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
 NonZeroQuantity = Annotated[
@@ -768,8 +774,8 @@ class RejectionRequest(BaseModel):
     @classmethod
     def _collapse(cls, value: str) -> str:
         cleaned = " ".join(value.split())
-        if len(cleaned) < 3:
-            raise ValueError("Record why the document is rejected, in at least three characters.")
+        if len(cleaned) < REASON_MIN_LENGTH:
+            raise ValueError(REASON_TOO_SHORT)
         return cleaned
 
 

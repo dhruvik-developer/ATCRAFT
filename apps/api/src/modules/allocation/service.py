@@ -85,6 +85,7 @@ from src.core.errors import (
 )
 from src.core.ids import persisted_actor
 from src.core.logging import get_logger
+from src.core.messages import plural
 from src.core.observability import insufficient_stock_events
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.permissions import Permission
@@ -676,7 +677,7 @@ def candidate_eligibility(
         days_away = (facts.required_date - as_of).days
         if days_away <= policy.protect_within_days:
             return (
-                f"needed in {days_away} day(s), inside the "
+                f"needed in {plural(days_away, 'day')}, inside the "
                 f"{policy.protect_within_days}-day protection window"
             )
     return None
@@ -700,7 +701,7 @@ def score_candidate(
     gap = _clamp(facts.priority - request.priority, 0, policy.priority_gap_cap)
     if gap:
         score += policy.priority_weight * gap
-        reasons.append(f"{gap} priority level(s) less urgent than the requesting demand")
+        reasons.append(f"{plural(gap, 'priority level')} less urgent than the requesting demand")
 
     if facts.required_date is not None and request.required_date is not None:
         slack = _clamp(
@@ -711,9 +712,9 @@ def score_candidate(
         if slack:
             score += policy.required_date_weight * slack
             reasons.append(
-                f"needed {slack} day(s) later than the requesting demand"
+                f"needed {plural(slack, 'day')} later than the requesting demand"
                 if slack > 0
-                else f"needed {abs(slack)} day(s) sooner than the requesting demand"
+                else f"needed {plural(abs(slack), 'day')} sooner than the requesting demand"
             )
     else:
         reasons.append("no comparable required date")
@@ -1514,12 +1515,7 @@ async def consume(
     if units and (
         len(set(units)) != len(units) or to_quantity(quantity) != to_quantity(Decimal(len(units)))
     ):
-        raise BusinessRuleError(
-            f"{len(units)} serial(s) were named for a consumption of {to_quantity(quantity)}; "
-            "a serial-tracked drawdown names exactly one distinct unit per unit consumed.",
-            code=ErrorCode.SERIAL_REQUIRED,
-            details={"requested": str(to_quantity(quantity)), "serials": len(units)},
-        )
+        raise _serials_do_not_match(len(units), to_quantity(quantity))
 
     async with transaction(session):
         preview = await engine.reservations.get(reservation_id)
@@ -1681,12 +1677,7 @@ async def consume_demand_line(
             details={"requested": str(amount)},
         )
     if units and (len(set(units)) != len(units) or amount != to_quantity(Decimal(len(units)))):
-        raise BusinessRuleError(
-            f"{len(units)} serial(s) were named for a consumption of {amount}; "
-            "a serial-tracked drawdown names exactly one distinct unit per unit consumed.",
-            code=ErrorCode.SERIAL_REQUIRED,
-            details={"requested": str(amount), "serials": len(units)},
-        )
+        raise _serials_do_not_match(len(units), amount)
 
     async with transaction(session):
         held = await engine.reservations.open_for_demand_line(
@@ -2552,6 +2543,16 @@ def _parse_iso_date(value: object) -> date | None:
         except ValueError:  # pragma: no cover - defensive against hand-edited JSON
             log.warning("allocation.unparseable_required_date", value=value)
     return None
+
+
+def _serials_do_not_match(named: int, quantity: Decimal) -> BusinessRuleError:
+    """A serial-tracked drawdown names one distinct unit per unit it consumes."""
+    return BusinessRuleError(
+        f"A consumption of {quantity} named {plural(named, 'serial')}; a serial-tracked "
+        "drawdown names exactly one distinct unit per unit consumed.",
+        code=ErrorCode.SERIAL_REQUIRED,
+        details={"requested": str(quantity), "serials": named},
+    )
 
 
 def _assert_separate_approver(

@@ -92,7 +92,7 @@ def _normalise_email(value: str | None) -> str:
     read this string before it ever reaches the column.
     """
     if value is None:
-        raise ValueError("Email cannot be null. Omit it to leave the email unchanged.")
+        raise ValueError(cannot_be_null("Email"))
     return value.strip().lower()
 
 

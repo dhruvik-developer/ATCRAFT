@@ -67,6 +67,7 @@ from sqlalchemy import select
 from src.core.clock import utcnow
 from src.core.demo_data import DemoContext, find_by_code
 from src.core.errors import AppError, BusinessRuleError, NotFoundError, ValidationError
+from src.core.messages import plural
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
 from src.modules.assembly import service as assembly_service
 from src.modules.assembly.models import AssemblyOrder, AssemblyOrderComponent, AssemblyOrderStatus
@@ -2596,7 +2597,7 @@ async def _pack_the_order(
     if staged < Decimal("3"):
         _skip(
             ctx,
-            f"{order.code} has only {staged} carton(s) at the despatch bench; sealing "
+            f"{order.code} has only {plural(staged, 'carton')} at the despatch bench; sealing "
             "consumes one box each and the shipment cannot be closed without them",
         )
         return

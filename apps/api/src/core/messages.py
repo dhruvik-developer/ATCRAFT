@@ -20,6 +20,8 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Literal
 
+from src.core.constants import REASON_MIN_LENGTH
+
 # --- counts and lists -----------------------------------------------------------
 
 
@@ -143,6 +145,10 @@ def failed_unexpectedly(subject: str, logged_against: str) -> str:
 #: A PATCH/PUT whose body, after ``exclude_unset``, changes nothing.
 NO_FIELDS_TO_UPDATE = "No fields were supplied to update."
 
+#: An audited reason shorter than the floor - the frontend's
+#: ``errors.reasonTooShort``, with the minimum read from the one constant.
+REASON_TOO_SHORT = f"Record at least {REASON_MIN_LENGTH} characters of reason."
+
 
 def cannot_be_null(field: str) -> str:
     """``"is_active cannot be null. Omit it to leave it unchanged."``
@@ -242,6 +248,7 @@ __all__ = [
     "NO_FIELDS_TO_UPDATE",
     "OPERATION_COMPLETED",
     "RATE_LIMITED",
+    "REASON_TOO_SHORT",
     "SERVICE_UNAVAILABLE",
     "SESSION_ENDED_FOR_SECURITY",
     "SHIFT_ASSIGNMENT_OVERLAP",

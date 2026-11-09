@@ -9,6 +9,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
+from src.core.messages import REASON_TOO_SHORT
 from src.modules.dealer_portal.models import (
     DealerBannerLinkKind,
     DealerBannerStatus,
@@ -150,14 +152,14 @@ class DealerOfferUpdate(BaseModel):
 
 class PromotionRetire(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    reason: str = Field(min_length=3, max_length=500)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=500)
 
     @field_validator("reason")
     @classmethod
     def meaningful_reason(cls, value: str) -> str:
         value = value.strip()
-        if len(value) < 3:
-            raise ValueError("Enter a meaningful reason of at least three characters.")
+        if len(value) < REASON_MIN_LENGTH:
+            raise ValueError(REASON_TOO_SHORT)
         return value
 
 

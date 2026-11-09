@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.clock import today
+from src.core.messages import cannot_be_null
 from src.core.models import TenantEntity
 
 
@@ -200,7 +201,7 @@ def validate_code(value: str) -> str:
 def clean_name(value: str | None) -> str:
     """Collapse internal whitespace and refuse a blank name."""
     if value is None:
-        raise ValueError("Name cannot be null. Omit it to leave the name unchanged.")
+        raise ValueError(cannot_be_null("Name"))
     cleaned = " ".join(value.split())
     if not cleaned:
         raise ValueError("Name cannot be blank.")

@@ -23,6 +23,7 @@ from typing import Protocol
 
 from src.core.demand_provenance import DemandReference
 from src.core.errors import BusinessRuleError, ErrorCode, ValidationError
+from src.core.messages import plural
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, Money, to_money, to_quantity, to_unit_price
@@ -1128,7 +1129,7 @@ def classify_candidate(
     ]
     if in_window:
         reasons.append(
-            f"Required dates within {window_days} day(s)"
+            f"Required dates within {plural(window_days, 'day')}"
             if candidate.required_date and required_date
             else "One of the two orders has no required date"
         )
@@ -1249,7 +1250,7 @@ def duplicate_refusal(candidates: list[DuplicateCandidate]) -> BusinessRuleError
     """
     strongest = candidates[0]
     return BusinessRuleError(
-        f"This order duplicates {len(candidates)} open purchase order line(s) - "
+        f"This order duplicates {plural(len(candidates), 'open purchase order line')} - "
         f"{strongest.purchase_order_code} already covers the same item or procurement category "
         "for the same vendor, "
         "warehouse and delivery window. Review the suggested action, or resubmit with "

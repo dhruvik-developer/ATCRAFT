@@ -472,7 +472,7 @@ describe('the duplicate refusal', () => {
   const refusal = fail(
     409,
     'DUPLICATE_DOCUMENT',
-    'This order duplicates 1 open purchase order line(s) - PO-0099 already covers the same item.',
+    'This order duplicates 1 open purchase order line - PO-0099 already covers the same item.',
     {
       candidate_count: 1,
       candidates: [

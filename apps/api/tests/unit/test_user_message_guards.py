@@ -11,6 +11,10 @@ names no internals. Two shapes broke that and shipped past review:
   verbatim. The exception's class belongs in the log line;
   :func:`src.core.errors.failure_message` writes the row.
 
+* two refusals spelled the reason floor out - "at least three characters" -
+  beside a ``min_length=3`` that could move without them. A sentence states the
+  floor by interpolating ``REASON_MIN_LENGTH``, as ``REASON_TOO_SHORT`` does.
+
 Every rule is a function over source text, and each has a self-test that feeds
 it the violation it exists to catch.
 """
@@ -18,9 +22,12 @@ it the violation it exists to catch.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
+
+from src.core.constants import REASON_MIN_LENGTH
 
 pytestmark = pytest.mark.unit
 
@@ -122,6 +129,68 @@ def formatted_class_names(source: str) -> list[str]:
         if isinstance(part, ast.FormattedValue) and _is_class_name_of_a_value(part.value)
     }
     return [f"line {line}" for line in sorted(lines)]
+
+
+_NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+
+
+def _text_literals(source: str) -> list[tuple[int, str]]:
+    """``(line, text)`` for every string literal and f-string part but docstrings."""
+    tree = ast.parse(source)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    return [
+        (node.lineno, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def spelled_reason_minimums(source: str, minimum: int) -> list[str]:
+    """``line N`` for each literal that spells ``minimum`` out as a character floor."""
+    spellings = [str(minimum)]
+    if minimum < len(_NUMBER_WORDS):
+        spellings.append(_NUMBER_WORDS[minimum])
+    pattern = re.compile(rf"\bat least (?:{'|'.join(spellings)}) characters\b", re.IGNORECASE)
+    lines = {line for line, text in _text_literals(source) if pattern.search(text)}
+    return [f"line {line}" for line in sorted(lines)]
+
+
+def test_no_message_spells_out_the_reason_minimum() -> None:
+    failures = [
+        f"  {path.relative_to(SRC).as_posix()}: {hit}"
+        for path in _python_files()
+        for hit in spelled_reason_minimums(path.read_text(encoding="utf-8"), REASON_MIN_LENGTH)
+    ]
+
+    assert not failures, (
+        f"{len(failures)} sentence(s) spell the reason minimum ({REASON_MIN_LENGTH}) out:\n"
+        + "\n".join(failures)
+        + "\n\nUse src.core.messages.REASON_TOO_SHORT, or interpolate REASON_MIN_LENGTH."
+    )
+
+
+def test_the_minimum_rule_flags_a_spelled_floor_and_ignores_the_constant() -> None:
+    source = "\n".join(
+        [
+            "def check(value):",
+            '    """A reason holds at least three characters."""',
+            "    raise ValueError('Enter a meaningful reason of at least three characters.')",
+            "    raise ValueError(f'Record why, in at least 3 characters ({value}).')",
+            "    raise ValueError(f'Record at least {REASON_MIN_LENGTH} characters of reason.')",
+            "    # at least three characters, as the API holds it",
+        ]
+    )
+
+    assert spelled_reason_minimums(source, 3) == ["line 3", "line 4"]
 
 
 def test_no_refusal_formats_a_collection_whole() -> None:

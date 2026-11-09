@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
 from src.core.demand_provenance import DemandReference
 from src.core.messages import duplicate_line_numbers, listed
+from src.core.validation import reject_null
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -1228,12 +1229,9 @@ class PurchaseOrderAmendLineIn(BaseModel):
         default=None, max_length=MAX_LINES_PER_DOCUMENT
     )
 
-    @field_validator("unit_price", "uom_id", "requires_qc", "item_id", mode="before")
-    @classmethod
-    def _omit_instead_of_null(cls, value: object) -> object:
-        if value is None:
-            raise ValueError("Omit this field to retain its value; it cannot be null.")
-        return value
+    _omit_instead_of_null = field_validator(
+        "unit_price", "uom_id", "requires_qc", "item_id", mode="before"
+    )(reject_null)
 
     @model_validator(mode="after")
     def _valid_line(self) -> PurchaseOrderAmendLineIn:
@@ -1255,6 +1253,10 @@ class PurchaseOrderAmendRequest(BaseModel):
     freight_amount: NonNegativeMoney | None = None
     terms: str | None = Field(default=None, max_length=4000)
     delivery_address: str | None = Field(default=None, max_length=4000)
+
+    # Omitted keeps the order's freight; an explicit null would empty a NOT NULL
+    # column, so it is refused here, on the field, before the service runs.
+    _freight_not_null = field_validator("freight_amount")(reject_null)
 
     @field_validator("reason", mode="before")
     @classmethod

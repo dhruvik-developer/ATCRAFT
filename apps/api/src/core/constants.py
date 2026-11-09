@@ -27,6 +27,12 @@ DEFAULT_CURRENCY = "INR"
 #: ISO 4217 codes are exactly three letters.
 CURRENCY_CODE_LENGTH = 3
 
+#: The fewest characters an audited reason may have - a cancellation's, a
+#: rejection's, a retirement's. The frontend holds the same floor as
+#: ``REASON_MIN_LENGTH`` in ``lib/constants.ts``, so a dialog refuses what the
+#: API would; a sentence states it by interpolating this, never by spelling it.
+REASON_MIN_LENGTH = 3
+
 #: The audit trail persists the same correlation id that HTTP responses and
 #: workers carry. Keep input validation aligned with ``audit_logs.request_id``.
 MAX_REQUEST_ID_LENGTH = 64
@@ -69,4 +75,5 @@ __all__ = [
     "MAX_SPECIFICATION_BATCH",
     "MAX_SPECIFICATION_FILTERS",
     "MAX_SPECIFICATION_OPTIONS",
+    "REASON_MIN_LENGTH",
 ]

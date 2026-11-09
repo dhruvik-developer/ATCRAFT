@@ -8,6 +8,7 @@ from src.core.validation import reject_null
 from src.modules.customers.schemas import ContactUpdate, CustomerUpdate
 from src.modules.inventory.schemas import StockTransferUpdate
 from src.modules.organization.schemas import CostCentreUpdate, FinancialYearUpdate
+from src.modules.procurement.schemas import PurchaseOrderAmendLineIn, PurchaseOrderAmendRequest
 from src.modules.production.schemas import ProductionOrderUpdate
 from src.modules.users.schemas import RoleUpdate, UserUpdate
 
@@ -101,3 +102,46 @@ def test_reject_null_passes_a_value_an_omission_and_other_fields_through():
     assert _Probe().model_fields_set == set()
     cleared = _Probe.model_validate({"clearable": None})
     assert (cleared.clearable, cleared.model_fields_set) == (None, {"clearable"})
+
+
+@pytest.mark.parametrize(
+    "schema,field,label",
+    [
+        (CustomerUpdate, "name", "Name"),
+        (RoleUpdate, "name", "Name"),
+        (UserUpdate, "full_name", "Name"),
+        (UserUpdate, "email", "Email"),
+    ],
+)
+def test_a_null_name_or_email_is_refused_in_the_shared_sentence(schema, field, label):
+    with pytest.raises(ValidationError) as error:
+        schema.model_validate({field: None})
+
+    [problem] = error.value.errors()
+    assert problem["loc"] == (field,)
+    assert str(problem["ctx"]["error"]) == cannot_be_null(label)
+
+
+@pytest.mark.parametrize("field", ["unit_price", "uom_id", "requires_qc", "item_id"])
+def test_an_amendment_line_refuses_a_null_in_the_shared_sentence(field):
+    with pytest.raises(ValidationError) as error:
+        PurchaseOrderAmendLineIn.model_validate({"quantity": "1", field: None})
+
+    [problem] = error.value.errors()
+    assert problem["loc"] == (field,)
+    assert str(problem["ctx"]["error"]) == cannot_be_null(field)
+
+
+def test_an_amendment_refuses_a_null_freight_on_the_field_and_keeps_an_omitted_one():
+    body = {
+        "expected_version": 1,
+        "reason": "Vendor revised the freight",
+        "lines": [{"line_id": "01a00000-0000-7000-8000-000000000001", "quantity": "1"}],
+    }
+    with pytest.raises(ValidationError) as error:
+        PurchaseOrderAmendRequest.model_validate({**body, "freight_amount": None})
+
+    [problem] = error.value.errors()
+    assert problem["loc"] == ("freight_amount",)
+    assert str(problem["ctx"]["error"]) == cannot_be_null("freight_amount")
+    assert "freight_amount" not in PurchaseOrderAmendRequest.model_validate(body).model_fields_set

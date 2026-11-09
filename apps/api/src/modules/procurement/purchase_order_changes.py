@@ -29,6 +29,7 @@ from src.core.errors import (
     PermissionDeniedError,
     ValidationError,
 )
+from src.core.messages import cannot_be_null
 from src.core.pagination import CursorParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination
@@ -283,8 +284,9 @@ async def _revise_locked(
     for name in ("expected_delivery_date", "freight_amount", "terms", "delivery_address"):
         if name in payload.model_fields_set:
             setattr(order, name, getattr(payload, name))
-    if order.freight_amount is None:
-        raise ValidationError("Freight cannot be null.")
+    if order.freight_amount is None:  # pragma: no cover - the request model refuses it first
+        refusal = cannot_be_null("freight_amount")
+        raise ValidationError(refusal, details={"fields": {"freight_amount": [refusal]}})
     if order.expected_delivery_date is not None and order.expected_delivery_date < order.po_date:
         raise ValidationError("The expected delivery date cannot be before the order date.")
     lines = await _apply_lines(session, tenant, order, payload.lines, outgoing)

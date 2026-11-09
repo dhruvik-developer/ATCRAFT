@@ -458,7 +458,7 @@ class TestExplanations:
             [soft], request=_request(quantity_needed=Decimal("50")), as_of=TODAY
         )
         reasons = " | ".join(ranked[0].reasons)
-        assert "priority level(s) less urgent" in reasons
+        assert "priority levels less urgent" in reasons
         assert "soft reservation" in reasons
         assert "no material issued against it yet" in reasons
 
