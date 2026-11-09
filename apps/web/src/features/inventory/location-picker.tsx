@@ -1,19 +1,26 @@
-import { describeError } from '@/lib/messages'
+/**
+ * A bin in one warehouse, searched on the server.
+ *
+ * A warehouse runs to hundreds of bins, so this searches `GET
+ * /warehouses/locations` within the chosen warehouse rather than downloading
+ * them. Changing the warehouse clears a bin that belonged to the old one, and an
+ * item whose default bin is in this warehouse has it filled in once, when the
+ * field is still empty. A role that may not read bins sees no field at all.
+ */
+
 import { useQuery } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { FieldError } from '@/components/shared'
-import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
-import { Input, Label } from '@/components/ui/primitives'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
-import { useLocationOptions, type LocationOption } from '@/hooks/use-location-options'
+import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import type { ItemDetail } from '@/features/items/item-model'
 import { api } from '@/lib/api-client'
-import { queryKeys, staleTimes } from '@/lib/query-client'
+import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { P } from '@/lib/permissions'
+import { queryKeys, staleTimes } from '@/lib/query-client'
+import type { SchemaOf } from '@/types/api'
+
+export type LocationOption = SchemaOf<'StorageLocationRead'>
 
 export function LocationPicker({
   id,
@@ -32,12 +39,9 @@ export function LocationPicker({
   onChange: (value: string | null) => void
   disabled?: boolean
 }) {
-  const [open, setOpen] = useState(false)
   const { can } = useAuth()
   const mayRead = can(P.LOCATION_VIEW)
-  const [search, setSearch] = useState('')
-  const debounced = useDebouncedValue(search)
-  const options = useLocationOptions(warehouseId, debounced, open && !disabled && mayRead)
+  const [picked, setPicked] = useState<LocationOption | null>(null)
   const defaults = useQuery({
     queryKey: queryKeys.items.detail(itemId),
     queryFn: ({ signal }) => api.get<ItemDetail>('/products/items/' + itemId, { signal }),
@@ -62,84 +66,67 @@ export function LocationPicker({
       onChange(defaults.data.default_location_id)
     }
   }, [defaults.data, itemId, warehouseId, value, onChange])
+  // A bin that did not come from a pick here - an item's default, a saved
+  // record - is resolved by id so the field reads as a code, not a UUID.
   const saved = useQuery({
     queryKey: [...queryKeys.warehouses.all, 'location', value],
     queryFn: ({ signal }) => api.get<LocationOption>('/warehouses/locations/' + value, { signal }),
-    enabled: Boolean(value) && mayRead,
+    enabled: Boolean(value) && mayRead && picked?.id !== value,
     staleTime: staleTimes.master,
   })
-  const selected = value ? (options.data?.data.find((row) => row.id === value) ?? saved.data) : null
+  const selected = value ? (picked?.id === value ? picked : (saved.data ?? null)) : null
   if (!mayRead) return null
 
   return (
-    <div className="min-w-0 space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="flex min-w-0 gap-1">
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              id={id}
-              type="button"
-              variant="outline"
-              role="combobox"
-              aria-label={label}
-              aria-expanded={open}
-              disabled={disabled || !warehouseId}
-              className="min-w-0 flex-1 justify-between font-normal"
-            >
-              <span className="truncate">
-                {selected ? selected.code + ' - ' + selected.name : 'No bin'}
-              </span>
-              <ChevronsUpDown aria-hidden />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-2">
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search bins"
-              aria-label={'Search ' + label.toLowerCase()}
-            />
-            <div className="mt-2 max-h-60 overflow-y-auto" role="listbox" aria-label={label}>
-              {options.isLoading && <p className="p-2 text-sm">Loading bins...</p>}
-              {options.error && (
-                <FieldError className="mt-0 p-2 text-sm" message={describeError(options.error)} />
-              )}
-              {!options.isLoading && !options.error && options.data?.data.length === 0 && (
-                <p className="p-2 text-sm text-muted-foreground">No active bin matches.</p>
-              )}
-              {options.data?.data.map((row) => (
-                <button
-                  key={row.id}
-                  type="button"
-                  role="option"
-                  aria-selected={row.id === value}
-                  className="flex w-full gap-2 rounded p-2 text-left text-sm hover:bg-accent"
-                  onClick={() => {
-                    onChange(row.id)
-                    setOpen(false)
-                  }}
-                >
-                  {row.id === value && <Check aria-hidden className="h-4 w-4" />}
-                  {row.code} - {row.name}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-        {value && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            disabled={disabled}
-            aria-label={'Clear ' + label.toLowerCase()}
-            onClick={() => onChange(null)}
-          >
-            <X />
-          </Button>
-        )}
-      </div>
-    </div>
+    <SearchPicker<LocationOption>
+      id={id}
+      label={label}
+      className="min-w-0"
+      display={selected ? selected.code + ' - ' + selected.name : null}
+      placeholder="No bin"
+      disabled={disabled || !warehouseId}
+      searchLabel={'Search ' + label.toLowerCase()}
+      searchPlaceholder="Search bins"
+      query={(term) => {
+        const params = {
+          warehouse_id: warehouseId,
+          is_active: true,
+          ...(term ? { search: term } : {}),
+          limit: PICKER_PAGE_SIZE,
+          with_total: false,
+        }
+        return {
+          queryKey: [...queryKeys.warehouses.all, 'location-options', params],
+          queryFn: ({ signal }) =>
+            api.getPage<LocationOption>('/warehouses/locations', { params, signal }),
+          staleTime: staleTimes.master,
+          enabled: Boolean(warehouseId),
+        }
+      }}
+      getKey={(row) => row.id}
+      selectedKey={value}
+      onSelect={(row) => {
+        setPicked(row)
+        onChange(row.id)
+      }}
+      renderOption={(row) => (
+        <span className="block truncate">
+          {row.code} - {row.name}
+        </span>
+      )}
+      emptyText="No active bin matches."
+      clear={
+        value
+          ? {
+              label: 'Clear ' + label.toLowerCase(),
+              onClear: () => {
+                setPicked(null)
+                onChange(null)
+              },
+              disabled,
+            }
+          : undefined
+      }
+    />
   )
 }
