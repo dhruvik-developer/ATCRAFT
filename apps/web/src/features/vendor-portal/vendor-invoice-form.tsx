@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { Checkbox, Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -206,9 +206,9 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
           <DialogBody className="space-y-5">
             <div>
               <Label htmlFor="invoice-receipt">Purchase order and goods receipt</Label>
-              <select
+              <NativeSelect
+                size="touch"
                 id="invoice-receipt"
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
                 value={receipt?.id ?? ''}
                 onChange={(event) => {
                   setReceipt(
@@ -225,7 +225,7 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
                     {row.purchase_order_code} · {row.code} · {formatDate(row.receipt_date)}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               {receipts.error && <FieldError message={describeError(receipts.error)} />}
               {order.error && <FieldError message={describeError(order.error)} />}
               <div className="flex flex-wrap gap-2">

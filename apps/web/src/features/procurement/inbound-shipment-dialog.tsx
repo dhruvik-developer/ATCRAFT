@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Input, Label, Textarea } from '@/components/ui/primitives'
+import { Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -208,9 +208,9 @@ export function InboundShipmentDialog({
           <DialogBody className="grid gap-4 sm:grid-cols-2">
             <div>
               <Label htmlFor="shipment-transporter">Transporter</Label>
-              <select
+              <NativeSelect
+                size="touch"
                 id="shipment-transporter"
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
                 disabled={!canReadTransporters}
                 {...form.register('transporter_id')}
               >
@@ -224,7 +224,7 @@ export function InboundShipmentDialog({
                     {option.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               <FieldError message={form.formState.errors.transporter_id?.message} />
               {options.error && <FieldError message={describeError(options.error)} />}
               <div className="mt-1 flex gap-2">

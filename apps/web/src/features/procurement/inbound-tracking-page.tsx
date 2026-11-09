@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { DataTable } from '@/components/data-table'
 import { PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Badge, Checkbox, Label } from '@/components/ui/primitives'
+import { Badge, Checkbox, Label, NativeSelect } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
@@ -153,9 +153,9 @@ export default function InboundTrackingPage() {
               />
             )}
             {can(P.CATEGORY_VIEW) && (
-              <select
+              <NativeSelect
                 aria-label="Filter by category"
-                className="h-10 rounded-md border bg-background px-3 text-sm"
+                className="w-auto"
                 value={categoryId}
                 onChange={(event) => list.setParam('category_id', event.target.value || undefined)}
               >
@@ -165,7 +165,7 @@ export default function InboundTrackingPage() {
                     {category.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             )}
             {flags.map(([key, label]) => (
               <div className="flex min-h-11 items-center gap-2" key={key}>

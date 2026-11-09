@@ -12,7 +12,7 @@ import {
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, CardContent, Input, Label } from '@/components/ui/primitives'
+import { Badge, Card, CardContent, Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -190,11 +190,12 @@ export function DealerCatalogPage() {
         </div>
         <div>
           <Label htmlFor="catalog-category">Category</Label>
-          <select
+          <NativeSelect
+            size="touch"
             id="catalog-category"
             value={searchParams.get('category_id') || ''}
             onChange={(event) => list.setParam('category_id', event.target.value || undefined)}
-            className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+            className="mt-1"
           >
             <option value="">All categories</option>
             {categories.data?.map((category) => (
@@ -202,15 +203,16 @@ export function DealerCatalogPage() {
                 {category.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div>
           <Label htmlFor="catalog-brand">Brand</Label>
-          <select
+          <NativeSelect
+            size="touch"
             id="catalog-brand"
             value={searchParams.get('brand_id') || ''}
             onChange={(event) => list.setParam('brand_id', event.target.value || undefined)}
-            className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+            className="mt-1"
           >
             <option value="">All brands</option>
             {brands.data?.map((brand) => (
@@ -218,19 +220,20 @@ export function DealerCatalogPage() {
                 {brand.name}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div>
           <Label htmlFor="catalog-sort">Sort by</Label>
-          <select
+          <NativeSelect
+            size="touch"
             id="catalog-sort"
             value={list.sortBy}
             onChange={(event) => list.setSort(event.target.value, 'asc')}
-            className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+            className="mt-1"
           >
             <option value="code">Code</option>
             <option value="name">Name</option>
-          </select>
+          </NativeSelect>
         </div>
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input
@@ -254,16 +257,17 @@ export function DealerCatalogPage() {
         </label>
         <div>
           <Label htmlFor="catalog-accessories">Accessories</Label>
-          <select
+          <NativeSelect
+            size="touch"
             id="catalog-accessories"
-            className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+            className="mt-1"
             value={searchParams.get('has_accessories') || ''}
             onChange={(event) => list.setParam('has_accessories', event.target.value || undefined)}
           >
             <option value="">Any accessories</option>
             <option value="true">Has accessories</option>
             <option value="false">No accessories</option>
-          </select>
+          </NativeSelect>
         </div>
       </div>
       <DealerSpecificationFilters />
@@ -362,11 +366,12 @@ export function DealerItemPage() {
                 {item.variants.length > 0 && (
                   <div>
                     <Label htmlFor="dealer-variant">Variant</Label>
-                    <select
+                    <NativeSelect
+                      size="touch"
                       id="dealer-variant"
                       value={variant}
                       onChange={(event) => setVariant(event.target.value)}
-                      className="mt-1 min-h-11 w-full rounded-md border bg-background px-3"
+                      className="mt-1"
                     >
                       <option value="">Standard item</option>
                       {item.variants
@@ -376,7 +381,7 @@ export function DealerItemPage() {
                             {entry.code}
                           </option>
                         ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                 )}
                 <div>

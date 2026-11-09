@@ -440,4 +440,43 @@ describe('the lint rules that replace review comments', () => {
     expect(await rulesFiredBy(code, 'src/lib/storage.ts')).toEqual([])
     expect(await rulesFiredBy(code, 'src/app/app-layout.test.tsx')).toEqual([])
   })
+
+  it('refuses a hand-styled native select outside the design-system primitives', async () => {
+    const code = [
+      'export function KindField({ kind }: { kind: string }) {',
+      '  return (',
+      '    <select id="kind" className="mt-1 h-11 w-full rounded-md border px-3" value={kind}>',
+      '      <option value="INVOICE">Invoice</option>',
+      '    </select>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code, 'src/features/procurement/kind-field.tsx')).toEqual([
+      'no-restricted-syntax',
+    ])
+    // The primitive that draws it is the one place a raw select is written.
+    expect(await rulesFiredBy(code, 'src/components/ui/primitives.tsx')).toEqual([])
+  })
+
+  it('accepts NativeSelect, whatever its size', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { NativeSelect } from '@/components/ui/primitives'",
+        '',
+        'export function KindField({ kind }: { kind: string }) {',
+        '  return (',
+        '    <NativeSelect id="kind" size="touch" className="mt-1" value={kind}>',
+        '      <option value="INVOICE">Invoice</option>',
+        '    </NativeSelect>',
+        '  )',
+        '}',
+        '',
+      ].join('\n'),
+      'src/features/procurement/kind-field.tsx',
+    )
+
+    expect(fired).toEqual([])
+  })
 })

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { Badge, Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { humanise } from '@/lib/format'
 
 import {
@@ -75,12 +75,12 @@ export function SerialDispositionEditor({
                   </Badge>
                 )}
               </div>
-              <select
+              <NativeSelect
+                size="touch"
                 id={`qc-unit-${id}`}
                 aria-label={`Disposition for ${label}`}
                 value={values[id] || ''}
                 disabled={readOnly || locked}
-                className="min-h-11 w-full rounded-md border bg-background px-3 text-sm"
                 onChange={(event) => {
                   const next = { ...values }
                   if (event.target.value) next[id] = event.target.value as SerialDisposition
@@ -96,7 +96,7 @@ export function SerialDispositionEditor({
                     {humanise(choice)}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           )
         })}

@@ -7,7 +7,7 @@ import { DataTable } from '@/components/data-table'
 import { PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
-import { Alert, AlertDescription, Input, Label } from '@/components/ui/primitives'
+import { Alert, AlertDescription, Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useShiftOptions, type ShiftOption } from '@/hooks/use-shift-options'
@@ -300,11 +300,11 @@ export default function ShiftRosterPage() {
               </div>
               <div>
                 <Label htmlFor="board-centre">Work centre</Label>
-                <select
+                <NativeSelect
                   id="board-centre"
                   value={centre}
                   onChange={(event) => setCentre(event.target.value)}
-                  className="h-10 rounded-md border bg-background px-3"
+                  className="w-auto"
                 >
                   <option value="">All work centres</option>
                   {centres.map((row) => (
@@ -312,7 +312,7 @@ export default function ShiftRosterPage() {
                       {row.code} · {row.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
             </div>
             {list.error && (

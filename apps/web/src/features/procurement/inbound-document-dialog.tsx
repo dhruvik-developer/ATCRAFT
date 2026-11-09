@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Input, Label } from '@/components/ui/primitives'
+import { Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
@@ -124,33 +124,25 @@ export function InboundDocumentDialog({
           <DialogBody className="space-y-4">
             <div>
               <Label htmlFor="upload-kind">Document kind</Label>
-              <select
-                id="upload-kind"
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                {...form.register('kind')}
-              >
+              <NativeSelect size="touch" id="upload-kind" {...form.register('kind')}>
                 {kinds.map((kind) => (
                   <option key={kind} value={kind}>
                     {kind.replaceAll('_', ' ')}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               <FieldError message={form.formState.errors.kind?.message} />
             </div>
             <div>
               <Label htmlFor="upload-shipment">Shipment (optional)</Label>
-              <select
-                id="upload-shipment"
-                className="h-11 w-full rounded-md border bg-background px-3 text-sm"
-                {...form.register('shipment_id')}
-              >
+              <NativeSelect size="touch" id="upload-shipment" {...form.register('shipment_id')}>
                 <option value="">Whole order</option>
                 {shipmentRows.map((shipment) => (
                   <option key={shipment.id} value={shipment.id}>
                     Shipment {shipment.shipment_number}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
               <FieldError message={form.formState.errors.shipment_id?.message} />
               {shipments.error && <FieldError message={describeError(shipments.error)} />}
               {(shipmentPagination?.has_next || shipmentPagination?.has_previous) && (

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/primitives'
+import { Label, NativeSelect } from '@/components/ui/primitives'
 import { useListQuery } from '@/hooks/use-list-query'
 import { PICKER_PAGE_SIZE, SPECIFICATION_FILTER_MAX } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -43,10 +43,11 @@ export function DealerSpecificationFilters() {
           return (
             <div key={attribute.id} className="min-w-0">
               <Label htmlFor={`dealer-filter-${attribute.id}`}>{attribute.name}</Label>
-              <select
+              <NativeSelect
+                size="touch"
                 id={`dealer-filter-${attribute.id}`}
                 value={value}
-                className="mt-1 h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+                className="mt-1 min-w-0"
                 onChange={(event) => {
                   const next = filters.filter((filter) => !filter.startsWith(prefix))
                   if (event.target.value) next.push(`${prefix}${event.target.value}`)
@@ -80,7 +81,7 @@ export function DealerSpecificationFilters() {
                     </option>
                   ))
                 )}
-              </select>
+              </NativeSelect>
             </div>
           )
         })}

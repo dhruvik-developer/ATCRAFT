@@ -12,6 +12,7 @@ import {
   Checkbox,
   Input,
   Label,
+  NativeSelect,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ApiError, api } from '@/lib/api-client'
@@ -278,22 +279,22 @@ export default function MessagingPage() {
         <CardContent className="flex flex-wrap items-end gap-3 pt-5">
           <div>
             <Label htmlFor="template-channel">Channel</Label>
-            <select
+            <NativeSelect
               id="template-channel"
-              className="mt-1.5 h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="mt-1.5 w-auto"
               value={channel}
               disabled={!canManage}
               onChange={(event) => setChannel(event.target.value as Channel)}
             >
               <option value="WHATSAPP">WhatsApp</option>
               <option value="SMS">SMS</option>
-            </select>
+            </NativeSelect>
           </div>
           <div>
             <Label htmlFor="template-type">Notification type</Label>
-            <select
+            <NativeSelect
               id="template-type"
-              className="mt-1.5 h-10 max-w-80 rounded-md border border-input bg-background px-3 text-sm"
+              className="mt-1.5 w-auto max-w-80"
               value={notificationType}
               disabled={!canManage}
               onChange={(event) => setNotificationType(event.target.value)}
@@ -303,7 +304,7 @@ export default function MessagingPage() {
                   {humanise(type)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <Button
             type="button"

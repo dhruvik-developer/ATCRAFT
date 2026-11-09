@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { EmptyState, FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, CardContent, Input, Label } from '@/components/ui/primitives'
+import { Badge, Card, CardContent, Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
@@ -142,18 +142,19 @@ export function ItemImagesPanel({
         <>
           <div>
             <Label htmlFor="item-image-type">Image type</Label>
-            <select
+            <NativeSelect
+              size="touch"
               id="item-image-type"
               value={mime}
               onChange={(event) => list.setParam('image_mime', event.target.value)}
-              className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm sm:w-48"
+              className="mt-1 sm:w-48"
             >
               {IMAGE_TYPES.map((type) => (
                 <option key={type.mime} value={type.mime}>
                   {type.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <DealerResult
             loading={list.isLoading}

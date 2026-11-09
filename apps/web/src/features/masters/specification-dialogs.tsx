@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { Checkbox, Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import {
   invalidateProductDescriptions,
@@ -210,17 +210,13 @@ export function SpecificationFormDialog({
                 </div>
                 <div>
                   <Label htmlFor="specification-type">Value type</Label>
-                  <select
-                    id="specification-type"
-                    {...register('value_type')}
-                    className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  >
+                  <NativeSelect id="specification-type" {...register('value_type')}>
                     {SPECIFICATION_TYPES.map((type) => (
                       <option key={type} value={type}>
                         {type.charAt(0) + type.slice(1).toLowerCase()}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                   <FieldError message={errors.value_type?.message} />
                 </div>
                 <div>

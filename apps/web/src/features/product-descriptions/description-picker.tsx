@@ -3,7 +3,7 @@ import { useId, useState } from 'react'
 
 import { LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Input, Label } from '@/components/ui/primitives'
+import { Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
@@ -66,12 +66,13 @@ export function DescriptionPicker<T extends { id: string; code: string; name: st
           <Label htmlFor={`${id}-choice`} className="sr-only">
             {label}
           </Label>
-          <select
+          <NativeSelect
+            size="touch"
             id={`${id}-choice`}
             value={selected?.id ?? ''}
             onChange={(event) => setChosen(event.target.value)}
             disabled={disabled || result.isFetching}
-            className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+            className="min-w-0"
           >
             <option value="">
               {result.isLoading ? 'Loading choices…' : `Choose ${label.toLowerCase()}`}
@@ -83,7 +84,7 @@ export function DescriptionPicker<T extends { id: string; code: string; name: st
                   {row.code} - {row.name}
                 </option>
               ))}
-          </select>
+          </NativeSelect>
         </div>
         <Button
           type="button"

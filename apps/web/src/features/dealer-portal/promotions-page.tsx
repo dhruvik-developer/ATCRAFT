@@ -19,7 +19,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/overlays'
-import { Input, Label, Textarea } from '@/components/ui/primitives'
+import { Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { ItemPicker } from '@/features/inventory/pickers'
@@ -135,9 +135,9 @@ function PromotionTarget({
         </div>
       )}
       <Label htmlFor="promotion-target">{humanise(kind)} target</Label>
-      <select
+      <NativeSelect
+        size="touch"
         id="promotion-target"
-        className="min-h-11 w-full rounded-md border bg-background px-3 text-sm"
         value={value || ''}
         onChange={(event) => onChange(event.target.value || null)}
       >
@@ -150,7 +150,7 @@ function PromotionTarget({
             {option.title}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </div>
   )
 }
@@ -346,7 +346,8 @@ function PromotionForm({
             )}
             <div>
               <Label htmlFor="promotion-kind">{kind === 'banners' ? 'Link' : 'Scope'}</Label>
-              <select
+              <NativeSelect
+                size="touch"
                 id="promotion-kind"
                 name={kind === 'banners' ? 'link_kind' : 'scope_kind'}
                 value={targetKind}
@@ -354,7 +355,7 @@ function PromotionForm({
                   setTargetKind(event.target.value as typeof targetKind)
                   setTargetId(null)
                 }}
-                className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+                className="mt-1"
               >
                 {(kind === 'banners'
                   ? ['NONE', 'ITEM', 'CATEGORY', 'BRAND', 'OFFER']
@@ -364,7 +365,7 @@ function PromotionForm({
                     {humanise(value)}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <PromotionTarget kind={targetKind} value={targetId} onChange={setTargetId} />
             {kind === 'offers' && (
@@ -404,17 +405,18 @@ function PromotionForm({
             )}
             <div>
               <Label htmlFor="promotion-audience">Audience</Label>
-              <select
+              <NativeSelect
+                size="touch"
                 id="promotion-audience"
                 name="audience_price_type"
                 defaultValue={row?.audience_price_type || ''}
-                className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+                className="mt-1"
               >
                 <option value="">All channels</option>
                 <option value="SALE">Sale</option>
                 <option value="DEALER">Dealer</option>
                 <option value="DISTRIBUTOR">Distributor</option>
-              </select>
+              </NativeSelect>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>

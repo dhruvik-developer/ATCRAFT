@@ -53,6 +53,7 @@ import {
   Checkbox,
   Input,
   Label,
+  NativeSelect,
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -563,9 +564,9 @@ export function UserFormDialog({
 
                   <div>
                     <Label htmlFor="user-account-kind">Account kind</Label>
-                    <select
+                    <NativeSelect
                       id="user-account-kind"
-                      className="mt-1.5 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+                      className="mt-1.5"
                       value={accountKind}
                       onChange={(event) => {
                         const next = event.target.value as typeof accountKind
@@ -579,7 +580,7 @@ export function UserFormDialog({
                       <option value="staff">Staff</option>
                       <option value="vendor">Vendor</option>
                       <option value="dealer">Dealer</option>
-                    </select>
+                    </NativeSelect>
                   </div>
 
                   {accountKind === 'vendor' && (

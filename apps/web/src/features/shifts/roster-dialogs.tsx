@@ -12,7 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Alert,
+  AlertDescription,
+  Input,
+  Label,
+  NativeSelect,
+  Textarea,
+} from '@/components/ui/primitives'
 import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { shiftLabel, useShiftOptions } from '@/hooks/use-shift-options'
 import { api, ApiError } from '@/lib/api-client'
@@ -147,9 +154,8 @@ export function RosterDialog({
             </div>
             <div>
               <Label htmlFor="roster-centre">Work centre</Label>
-              <select
+              <NativeSelect
                 id="roster-centre"
-                className="h-10 w-full rounded-md border bg-background px-3"
                 value={centre}
                 onChange={(event) => {
                   setCentre(event.target.value)
@@ -165,7 +171,7 @@ export function RosterDialog({
                     {row.code} · {row.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             {mode === 'copy' ? (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -194,9 +200,8 @@ export function RosterDialog({
               <>
                 <div>
                   <Label htmlFor="roster-shift">Shift</Label>
-                  <select
+                  <NativeSelect
                     id="roster-shift"
-                    className="h-10 w-full rounded-md border bg-background px-3"
                     value={shift}
                     onChange={(event) => setShift(event.target.value)}
                     required
@@ -207,13 +212,12 @@ export function RosterDialog({
                         {shiftLabel(row)}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
                 <div>
                   <Label htmlFor="roster-machine">Machine</Label>
-                  <select
+                  <NativeSelect
                     id="roster-machine"
-                    className="h-10 w-full rounded-md border bg-background px-3"
                     value={machine}
                     onChange={(event) => setMachine(event.target.value)}
                   >
@@ -230,7 +234,7 @@ export function RosterDialog({
                           {row.code} · {row.name}
                         </option>
                       ))}
-                  </select>
+                  </NativeSelect>
                 </div>
                 {machines.some(
                   (row) =>
@@ -246,9 +250,8 @@ export function RosterDialog({
                 )}
                 <div>
                   <Label htmlFor="roster-operator">Operator</Label>
-                  <select
+                  <NativeSelect
                     id="roster-operator"
-                    className="min-h-10 w-full rounded-md border bg-background px-3"
                     multiple={mode === 'bulk'}
                     value={mode === 'bulk' ? people : (people[0] ?? '')}
                     onChange={(event) =>
@@ -268,7 +271,7 @@ export function RosterDialog({
                         {row.full_name} {row.employee_code ?? ''}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
                 <div>
                   <Label htmlFor="roster-notes">Notes</Label>

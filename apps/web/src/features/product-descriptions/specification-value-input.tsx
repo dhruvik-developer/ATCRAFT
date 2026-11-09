@@ -1,4 +1,4 @@
-import { Input } from '@/components/ui/primitives'
+import { Input, NativeSelect } from '@/components/ui/primitives'
 import { PRODUCT_DESCRIPTION_TEXT_MAX, SELECT_NONE } from '@/lib/constants'
 
 import type { SpecificationAttribute } from './specification-model'
@@ -20,13 +20,14 @@ export function SpecificationValueInput({
 }) {
   if (attribute.value_type === 'BOOLEAN' || attribute.value_type === 'OPTION') {
     return (
-      <select
+      <NativeSelect
+        size="touch"
         id={id}
         value={value || SELECT_NONE}
         onChange={(event) => onChange(event.target.value === SELECT_NONE ? '' : event.target.value)}
         disabled={disabled}
         aria-invalid={invalid}
-        className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="min-w-0"
       >
         <option value={SELECT_NONE}>Not recorded</option>
         {attribute.value_type === 'BOOLEAN' ? (
@@ -41,7 +42,7 @@ export function SpecificationValueInput({
             </option>
           ))
         )}
-      </select>
+      </NativeSelect>
     )
   }
   return (

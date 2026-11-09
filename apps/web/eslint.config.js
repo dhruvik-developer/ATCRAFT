@@ -74,6 +74,16 @@ const literalQueryKey = {
     'Root a query key in queryKeys (lib/query-client.ts): use its key, or spread one of its roots into a feature factory. A literal root is a cache no known invalidation reaches.',
 }
 
+const nativeSelect = {
+  // Thirty-three hand-styled selects drifted ten ways: 40 and 44px beside the
+  // 36px Input, the panel border instead of the input one, 16px text, no red
+  // for aria-invalid and no disabled look - an editable-looking control that
+  // was not, and a refused field that showed nothing.
+  selector: "JSXOpeningElement[name.name='select']",
+  message:
+    "Use NativeSelect from '@/components/ui/primitives' (size 'sm' | 'touch' where the screen needs it), which draws a native select the way Input is drawn.",
+}
+
 const queryFnSignal = {
   // TanStack aborts a query whose function read the signal once no screen
   // observes it - the search a keystroke superseded, the dialog that closed.
@@ -170,9 +180,25 @@ export default tseslint.config(
         queryClientConstruction,
         literalQueryKey,
         queryFnSignal,
+        nativeSelect,
       ],
       'no-restricted-properties': ['error', ...localeFormatting, ...browserStorageProperties],
       'no-restricted-globals': ['error', ...browserStorageGlobals],
+    },
+  },
+  {
+    // The design-system primitives draw the native elements every screen uses.
+    files: ['src/components/ui/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        destructiveButtonClassName,
+        utcDateSlice,
+        decimalThroughNumber,
+        queryClientConstruction,
+        literalQueryKey,
+        queryFnSignal,
+      ],
     },
   },
   {

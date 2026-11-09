@@ -37,7 +37,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Alert,
+  AlertDescription,
+  Input,
+  Label,
+  NativeSelect,
+  Textarea,
+} from '@/components/ui/primitives'
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { LocationPicker } from '@/features/inventory/location-picker'
@@ -1746,18 +1753,14 @@ export function RecordProductionDialog({
           <DialogBody className="space-y-4">
             <div>
               <Label htmlFor="entry-work-order">Work order</Label>
-              <select
-                id="entry-work-order"
-                {...register('work_order_id')}
-                className="h-10 w-full rounded-md border bg-background px-3"
-              >
+              <NativeSelect id="entry-work-order" {...register('work_order_id')}>
                 <option value="">Whole job / final output</option>
                 {(workOrders.data?.data ?? []).map((row) => (
                   <option key={row.id} value={row.id}>
                     {row.code} - {row.operation_name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>

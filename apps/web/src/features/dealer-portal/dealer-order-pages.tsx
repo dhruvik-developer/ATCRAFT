@@ -28,6 +28,7 @@ import {
   CardContent,
   Input,
   Label,
+  NativeSelect,
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -260,10 +261,11 @@ export function DealerCartPage() {
                   <Label htmlFor={`checkout-${kind}`}>
                     {kind === 'shipping' ? 'Ship to' : 'Bill to'}
                   </Label>
-                  <select
+                  <NativeSelect
+                    size="touch"
                     id={`checkout-${kind}`}
                     name={`${kind}_address_id`}
-                    className="mt-1 min-h-11 w-full rounded-md border bg-background px-3 text-sm"
+                    className="mt-1"
                   >
                     <option value="">Use default address</option>
                     {me.data?.addresses.map((address) => (
@@ -271,7 +273,7 @@ export function DealerCartPage() {
                         {address.label || address.address_line1} · {address.city}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
               ))}
               <div>

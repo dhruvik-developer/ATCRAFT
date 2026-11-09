@@ -16,6 +16,7 @@ import {
   forwardRef,
   type HTMLAttributes,
   type InputHTMLAttributes,
+  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react'
 
@@ -133,6 +134,54 @@ export const Textarea = forwardRef<
   />
 ))
 Textarea.displayName = 'Textarea'
+
+// ---------------------------------------------------------- NativeSelect ----
+
+const nativeSelectVariants = cva(
+  [
+    'w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+    'disabled:cursor-not-allowed disabled:opacity-50',
+    'aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:ring-destructive',
+  ],
+  {
+    variants: {
+      size: {
+        // Level with `Input` and `SelectTrigger`.
+        default: 'h-9',
+        // Beside `sm` buttons: the DataTable's rows-per-page.
+        sm: 'h-8 px-2',
+        // The portals and the floor forms size every control for a thumb.
+        touch: 'min-h-11',
+      },
+    },
+    defaultVariants: { size: 'default' },
+  },
+)
+
+/**
+ * The browser's own `<select>`, drawn the way `Input` is: the same border,
+ * focus ring, disabled look and `aria-invalid` red.
+ *
+ * For a short fixed list where the platform's picker is the better control - a
+ * phone opens its own wheel, a form posts the value with no hidden mirror, and a
+ * test drives it with `userEvent.selectOptions`. The Radix `Select` stays the
+ * choice where a row needs more than text. `size` is the control's height, not
+ * the native attribute of that name (how many rows a list box shows), which no
+ * screen sets; a `multiple` select takes its natural height to show its rows.
+ */
+export const NativeSelect = forwardRef<
+  HTMLSelectElement,
+  Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size'> & VariantProps<typeof nativeSelectVariants>
+>(({ className, size, multiple, ...props }, ref) => (
+  <select
+    ref={ref}
+    multiple={multiple}
+    className={cn(nativeSelectVariants({ size }), multiple && 'h-auto py-1', className)}
+    {...props}
+  />
+))
+NativeSelect.displayName = 'NativeSelect'
 
 // ----------------------------------------------------------------- Label ----
 

@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Input, Label } from '@/components/ui/primitives'
+import { Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useAuth } from '@/features/auth/auth-context'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
@@ -118,9 +118,8 @@ function PackingSpecDialog({
           />
           <div className="space-y-1.5">
             <Label htmlFor="packing-spec-ratio-type">Quantity rule</Label>
-            <select
+            <NativeSelect
               id="packing-spec-ratio-type"
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={ratioMode}
               onChange={(event) => {
                 const next = event.target.value as RatioMode
@@ -130,7 +129,7 @@ function PackingSpecDialog({
             >
               <option value="quantity_per_unit">Material quantity per finished unit</option>
               <option value="units_per_carton">Finished units per carton</option>
-            </select>
+            </NativeSelect>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="packing-spec-ratio">

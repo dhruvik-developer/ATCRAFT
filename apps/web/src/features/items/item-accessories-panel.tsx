@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Badge, Input, Label, Textarea } from '@/components/ui/primitives'
+import { Badge, Input, Label, NativeSelect, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { QUANTITY_PATTERN } from '@/features/masters/masters-model'
@@ -147,7 +147,7 @@ export function AccessoryFormDialog({
             <fieldset disabled={mutation.isPending || !canEdit} className="space-y-4">
               <div>
                 <Label htmlFor="accessory-relation">Relation</Label>
-                <select
+                <NativeSelect
                   id="accessory-relation"
                   aria-invalid={Boolean(errors.relation)}
                   {...register('relation')}
@@ -155,11 +155,10 @@ export function AccessoryFormDialog({
                     setValue('relation', event.target.value as FormValues['relation'])
                     if (!accessory) setValue('accessory_item_id', '')
                   }}
-                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="OPTIONAL">Optional add-on</option>
                   <option value="INCLUDED">In the box</option>
-                </select>
+                </NativeSelect>
                 <FieldError message={errors.relation?.message} />
               </div>
               {accessory ? (

@@ -42,7 +42,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/overlays'
-import { Input, Skeleton } from '@/components/ui/primitives'
+import { Input, NativeSelect, Skeleton } from '@/components/ui/primitives'
 import {
   DEFAULT_PAGE_SIZE,
   PAGE_SIZES,
@@ -450,17 +450,18 @@ export function DataTable<T>({
             {onLimitChange && (
               <label className="flex items-center gap-2 text-muted-foreground">
                 Rows
-                <select
+                <NativeSelect
+                  size="sm"
                   value={limit}
                   onChange={(e) => onLimitChange(Number(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                  className="w-auto"
                 >
                   {PAGE_SIZES.map((size) => (
                     <option key={size} value={size}>
                       {size}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </label>
             )}
 

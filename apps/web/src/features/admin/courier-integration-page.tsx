@@ -16,6 +16,7 @@ import {
   Checkbox,
   Input,
   Label,
+  NativeSelect,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -225,9 +226,9 @@ export default function CourierIntegrationPage() {
                 </div>
                 <div>
                   <Label htmlFor="courier-provider">Provider</Label>
-                  <select
+                  <NativeSelect
                     id="courier-provider"
-                    className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="mt-1.5"
                     value={draft.provider}
                     onChange={(event) =>
                       setDraft({ ...draft, provider: event.target.value as CourierProvider })
@@ -235,7 +236,7 @@ export default function CourierIntegrationPage() {
                   >
                     <option value="SHIPROCKET">Shiprocket</option>
                     <option value="GENERIC_WEBHOOK">Generic webhook</option>
-                  </select>
+                  </NativeSelect>
                 </div>
                 <div>
                   <Label htmlFor="courier-name">Display name</Label>

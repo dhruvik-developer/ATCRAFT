@@ -6,7 +6,15 @@ import { Link, useParams } from 'react-router-dom'
 import { DataTable } from '@/components/data-table'
 import { FieldError, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle, Input, Label } from '@/components/ui/primitives'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  NativeSelect,
+} from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { formatDate, formatDateTime, formatQuantity, humanise } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
@@ -252,9 +260,10 @@ export function VendorJobWorkDetailPage() {
             >
               <div>
                 <Label htmlFor="job-work-update-type">Progress</Label>
-                <select
+                <NativeSelect
+                  size="touch"
                   id="job-work-update-type"
-                  className="mt-1.5 min-h-11 w-full rounded-md border bg-background px-3"
+                  className="mt-1.5"
                   value={updateType}
                   onChange={(event) => {
                     const value = event.target.value
@@ -270,7 +279,7 @@ export function VendorJobWorkDetailPage() {
                   <option value="IN_PROCESS">In process</option>
                   <option value="READY_TO_RETURN">Ready to return</option>
                   <option value="DISPATCHED_BACK">Dispatched back</option>
-                </select>
+                </NativeSelect>
               </div>
               <div>
                 <Label htmlFor="job-work-expected-date">Expected return date</Label>
