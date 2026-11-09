@@ -5657,6 +5657,11 @@ class StockTransferService:
         same bin as a movement - then refuses it. TRANSFER_FLOW has no edge out
         of IN_TRANSIT except RECEIVED, so the document, and the stock, would be
         stranded there for good.
+
+        Each bin is held to the rule every document line's bin is held to
+        (:func:`_assert_line_location`), against its own leg's warehouse: the
+        source bin gives stock up, so a retired one may still be named; the
+        destination takes stock in, so it must be active.
         """
         wanted = [
             location_id
@@ -5673,36 +5678,13 @@ class StockTransferService:
                 (line.from_location_id, payload.from_warehouse_id, False),
                 (line.to_location_id, payload.to_warehouse_id, True),
             ):
-                if location_id is None:
-                    continue
-                location = locations.get(location_id)
-                # Another company's, soft-deleted, or never there at all.
-                if location is None:
-                    raise NotFoundError("Storage location", location_id)
-                warehouse = warehouses[warehouse_id]
-                if location.warehouse_id != warehouse_id:
-                    raise BusinessRuleError(
-                        f"Line {number}: storage location {location.code} is not in "
-                        f"warehouse {warehouse.code}.",
-                        details={
-                            "line_number": number,
-                            "location_id": str(location_id),
-                            "location_code": location.code,
-                            "warehouse_code": warehouse.code,
-                        },
-                    )
-                # The same asymmetry every other bin rule follows: a retired bin
-                # may give its stock up but may not take any in, so only the
-                # destination is held to the flag.
-                if receiving and not location.is_active:
-                    raise BusinessRuleError(
-                        f"Line {number}: storage location {location.code} is inactive and "
-                        "cannot receive stock.",
-                        details={
-                            "line_number": number,
-                            "location_id": str(location_id),
-                            "location_code": location.code,
-                        },
+                if location_id is not None:
+                    _assert_line_location(
+                        number,
+                        location_id,
+                        locations,
+                        warehouses[warehouse_id],
+                        receiving=receiving,
                     )
 
     async def _locked(self, transfer_id: uuid.UUID) -> StockTransfer:

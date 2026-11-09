@@ -54,6 +54,7 @@ from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError
+from src.core.messages import inactive_record
 from src.core.models import Base
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import (
@@ -373,11 +374,23 @@ class TestADestinationBinIsCheckedAtCreate:
                 warehouse_id=bench.destination,
                 is_active=False,
             )
+            retired_id, retired_code = retired.id, retired.code
 
-        with pytest.raises(BusinessRuleError, match="inactive"):
+        with pytest.raises(BusinessRuleError) as refused:
             await inv.StockTransferService(session, tenant).create(
-                transfer_payload(bench, to_location_id=retired.id)
+                transfer_payload(bench, to_location_id=retired_id)
             )
+
+        # The one sentence every document's bin rule refuses a shut bin in -
+        # a bin move, a disposal, an issue and an adjustment say it the same way.
+        assert refused.value.message == "Line 1: " + inactive_record(
+            "Storage location", retired_code, "cannot receive stock"
+        )
+        assert refused.value.details == {
+            "line_number": 1,
+            "location_id": str(retired_id),
+            "location_code": retired_code,
+        }
 
     async def test_an_inactive_source_bin_may_still_give_stock_up(self, ctx) -> None:
         """The asymmetry every other bin rule follows: refusing outbound
