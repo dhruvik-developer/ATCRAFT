@@ -198,6 +198,10 @@ class FefoBatch:
     available_quantity: Decimal
 
 
+#: Where a lotless pick is made: ``(item_id, warehouse_id, location_id)``.
+FefoPosition = tuple[uuid.UUID, uuid.UUID, uuid.UUID | None]
+
+
 # -----------------------------------------------------------------------------
 # Balances
 # -----------------------------------------------------------------------------
@@ -654,22 +658,41 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
 
     async def fefo_candidates(
         self,
+        positions: Sequence[FefoPosition],
         *,
-        item_id: uuid.UUID,
-        warehouse_id: uuid.UUID,
-        location_id: uuid.UUID | None,
         minimum_quantity: Decimal,
         as_of: date,
-    ) -> list[FefoBatch]:
-        """Lots that can cover a pick, oldest expiry first.
+    ) -> dict[FefoPosition, list[FefoBatch]]:
+        """Lots that can cover a pick at each position, oldest expiry first.
 
-        A single lot must cover the whole movement: splitting one movement
+        One statement for every position a document picks from, never one per
+        line. A single lot must cover a whole movement: splitting one movement
         across several balances would change the cost layers it draws from
-        under a caller that asked for one line. When no single lot is enough
-        the caller gets nothing, and the ordinary shortfall error explains why.
+        under a caller that asked for one line, so the caller takes, per
+        movement, the first lot whose available quantity covers it - and when
+        none does, the ordinary shortfall error explains why.
+        ``minimum_quantity`` is the smallest movement asked for; it only trims
+        lots that could cover none of them. Every position asked about is a key,
+        with an empty list where nothing qualifies.
         """
+        wanted = list(dict.fromkeys(positions))
+        if not wanted:
+            return {}
+        at_positions = [
+            and_(
+                InventoryBalance.item_id == item_id,
+                InventoryBalance.warehouse_id == warehouse_id,
+                InventoryBalance.location_id.is_(None)
+                if location_id is None
+                else InventoryBalance.location_id == location_id,
+            )
+            for item_id, warehouse_id, location_id in wanted
+        ]
         stmt = (
             select(
+                InventoryBalance.item_id,
+                InventoryBalance.warehouse_id,
+                InventoryBalance.location_id,
                 InventoryBalance.batch_id,
                 StockBatch.expires_on,
                 StockBatch.received_on,
@@ -678,8 +701,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             .join(StockBatch, StockBatch.id == InventoryBalance.batch_id)
             .where(
                 InventoryBalance.company_id == self.tenant.company_id,
-                InventoryBalance.item_id == item_id,
-                InventoryBalance.warehouse_id == warehouse_id,
+                or_(*at_positions),
                 InventoryBalance.batch_id.is_not(None),
                 InventoryBalance.available_quantity >= minimum_quantity,
                 StockBatch.status == BatchStatus.ACTIVE,
@@ -691,20 +713,19 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
                 StockBatch.id.asc(),
             )
         )
-        if location_id is None:
-            stmt = stmt.where(InventoryBalance.location_id.is_(None))
-        else:
-            stmt = stmt.where(InventoryBalance.location_id == location_id)
-        rows = await self.session.execute(stmt)
-        return [
-            FefoBatch(
-                batch_id=row[0],
-                expires_on=row[1],
-                received_on=row[2],
-                available_quantity=row[3],
+        found: dict[FefoPosition, list[FefoBatch]] = {position: [] for position in wanted}
+        for row in await self.session.execute(stmt):
+            # One ordered result partitioned by position keeps each position's
+            # lots in the same FEFO order a query of its own would return.
+            found[(row.item_id, row.warehouse_id, row.location_id)].append(
+                FefoBatch(
+                    batch_id=row.batch_id,
+                    expires_on=row.expires_on,
+                    received_on=row.received_on,
+                    available_quantity=row.available_quantity,
+                )
             )
-            for row in rows
-        ]
+        return found
 
     async def warehouse_facts(
         self, warehouse_ids: Sequence[uuid.UUID]

@@ -2578,9 +2578,13 @@ class MovementEngine:
         async with transaction(self.session):
             # FEFO is a decision made before validation, because the chosen lot
             # is itself a master-data fact the movement is then held to. An
-            # explicit lot is never overridden.
-            movements = await self._assign_fefo_batches(movements)
-            master = await self._load_master_data(movements, extra)
+            # explicit lot is never overridden. The item facts it needs are the
+            # master data's own, read once for both.
+            items = await self.balances.item_facts(
+                [m.item_id for m in movements] + [g.item_id for g in extra]
+            )
+            movements = await self._assign_fefo_batches(movements, items)
+            master = await self._load_master_data(movements, extra, items=items)
             # Master data is validated before the first lock is taken. The
             # balance upsert has foreign keys of its own, so a movement naming a
             # storage location that does not exist would otherwise be answered
@@ -2699,40 +2703,57 @@ class MovementEngine:
 
         return transactions, locked
 
-    async def _assign_fefo_batches(self, movements: list[MovementRequest]) -> list[MovementRequest]:
+    async def _assign_fefo_batches(
+        self, movements: list[MovementRequest], items: Mapping[uuid.UUID, ItemFacts]
+    ) -> list[MovementRequest]:
         """Fill in a lot for issue movements that did not name one.
 
         The caller keeps the right to choose; this only answers the question
         when it was left open. Candidates are active, unexpired and hold enough
         *available* quantity at the exact position the movement addresses. If
         no single lot can cover the whole line, the movement is left alone and
-        the ordinary stock-shortfall error explains the position.
+        the ordinary stock-shortfall error explains the position. One statement
+        finds the candidates for every such line of the document; it used to be
+        one per line, inside the posting transaction.
         """
-        wanted = [
-            index
-            for index, movement in enumerate(movements)
-            if movement.batch_id is None
-            and movement.serial_id is None
-            and movement.transaction_type in FEFO_MOVEMENTS
-        ]
+
+        def picks_a_lot(movement: MovementRequest) -> bool:
+            item = items.get(movement.item_id)
+            return (
+                movement.batch_id is None
+                and movement.serial_id is None
+                and movement.transaction_type in FEFO_MOVEMENTS
+                and item is not None
+                and item.is_batch_tracked
+            )
+
+        wanted = [index for index, movement in enumerate(movements) if picks_a_lot(movement)]
         if not wanted:
             return movements
-        items = await self.balances.item_facts([movements[index].item_id for index in wanted])
+        lots = await self.balances.fefo_candidates(
+            [
+                (
+                    movements[index].item_id,
+                    movements[index].warehouse_id,
+                    movements[index].location_id,
+                )
+                for index in wanted
+            ],
+            minimum_quantity=min(movements[index].quantity for index in wanted),
+            as_of=today(),
+        )
         assigned = list(movements)
         for index in wanted:
             movement = movements[index]
-            item = items.get(movement.item_id)
-            if item is None or not item.is_batch_tracked:
-                continue
-            lots = await self.balances.fefo_candidates(
-                item_id=movement.item_id,
-                warehouse_id=movement.warehouse_id,
-                location_id=movement.location_id,
-                minimum_quantity=movement.quantity,
-                as_of=today(),
+            position = (movement.item_id, movement.warehouse_id, movement.location_id)
+            # Not drawn down between lines: each line is offered the lots as
+            # they stand, exactly as a query of its own would have offered them.
+            chosen = next(
+                (lot for lot in lots[position] if lot.available_quantity >= movement.quantity),
+                None,
             )
-            if lots:
-                assigned[index] = replace(movement, batch_id=lots[0].batch_id)
+            if chosen is not None:
+                assigned[index] = replace(movement, batch_id=chosen.batch_id)
         return assigned
 
     async def consume_empty_batches(self, movements: Sequence[MovementRequest]) -> None:
@@ -3050,6 +3071,8 @@ class MovementEngine:
         self,
         movements: list[MovementRequest],
         grains: Sequence[BalanceGrain] = (),
+        *,
+        items: Mapping[uuid.UUID, ItemFacts] | None = None,
     ) -> _MasterData:
         """Five queries for the whole batch, never one per line (section 32).
 
@@ -3059,10 +3082,13 @@ class MovementEngine:
         positions in ``grains`` - destinations a document writes without moving
         anything through them - are folded into the same id lists rather than
         fetched separately, so validating them costs no extra round trip at all.
+        ``items`` is the posting's own item read when it already has one - FEFO
+        needs the same facts first - and must cover every item named here.
         """
-        items = await self.balances.item_facts(
-            [m.item_id for m in movements] + [g.item_id for g in grains]
-        )
+        if items is None:
+            items = await self.balances.item_facts(
+                [m.item_id for m in movements] + [g.item_id for g in grains]
+            )
         warehouses = await self.balances.warehouse_facts(
             [m.warehouse_id for m in movements] + [g.warehouse_id for g in grains]
         )
@@ -3077,7 +3103,7 @@ class MovementEngine:
             [m.serial_id for m in movements if m.serial_id is not None]
         )
         return _MasterData(
-            items=items,
+            items=dict(items),
             warehouses=warehouses,
             locations=locations,
             batches=batches,

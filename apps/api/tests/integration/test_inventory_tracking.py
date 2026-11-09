@@ -54,7 +54,7 @@ from src.modules.inventory.service import (
     post_movements,
 )
 from tests.seed_support import seed_item, seed_warehouse
-from tests.statement_support import counted
+from tests.statement_support import counted, selects
 
 pytestmark = pytest.mark.integration
 
@@ -317,6 +317,64 @@ class TestBatchLifecycle:
             )
         ).scalars()
         assert sorted(closed) == sorted(lot.id for lot in lots)
+
+    async def test_lotless_issue_lines_find_their_lots_in_one_statement(
+        self, session, tenant, engine, unique_code
+    ) -> None:
+        """Two lotless lines and six cost the same reads; each still takes FEFO's lot.
+
+        The candidate lots were read once per lotless line inside the posting
+        transaction - a two-hundred-line issue was two hundred extra round
+        trips - and the item facts were read for FEFO and again for validation.
+        """
+        item = await seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=unique_code("PICK"),
+            is_batch_tracked=True,
+        )
+        warehouse = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("WH")
+        )
+        later = await _lot(
+            session,
+            tenant,
+            item,
+            number=unique_code("LATER"),
+            expires_on=today() + timedelta(days=60),
+        )
+        sooner = await _lot(
+            session,
+            tenant,
+            item,
+            number=unique_code("SOON"),
+            expires_on=today() + timedelta(days=10),
+        )
+        await _receive(session, tenant, item, warehouse, "20", batch_id=later.id)
+        await _receive(session, tenant, item, warehouse, "20", batch_id=sooner.id)
+
+        def issue(count: int) -> list[MovementRequest]:
+            return [
+                MovementRequest(
+                    item_id=item.id,
+                    warehouse_id=warehouse.id,
+                    quantity=Decimal("1"),
+                    transaction_type=TransactionType.MATERIAL_ISSUE,
+                    reference_type="test",
+                    reference_id=None,
+                    reference_code=None,
+                    reason="Issue without naming a lot",
+                )
+                for _ in range(count)
+            ]
+
+        with counted(engine) as two_lines:
+            first = await post_movements(session, tenant, issue(2))
+        with counted(engine) as six_lines:
+            second = await post_movements(session, tenant, issue(6))
+
+        assert selects(six_lines) == selects(two_lines)
+        assert {row.batch_id for row in [*first, *second]} == {sooner.id}
 
     async def test_the_expiry_sweep_expires_the_past_and_warns_about_the_near(
         self, session, tenant, unique_code
