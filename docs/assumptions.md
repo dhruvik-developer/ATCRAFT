@@ -4782,6 +4782,17 @@ this company that is not retired (404 otherwise); an inactive store may be
 assigned, and a store the account already holds is not looked up again
 (§REF-1).
 
+The user form offers the warehouses `GET /warehouses/options` returns, which
+the API narrows to the caller's own - every one for the two exemptions - so an
+administrator assigned to some warehouses chooses among their own and must tick
+at least one, and the API refuses anything wider. That read needs
+`warehouse.view`, as each reference list the form reads needs its own view
+right: an administrator assigned to some warehouses needs `warehouse.view`
+beside `user.create` or `user.update` to give an account warehouses from the
+screen. The ADMIN and SUPER_ADMIN presets hold all three. Without it the form
+says the warehouse list cannot be read and offers none, and a create is refused
+before any request.
+
 **Why.** Without it a holder of `user.update` limited to one store could clear
 their own list and read every store, and a holder of `user.create` could create
 an unrestricted colleague with a password they chose - defeating the A02/A03
@@ -4791,12 +4802,18 @@ stored silently.
 
 **Where.** `src/modules/users/service.py` - `assert_can_assign_warehouses`,
 `warehouse_reach`, `UserService.create_user`, `update_user` and
-`_assert_references` (through `WarehouseRepository.ids_in_scope`).
+`_assert_references` (through `WarehouseRepository.ids_in_scope`);
+`src/modules/warehouses/router.py` - `list_warehouse_options`;
+`apps/web/src/features/admin/user-dialogs.tsx` - `WarehouseAssignment`, with its
+rules in `user-warehouses.ts`. `tests/unit/test_users_permissions.py` fails if
+a preset that administers accounts cannot read the warehouses it hands out.
 
 **Impact if wrong.** Switch `REQUIRE_WAREHOUSE_AUTHORITY_TO_ASSIGN` off to let
-any `user.create`/`user.update` holder set any assignment. The user screen does
-not edit assignments yet, so an administrator assigned to some warehouses cannot
-create an account from it until it does; one with no assignment still can.
+any `user.create`/`user.update` holder set any assignment. If a user
+administrator should assign warehouses without `warehouse.view`, gate
+`GET /warehouses/options` on any of `warehouse.view`, `user.create` and
+`user.update` - it answers ids, codes, names and types, of the caller's own
+warehouses only - and let the user form read it on either user right.
 
 ## §DOC-1. Filing a document against an item needs the right to change the item
 

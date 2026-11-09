@@ -15,13 +15,14 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from src.core.clock import utcnow
 from src.core.deps import Principal, _resolve_permissions
 from src.core.errors import AuthorizationError, BusinessRuleError, ErrorCode, PermissionDeniedError
-from src.core.permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, Permission
+from src.core.permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, ROLE_PRESETS, Permission
 from src.modules.users.service import (
     EVERY_WAREHOUSE_GRANT_DENIED,
     EVERY_WAREHOUSE_REVOKE_DENIED,
@@ -366,6 +367,26 @@ class TestWarehouseAssignmentGuard:
     def test_limiting_an_unrestricted_account_is_refused(self) -> None:
         refusal = _refusal(_assigned(STORE_A), None, frozenset({STORE_A}))
         assert refusal.message == EVERY_WAREHOUSE_REVOKE_DENIED
+
+    def test_every_preset_that_administers_accounts_reads_the_warehouses_it_assigns(
+        self,
+    ) -> None:
+        # The user form offers the warehouses GET /warehouses/options returns,
+        # which needs warehouse.view. A preset holding user.create or
+        # user.update without it would leave an administrator assigned to some
+        # warehouses unable to give an account any (docs/assumptions.md §WH-1).
+        administering = {
+            name: cast("frozenset[Permission]", preset["permissions"])
+            for name, preset in ROLE_PRESETS.items()
+            if {Permission.USER_CREATE, Permission.USER_UPDATE}
+            & cast("frozenset[Permission]", preset["permissions"])
+        }
+
+        assert {"ADMIN", "SUPER_ADMIN"} <= set(administering)
+        blind = [
+            name for name, held in administering.items() if Permission.WAREHOUSE_VIEW not in held
+        ]
+        assert blind == []
 
 
 # -----------------------------------------------------------------------------

@@ -264,6 +264,11 @@ async def list_warehouses(
     return PaginatedResponse[WarehouseRead](data=items, pagination=pagination)
 
 
+# ASSUMPTION: the picker stays on warehouse.view for every caller, the user
+# form's warehouse assignment included, as each reference list that form reads
+# needs its own view right - so an administrator assigned to some warehouses
+# needs warehouse.view beside user.create or user.update to hand any out. The
+# ADMIN and SUPER_ADMIN presets hold all three. docs/assumptions.md §WH-1.
 @router.get(
     "/options",
     response_model=ApiResponse[list[WarehouseOption]],
