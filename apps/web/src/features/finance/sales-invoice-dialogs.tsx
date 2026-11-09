@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ConfirmDialog, DescriptionList, FieldError, StatusBadge } from '@/components/shared'
+import {
+  ConfirmDialog,
+  DescriptionList,
+  FieldError,
+  LoadError,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -279,7 +285,9 @@ export function RaiseSalesInvoiceDialog({
           {!can(P.SALES_INVOICE_VIEW) && (
             <FieldError message="Viewing sales invoices is required to review the invoice before issuing it." />
           )}
-          {preview.error && <FieldError message={describeError(preview.error)} />}
+          {preview.error && (
+            <LoadError error={preview.error} onRetry={() => void preview.refetch()} />
+          )}
           {issue.error && <FieldError message={describeError(issue.error)} />}
           {preview.data && (
             <>
@@ -384,7 +392,9 @@ export function SalesInvoiceDetailDialog({
             <DialogDescription>{salesInvoiceMessages.snapshot}</DialogDescription>
           </DialogHeader>
           <DialogBody className="space-y-4">
-            {detail.error && <FieldError message={describeError(detail.error)} />}
+            {detail.error && (
+              <LoadError error={detail.error} onRetry={() => void detail.refetch()} />
+            )}
             {detail.isLoading && <p>Loading invoice...</p>}
             {invoice && (
               <>

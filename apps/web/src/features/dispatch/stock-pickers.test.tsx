@@ -59,6 +59,27 @@ describe('server-paged serial selection', () => {
   })
 })
 
+describe('a serial list that did not load', () => {
+  it('says why and asks again, instead of claiming no eligible unit exists', async () => {
+    let reads = 0
+    const { user } = renderScreen(<ControlledSerials />, {
+      permissions: [P.INVENTORY_VIEW],
+      routes: {
+        'GET /inventory/serials': () => {
+          reads += 1
+          return fail(503, 'SERVICE_UNAVAILABLE', 'Serial register unavailable')
+        },
+      },
+    })
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    expect(retry.closest('[role="alert"]')).toHaveTextContent('Serial register unavailable')
+    expect(screen.queryByText(/No eligible serial units/)).not.toBeInTheDocument()
+    const before = reads
+    await user.click(retry)
+    await waitFor(() => expect(reads).toBeGreaterThan(before))
+  })
+})
+
 function ScopedReworkSerials() {
   const sourceIds = Array.from({ length: 101 }, (_, index) => `rejected-${index + 1}`)
   const [selected, setSelected] = useState(sourceIds)

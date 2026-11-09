@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
+import { LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -100,11 +101,7 @@ export function PushDeviceCard() {
         <p className="text-sm" role="status">
           {state.isLoading ? 'Checking device…' : stateLabels[current]}
         </p>
-        {config.error && (
-          <p role="alert" className="text-sm text-destructive">
-            {describeError(config.error)}
-          </p>
-        )}
+        {config.error && <LoadError error={config.error} onRetry={() => void config.refetch()} />}
         {config.data && !config.data.enabled && (
           <p className="text-sm text-muted-foreground">
             Push notifications are not enabled for this deployment. In-app and email preferences

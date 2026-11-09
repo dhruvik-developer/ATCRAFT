@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { cursorPage, ok, page, renderScreen } from '@/test/harness'
+import { cursorPage, fail, ok, page, renderScreen } from '@/test/harness'
 import type { SchemaOf } from '@/types/api'
 
 import CollectionsPage from './collections-page'
@@ -89,6 +89,33 @@ describe('collections worklist', () => {
     expect(requestQuery?.get('assigned_to_me')).toBe('true')
     expect(requestQuery?.get('dealer_only')).toBe('true')
     expect(requestQuery?.get('min_overdue_days')).toBe('30')
+  })
+
+  it('says why the worklist did not load and loads it on a retry', async () => {
+    let reads = 0
+    const { user } = renderScreen(<CollectionsPage />, {
+      permissions: [P.COLLECTION_VIEW],
+      route: '/finance/collections',
+      routes: {
+        [`GET ${WORKLIST_PATH}`]: () => {
+          reads += 1
+          return reads === 1
+            ? fail(503, 'SERVICE_UNAVAILABLE', 'Receivables are being recalculated')
+            : page([worklistRow()])
+        },
+      },
+    })
+
+    // The phone card list and the desktop table both render here; the card
+    // list's failure is the LoadError, the table keeps its own empty-row retry.
+    const alerts = await screen.findAllByRole('alert')
+    const failure = alerts.find((alert) =>
+      alert.textContent?.includes('Receivables are being recalculated'),
+    )
+    expect(failure).toBeDefined()
+    await user.click(within(failure!).getByRole('button', { name: 'Try again' }))
+    expect(await screen.findAllByText(/Northline Distributors/)).not.toHaveLength(0)
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
   })
 
   it('opens a follow-up from an overdue customer and loads its detail and keyset notes', async () => {

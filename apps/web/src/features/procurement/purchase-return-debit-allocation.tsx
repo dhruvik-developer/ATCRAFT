@@ -4,6 +4,7 @@ import Decimal from 'decimal.js'
 import { Loader2, Plus, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
+import { LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -259,9 +260,11 @@ export function PurchaseReturnDebitAllocation({
       </div>
 
       {invoices.error && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not load open vendor invoices: {describeError(invoices.error)}
-        </p>
+        <LoadError
+          title="Could not load open vendor invoices"
+          error={invoices.error}
+          onRetry={() => void invoices.refetch()}
+        />
       )}
       {(invoices.data?.pagination.has_previous || invoices.data?.pagination.has_next) && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">

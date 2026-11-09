@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
-import { EmptyState, FieldError, PanelLoader } from '@/components/shared'
+import { EmptyState, FieldError, LoadError, PanelLoader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle, Badge, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -201,7 +201,7 @@ export function ItemSpecificationsPanel({ itemId }: { itemId: string }) {
       api.get<ItemSpecifications>(`/products/items/${itemId}/specifications`, { signal }),
   })
   if (result.isLoading) return <PanelLoader />
-  if (result.error) return <FieldError message={describeError(result.error)} />
+  if (result.error) return <LoadError error={result.error} onRetry={() => void result.refetch()} />
   if (!result.data) return null
   return (
     <section className="space-y-4">

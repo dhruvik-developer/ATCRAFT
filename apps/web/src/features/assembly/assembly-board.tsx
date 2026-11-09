@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * The assembly board: open work per line, planned against actual.
  *
@@ -17,7 +16,7 @@ import { describeError } from '@/lib/messages'
 import { CalendarClock, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Badge, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -150,7 +149,7 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
             ))}
           </div>
         ) : lines.error ? (
-          <p className="text-sm text-destructive">{describeError(lines.error)}</p>
+          <LoadError error={lines.error} onRetry={() => void lines.refetch()} />
         ) : lines.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No open assembly orders. Raise one to start planning the benches.
@@ -175,7 +174,7 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
         {orders.isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : orders.error ? (
-          <p className="text-sm text-destructive">{describeError(orders.error)}</p>
+          <LoadError error={orders.error} onRetry={() => void orders.refetch()} />
         ) : orders.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing is past its planned end. The full open list, line by line, is on the orders tab.

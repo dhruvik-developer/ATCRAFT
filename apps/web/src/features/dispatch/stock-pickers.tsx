@@ -23,7 +23,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, ScanBarcode, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Label, Badge, Input, Skeleton } from '@/components/ui/primitives'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
@@ -140,9 +140,7 @@ export function BatchSelect({
             <div className="max-h-64 overflow-y-auto p-1" role="listbox" aria-label="Batches">
               {batches.isLoading && <Skeleton className="h-16 w-full" />}
               {batches.error && (
-                <p role="alert" className="p-2 text-sm text-destructive">
-                  {describeError(batches.error)}
-                </p>
+                <FieldError className="mt-0 p-2 text-sm" message={describeError(batches.error)} />
               )}
               {!batches.isLoading && !batches.error && rows.length === 0 && (
                 <p className="p-3 text-center text-sm text-muted-foreground">
@@ -381,7 +379,7 @@ export function SerialPicker({
           <div className="max-h-48 space-y-1 overflow-y-auto">
             {serials.isLoading && <Skeleton className="h-16 w-full" />}
 
-            {!serials.isLoading && rows.length === 0 && (
+            {!serials.isLoading && !serials.error && rows.length === 0 && (
               <p className="py-3 text-center text-xs text-warning">
                 No eligible serial units match these filters. Search by the label or check the stock
                 position before proceeding.
@@ -419,7 +417,9 @@ export function SerialPicker({
               )
             })}
           </div>
-          <FieldError message={serials.error ? describeError(serials.error) : undefined} />
+          {serials.error && (
+            <LoadError error={serials.error} onRetry={() => void serials.refetch()} />
+          )}
           {!scope?.serial_ids && (
             <div className="flex items-center justify-between gap-2">
               <Button

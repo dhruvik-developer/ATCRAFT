@@ -1,7 +1,6 @@
-import { describeError } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 
-import { FieldError } from '@/components/shared'
+import { LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api-client'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -17,12 +16,12 @@ export default function EditAdjustmentDialog({ id, onClose }: { id: string; onCl
   })
   if (!detail.data)
     return (
-      <div role="status" className="rounded border p-4">
-        {detail.isLoading ? (
+      <div role={detail.error ? undefined : 'status'} className="rounded border p-4">
+        {detail.error ? (
+          <LoadError error={detail.error} onRetry={() => void detail.refetch()} />
+        ) : detail.isLoading ? (
           'Loading adjustment...'
-        ) : (
-          <FieldError message={detail.error ? describeError(detail.error) : undefined} />
-        )}
+        ) : null}
         <Button variant="outline" onClick={onClose}>
           Cancel edit
         </Button>

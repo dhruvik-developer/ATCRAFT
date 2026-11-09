@@ -23,6 +23,7 @@ import {
   BadgeDismiss,
   DateRangeFilter,
   FieldError,
+  LoadError,
   PageHeader,
   StatusBadge,
 } from '@/components/shared'
@@ -103,9 +104,7 @@ function CartonScanHistory() {
       </h3>
       {history.isLoading && <p className="mt-2 text-sm text-muted-foreground">Loading scans...</p>}
       {history.error && (
-        <div className="mt-2">
-          <FieldError message={describeError(history.error)} />
-        </div>
+        <LoadError className="mt-2" error={history.error} onRetry={() => void history.refetch()} />
       )}
       {!history.isLoading && !history.error && rows.length === 0 && (
         <p className="mt-2 text-sm text-muted-foreground">

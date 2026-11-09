@@ -10,9 +10,13 @@ each spelling "Try again" themselves, and four failures dressed as empty states.
 So a failure read as a headline with a retry on one panel and as a bare red
 sentence on the next, and none of them changed when the shared one did.
 
-The rules: the two components are defined once, and the retry label is never
+The rules: the two components are defined once, the retry label is never
 spelled outside ``lib/messages.ts`` - a hand-written "Try again" is how every
-one of the copies above began.
+one of the copies above began - and no paragraph is drawn as an error by hand.
+A failure's reason (``describeError``) goes in ``LoadError`` when a panel's
+content did not load, or in ``FieldError`` when a field's options or a submit
+did; and the small destructive line under a control *is* ``FieldError``, whose
+``role="alert"`` fifteen pasted copies had mostly left out.
 """
 
 from __future__ import annotations
@@ -38,6 +42,8 @@ _DEFINITION = re.compile(
 )
 #: The retry label written out: JSX text or a whole quoted literal.
 _RETRY_LABEL = re.compile(r">\s*Try again\s*<|(['\"`])Try again\1")
+#: A paragraph whose classes are a plain string, and what it contains.
+_PARAGRAPH = re.compile(r'<p\b[^>]*?className="(?P<classes>[^"]*)"[^>]*>(?P<body>.*?)</p>', re.S)
 
 
 def _line(source: str, offset: int) -> int:
@@ -64,6 +70,20 @@ def retry_labels(source: str) -> list[str]:
         for match in _RETRY_LABEL.finditer(source)
         if not _in_comment(source, match.start())
     ]
+
+
+def hand_drawn_errors(source: str) -> list[str]:
+    """``line N: what`` for every paragraph drawn as an error by hand."""
+    found = []
+    for match in _PARAGRAPH.finditer(source):
+        classes = match.group("classes").split()
+        if "text-destructive" not in classes:
+            continue
+        if "describeError(" in match.group("body"):
+            found.append(f"line {_line(source, match.start())}: a failure's reason")
+        elif "text-xs" in classes:
+            found.append(f"line {_line(source, match.start())}: a field error")
+    return found
 
 
 def _sources() -> list[Path]:
@@ -114,6 +134,24 @@ def test_no_screen_spells_the_retry_label() -> None:
     )
 
 
+def test_no_screen_draws_an_error_paragraph_by_hand() -> None:
+    drawn = {
+        path.relative_to(WEB_SRC).as_posix(): found
+        for path in _sources()
+        if path.suffix == ".tsx"
+        and path != WEB_SRC / "components" / "field-error.tsx"
+        and (found := hand_drawn_errors(path.read_text(encoding="utf-8")))
+    }
+    assert not drawn, (
+        "An error is drawn as a hand-styled paragraph:\n  "
+        + "\n  ".join(f"{name}: {', '.join(found)}" for name, found in drawn.items())
+        + "\n\nA panel whose content did not load: LoadError from '@/components/shared'. A "
+        "field's options, a refused submit or a field's own complaint: FieldError, which is "
+        "announced (role=alert) and takes an id for aria-describedby. A warning that is not an "
+        "error belongs in an Alert, not in destructive small print."
+    )
+
+
 # -- the rules reject what they exist to catch --------------------------------
 
 
@@ -143,3 +181,35 @@ def test_the_rules_ignore_uses_and_a_countdown() -> None:
     )
     assert definitions(source) == []
     assert retry_labels(source) == []
+
+
+def test_the_paragraph_rule_finds_the_shapes_that_shipped() -> None:
+    source = (
+        '{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}\n'
+        '<p id="email-error" className="text-xs text-destructive">\n  {errors.email}\n</p>\n'
+        '<p className="py-8 text-center text-sm text-destructive" role="alert">\n'
+        "  {describeError(worklist.error)}\n"
+        "</p>\n"
+        '<p role="alert" className="text-sm text-destructive">\n'
+        "  Could not load GSTR-3B: {describeError(summary.error)}\n"
+        "</p>\n"
+    )
+    assert hand_drawn_errors(source) == [
+        "line 1: a field error",
+        "line 2: a field error",
+        "line 5: a failure's reason",
+        "line 8: a failure's reason",
+    ]
+
+
+def test_the_paragraph_rule_ignores_the_shared_components_and_other_text() -> None:
+    source = (
+        "<p className={overLimit ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>\n"
+        "  {numbers.length} captured\n"
+        "</p>\n"
+        '<FieldError className="mt-0 px-2 py-6 text-sm" message={describeError(results.error)} />\n'
+        "<LoadError error={detail.error} onRetry={() => void detail.refetch()} />\n"
+        '<p className="text-sm font-medium text-destructive">Deleting cannot be undone.</p>\n'
+        '<p className="text-xs text-muted-foreground">{describeError(job.error)}</p>\n'
+    )
+    assert hand_drawn_errors(source) == []

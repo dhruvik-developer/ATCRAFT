@@ -225,11 +225,7 @@ export function InboundShipmentDialog({
                 ))}
               </select>
               <FieldError message={form.formState.errors.transporter_id?.message} />
-              {options.error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {describeError(options.error)}
-                </p>
-              )}
+              {options.error && <FieldError message={describeError(options.error)} />}
               <div className="mt-1 flex gap-2">
                 <Button
                   type="button"

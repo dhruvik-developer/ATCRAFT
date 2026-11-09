@@ -4,7 +4,13 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, ReasonDialog, StatusBadge } from '@/components/shared'
+import {
+  ConfirmDialog,
+  FieldError,
+  LoadError,
+  ReasonDialog,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -687,7 +693,9 @@ export default function OperationTab({ kind }: { kind: Kind }) {
           </DialogHeader>
           <DialogBody>
             {detail.isPending && <p role="status">Loading document...</p>}
-            <FieldError message={detail.error ? describeError(detail.error) : undefined} />
+            {detail.error && (
+              <LoadError error={detail.error} onRetry={() => void detail.refetch()} />
+            )}
             {detail.data && <OperationLines document={detail.data} />}
           </DialogBody>
           <DialogFooter>
@@ -716,7 +724,9 @@ export default function OperationTab({ kind }: { kind: Kind }) {
         {reviewRequired && (
           <div className="space-y-2">
             {detail.isPending && <p role="status">Loading issue details...</p>}
-            <FieldError message={detail.error ? describeError(detail.error) : undefined} />
+            {detail.error && (
+              <LoadError error={detail.error} onRetry={() => void detail.refetch()} />
+            )}
             {detail.data && <OperationLines document={detail.data} />}
           </div>
         )}

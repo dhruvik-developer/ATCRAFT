@@ -152,11 +152,7 @@ export function InboundDocumentDialog({
                 ))}
               </select>
               <FieldError message={form.formState.errors.shipment_id?.message} />
-              {shipments.error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {describeError(shipments.error)}
-                </p>
-              )}
+              {shipments.error && <FieldError message={describeError(shipments.error)} />}
               {(shipmentPagination?.has_next || shipmentPagination?.has_previous) && (
                 <div className="mt-1 flex flex-wrap gap-2">
                   <Button

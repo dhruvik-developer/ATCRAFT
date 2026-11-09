@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -762,7 +762,11 @@ function VendorCategoryScope({
           Loading the vendor&apos;s categories...
         </p>
       ) : categories.error ? (
-        <p className="mt-3 text-sm text-destructive">{describeError(categories.error)}</p>
+        <LoadError
+          className="mt-3"
+          error={categories.error}
+          onRetry={() => void categories.refetch()}
+        />
       ) : rows.length === 0 && stale.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">
           This vendor is not qualified for any item category yet. Qualify it on the Vendors screen

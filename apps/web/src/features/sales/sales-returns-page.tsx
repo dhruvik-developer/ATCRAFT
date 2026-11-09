@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 
 import { DataTable } from '@/components/data-table'
-import { FieldError, PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
+import { FieldError, LoadError, PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -413,7 +413,9 @@ export default function SalesReturnsPage() {
                 Dispose serial units
               </Button>
             )}
-          {selectedDetail.error && <FieldError message={describeError(selectedDetail.error)} />}
+          {selectedDetail.error && (
+            <LoadError error={selectedDetail.error} onRetry={() => void selectedDetail.refetch()} />
+          )}
         </div>
       )}
       <DataTable

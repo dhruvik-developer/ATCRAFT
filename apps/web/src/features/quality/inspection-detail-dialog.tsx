@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * Read-only inspection detail, for any status.
  *
@@ -19,7 +18,7 @@ import { ExternalLink, Microscope } from 'lucide-react'
 import { Suspense, lazy } from 'react'
 import { Link } from 'react-router-dom'
 
-import { DescriptionList, PanelLoader, StatusBadge } from '@/components/shared'
+import { DescriptionList, LoadError, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -245,9 +244,7 @@ export function InspectionDetailDialog({
               </Suspense>
             </>
           )}
-          {detail.error && (
-            <p className="text-xs text-destructive">{describeError(detail.error)}</p>
-          )}
+          {detail.error && <LoadError error={detail.error} onRetry={() => void detail.refetch()} />}
         </DialogBody>
       </DialogContent>
     </Dialog>

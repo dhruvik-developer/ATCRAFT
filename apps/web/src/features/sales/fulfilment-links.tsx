@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * The order-to-fulfilment trail: everything raised, moved or issued for one
  * sales order, in the order it happens.
@@ -18,7 +17,7 @@ import { describeError } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
-import { StatusBadge } from '@/components/shared'
+import { LoadError, StatusBadge } from '@/components/shared'
 import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import type { FulfilmentDocument, SalesOrderFulfilment } from '@/features/sales/sales-types'
@@ -130,7 +129,7 @@ export function FulfilmentLinks({ orderId }: { orderId: string }) {
         {data && total > 0 && <Badge variant="muted">{total} document(s)</Badge>}
       </CardHeader>
       <CardContent className="space-y-4">
-        {trail.error && <p className="text-sm text-destructive">{describeError(trail.error)}</p>}
+        {trail.error && <LoadError error={trail.error} onRetry={() => void trail.refetch()} />}
         {trail.isLoading && <p className="text-sm text-muted-foreground">Loading the trail...</p>}
         {data && total === 0 && (
           <p className="text-sm text-muted-foreground">

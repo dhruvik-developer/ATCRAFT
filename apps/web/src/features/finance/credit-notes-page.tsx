@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { ConfirmDialog, FieldError, LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -195,7 +195,13 @@ export default function CreditNotesPage() {
             {formatMoney(selected.total_amount, { currency: selected.currency })}
           </p>
           {detail.isLoading && <p className="mt-4 text-muted-foreground">Loading line details…</p>}
-          {detail.error && <FieldError message={describeError(detail.error)} />}
+          {detail.error && (
+            <LoadError
+              className="mt-4"
+              error={detail.error}
+              onRetry={() => void detail.refetch()}
+            />
+          )}
           {detail.data && (
             <div className="mt-4 space-y-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

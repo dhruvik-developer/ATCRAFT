@@ -1,13 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { useId, useState } from 'react'
 
-import { FieldError } from '@/components/shared'
+import { LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input, Label } from '@/components/ui/primitives'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
-import { describeError } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 
 /** Permission-specific description lookups share search/paging, never a downloaded master table. */
@@ -101,7 +100,13 @@ export function DescriptionPicker<T extends { id: string; code: string; name: st
           Choose {label.toLowerCase()}
         </Button>
       </div>
-      {result.error && <FieldError message={describeError(result.error)} />}
+      {result.error && (
+        <LoadError
+          error={result.error}
+          onRetry={() => void result.refetch()}
+          retryClassName="min-h-11"
+        />
+      )}
       {result.data && !rows.length && (
         <p className="text-sm text-muted-foreground">No matching choices.</p>
       )}

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, X } from 'lucide-react'
 import { useMemo } from 'react'
 
+import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
@@ -101,9 +102,10 @@ export function WarehouseMultiSelect({
               </p>
             )}
             {!warehouses.isLoading && warehouses.error && (
-              <p className="px-2 py-6 text-center text-sm text-destructive">
-                {describeError(warehouses.error)}
-              </p>
+              <FieldError
+                className="mt-0 px-2 py-6 text-center text-sm"
+                message={describeError(warehouses.error)}
+              />
             )}
             {!warehouses.isLoading && !warehouses.error && rows.length === 0 && (
               <p className="px-2 py-6 text-center text-sm text-muted-foreground">

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
 import { Input, Label } from '@/components/ui/primitives'
@@ -102,7 +103,7 @@ export function LocationPicker({
             <div className="mt-2 max-h-60 overflow-y-auto" role="listbox" aria-label={label}>
               {options.isLoading && <p className="p-2 text-sm">Loading bins...</p>}
               {options.error && (
-                <p className="p-2 text-sm text-destructive">{describeError(options.error)}</p>
+                <FieldError className="mt-0 p-2 text-sm" message={describeError(options.error)} />
               )}
               {!options.isLoading && !options.error && options.data?.data.length === 0 && (
                 <p className="p-2 text-sm text-muted-foreground">No active bin matches.</p>

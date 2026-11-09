@@ -30,7 +30,13 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { DescriptionList, EmptyState, FieldError, StatusBadge } from '@/components/shared'
+import {
+  DescriptionList,
+  EmptyState,
+  FieldError,
+  LoadError,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -1094,7 +1100,9 @@ export function CreateDispatchDialog({
                 {allocation.isLoading && (
                   <p className="text-sm text-muted-foreground">{fulfilment.loadingDispatchable}</p>
                 )}
-                {allocation.error && <FieldError message={describeError(allocation.error)} />}
+                {allocation.error && (
+                  <LoadError error={allocation.error} onRetry={() => void allocation.refetch()} />
+                )}
                 {allocation.data && shownOrderLines.length === 0 && (
                   <Alert variant="warning">
                     <AlertDescription>{fulfilment.nothingDispatchable}</AlertDescription>

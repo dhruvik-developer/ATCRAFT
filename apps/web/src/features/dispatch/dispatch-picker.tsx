@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, Loader2, Search, X } from 'lucide-react'
 import { useState } from 'react'
 
+import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
 import { Input, Label } from '@/components/ui/primitives'
@@ -147,7 +148,10 @@ export function DispatchPicker({
               )}
 
               {!results.isLoading && results.error && (
-                <p className="px-2 py-6 text-sm text-destructive">{describeError(results.error)}</p>
+                <FieldError
+                  className="mt-0 px-2 py-6 text-sm"
+                  message={describeError(results.error)}
+                />
               )}
 
               {!results.isLoading && !results.error && rows.length === 0 && (

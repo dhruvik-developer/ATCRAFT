@@ -226,16 +226,8 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
                   </option>
                 ))}
               </select>
-              {receipts.error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {describeError(receipts.error)}
-                </p>
-              )}
-              {order.error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {describeError(order.error)}
-                </p>
-              )}
+              {receipts.error && <FieldError message={describeError(receipts.error)} />}
+              {order.error && <FieldError message={describeError(order.error)} />}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"

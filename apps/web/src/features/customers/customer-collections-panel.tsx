@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
-import { StatusBadge } from '@/components/shared'
+import { LoadError, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { describeError } from '@/lib/messages'
 import { formatDate, formatMoney } from '@/lib/format'
 import { CURSOR_PAGE_SIZE } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -40,9 +39,10 @@ export function CustomerCollectionsPanel({ customerId }: { customerId: string })
   return (
     <div className="space-y-4">
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {describeError(error)}
-        </p>
+        <LoadError
+          error={error}
+          onRetry={() => void Promise.all([worklist.refetch(), followUps.refetch()])}
+        />
       ) : worklist.isLoading || followUps.isLoading ? (
         <p role="status" className="text-sm text-muted-foreground">
           Loading collections position…

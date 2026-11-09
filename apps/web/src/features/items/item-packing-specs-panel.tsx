@@ -4,7 +4,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog } from '@/components/shared'
+import { ConfirmDialog, FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -101,11 +101,7 @@ function PackingSpecDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {describeError(error)}
-            </p>
-          )}
+          <FieldError className="mt-0 text-sm" message={error ? describeError(error) : undefined} />
           <ItemPicker
             id="packing-spec-material"
             label="Packing material"

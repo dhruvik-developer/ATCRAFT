@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
+import { FieldError, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, Input, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
@@ -289,9 +289,10 @@ export function VendorJobWorkDetailPage() {
                 />
               </div>
               {report.error && (
-                <p role="alert" className="text-sm text-destructive sm:col-span-2">
-                  {describeError(report.error)}
-                </p>
+                <FieldError
+                  className="text-sm sm:col-span-2"
+                  message={describeError(report.error)}
+                />
               )}
               <Button type="submit" disabled={report.isPending} className="min-h-11 sm:col-span-2">
                 {report.isPending ? 'Sending...' : 'Send progress update'}

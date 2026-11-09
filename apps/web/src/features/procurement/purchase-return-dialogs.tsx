@@ -225,7 +225,7 @@ function PostedReceiptPicker({
           )}
 
           {!results.isLoading && results.error && (
-            <p className="px-2 py-6 text-sm text-destructive">{describeError(results.error)}</p>
+            <FieldError className="mt-0 px-2 py-6 text-sm" message={describeError(results.error)} />
           )}
 
           {!results.isLoading && !results.error && rows.length === 0 && (
@@ -1044,9 +1044,10 @@ export function PurchaseReturnDetailDialog({
                     </Button>
                   )}
                   {job.error && (
-                    <p role="alert" className="text-sm text-destructive">
-                      Could not check PDF status: {describeError(job.error)}
-                    </p>
+                    <FieldError
+                      className="text-sm"
+                      message={`Could not check PDF status: ${describeError(job.error)}`}
+                    />
                   )}
                   {job.phase === 'failed' && job.job?.error_message && (
                     <p role="alert" className="text-sm text-destructive">

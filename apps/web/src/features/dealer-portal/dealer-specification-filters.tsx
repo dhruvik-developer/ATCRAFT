@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/primitives'
 import { useListQuery } from '@/hooks/use-list-query'
 import { PICKER_PAGE_SIZE, SPECIFICATION_FILTER_MAX } from '@/lib/constants'
-import { describeError } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
@@ -89,7 +88,14 @@ export function DealerSpecificationFilters() {
       {list.isLoading && (
         <p className="mt-3 text-sm text-muted-foreground">Loading specification filters…</p>
       )}
-      {list.error && <FieldError message={describeError(list.error)} />}
+      {list.error && (
+        <LoadError
+          className="mt-3"
+          error={list.error}
+          onRetry={() => void list.refetch()}
+          retryClassName="min-h-11"
+        />
+      )}
       <FieldError message={error} />
       {filters.length > 0 && (
         <Button

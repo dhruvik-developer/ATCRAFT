@@ -20,7 +20,7 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { FieldError } from '@/components/shared'
+import { FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -261,7 +261,9 @@ export function ReadyFromAssemblyPanel() {
       {ready.isLoading && (
         <p className="mt-3 text-sm text-muted-foreground">Reading completed assemblies...</p>
       )}
-      {ready.error && <p className="mt-3 text-sm text-destructive">{describeError(ready.error)}</p>}
+      {ready.error && (
+        <LoadError className="mt-3" error={ready.error} onRetry={() => void ready.refetch()} />
+      )}
 
       {!ready.isLoading && !ready.error && (
         <ul className="mt-3 divide-y rounded-md border">

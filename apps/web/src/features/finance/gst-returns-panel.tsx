@@ -10,6 +10,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { FileSpreadsheet } from 'lucide-react'
 
+import { LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
@@ -18,7 +19,6 @@ import { api } from '@/lib/api-client'
 import { formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
-import { describeError } from '@/lib/messages'
 
 import { financeKeys, type Gstr3b } from './finance-types'
 import { periodBounds } from './gst-period'
@@ -87,9 +87,11 @@ export function GstReturnsPanel({ period }: { period: string }) {
       </div>
 
       {summary.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          Could not load GSTR-3B: {describeError(summary.error)}
-        </p>
+        <LoadError
+          title="Could not load GSTR-3B"
+          error={summary.error}
+          onRetry={() => void summary.refetch()}
+        />
       )}
 
       {summary.isError ? null : summary.isPending ? (

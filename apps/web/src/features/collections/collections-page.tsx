@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { LoadError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -366,9 +366,7 @@ export default function CollectionsPage() {
                 Loading overdue receivables…
               </p>
             ) : worklist.error ? (
-              <p className="py-8 text-center text-sm text-destructive" role="alert">
-                {describeError(worklist.error)}
-              </p>
+              <LoadError error={worklist.error} onRetry={() => void worklist.refetch()} />
             ) : worklist.data.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 No overdue receivables match these filters.
@@ -859,9 +857,7 @@ function FollowUpDialog({
         {detail.isLoading ? (
           <p role="status">Loading follow-up details…</p>
         ) : detail.error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {describeError(detail.error)}
-          </p>
+          <LoadError error={detail.error} onRetry={() => void detail.refetch()} />
         ) : current ? (
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1191,9 +1187,7 @@ function FollowUpDialog({
                     Loading contact history…
                   </p>
                 ) : notes.error ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {describeError(notes.error)}
-                  </p>
+                  <LoadError error={notes.error} onRetry={() => void notes.refetch()} />
                 ) : noteRows.length ? (
                   <ol className="space-y-3">
                     {noteRows.map((entry) => (
