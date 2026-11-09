@@ -1335,30 +1335,25 @@ async def run_report(
 ) -> InlineReport | QueuedReport:
     """Run one report, inline or in the background - the server decides which.
 
-    The row count is taken first, bounded at the inline limit, because that one
-    cheap question answers both "can this be served now?" and "what total does
-    the pagination block report?". Counting it twice would double the cost of
-    every report page.
+    A cacheable report reads its cache first. The cached page carries its own
+    pagination total and its key does not depend on the count, so a hit is the
+    whole answer; counting before the read made every hit pay the report's full
+    aggregate anyway. A page cached within its TTL is therefore served even if
+    the row count has since crossed the inline limit - the same staleness the
+    cache already accepts for the rows themselves.
+
+    On a miss the row count is taken first, bounded at the inline limit, because
+    that one cheap question answers both "can this be served now?" and "what
+    total does the pagination block report?". Counting it twice would double the
+    cost of every report page.
     """
     definition = definition_for(key)
     ctx = build_context(definition, period, filters, now=now)
-    repo = ReportQueryRepository(session, tenant)
-    stmt = definition.build(repo, ctx)
-
-    total = await count_rows(session, stmt, cap=REPORT_INLINE_ROW_LIMIT)
-    if total > REPORT_INLINE_ROW_LIMIT:
-        return await _queue_report(
-            session, tenant, definition, ctx, may_export=may_export, principal=principal
-        )
-
-    parameters = parameters_of(definition, ctx)
-    digest = parameters_hash(parameters)
+    digest = parameters_hash(parameters_of(definition, ctx))
 
     if definition.cacheable:
-        cache_key = _cache_key(tenant, definition, digest, params)
-        cached = await cache_get(cache_key)
+        cached = await cache_get(_cache_key(tenant, definition, digest, params))
         if cached is not None:
-            _, ttl = CacheNamespace.REPORT
             return InlineReport(
                 definition=definition,
                 rows=_redact_rows(
@@ -1369,6 +1364,13 @@ async def run_report(
                 pagination=OffsetPagination.model_validate(cached["pagination"]),
                 generated_at=datetime.fromisoformat(cached["generated_at"]),
             )
+
+    stmt = definition.build(ReportQueryRepository(session, tenant), ctx)
+    total = await count_rows(session, stmt, cap=REPORT_INLINE_ROW_LIMIT)
+    if total > REPORT_INLINE_ROW_LIMIT:
+        return await _queue_report(
+            session, tenant, definition, ctx, may_export=may_export, principal=principal
+        )
 
     rows, pagination = await paginate_rows(session, stmt, params, total=total)
     shaped = _shape(definition, rows, ctx)
