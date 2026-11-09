@@ -8,11 +8,11 @@
  * as an inconsistency rather than a formatting quirk, and the XLSX is a job.
  */
 
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, renderScreen } from '@/test/harness'
+import { fail, ok, renderScreen } from '@/test/harness'
 
 import TrialBalancePage from './trial-balance-page'
 
@@ -90,6 +90,28 @@ describe('the trial balance', () => {
     // has been opened or closed since; the server's answer is what is printed.
     expect(screen.getByText(/Period 01 Apr 2026 to 30 Sep 2026/)).toBeVisible()
     expect(screen.getByText('The trial balance does not balance')).toBeVisible()
+  })
+
+  it("says a failed load through the API's reason and offers to load it again", async () => {
+    let attempts = 0
+    const { user } = renderScreen(<TrialBalancePage />, {
+      permissions: [P.LEDGER_VIEW],
+      route: '/finance/trial-balance?as_of=2026-09-30',
+      routes: {
+        [`GET ${PATH}`]: () => {
+          attempts += 1
+          return attempts === 1
+            ? fail(503, 'SERVICE_UNAVAILABLE', 'The ledger is busy.')
+            : ok(REPORT)
+        },
+      },
+    })
+
+    const alert = await screen.findByRole('alert')
+    expect(within(alert).getByText('Could not load the trial balance')).toBeVisible()
+    expect(within(alert).getByText('The ledger is busy. (reference test)')).toBeVisible()
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Accounts receivable')).toBeVisible()
   })
 
   it('does not warn when the two sides agree', async () => {

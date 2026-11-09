@@ -1,9 +1,9 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import type { SchemaOf } from '@/types/api'
-import { page, renderScreen } from '@/test/harness'
+import { fail, page, renderScreen } from '@/test/harness'
 
 import ApprovalsPage from './approvals-page'
 
@@ -40,6 +40,25 @@ describe('approvals inbox', () => {
     )
     expect(screen.getByText('Purchase Order Approve')).toBeVisible()
     expect(screen.getByText('Open on the document')).toBeVisible()
+  })
+
+  it("says a failed load through the API's reason, with the reference support needs", async () => {
+    // The raw message carried neither the reference of a server failure nor,
+    // for a crash, anything a user should read.
+    renderScreen(<ApprovalsPage />, {
+      permissions: [P.PURCHASE_ORDER_APPROVE],
+      route: '/approvals',
+      routes: { 'GET /audit/approvals': fail(503, 'SERVICE_UNAVAILABLE', 'The inbox is busy.') },
+    })
+
+    // The access notice shows while the session is restoring, so wait for this one.
+    const headline = await screen.findByText('Could not load approvals')
+    const alert = headline.closest<HTMLElement>('[role="alert"]')
+    expect(alert).not.toBeNull()
+    expect(headline).toBeVisible()
+    expect(
+      within(alert as HTMLElement).getByText('The inbox is busy. (reference test)'),
+    ).toBeVisible()
   })
 
   it('does not expose the queue without any approval permission', () => {

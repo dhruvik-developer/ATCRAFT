@@ -17,6 +17,11 @@ A failure's reason (``describeError``) goes in ``LoadError`` when a panel's
 content did not load, or in ``FieldError`` when a field's options or a submit
 did; and the small destructive line under a control *is* ``FieldError``, whose
 ``role="alert"`` fifteen pasted copies had mostly left out.
+
+Nor is a failure ever shown by its raw ``.message``. Only the HTTP boundary
+writes messages meant for a reader; a runtime error's text can carry stack
+frames, internal URLs or input values, and a 5xx's lacks the reference support
+needs to find the request. Two load alerts printed ``query.error.message``.
 """
 
 from __future__ import annotations
@@ -42,6 +47,8 @@ _DEFINITION = re.compile(
 )
 #: The retry label written out: JSX text or a whole quoted literal.
 _RETRY_LABEL = re.compile(r">\s*Try again\s*<|(['\"`])Try again\1")
+#: A failure shown by its own text: ``q.error.message``, ``(q.error as Error).message``.
+_RAW_MESSAGE = re.compile(r"\.error\.message\b|\.error\s+as\s+Error\s*\)\.message\b")
 #: A paragraph whose classes are a plain string, and what it contains.
 _PARAGRAPH = re.compile(r'<p\b[^>]*?className="(?P<classes>[^"]*)"[^>]*>(?P<body>.*?)</p>', re.S)
 
@@ -68,6 +75,15 @@ def retry_labels(source: str) -> list[str]:
     return [
         f"line {_line(source, match.start())}"
         for match in _RETRY_LABEL.finditer(source)
+        if not _in_comment(source, match.start())
+    ]
+
+
+def raw_error_messages(source: str) -> list[str]:
+    """``line N`` for every failure rendered by its raw ``.message``."""
+    return [
+        f"line {_line(source, match.start())}"
+        for match in _RAW_MESSAGE.finditer(source)
         if not _in_comment(source, match.start())
     ]
 
@@ -152,6 +168,23 @@ def test_no_screen_draws_an_error_paragraph_by_hand() -> None:
     )
 
 
+def test_no_screen_shows_a_failure_by_its_raw_message() -> None:
+    raw = {
+        path.relative_to(WEB_SRC).as_posix(): found
+        for path in _sources()
+        # lib/ is the boundary that turns a raw error into a sentence.
+        if WEB_SRC / "lib" not in path.parents
+        and (found := raw_error_messages(path.read_text(encoding="utf-8")))
+    }
+    assert not raw, (
+        "A failure is shown by its raw message:\n  "
+        + "\n  ".join(f"{name}: {', '.join(found)}" for name, found in raw.items())
+        + "\n\nShow a failed read with LoadError from '@/components/shared', or say the "
+        "reason with describeError from '@/lib/messages': it keeps the API's sentence, adds "
+        "a 5xx's reference, and puts errors.unexpectedDetail in place of a runtime error."
+    )
+
+
 # -- the rules reject what they exist to catch --------------------------------
 
 
@@ -213,3 +246,22 @@ def test_the_paragraph_rule_ignores_the_shared_components_and_other_text() -> No
         '<p className="text-xs text-muted-foreground">{describeError(job.error)}</p>\n'
     )
     assert hand_drawn_errors(source) == []
+
+
+def test_the_raw_message_rule_finds_the_shapes_that_shipped() -> None:
+    source = (
+        "<AlertDescription>{approvals.error.message}</AlertDescription>\n"
+        "<AlertDescription>{String((report.error as Error).message)}</AlertDescription>\n"
+    )
+    assert raw_error_messages(source) == ["line 1", "line 2"]
+
+
+def test_the_raw_message_rule_ignores_a_described_failure_and_a_field_message() -> None:
+    source = (
+        '<LoadError error={approvals.error} title="Could not load approvals" />\n'
+        "<AlertDescription>{describeError(report.error)}</AlertDescription>\n"
+        "<FieldError message={errors.email?.message} />\n"
+        "setFormError((error as Error).message)\n"
+        "// a note that approvals.error.message used to be printed here\n"
+    )
+    assert raw_error_messages(source) == []

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import type { ColumnDef } from '@tanstack/react-table'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader } from '@/components/shared'
+import { LoadError, PageHeader } from '@/components/shared'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { entityLink } from '@/features/audit/audit-types'
@@ -97,11 +97,9 @@ export default function ApprovalsPage() {
         </Alert>
       ) : (
         <>
+          {/* The table below offers the retry; this names what failed. */}
           {approvals.error && (
-            <Alert variant="destructive">
-              <AlertTitle>Could not load approvals</AlertTitle>
-              <AlertDescription>{approvals.error.message}</AlertDescription>
-            </Alert>
+            <LoadError error={approvals.error} title="Could not load approvals" />
           )}
           <DataTable
             columns={columns}

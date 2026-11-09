@@ -27,7 +27,7 @@ import { FileSpreadsheet, Lock, Scale, TriangleAlert } from 'lucide-react'
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { EmptyState, PageHeader, StatTile } from '@/components/shared'
+import { EmptyState, LoadError, PageHeader, StatTile } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -305,10 +305,12 @@ export default function TrialBalancePage() {
           <Skeleton className="h-56 w-full" />
         </div>
       ) : report.error ? (
-        <Alert variant="destructive">
-          <AlertTitle>The trial balance could not be loaded</AlertTitle>
-          <AlertDescription>{String((report.error as Error).message)}</AlertDescription>
-        </Alert>
+        <LoadError
+          error={report.error}
+          title="Could not load the trial balance"
+          onRetry={() => void report.refetch()}
+          retrying={report.isFetching}
+        />
       ) : report.data ? (
         <TrialBalanceStatement report={report.data} />
       ) : (
