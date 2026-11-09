@@ -214,6 +214,8 @@ export const queryKeys = {
     pendingAmendments: (params: unknown) =>
       ['vendor-portal', 'pending-amendments', params] as const,
     order: (id: string) => ['vendor-portal', 'orders', id] as const,
+    /** Every job-work list and order the vendor sees. */
+    jobWorkAll: ['vendor-portal', 'job-work'] as const,
     jobWork: (params: unknown) => ['vendor-portal', 'job-work', params] as const,
     jobWorkOrder: (id: string) => ['vendor-portal', 'job-work', id] as const,
     shipments: (params: unknown) => ['vendor-portal', 'shipments', params] as const,
@@ -238,6 +240,13 @@ export const queryKeys = {
     price: (id: string, quantity: string, variantId?: string) =>
       ['dealer-portal', 'price', id, quantity, variantId] as const,
   },
+  /** The banners and offers staff publish to the dealer portal. */
+  promotions: {
+    all: ['promotions'] as const,
+    list: (kind: string, params: unknown) => ['promotions', kind, params] as const,
+    offerPreview: (id: string) => ['promotions', 'offer-preview', id] as const,
+    offerOptions: (term: string) => ['promotions', 'offer-options', term] as const,
+  },
   auth: {
     me: ['auth', 'me'] as const,
     sessions: ['auth', 'sessions'] as const,
@@ -261,11 +270,20 @@ export const queryKeys = {
   },
   categories: { all: ['categories'] as const },
   uoms: { all: ['uoms'] as const },
+  /** The root of `mastersKeys` (features/masters/masters-model.ts). */
+  masters: { all: ['masters'] as const },
+  /**
+   * The root of the product-master pickers (`hooks/use-brand-options.ts` and
+   * its siblings), apart from the masters screens' own paginated lists.
+   */
+  products: { all: ['products'] as const },
   warehouses: {
     all: ['warehouses'] as const,
     list: (params: unknown) => ['warehouses', 'list', params] as const,
     detail: (id: string) => ['warehouses', 'detail', id] as const,
   },
+  /** The root of `locationKeys` (features/warehouses/location-model.ts). */
+  storageLocations: { all: ['storage-locations'] as const },
   inventory: {
     all: ['inventory'] as const,
     batches: (params: unknown) => ['inventory', 'batches', params] as const,
@@ -276,6 +294,11 @@ export const queryKeys = {
     balances: (params: unknown) => ['inventory', 'balances', params] as const,
     ledger: (params: unknown) => ['inventory', 'ledger', params] as const,
     itemStock: (itemId: string) => ['inventory', 'item-stock', itemId] as const,
+    transfers: (params: unknown) => ['inventory', 'transfers', params] as const,
+    adjustments: (params: unknown) => ['inventory', 'adjustments', params] as const,
+    physicalCounts: (params: unknown) => ['inventory', 'physical-counts', params] as const,
+    physicalCountLines: (countId: string, params: unknown) =>
+      ['inventory', 'physical-counts', countId, 'lines', params] as const,
   },
   allocation: {
     all: ['allocation'] as const,
@@ -346,6 +369,11 @@ export const queryKeys = {
     all: ['quality'] as const,
     inspections: (params: unknown) => ['quality', 'inspections', params] as const,
     detail: (id: string) => ['quality', 'detail', id] as const,
+    /** The landing queue, `GET /quality/pending` - not the searchable history. */
+    pending: (params: unknown) => ['quality', 'pending', params] as const,
+    attachments: (inspectionId: string) => ['quality', 'attachments', inspectionId] as const,
+    /** A photo's document record, read for its thumbnail. */
+    photoMeta: (documentId: string) => ['quality', 'photo-meta', documentId] as const,
   },
   /**
    * The root of `qcTemplateKeys` (features/quality/qc-template-model.ts),
@@ -354,6 +382,19 @@ export const queryKeys = {
   qcTemplates: { all: ['qc-templates'] as const },
   /** The root of `transporterKeys` (features/transporters/transporter-model.ts). */
   transporters: { all: ['transporters'] as const },
+  /** The root of `packingKeys` (features/packing/packing-types.ts). */
+  packing: { all: ['packing'] as const },
+  /** The root of `documentKeys` (features/documents/document-model.ts). */
+  documents: { all: ['documents'] as const },
+  /**
+   * The root of every finance key: `financeKeys`, `ledgerKeys`, `paymentKeys`,
+   * `salesInvoiceKeys` and the purchase-return debit allocations. Posting moves
+   * balances on several of these at once, which is why a finance write
+   * invalidates this root rather than one branch of it.
+   */
+  finance: { all: ['finance'] as const },
+  /** The root of `orgKeys` (features/admin/admin-types.ts) and the organisation pickers. */
+  organization: { all: ['organization'] as const },
   dispatch: {
     all: ['dispatch'] as const,
     list: (params: unknown) => ['dispatch', 'list', params] as const,
@@ -403,12 +444,15 @@ export const queryKeys = {
     trends: ['reports', 'dashboard', 'trends'] as const,
     catalogue: ['reports', 'catalogue'] as const,
     report: (key: string, params: unknown) => ['reports', key, params] as const,
+    /** One background job, polled at the status path its 202 named. */
+    job: (statusPath: string | null) => ['reports', 'job', statusPath] as const,
   },
   audit: {
     approvalsAll: ['audit', 'approvals'] as const,
     approvalSettings: ['audit', 'approval-settings'] as const,
     logsAll: ['audit', 'logs'] as const,
     logs: (params: unknown) => ['audit', 'logs', params] as const,
+    logDetail: (logId: string) => ['audit', 'logs', 'detail', logId] as const,
     entity: (type: string, id: string) => ['audit', 'entity', type, id] as const,
     /** The approval queue. Under `audit` so an `['audit']` invalidation sweeps it too. */
     approvals: (params: unknown) => ['audit', 'approvals', params] as const,
@@ -420,5 +464,8 @@ export const queryKeys = {
     unreadCount: ['notifications', 'unread-count'] as const,
     pushConfig: ['notifications', 'push-config'] as const,
     pushState: ['notifications', 'push-state'] as const,
+    /** The administrator's message templates per channel, on the messaging screen. */
+    channelTemplates: ['notifications', 'channel-templates'] as const,
+    messagingDeliveries: ['notifications', 'messaging-deliveries'] as const,
   },
 } as const

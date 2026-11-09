@@ -126,7 +126,7 @@ export function VendorJobWorkDetailPage() {
       setExpectedDate('')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.vendorPortal.jobWorkOrder(orderId) }),
-        queryClient.invalidateQueries({ queryKey: ['vendor-portal', 'job-work'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.vendorPortal.jobWorkAll }),
       ])
     },
     // Said under the update form, field detail included; a toast would repeat it.

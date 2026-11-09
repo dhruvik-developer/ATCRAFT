@@ -36,14 +36,13 @@ import Decimal from 'decimal.js'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no branch for this screen, so
- * the keys live here in the same hierarchical shape: invalidating
+ * Under `queryKeys.masters`, in the registry's hierarchical shape: invalidating
  * `mastersKeys.all` clears all four lists at once, which is what a write to any
  * of them warrants - a new unit changes what the conversion form may offer, and
  * a new category changes what the parent picker holds.
@@ -53,19 +52,21 @@ import type { DecimalString, SchemaOf } from '@/types/api'
  * entry and the second item opened would show the first item's price list.
  */
 export const mastersKeys = {
-  all: ['masters'] as const,
-  categories: (params: unknown) => ['masters', 'categories', params] as const,
-  category: (id: string) => ['masters', 'categories', 'detail', id] as const,
-  categoryReference: () => ['masters', 'categories', 'reference'] as const,
-  uoms: (params: unknown) => ['masters', 'uoms', params] as const,
-  attributes: (params: unknown) => ['masters', 'attributes', params] as const,
-  brands: (params: unknown) => ['masters', 'brands', params] as const,
-  manufacturers: (params: unknown) => ['masters', 'manufacturers', params] as const,
-  uomReference: () => ['masters', 'uoms', 'reference'] as const,
-  conversions: (params: unknown) => ['masters', 'conversions', params] as const,
-  conversionCheck: (params: unknown) => ['masters', 'conversions', 'check', params] as const,
-  prices: (itemId: string, params: unknown) => ['masters', 'prices', itemId, params] as const,
-  variants: (itemId: string) => ['masters', 'variants', itemId] as const,
+  all: queryKeys.masters.all,
+  categories: (params: unknown) => [...queryKeys.masters.all, 'categories', params] as const,
+  category: (id: string) => [...queryKeys.masters.all, 'categories', 'detail', id] as const,
+  categoryReference: () => [...queryKeys.masters.all, 'categories', 'reference'] as const,
+  uoms: (params: unknown) => [...queryKeys.masters.all, 'uoms', params] as const,
+  attributes: (params: unknown) => [...queryKeys.masters.all, 'attributes', params] as const,
+  brands: (params: unknown) => [...queryKeys.masters.all, 'brands', params] as const,
+  manufacturers: (params: unknown) => [...queryKeys.masters.all, 'manufacturers', params] as const,
+  uomReference: () => [...queryKeys.masters.all, 'uoms', 'reference'] as const,
+  conversions: (params: unknown) => [...queryKeys.masters.all, 'conversions', params] as const,
+  conversionCheck: (params: unknown) =>
+    [...queryKeys.masters.all, 'conversions', 'check', params] as const,
+  prices: (itemId: string, params: unknown) =>
+    [...queryKeys.masters.all, 'prices', itemId, params] as const,
+  variants: (itemId: string) => [...queryKeys.masters.all, 'variants', itemId] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

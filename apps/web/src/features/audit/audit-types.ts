@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
 import { EMPTY_VALUE } from '@/lib/format'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { CursorEnvelope } from '@/types/api'
 
 /** The action vocabulary recorded by `src.modules.audit.models.AuditAction`. */
@@ -286,7 +286,7 @@ export async function fetchAuditPage(
  */
 export function useAuditLogDetail(logId: string | null) {
   return useQuery({
-    queryKey: ['audit', 'logs', 'detail', logId] as const,
+    queryKey: queryKeys.audit.logDetail(logId ?? ''),
     queryFn: () => api.get<AuditLogDetail>(`/audit/logs/${logId}`),
     // Audit rows are immutable once written.
     staleTime: staleTimes.reference,

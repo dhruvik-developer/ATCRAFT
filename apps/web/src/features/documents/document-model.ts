@@ -34,19 +34,19 @@
  *    declared type and rejects a mismatch whatever the extension says.
  */
 
+import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no documents branch, so the keys
- * live here in the same hierarchical shape: invalidating `documentKeys.all`
- * clears every document list and detail at once.
+ * Under `queryKeys.documents`, in the registry's hierarchical shape:
+ * invalidating `documentKeys.all` clears every document list and detail at once.
  */
 export const documentKeys = {
-  all: ['documents'] as const,
-  list: (params: unknown) => ['documents', 'list', params] as const,
-  detail: (id: string) => ['documents', 'detail', id] as const,
+  all: queryKeys.documents.all,
+  list: (params: unknown) => [...queryKeys.documents.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.documents.all, 'detail', id] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

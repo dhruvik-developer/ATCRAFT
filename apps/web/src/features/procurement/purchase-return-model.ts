@@ -57,7 +57,8 @@ export const purchaseReturnKeys = {
   list: (params: unknown) =>
     [...queryKeys.procurement.all, 'purchase-returns', 'list', params] as const,
   detail: (id: string) => [...queryKeys.procurement.all, 'purchase-returns', 'detail', id] as const,
-  debitAllocations: (id: string) => ['finance', 'purchase-return-debit-allocations', id] as const,
+  debitAllocations: (id: string) =>
+    [...queryKeys.finance.all, 'purchase-return-debit-allocations', id] as const,
 }
 
 /**

@@ -1055,7 +1055,7 @@ export function ConfirmPhysicalCountDialog({
 
   const params = { limit: COUNT_LINE_PREVIEW_LIMIT, with_total: true }
   const lines = useQuery({
-    queryKey: ['inventory', 'physical-counts', count.id, 'lines', params],
+    queryKey: queryKeys.inventory.physicalCountLines(count.id, params),
     queryFn: () =>
       api.getPage<PhysicalCountLineRow>('/inventory/physical-counts/' + count.id + '/lines', {
         params,
@@ -1446,7 +1446,7 @@ export function EnterCountsDialog({
 
   const params = { page, limit, with_total: true }
   const lines = useQuery({
-    queryKey: ['inventory', 'physical-counts', count.id, 'lines', params],
+    queryKey: queryKeys.inventory.physicalCountLines(count.id, params),
     queryFn: () =>
       api.getPage<PhysicalCountLineRow>('/inventory/physical-counts/' + count.id + '/lines', {
         params,

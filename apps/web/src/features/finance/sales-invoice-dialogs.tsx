@@ -258,7 +258,7 @@ export function RaiseSalesInvoiceDialog({
       void queryClient.invalidateQueries({ queryKey: salesInvoiceKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
-      void queryClient.invalidateQueries({ queryKey: ['finance'] })
+      void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
       toast.success(salesInvoiceMessages.issued, invoice.code)
       onClose()
@@ -379,7 +379,7 @@ export function SalesInvoiceDetailDialog({
         reason: reason.trim(),
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['finance'] })
+      void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })

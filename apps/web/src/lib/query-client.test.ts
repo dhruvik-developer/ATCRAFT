@@ -10,11 +10,26 @@
 import { partialMatchKey } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { orgKeys } from '@/features/admin/admin-types'
 import { assemblyKeys } from '@/features/assembly/assembly-model'
 import { dealerKeys } from '@/features/customers/dealer-model'
+import { dispatchKeys } from '@/features/dispatch/dispatch-types'
+import { documentKeys } from '@/features/documents/document-model'
+import { financeKeys } from '@/features/finance/finance-types'
+import { ledgerKeys } from '@/features/finance/ledger-model'
+import { paymentKeys } from '@/features/finance/payment-model'
+import { salesInvoiceKeys } from '@/features/finance/sales-invoice-types'
 import { jobWorkKeys } from '@/features/job-work/job-work-model'
+import { mastersKeys } from '@/features/masters/masters-model'
+import { packingKeys } from '@/features/packing/packing-types'
+import { purchaseReturnKeys } from '@/features/procurement/purchase-return-model'
 import { qcTemplateKeys } from '@/features/quality/qc-template-model'
 import { transporterKeys } from '@/features/transporters/transporter-model'
+import { locationKeys } from '@/features/warehouses/location-model'
+import { brandOptionKeys } from '@/hooks/use-brand-options'
+import { itemAttributeOptionKeys } from '@/hooks/use-item-attribute-options'
+import { manufacturerOptionKeys } from '@/hooks/use-manufacturer-options'
+import { organisationOptionKeys } from '@/hooks/use-organisation-options'
 
 import * as apiClient from './api-client'
 import { ApiError } from './api-client'
@@ -244,6 +259,29 @@ describe('query keys', () => {
     ['an assembly order, by a QC verdict', assemblyKeys.detail('id'), queryKeys.assembly.all],
     ['a job-work order, by a QC verdict', jobWorkKeys.detail('id'), queryKeys.jobWork.all],
   ] as const)('lets the root reach %s', (_reader, key, root) => {
+    expect(partialMatchKey(key, root)).toBe(true)
+  })
+
+  // The rest of the feature factories, each on the registry root it spreads.
+  // A factory spelling its own root would pass this while the registry and the
+  // factory drifted apart; the `literalQueryKey` lint entry refuses that shape.
+  it.each([
+    ['organisation', orgKeys.branches({}), queryKeys.organization.all],
+    ['organisation pickers', organisationOptionKeys.costCentres, queryKeys.organization.all],
+    ['dispatch', dispatchKeys.detail('id'), queryKeys.dispatch.all],
+    ['documents', documentKeys.detail('id'), queryKeys.documents.all],
+    ['finance', financeKeys.creditNote('id'), queryKeys.finance.all],
+    ['the ledger', ledgerKeys.trialBalance({}), queryKeys.finance.all],
+    ['payments', paymentKeys.detail('id'), queryKeys.finance.all],
+    ['sales invoices', salesInvoiceKeys.detail('id'), queryKeys.finance.all],
+    ['debit allocations', purchaseReturnKeys.debitAllocations('id'), queryKeys.finance.all],
+    ['masters', mastersKeys.uoms({}), queryKeys.masters.all],
+    ['packing', packingKeys.detail('id'), queryKeys.packing.all],
+    ['storage locations', locationKeys.detail('id'), queryKeys.storageLocations.all],
+    ['brand options', brandOptionKeys.all, queryKeys.products.all],
+    ['attribute options', itemAttributeOptionKeys.ofType('FINISH'), queryKeys.products.all],
+    ['manufacturer options', manufacturerOptionKeys.all, queryKeys.products.all],
+  ] as const)('files the %s keys under their registry root', (_name, key, root) => {
     expect(partialMatchKey(key, root)).toBe(true)
   })
 

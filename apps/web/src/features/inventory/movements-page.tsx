@@ -72,11 +72,6 @@ import {
   type TransferStatus,
 } from './types'
 
-// The shared registry has no key for these three lists yet; nesting them under
-// `inventory` means an `queryKeys.inventory.all` invalidation still sweeps them.
-const transfersKey = (params: unknown) => ['inventory', 'transfers', params] as const
-const adjustmentsKey = (params: unknown) => ['inventory', 'adjustments', params] as const
-const physicalCountsKey = (params: unknown) => ['inventory', 'physical-counts', params] as const
 const OperationTab = lazy(() => import('./operation-tabs'))
 const EditTransferDialog = lazy(() => import('./edit-transfer-dialog'))
 const EditAdjustmentDialog = lazy(() => import('./edit-adjustment-dialog'))
@@ -292,7 +287,7 @@ function TransfersTab() {
 
   const list = useListQuery<StockTransferRow>({
     path: '/inventory/transfers',
-    queryKey: transfersKey,
+    queryKey: queryKeys.inventory.transfers,
     defaultSortBy: 'transfer_date',
     defaultSortDir: 'desc',
     staleTime: staleTimes.transactional,
@@ -534,7 +529,7 @@ function AdjustmentsTab() {
 
   const list = useListQuery<StockAdjustmentRow>({
     path: '/inventory/adjustments',
-    queryKey: adjustmentsKey,
+    queryKey: queryKeys.inventory.adjustments,
     defaultSortBy: 'adjustment_date',
     defaultSortDir: 'desc',
     staleTime: staleTimes.transactional,
@@ -758,7 +753,7 @@ function PhysicalCountsTab() {
 
   const list = useListQuery<PhysicalCountRow>({
     path: '/inventory/physical-counts',
-    queryKey: physicalCountsKey,
+    queryKey: queryKeys.inventory.physicalCounts,
     defaultSortBy: 'count_date',
     defaultSortDir: 'desc',
     staleTime: staleTimes.transactional,

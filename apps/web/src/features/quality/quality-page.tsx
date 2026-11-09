@@ -70,12 +70,6 @@ import {
   type QcInspectionRow,
 } from './quality-types'
 
-/**
- * The pending queue has no key in the shared registry. Nesting it under
- * `quality` means an invalidation of `queryKeys.quality.all` still sweeps it.
- */
-const pendingKey = (params: unknown) => ['quality', 'pending', params] as const
-
 /** Days in QC hold before the wait itself becomes the problem. */
 const AGEING_WARNING_DAYS = 3
 const AGEING_CRITICAL_DAYS = 7
@@ -198,7 +192,7 @@ function PendingTab({
    */
   const list = useListQuery<QcInspectionRow>({
     path: '/quality/pending',
-    queryKey: pendingKey,
+    queryKey: queryKeys.quality.pending,
     // The queue changes as fast as the gate receives; a cached view here means
     // two inspectors picking up the same lot.
     staleTime: staleTimes.transactional,

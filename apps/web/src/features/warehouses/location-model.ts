@@ -36,7 +36,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
 import { formatQuantity } from '@/lib/format'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 import { LOCATION_TYPES as WAREHOUSE_MODULE_LOCATION_TYPES } from './warehouse-model'
@@ -44,8 +44,7 @@ import { LOCATION_TYPES as WAREHOUSE_MODULE_LOCATION_TYPES } from './warehouse-m
 // ------------------------------------------------------------ query keys ----
 
 /**
- * The shared registry in `lib/query-client` has no storage-location branch, so
- * the keys live here in the same hierarchical shape: invalidating
+ * Under `queryKeys.storageLocations`, in the registry's hierarchical shape: invalidating
  * `locationKeys.all` clears every cross-warehouse list and every resolved
  * parent at once.
  *
@@ -56,9 +55,9 @@ import { LOCATION_TYPES as WAREHOUSE_MODULE_LOCATION_TYPES } from './warehouse-m
  * the right trade for a five-minute master stale time.
  */
 export const locationKeys = {
-  all: ['storage-locations'] as const,
-  list: (params: unknown) => ['storage-locations', 'list', params] as const,
-  detail: (id: string) => ['storage-locations', 'detail', id] as const,
+  all: queryKeys.storageLocations.all,
+  list: (params: unknown) => [...queryKeys.storageLocations.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.storageLocations.all, 'detail', id] as const,
 }
 
 // ------------------------------------------------------------ vocabulary ----

@@ -16,13 +16,13 @@ import { useQuery } from '@tanstack/react-query'
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { empty } from '@/lib/messages'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 export type ManufacturerOption = SchemaOf<'ManufacturerOut'>
 
 export const manufacturerOptionKeys = {
-  all: ['products', 'manufacturers', 'options'] as const,
+  all: [...queryKeys.products.all, 'manufacturers', 'options'] as const,
 } as const
 
 const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: false } as const

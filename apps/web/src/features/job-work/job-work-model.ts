@@ -380,7 +380,9 @@ export function useVendorLedger({ vendorId, dateFrom, dateTo }: VendorLedgerPara
  */
 export function useReportJob(jobId: string | null) {
   const job = useQuery({
-    queryKey: ['reports', 'jobs', jobId] as const,
+    // Keyed by the path it polls, the identity `features/reports/report-jobs.ts`
+    // gives the same job, so the two hooks never hold two answers for one job.
+    queryKey: queryKeys.reports.job(jobId ? `/reports/jobs/${jobId}` : null),
     queryFn: () => api.get<ReportJob>(`/reports/jobs/${jobId}`),
     enabled: Boolean(jobId),
     refetchInterval: (query) => {

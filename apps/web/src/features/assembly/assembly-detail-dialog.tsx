@@ -450,7 +450,7 @@ function SerialPicker({
   )
 
   const results = useQuery({
-    queryKey: [...queryKeys.inventory.all, 'serials', params] as const,
+    queryKey: queryKeys.inventory.serials(params),
     queryFn: () => api.getPage<StockSerial>('/inventory/serials', { params }),
     // A serial another document has just eaten must never be offered from cache.
     staleTime: staleTimes.live,

@@ -28,6 +28,8 @@ import { ApiError, api } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
+import { financeKeys } from './finance-types'
+
 /** CreditNoteCancel permits a longer audit explanation than standard transitions. */
 const CANCEL_REASON_MAX_LENGTH = 500
 
@@ -77,7 +79,7 @@ export default function CreditNotesPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
   const detail = useQuery({
-    queryKey: ['finance', 'credit-notes', 'detail', selected?.id ?? ''],
+    queryKey: financeKeys.creditNote(selected?.id ?? ''),
     queryFn: () => api.get<CreditNoteDetail>(`/finance/credit-notes/${selected?.id}`),
     enabled: Boolean(selected),
   })
@@ -89,7 +91,7 @@ export default function CreditNotesPage() {
   })
   const list = useListQuery<CreditNoteRow>({
     path: '/finance/credit-notes',
-    queryKey: (params) => ['finance', 'credit-notes', params],
+    queryKey: financeKeys.creditNotes,
     defaultSortBy: 'note_date',
     defaultSortDir: 'desc',
     enabled: can(P.CREDIT_NOTE_VIEW),
@@ -140,7 +142,7 @@ export default function CreditNotesPage() {
       setSelected(null)
       setCancelReason('')
       setReasonTouched(false)
-      void queryClient.invalidateQueries({ queryKey: ['finance'] })
+      void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })

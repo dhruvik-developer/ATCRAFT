@@ -23,6 +23,7 @@ import { P } from '@/lib/permissions'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
+import { financeKeys } from './finance-types'
 import { MAX_ALLOCATIONS, paymentKeys, type PaymentDetail } from './payment-model'
 import { salesInvoiceKeys, type SalesInvoiceSummary } from './sales-invoice-types'
 
@@ -109,7 +110,7 @@ export function SalesReceiptAllocationDialog({
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: paymentKeys.all })
-      void queryClient.invalidateQueries({ queryKey: ['finance'] })
+      void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       toast.success(success.saved('Receipt allocation'))
       onClose()
     },

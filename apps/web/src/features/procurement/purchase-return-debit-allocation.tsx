@@ -20,7 +20,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
-import type { VendorInvoiceSummary } from '@/features/finance/finance-types'
+import { financeKeys, type VendorInvoiceSummary } from '@/features/finance/finance-types'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
@@ -82,7 +82,7 @@ export function PurchaseReturnDebitAllocation({
     [page, purchaseReturn.vendor_id, debouncedSearch],
   )
   const invoices = useQuery({
-    queryKey: ['finance', 'vendor-invoices', invoiceParams],
+    queryKey: financeKeys.vendorInvoices(invoiceParams),
     queryFn: () =>
       api.getPage<VendorInvoiceSummary>('/finance/vendor-invoices', {
         params: invoiceParams,
@@ -145,7 +145,7 @@ export function PurchaseReturnDebitAllocation({
         },
       ),
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ['finance'] })
+      void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       void queryClient.invalidateQueries({ queryKey: resultKey })
       toast.success(
         'Vendor debit note allocated',

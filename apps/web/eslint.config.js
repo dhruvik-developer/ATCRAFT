@@ -47,6 +47,33 @@ const queryClientConstruction = {
     'Build a query client with createQueryClient() from lib/query-client.ts, which carries the staleTimes, retry policy and error nets; in a screen test use renderScreen, and its cachePolicy option.',
 }
 
+// A key whose first element is a literal names a root the registry does not
+// know, so nothing ties it to the prefix its writers invalidate: five caches -
+// dealers, the raise dialog's templates, the inbound carriers among them - went
+// on serving stale rows after the writes that changed them. The registry in
+// lib/query-client.ts holds every root; a feature factory spreads one.
+const literalKeyHead = '[elements.0.type=/^(Literal|TemplateLiteral)$/]'
+const keyProperty = 'Property[key.name=/^(queryKey|mutationKey)$/]'
+const literalQueryKey = {
+  selector: [
+    `${keyProperty} > ArrayExpression${literalKeyHead}`,
+    `${keyProperty} > TSAsExpression > ArrayExpression${literalKeyHead}`,
+    `${keyProperty} > ArrowFunctionExpression > ArrayExpression${literalKeyHead}`,
+    `${keyProperty} > ArrowFunctionExpression > TSAsExpression > ArrayExpression${literalKeyHead}`,
+    `JSXAttribute[name.name='queryKey'] ArrayExpression${literalKeyHead}`,
+    `CallExpression[callee.property.name=/^(getQueryData|setQueryData|getQueryState|setQueryDefaults)$/] > ArrayExpression:first-child${literalKeyHead}`,
+    // A key factory (`dealerKeys = { ... }`) or a single key (`pendingKey`).
+    `VariableDeclarator[id.name=/Keys$/] > ObjectExpression ArrayExpression${literalKeyHead}`,
+    `VariableDeclarator[id.name=/Keys$/] > TSAsExpression > ObjectExpression ArrayExpression${literalKeyHead}`,
+    `VariableDeclarator[id.name=/(Key|KEY)$/] > ArrayExpression${literalKeyHead}`,
+    `VariableDeclarator[id.name=/(Key|KEY)$/] > TSAsExpression > ArrayExpression${literalKeyHead}`,
+    `VariableDeclarator[id.name=/(Key|KEY)$/] > ArrowFunctionExpression > ArrayExpression${literalKeyHead}`,
+    `VariableDeclarator[id.name=/(Key|KEY)$/] > ArrowFunctionExpression > TSAsExpression > ArrayExpression${literalKeyHead}`,
+  ].join(', '),
+  message:
+    'Root a query key in queryKeys (lib/query-client.ts): use its key, or spread one of its roots into a feature factory. A literal root is a cache no known invalidation reaches.',
+}
+
 /*
  * `no-restricted-properties` entries, named for the same reason as the syntax
  * ones above.
@@ -131,6 +158,7 @@ export default tseslint.config(
         utcDateSlice,
         decimalThroughNumber,
         queryClientConstruction,
+        literalQueryKey,
       ],
       'no-restricted-properties': ['error', ...localeFormatting, ...browserStorageProperties],
       'no-restricted-globals': ['error', ...browserStorageGlobals],
@@ -142,12 +170,17 @@ export default tseslint.config(
     // formatter takes once all decimal arithmetic is done.
     files: ['src/lib/format.ts'],
     rules: {
-      'no-restricted-syntax': ['error', destructiveButtonClassName, queryClientConstruction],
+      'no-restricted-syntax': [
+        'error',
+        destructiveButtonClassName,
+        queryClientConstruction,
+        literalQueryKey,
+      ],
       'no-restricted-properties': ['error', ...browserStorageProperties],
     },
   },
   {
-    // The one constructor of a query client.
+    // The one constructor of a query client, and the registry of key roots.
     files: ['src/lib/query-client.ts'],
     rules: {
       'no-restricted-syntax': [
@@ -155,6 +188,20 @@ export default tseslint.config(
         destructiveButtonClassName,
         utcDateSlice,
         decimalThroughNumber,
+      ],
+    },
+  },
+  {
+    // A test's probe component keys a cache no screen reads, and a test may
+    // spell a key out to pin its shape.
+    files: ['src/test/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        destructiveButtonClassName,
+        utcDateSlice,
+        decimalThroughNumber,
+        queryClientConstruction,
       ],
     },
   },

@@ -64,9 +64,6 @@ interface ChannelStatus {
   sms_enabled: boolean
 }
 
-const CHANNELS_QUERY_KEY = ['notifications', 'channel-templates'] as const
-const DELIVERIES_QUERY_KEY = ['notifications', 'messaging-deliveries'] as const
-
 /** The DLT placeholder; the provider fills one per listed parameter, in order. */
 const DLT_PLACEHOLDER = /\{#var#\}/g
 
@@ -141,11 +138,11 @@ export default function MessagingPage() {
     queryFn: () => api.get<ChannelStatus>('/notifications/channel-status'),
   })
   const templates = useQuery({
-    queryKey: CHANNELS_QUERY_KEY,
+    queryKey: queryKeys.notifications.channelTemplates,
     queryFn: () => api.get<MessagingTemplate[]>('/notifications/channel-templates'),
   })
   const deliveries = useQuery({
-    queryKey: DELIVERIES_QUERY_KEY,
+    queryKey: queryKeys.notifications.messagingDeliveries,
     queryFn: () =>
       api.getCursorPage<DeliveryRecord>('/notifications/deliveries', {
         params: { limit: MESSAGING_DELIVERIES_PAGE_SIZE },
@@ -160,8 +157,8 @@ export default function MessagingPage() {
     mutationFn: () =>
       api.put<MessagingTemplate[]>('/notifications/channel-templates', { templates: draft }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: CHANNELS_QUERY_KEY })
-      await queryClient.invalidateQueries({ queryKey: DELIVERIES_QUERY_KEY })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.notifications.channelTemplates })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.notifications.messagingDeliveries })
       toast.success(success.saved('Messaging templates'))
       setSaveAttempted(false)
     },

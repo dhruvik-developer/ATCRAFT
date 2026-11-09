@@ -17,6 +17,7 @@
  *   required when the box is opened.
  */
 
+import { queryKeys } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
@@ -29,16 +30,16 @@ import type { DecimalString, SchemaOf } from '@/types/api'
  * sweeps every list, detail and job watcher at once.
  */
 export const packingKeys = {
-  all: ['packing'] as const,
-  list: (params: unknown) => ['packing', 'list', params] as const,
-  detail: (id: string) => ['packing', 'detail', id] as const,
-  cartons: (id: string) => ['packing', 'cartons', id] as const,
+  all: queryKeys.packing.all,
+  list: (params: unknown) => [...queryKeys.packing.all, 'list', params] as const,
+  detail: (id: string) => [...queryKeys.packing.all, 'detail', id] as const,
+  cartons: (id: string) => [...queryKeys.packing.all, 'cartons', id] as const,
   cartonLabel: (orderId: string, cartonId: string) =>
-    ['packing', 'cartons', orderId, cartonId, 'label'] as const,
-  cartonScan: (barcode: string) => ['packing', 'carton-scan', barcode] as const,
+    [...queryKeys.packing.all, 'cartons', orderId, cartonId, 'label'] as const,
+  cartonScan: (barcode: string) => [...queryKeys.packing.all, 'carton-scan', barcode] as const,
   materials: (warehouseId: string, search = '') =>
-    ['packing', 'materials', warehouseId, search] as const,
-  packingListJob: (jobId: string) => ['packing', 'packing-list-job', jobId] as const,
+    [...queryKeys.packing.all, 'materials', warehouseId, search] as const,
+  packingListJob: (jobId: string) => [...queryKeys.packing.all, 'packing-list-job', jobId] as const,
 }
 
 // ------------------------------------------------------------ vocabulary ----

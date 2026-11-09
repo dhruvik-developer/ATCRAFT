@@ -50,7 +50,7 @@ type Lifecycle = 'activate' | 'deactivate' | 'retire'
 function OfferPreview({ id }: { id: string }) {
   const [open, setOpen] = useState(false)
   const preview = useQuery({
-    queryKey: ['promotions', 'offer-preview', id],
+    queryKey: queryKeys.promotions.offerPreview(id),
     queryFn: ({ signal }) =>
       api.get<SchemaOf<'DealerOfferPreview'>>(`/promotions/offers/${id}/preview`, { signal }),
     enabled: open,
@@ -94,7 +94,7 @@ function PromotionTarget({
   const [search, setSearch] = useState('')
   const term = useDebouncedValue(search)
   const offers = useQuery({
-    queryKey: ['promotions', 'offer-options', term],
+    queryKey: queryKeys.promotions.offerOptions(term),
     queryFn: ({ signal }) =>
       api.getPage<SchemaOf<'DealerOfferRead'>>('/promotions/offers', {
         params: { limit: PICKER_PAGE_SIZE, with_total: false, search: term },
@@ -213,7 +213,7 @@ function PromotionForm({
       return api.post(`/promotions/${kind}`, payload)
     },
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['promotions'] })
+      void client.invalidateQueries({ queryKey: queryKeys.promotions.all })
       void client.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
       toast.success(row ? success.updated('Promotion') : success.created('Promotion'))
       onClose()
@@ -478,7 +478,7 @@ export default function PromotionsPage() {
   const [reasonError, setReasonError] = useState<string>()
   const list = useListQuery<Promotion>({
     path: `/promotions/${kind}`,
-    queryKey: (filters) => ['promotions', kind, filters],
+    queryKey: (filters) => queryKeys.promotions.list(kind, filters),
     enabled: can(P.PROMOTION_VIEW),
   })
   const lifecycle = useMutation({
@@ -487,7 +487,7 @@ export default function PromotionsPage() {
         reason: reason.trim(),
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['promotions'] })
+      void client.invalidateQueries({ queryKey: queryKeys.promotions.all })
       void client.invalidateQueries({ queryKey: queryKeys.dealerPortal.all })
       toast.success(success.updated('Promotion'))
       setPending(undefined)

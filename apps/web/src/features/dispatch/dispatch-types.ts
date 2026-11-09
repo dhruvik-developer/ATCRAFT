@@ -31,8 +31,8 @@ import type { DecimalString } from '@/types/api'
  * way, so `queryKeys.dispatch.all` still sweeps them.
  */
 export const dispatchKeys = {
-  detail: (id: string) => ['dispatch', 'detail', id] as const,
-  events: (id: string) => ['dispatch', 'events', id] as const,
+  detail: (id: string) => [...queryKeys.dispatch.all, 'detail', id] as const,
+  events: (id: string) => [...queryKeys.dispatch.all, 'events', id] as const,
 }
 
 // ------------------------------------------------------------ vocabulary ----

@@ -29,6 +29,7 @@ import Decimal from 'decimal.js'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
 import { P, type PermissionKey } from '@/lib/permissions'
+import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 import type { VendorInvoiceStatus } from './finance-types'
@@ -44,12 +45,12 @@ import type { VendorInvoiceStatus } from './finance-types'
  * changes the payables register and the ageing report as well as the payment.
  */
 export const paymentKeys = {
-  all: ['finance', 'payments'] as const,
-  list: (params: unknown) => ['finance', 'payments', 'list', params] as const,
-  detail: (id: string) => ['finance', 'payments', 'detail', id] as const,
+  all: [...queryKeys.finance.all, 'payments'] as const,
+  list: (params: unknown) => [...queryKeys.finance.all, 'payments', 'list', params] as const,
+  detail: (id: string) => [...queryKeys.finance.all, 'payments', 'detail', id] as const,
   /** The vendor's open invoices offered inside one payment's allocation dialog. */
   settleable: (paymentId: string, params: unknown) =>
-    ['finance', 'payments', 'detail', paymentId, 'settleable', params] as const,
+    [...queryKeys.finance.all, 'payments', 'detail', paymentId, 'settleable', params] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

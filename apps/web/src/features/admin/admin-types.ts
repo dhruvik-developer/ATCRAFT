@@ -149,21 +149,22 @@ export interface FinancialYearRow {
 /**
  * Organisation query keys.
  *
- * The shared registry in `lib/query-client.ts` has no organisation entry, so
- * these live with the feature that owns them. They share the `organization`
- * root used by the option hooks elsewhere in the app, so one invalidation of
- * `orgKeys.all` clears every branch, plant and cost-centre picker too - a
- * centre added on the Cost centres tab is offered on the next production
- * order without waiting out the reference-data stale window.
+ * Under `queryKeys.organization`, the root the option hooks elsewhere in the
+ * app share, so one invalidation of `orgKeys.all` clears every branch, plant
+ * and cost-centre picker too - a centre added on the Cost centres tab is
+ * offered on the next production order without waiting out the
+ * reference-data stale window.
  */
 export const orgKeys = {
-  all: ['organization'] as const,
-  company: ['organization', 'company'] as const,
-  branches: (params: unknown) => ['organization', 'branches', params] as const,
-  plants: (params: unknown) => ['organization', 'plants', params] as const,
-  departments: (params: unknown) => ['organization', 'departments', params] as const,
-  costCentres: (params: unknown) => ['organization', 'cost-centres', params] as const,
-  financialYears: (params: unknown) => ['organization', 'financial-years', params] as const,
+  all: queryKeys.organization.all,
+  company: [...queryKeys.organization.all, 'company'] as const,
+  branches: (params: unknown) => [...queryKeys.organization.all, 'branches', params] as const,
+  plants: (params: unknown) => [...queryKeys.organization.all, 'plants', params] as const,
+  departments: (params: unknown) => [...queryKeys.organization.all, 'departments', params] as const,
+  costCentres: (params: unknown) =>
+    [...queryKeys.organization.all, 'cost-centres', params] as const,
+  financialYears: (params: unknown) =>
+    [...queryKeys.organization.all, 'financial-years', params] as const,
 } as const
 
 // ---------------------------------------------------------------- lookups ---

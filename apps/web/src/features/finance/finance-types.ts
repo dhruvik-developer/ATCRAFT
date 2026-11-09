@@ -45,24 +45,30 @@ export type LedgerSide = Extract<PartyType, 'CUSTOMER' | 'VENDOR'>
 /**
  * Query keys for finance.
  *
- * The shared registry in `lib/query-client.ts` has no finance namespace yet, so
- * the factories live here. Every key starts with `finance`, which keeps the
- * hierarchy intact: invalidating `financeKeys.all` still sweeps every list and
- * detail on both screens.
+ * Under `queryKeys.finance`, the root every finance factory shares, which keeps
+ * the hierarchy intact: invalidating `financeKeys.all` sweeps every list and
+ * detail on both screens, the ledger, payment and sales-invoice keys included.
  */
 export const financeKeys = {
-  all: ['finance'] as const,
-  outstanding: (params: unknown) => ['finance', 'outstanding', params] as const,
-  ageing: (params: unknown) => ['finance', 'ageing', params] as const,
+  all: queryKeys.finance.all,
+  outstanding: (params: unknown) => [...queryKeys.finance.all, 'outstanding', params] as const,
+  ageing: (params: unknown) => [...queryKeys.finance.all, 'ageing', params] as const,
   ledger: (partyType: LedgerSide, partyId: string, params: unknown) =>
-    ['finance', 'ledger', partyType, partyId, params] as const,
-  valuation: (params: unknown) => ['finance', 'inventory-valuation', params] as const,
+    [...queryKeys.finance.all, 'ledger', partyType, partyId, params] as const,
+  valuation: (params: unknown) =>
+    [...queryKeys.finance.all, 'inventory-valuation', params] as const,
   gstSummary: (dateFrom: string, dateTo: string) =>
-    ['finance', 'gst-summary', dateFrom, dateTo] as const,
-  gstr3b: (dateFrom: string, dateTo: string) => ['finance', 'gstr-3b', dateFrom, dateTo] as const,
-  vendorInvoices: (params: unknown) => ['finance', 'vendor-invoices', params] as const,
-  vendorInvoice: (id: string) => ['finance', 'vendor-invoices', 'detail', id] as const,
-  vendorInvoiceMatch: (id: string) => ['finance', 'vendor-invoices', 'match', id] as const,
+    [...queryKeys.finance.all, 'gst-summary', dateFrom, dateTo] as const,
+  gstr3b: (dateFrom: string, dateTo: string) =>
+    [...queryKeys.finance.all, 'gstr-3b', dateFrom, dateTo] as const,
+  vendorInvoices: (params: unknown) =>
+    [...queryKeys.finance.all, 'vendor-invoices', params] as const,
+  vendorInvoice: (id: string) =>
+    [...queryKeys.finance.all, 'vendor-invoices', 'detail', id] as const,
+  vendorInvoiceMatch: (id: string) =>
+    [...queryKeys.finance.all, 'vendor-invoices', 'match', id] as const,
+  creditNotes: (params: unknown) => [...queryKeys.finance.all, 'credit-notes', params] as const,
+  creditNote: (id: string) => [...queryKeys.finance.all, 'credit-notes', 'detail', id] as const,
 } as const
 
 // -------------------------------------------------------- outstanding ------

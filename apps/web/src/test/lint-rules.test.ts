@@ -214,6 +214,81 @@ describe('the lint rules that replace review comments', () => {
     expect(fired).toEqual(['no-restricted-syntax'])
   })
 
+  it('refuses a query key rooted in a literal, in every position a key is written', async () => {
+    const code = [
+      "import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'",
+      "import { useListQuery } from '@/hooks/use-list-query'",
+      "import { OptionsPicker } from '@/components/options-picker'",
+      '',
+      "export const dealerKeys = { all: ['dealers'] as const, list: (p: unknown) => ['dealers', 'list', p] as const }",
+      "const pendingKey = (p: unknown) => ['quality', 'pending', p] as const",
+      "const CHANNELS_QUERY_KEY = ['notifications', 'channel-templates'] as const",
+      '',
+      'export function Screen({ id, kind }: { id: string; kind: string }) {',
+      '  const client = useQueryClient()',
+      "  useQuery({ queryKey: ['finance', 'credit-notes', 'detail', id], queryFn: () => id })",
+      "  useQuery({ queryKey: ['quality', 'raise-templates', id] as const, queryFn: () => id })",
+      "  useListQuery({ path: '/promotions', queryKey: (p) => ['promotions', kind, p] })",
+      '  useMutation({ mutationKey: [`packing`, id], mutationFn: async () => id })',
+      "  void client.invalidateQueries({ queryKey: ['finance'] })",
+      "  client.setQueryData(['inventory', 'balances'], [])",
+      "  return <OptionsPicker queryKey={(p: unknown) => ['masters', 'uoms', p]} />",
+      '}',
+      '',
+    ].join('\n')
+
+    const fired = await rulesFiredBy(code)
+
+    // Two in the factory, one each for the other nine.
+    expect(fired.filter((rule) => rule === 'no-restricted-syntax')).toHaveLength(11)
+  })
+
+  it('accepts a key from the registry, or a factory spreading one of its roots', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { useQuery, useQueryClient } from '@tanstack/react-query'",
+        "import { useListQuery } from '@/hooks/use-list-query'",
+        "import { queryKeys } from '@/lib/query-client'",
+        '',
+        'const dealerKeys = {',
+        "  all: [...queryKeys.customers.all, 'dealers'] as const,",
+        "  list: (p: unknown) => [...queryKeys.customers.all, 'dealers', 'list', p] as const,",
+        '}',
+        "const STATUSES = ['DRAFT', 'POSTED'] as const",
+        "const filterKeys = [...STATUSES, 'vendor_id']",
+        '',
+        'export function Screen({ id }: { id: string }) {',
+        '  const client = useQueryClient()',
+        '  useQuery({ queryKey: queryKeys.customers.detail(id), queryFn: () => id })',
+        "  useQuery({ queryKey: [...queryKeys.inventory.all, 'serials', id] as const, queryFn: () => id })",
+        "  useListQuery({ path: '/dealers', queryKey: dealerKeys.list })",
+        "  client.setQueryData(queryKeys.sales.settings, ['a', 'b'])",
+        '  return filterKeys.length',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired).toEqual([])
+  })
+
+  it('lets the registry spell its roots, and a test spell a probe key', async () => {
+    const code = [
+      "export const queryKeys = { finance: { all: ['finance'] as const } } as const",
+      "const probeKey = ['harness', 'probe'] as const",
+      'export const keys = [queryKeys, probeKey]',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code, 'src/lib/query-client.ts')).toEqual([])
+    expect(await rulesFiredBy(code, 'src/test/harness.test.tsx')).toEqual([])
+    // Elsewhere both are roots the registry does not hold.
+    expect(await rulesFiredBy(code, 'src/features/finance/finance-types.ts')).toEqual([
+      'no-restricted-syntax',
+      'no-restricted-syntax',
+    ])
+  })
+
   it('refuses bare browser storage outside lib/storage.ts and the tests', async () => {
     const code = [
       'export function remember(collapsed: boolean): boolean {',

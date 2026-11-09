@@ -27,7 +27,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 /** The fields every caller reads. Rows carry more; nothing here depends on it. */
@@ -49,11 +49,11 @@ export type CostCentreOption = Pick<
 >
 
 export const organisationOptionKeys = {
-  branches: ['organization', 'branches', 'options'] as const,
-  plants: ['organization', 'plants', 'options'] as const,
-  departments: ['organization', 'departments', 'options'] as const,
-  departmentTree: ['organization', 'departments', 'tree'] as const,
-  costCentres: ['organization', 'cost-centres', 'options'] as const,
+  branches: [...queryKeys.organization.all, 'branches', 'options'] as const,
+  plants: [...queryKeys.organization.all, 'plants', 'options'] as const,
+  departments: [...queryKeys.organization.all, 'departments', 'options'] as const,
+  departmentTree: [...queryKeys.organization.all, 'departments', 'tree'] as const,
+  costCentres: [...queryKeys.organization.all, 'cost-centres', 'options'] as const,
 } as const
 
 const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: false } as const

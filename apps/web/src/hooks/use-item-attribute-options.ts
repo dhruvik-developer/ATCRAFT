@@ -22,16 +22,16 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 export type ItemAttributeType = SchemaOf<'ItemAttributeType'>
 export type ItemAttributeOption = SchemaOf<'ItemAttributeOut'>
 
 export const itemAttributeOptionKeys = {
-  all: ['products', 'attributes', 'options'] as const,
+  all: [...queryKeys.products.all, 'attributes', 'options'] as const,
   ofType: (attribute: ItemAttributeType) =>
-    ['products', 'attributes', 'options', attribute] as const,
+    [...queryKeys.products.all, 'attributes', 'options', attribute] as const,
 } as const
 
 const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: false } as const

@@ -22,6 +22,7 @@ import { useCallback, useState } from 'react'
 
 import { BASE_URL, api } from '@/lib/api-client'
 import { fileMessages } from '@/lib/messages'
+import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import type { AcceptedJob } from '@/types/api'
 
@@ -112,7 +113,7 @@ export function useReportJob(): ReportJobController {
   const [statusPath, setStatusPath] = useState<string | null>(null)
 
   const job = useQuery({
-    queryKey: ['reports', 'job', statusPath],
+    queryKey: queryKeys.reports.job(statusPath),
     queryFn: () => api.get<ReportJob>(statusPath ?? ''),
     enabled: statusPath !== null,
     staleTime: 0,

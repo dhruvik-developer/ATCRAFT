@@ -25,12 +25,9 @@ import { formatDateTime } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { useAuth } from '@/features/auth/auth-context'
-
-const ATTACHMENT_LIST_KEY = (inspectionId: string) =>
-  ['quality', 'attachments', inspectionId] as const
 
 /**
  * Best-effort object-URL release.
@@ -47,7 +44,7 @@ function releaseObjectUrl(url: string | null) {
 function useAttachmentList(inspectionId: string, enabled: boolean) {
   const { can } = useAuth()
   return useQuery({
-    queryKey: ATTACHMENT_LIST_KEY(inspectionId),
+    queryKey: queryKeys.quality.attachments(inspectionId),
     queryFn: () =>
       api.getPage<DocumentRow>('/documents', {
         params: {
@@ -85,7 +82,7 @@ export function PhotoThumb({ documentId, label }: { documentId: string; label: s
   const [failed, setFailed] = useState(false)
 
   const meta = useQuery({
-    queryKey: ['quality', 'photo-meta', documentId] as const,
+    queryKey: queryKeys.quality.photoMeta(documentId),
     queryFn: () => api.get<DocumentRow>(`/documents/${documentId}`),
     enabled: Boolean(documentId) && can(P.DOCUMENT_VIEW),
     staleTime: staleTimes.transactional,
@@ -200,7 +197,7 @@ export function InspectionAttachments({ inspectionId }: { inspectionId: string }
       return api.post<DocumentRow>('/documents', body)
     },
     onSuccess: (document) => {
-      void queryClient.invalidateQueries({ queryKey: ATTACHMENT_LIST_KEY(inspectionId) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.quality.attachments(inspectionId) })
       toast.success(success.created('Attachment'), `${document.file_name} attached.`)
     },
     onSettled: () => setUploading(false),
