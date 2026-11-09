@@ -17,10 +17,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
@@ -145,6 +147,24 @@ from src.modules.warehouses.repository import WarehouseRepository
 CATALOGUE_SORT_FIELDS = ("code", "name")
 
 AUDIT_DEALER_CHECKOUT = "dealer_checkout"
+
+#: A dealer's cart and wishlist are per-user working state, audited like the
+#: other per-user state the ERP keeps (notification preferences, push devices):
+#: each add, change and removal names the portal user who made it, in the
+#: write's own transaction, so a cart can be reconstructed up to its checkout.
+AUDIT_DEALER_CART = "dealer_cart"
+AUDIT_DEALER_CART_LINE = "dealer_cart_line"
+AUDIT_DEALER_WISHLIST_ITEM = "dealer_wishlist_item"
+
+
+def _grain_values(
+    item_id: uuid.UUID, variant_id: uuid.UUID | None, quantity: Decimal | None = None
+) -> dict[str, Any]:
+    """What an audit row records of a cart line or a wishlist row."""
+    values: dict[str, Any] = {"item_id": item_id, "item_variant_id": variant_id}
+    if quantity is not None:
+        values["quantity"] = quantity
+    return values
 
 
 def _specification_display(value: ItemSpecificationValueRead) -> str:
@@ -700,6 +720,36 @@ class DealerPortalService:
 
     # --- cart ---------------------------------------------------------------
 
+    async def _audit(
+        self,
+        action: AuditAction,
+        entity_type: str,
+        entity_id: uuid.UUID,
+        summary: str,
+        *,
+        entity_code: str | None = None,
+        old_values: dict[str, Any] | None = None,
+        new_values: dict[str, Any] | None = None,
+    ) -> None:
+        """One audit row for a cart or wishlist write, by the portal user, in its transaction."""
+        await record_audit(
+            self.session,
+            company_id=self.tenant.company_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            entity_code=entity_code,
+            summary=summary,
+            user_id=self.tenant.user_id,
+            old_values=old_values,
+            new_values=new_values,
+        )
+
+    async def _item_code(self, item_id: uuid.UUID) -> str:
+        """The code a removal's audit row names its item by - archived items included."""
+        labels = await labels_by_id(self.session, self.tenant, [item_id], Item.code)
+        return str(labels[item_id].code) if item_id in labels else str(item_id)
+
     async def _require_cart(self, *, lock: bool = False) -> DealerCart:
         cart = await self.cart_repo.lock_for_user() if lock else await self.cart_repo.for_user()
         if cart is None:
@@ -717,6 +767,13 @@ class DealerPortalService:
         )
         self.cart_repo.add(cart)
         await self.session.flush()
+        await self._audit(
+            AuditAction.CREATE,
+            AUDIT_DEALER_CART,
+            cart.id,
+            f"Opened a dealer cart for {customer.code}",
+            new_values={"customer_id": customer.id},
+        )
         return cart
 
     async def _validate_grain(
@@ -912,7 +969,7 @@ class DealerPortalService:
         self, item_id: uuid.UUID, variant_id: uuid.UUID | None, quantity: Decimal
     ) -> DealerCartRead:
         customer = await self._customer()
-        await self._validate_grain(item_id, variant_id)
+        item, _ = await self._validate_grain(item_id, variant_id)
         async with transaction(self.session):
             cart = await self._get_or_create_cart(customer)
             if await self.cart_line_repo.find_grain(cart.id, item_id, variant_id) is not None:
@@ -928,18 +985,25 @@ class DealerPortalService:
                     f"A cart holds at most {MAX_CART_LINES} lines.",
                     details={"max_cart_lines": MAX_CART_LINES},
                 )
-            self.cart_line_repo.add(
-                DealerCartLine(
-                    company_id=self.tenant.company_id,
-                    cart_id=cart.id,
-                    item_id=item_id,
-                    item_variant_id=variant_id,
-                    quantity=to_quantity(quantity),
-                )
+            line = DealerCartLine(
+                company_id=self.tenant.company_id,
+                cart_id=cart.id,
+                item_id=item_id,
+                item_variant_id=variant_id,
+                quantity=to_quantity(quantity),
             )
+            self.cart_line_repo.add(line)
             await self.session.flush()
             self.cart_repo.touch(cart)
             await self.session.flush()
+            await self._audit(
+                AuditAction.CREATE,
+                AUDIT_DEALER_CART_LINE,
+                line.id,
+                f"Added {item.code} to the dealer cart",
+                entity_code=item.code,
+                new_values=_grain_values(item_id, variant_id, line.quantity),
+            )
         return await self.cart()
 
     async def update_cart_line(self, line_id: uuid.UUID, quantity: Decimal) -> DealerCartRead:
@@ -951,11 +1015,23 @@ class DealerPortalService:
             line = await self.cart_line_repo.get_in_cart(cart.id, line_id)
             if line is None:
                 raise NotFoundError("Dealer cart line", line_id)
-            await self._validate_grain(line.item_id, line.item_variant_id)
+            item, _ = await self._validate_grain(line.item_id, line.item_variant_id)
+            before = Decimal(line.quantity)
             line.quantity = to_quantity(quantity)
             self.cart_line_repo.touch(line)
             self.cart_repo.touch(cart)
             await self.session.flush()
+            # The quantity it already had is no edit, and leaves no audit row.
+            if line.quantity != before:
+                await self._audit(
+                    AuditAction.UPDATE,
+                    AUDIT_DEALER_CART_LINE,
+                    line.id,
+                    f"Changed the quantity of {item.code} in the dealer cart",
+                    entity_code=item.code,
+                    old_values={"quantity": before},
+                    new_values={"quantity": line.quantity},
+                )
         return await self.cart()
 
     async def remove_cart_line(self, line_id: uuid.UUID) -> DealerCartRead:
@@ -965,18 +1041,39 @@ class DealerPortalService:
             line = await self.cart_line_repo.get_in_cart(cart.id, line_id)
             if line is None:
                 raise NotFoundError("Dealer cart line", line_id)
+            item_id = line.item_id
+            removed = _grain_values(item_id, line.item_variant_id, Decimal(line.quantity))
             await self.session.delete(line)
             self.cart_repo.touch(cart)
             await self.session.flush()
+            code = await self._item_code(item_id)
+            await self._audit(
+                AuditAction.DELETE,
+                AUDIT_DEALER_CART_LINE,
+                line_id,
+                f"Removed {code} from the dealer cart",
+                entity_code=code,
+                old_values=removed,
+            )
         return await self.cart()
 
     async def clear_cart(self) -> DealerCartRead:
         await self._customer()
         async with transaction(self.session):
             cart = await self._require_cart(lock=True)
-            await self.cart_line_repo.delete_for_cart(cart.id)
+            removed = await self.cart_line_repo.delete_for_cart(cart.id)
             self.cart_repo.touch(cart)
             await self.session.flush()
+            # Emptying an empty cart changed nothing, and leaves no audit row.
+            if removed:
+                await self._audit(
+                    AuditAction.UPDATE,
+                    AUDIT_DEALER_CART,
+                    cart.id,
+                    f"Emptied the dealer cart: {plural(removed, 'line')} removed",
+                    old_values={"line_count": removed},
+                    new_values={"line_count": 0},
+                )
         return await self.cart()
 
     # --- wishlist -----------------------------------------------------------
@@ -1055,6 +1152,14 @@ class DealerPortalService:
             )
             self.wishlist_repo.add(row)
             await self.session.flush()
+            await self._audit(
+                AuditAction.CREATE,
+                AUDIT_DEALER_WISHLIST_ITEM,
+                row.id,
+                f"Saved {item.code} to the dealer wishlist",
+                entity_code=item.code,
+                new_values=_grain_values(item_id, variant_id),
+            )
         # The saved row alone, priced from the item the grain check already
         # read - never the whole list re-read to find it.
         (saved,) = await self._wishlist_reads(customer, [row], {item.id: item})
@@ -1066,42 +1171,80 @@ class DealerPortalService:
             row = await self.wishlist_repo.get_for_user(entry_id)
             if row is None:
                 raise NotFoundError("Dealer wishlist item", entry_id)
+            item_id = row.item_id
+            removed = _grain_values(item_id, row.item_variant_id)
             await self.session.delete(row)
             await self.session.flush()
+            code = await self._item_code(item_id)
+            await self._audit(
+                AuditAction.DELETE,
+                AUDIT_DEALER_WISHLIST_ITEM,
+                entry_id,
+                f"Removed {code} from the dealer wishlist",
+                entity_code=code,
+                old_values=removed,
+            )
 
     async def move_wishlist_to_cart(self, entry_id: uuid.UUID, quantity: Decimal) -> DealerCartRead:
-        """Save a wishlist row into the cart. Needs the order right."""
+        """Save a wishlist row into the cart. Needs the order right.
+
+        Two audit rows, one per record the move changes: the cart line it adds
+        or tops up, and the wishlist row it removes.
+        """
         customer = await self._customer()
         async with transaction(self.session):
             row = await self.wishlist_repo.get_for_user(entry_id)
             if row is None:
                 raise NotFoundError("Dealer wishlist item", entry_id)
-            await self._validate_grain(row.item_id, row.item_variant_id)
+            item, _ = await self._validate_grain(row.item_id, row.item_variant_id)
             cart = await self._get_or_create_cart(customer)
-            existing = await self.cart_line_repo.find_grain(
-                cart.id, row.item_id, row.item_variant_id
-            )
-            if existing is not None:
-                existing.quantity = to_quantity(Decimal(existing.quantity) + quantity)
-                self.cart_line_repo.touch(existing)
+            line = await self.cart_line_repo.find_grain(cart.id, row.item_id, row.item_variant_id)
+            moved = _grain_values(row.item_id, row.item_variant_id)
+            action: AuditAction
+            old_values: dict[str, Any] | None
+            new_values: dict[str, Any]
+            if line is not None:
+                before = Decimal(line.quantity)
+                line.quantity = to_quantity(before + quantity)
+                self.cart_line_repo.touch(line)
+                action, old_values = AuditAction.UPDATE, {"quantity": before}
+                new_values = {"quantity": line.quantity}
             else:
                 if await self.cart_line_repo.count_for_cart(cart.id) >= MAX_CART_LINES:
                     raise BusinessRuleError(
                         f"A cart holds at most {MAX_CART_LINES} lines.",
                         details={"max_cart_lines": MAX_CART_LINES},
                     )
-                self.cart_line_repo.add(
-                    DealerCartLine(
-                        company_id=self.tenant.company_id,
-                        cart_id=cart.id,
-                        item_id=row.item_id,
-                        item_variant_id=row.item_variant_id,
-                        quantity=to_quantity(quantity),
-                    )
+                line = DealerCartLine(
+                    company_id=self.tenant.company_id,
+                    cart_id=cart.id,
+                    item_id=row.item_id,
+                    item_variant_id=row.item_variant_id,
+                    quantity=to_quantity(quantity),
                 )
+                self.cart_line_repo.add(line)
+                action, old_values = AuditAction.CREATE, None
+                new_values = _grain_values(row.item_id, row.item_variant_id, line.quantity)
             await self.session.delete(row)
             self.cart_repo.touch(cart)
             await self.session.flush()
+            await self._audit(
+                action,
+                AUDIT_DEALER_CART_LINE,
+                line.id,
+                f"Moved {item.code} from the wishlist into the dealer cart",
+                entity_code=item.code,
+                old_values=old_values,
+                new_values=new_values,
+            )
+            await self._audit(
+                AuditAction.DELETE,
+                AUDIT_DEALER_WISHLIST_ITEM,
+                entry_id,
+                f"Moved {item.code} from the dealer wishlist into the cart",
+                entity_code=item.code,
+                old_values=moved,
+            )
         return await self.cart()
 
     # --- checkout -----------------------------------------------------------

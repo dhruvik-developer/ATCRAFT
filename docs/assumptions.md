@@ -3078,7 +3078,10 @@ one row per user, item and variant, with no ceiling, and nothing reads all of
 it: `GET /wishlist` is offset-paginated over the rows whose item is still
 sellable (filtered in the page statement, so the total counts what is shown),
 an add answers with the saved row alone, and a catalogue page asks only which
-of its own items are saved.
+of its own items are saved. Every cart and wishlist write is audited in its own
+transaction under the portal user (`dealer_cart`, `dealer_cart_line`,
+`dealer_wishlist_item`), so a cart can be read back up to the `dealer_checkout`
+row; a write that changed nothing leaves no row.
 
 **Why.** The cart is a working draft, not a bulk import: 50 lines always fit
 the checkout payload (sales allows 200), and a price stored on the line would

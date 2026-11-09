@@ -778,6 +778,102 @@ async def test_cart_changes_the_dealer_may_not_make_are_refused(
     ]
 
 
+def trail(rows: list[AuditLog]) -> list[tuple[str, dict | None, dict | None]]:
+    """Each row's action and the values it recorded, in the order written.
+
+    ``record_audit`` stores only what changed, so a side with nothing to say
+    (a create's before, a delete's after) and a null value read as absent.
+    """
+
+    def said(values: dict | None) -> dict | None:
+        return {key: value for key, value in (values or {}).items() if value is not None} or None
+
+    return [(str(row.action), said(row.old_values), said(row.new_values)) for row in rows]
+
+
+async def test_every_cart_and_wishlist_write_is_audited_by_the_portal_user(
+    api_client, session, shop
+):
+    """What a dealer added, changed and removed before checkout can be read back.
+
+    Each write audits in its own transaction under the buyer's account; a write
+    that changed nothing, and one that was refused, leaves no row.
+    """
+    sign_in(shop.dealer)
+    lines_url = "/dealer-portal/cart/lines"
+    item, variant = str(shop.item_id), str(shop.variant_id)
+
+    cart = ok(await api_client.post(lines_url, json={"item_id": item, "quantity": "2"}), 201)
+    cart_id, line_id = uuid.UUID(cart["cart_id"]), uuid.UUID(cart["lines"][0]["id"])
+    ok(await api_client.patch(f"{lines_url}/{line_id}", json={"quantity": "12"}))
+    ok(await api_client.patch(f"{lines_url}/{line_id}", json={"quantity": "12"}))
+    refused(
+        await api_client.post(lines_url, json={"item_id": item, "quantity": "1"}),
+        409,
+        "DUPLICATE_DOCUMENT",
+    )
+
+    (opened,) = await audit_rows(session, entity_id=cart_id, entity_type="dealer_cart")
+    assert trail([opened]) == [("CREATE", None, {"customer_id": str(shop.ours_id)})]
+    line_trail = await audit_rows(session, entity_id=line_id, entity_type="dealer_cart_line")
+    assert trail(line_trail) == [
+        ("CREATE", None, {"item_id": item, "quantity": "2.0000"}),
+        ("UPDATE", {"quantity": "2.0000"}, {"quantity": "12.0000"}),
+    ]
+    assert {(row.created_by_id, row.entity_code) for row in [opened, *line_trail]} == {
+        (shop.buyer_id, None),
+        (shop.buyer_id, shop.item_code),
+    }
+
+    saved = ok(
+        await api_client.post(
+            "/dealer-portal/wishlist", json={"item_id": item, "item_variant_id": variant}
+        ),
+        201,
+    )
+    moved = ok(
+        await api_client.post(
+            f"/dealer-portal/wishlist/{saved['id']}/move-to-cart", params={"quantity": "3"}
+        )
+    )
+    (variant_line,) = [row for row in moved["lines"] if row["item_variant_id"] == variant]
+    assert trail(
+        await audit_rows(
+            session, entity_id=uuid.UUID(saved["id"]), entity_type="dealer_wishlist_item"
+        )
+    ) == [
+        ("CREATE", None, {"item_id": item, "item_variant_id": variant}),
+        ("DELETE", {"item_id": item, "item_variant_id": variant}, None),
+    ]
+    assert trail(
+        await audit_rows(
+            session, entity_id=uuid.UUID(variant_line["id"]), entity_type="dealer_cart_line"
+        )
+    ) == [("CREATE", None, {"item_id": item, "item_variant_id": variant, "quantity": "3.0000"})]
+
+    ok(await api_client.delete(f"{lines_url}/{line_id}"))
+    (removed,) = await audit_rows(
+        session, entity_id=line_id, entity_type="dealer_cart_line", action=AuditAction.DELETE
+    )
+    assert removed.entity_code == shop.item_code
+    assert trail([removed]) == [("DELETE", {"item_id": item, "quantity": "12.0000"}, None)]
+
+    ok(await api_client.delete("/dealer-portal/cart"))
+    ok(await api_client.delete("/dealer-portal/cart"))
+    assert trail(await audit_rows(session, entity_id=cart_id, entity_type="dealer_cart")) == [
+        ("CREATE", None, {"customer_id": str(shop.ours_id)}),
+        ("UPDATE", {"line_count": 1}, {"line_count": 0}),
+    ]
+
+    again = ok(await api_client.post("/dealer-portal/wishlist", json={"item_id": item}), 201)
+    ok(await api_client.delete(f"/dealer-portal/wishlist/{again['id']}"))
+    assert trail(
+        await audit_rows(
+            session, entity_id=uuid.UUID(again["id"]), entity_type="dealer_wishlist_item"
+        )
+    ) == [("CREATE", None, {"item_id": item}), ("DELETE", {"item_id": item}, None)]
+
+
 async def test_checkout_refuses_a_cart_changed_since_it_was_read(api_client, shop):
     sign_in(shop.dealer)
     cart = ok(
