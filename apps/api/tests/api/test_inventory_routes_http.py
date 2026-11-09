@@ -1927,10 +1927,11 @@ class TestDecideAdjustment:
     ) -> None:
         adjustment_id, _, _ = await pending_adjustment(session, tenant, unique_code)
 
+        # Segregation of duties answers with the one shared refusal (SelfApprovalError).
         refused(
             await api_client.post(f"/inventory/adjustments/{adjustment_id}/{verb}", json=payload),
-            422,
-            "BUSINESS_RULE_VIOLATION",
+            403,
+            "APPROVAL_REQUIRED",
         )
         assert await column(session, StockAdjustment.status, adjustment_id) == "PENDING_APPROVAL"
         assert await approval_statuses(session, adjustment_id) == ["PENDING"]
@@ -2053,12 +2054,13 @@ class TestRejectInternalIssue:
     ) -> None:
         issue_id, _, _ = await pending_issue(session, tenant, unique_code)
 
+        # Segregation of duties answers with the one shared refusal (SelfApprovalError).
         refused(
             await api_client.post(
                 f"/inventory/internal-issues/{issue_id}/reject", json={"reason": "Changed my mind"}
             ),
-            422,
-            "BUSINESS_RULE_VIOLATION",
+            403,
+            "APPROVAL_REQUIRED",
         )
         assert await column(session, InternalIssue.status, issue_id) == "PENDING_APPROVAL"
 

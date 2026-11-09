@@ -575,12 +575,13 @@ class TestRejectReallocationRequest:
     ) -> None:
         request_id, _, _, _ = await pending_request(session, tenant, unique_code)
 
+        # Segregation of duties answers with the one shared refusal (SelfApprovalError).
         refused(
             await api_client.post(
                 f"/allocation/reallocation-requests/{request_id}/reject", json={}
             ),
-            422,
-            "BUSINESS_RULE_VIOLATION",
+            403,
+            "APPROVAL_REQUIRED",
         )
         assert await column(session, ReallocationRequest.status, request_id) == "PENDING"
 
