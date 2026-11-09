@@ -109,7 +109,16 @@ export interface ReportJobController {
   isDownloading: boolean
 }
 
-export function useReportJob(): ReportJobController {
+export interface ReportJobOptions {
+  /**
+   * The name the download is saved under. Left out, it is the one the API's
+   * `Content-Disposition` suggests, which is right for every report whose
+   * stored file is named for what it holds.
+   */
+  fileName?: string
+}
+
+export function useReportJob({ fileName }: ReportJobOptions = {}): ReportJobController {
   const [statusPath, setStatusPath] = useState<string | null>(null)
 
   const job = useQuery({
@@ -147,7 +156,7 @@ export function useReportJob(): ReportJobController {
         toast.error(fileMessages.noFileTitle, fileMessages.noFile)
         return
       }
-      await api.download(target)
+      await api.download(target, fileName)
       // After the await, so it can only follow a download that actually began.
       // A failed one throws an `ApiError`, which the mutation cache toasts.
       toast.success(fileMessages.downloadStarted, fileMessages.downloading)

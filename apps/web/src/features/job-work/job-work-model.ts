@@ -277,16 +277,6 @@ export type VendorLedgerItemRow = SchemaOf<'VendorLedgerItemRow'>
 /** `GET /job-work/vendor-ledger` (`VendorLedgerReport`). */
 export type VendorLedgerReport = SchemaOf<'VendorLedgerReport'>
 
-/** A queued background job (`AcceptedJobResponse` data half). */
-export type QueuedJobData = {
-  job_id: string
-  status: string
-  status_url: string
-}
-
-/** Status of a background report job (`GET /reports/jobs/{id}`). */
-export type ReportJob = SchemaOf<'ReportJobRead'>
-
 // ----------------------------------------------------------------- reads ----
 
 /**
@@ -372,28 +362,6 @@ export function useVendorLedger({ vendorId, dateFrom, dateTo }: VendorLedgerPara
     staleTime: staleTimes.transactional,
     enabled: Boolean(vendorId) && Boolean(dateFrom) && Boolean(dateTo),
   })
-}
-
-/**
- * Poll a background report job until it leaves QUEUED/RUNNING.
- *
- * A challan PDF is rendered by Celery, so the Download button queues and then
- * watches the same job row the packing list uses. Polling stops at a terminal
- * state; the caller reads `download_url` from there.
- */
-export function useReportJob(jobId: string | null) {
-  const job = useQuery({
-    // Keyed by the path it polls, the identity `features/reports/report-jobs.ts`
-    // gives the same job, so the two hooks never hold two answers for one job.
-    queryKey: queryKeys.reports.job(jobId ? `/reports/jobs/${jobId}` : null),
-    queryFn: ({ signal }) => api.get<ReportJob>(`/reports/jobs/${jobId}`, { signal }),
-    enabled: Boolean(jobId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'QUEUED' || status === 'RUNNING' ? 1500 : false
-    },
-  })
-  return job
 }
 
 // ------------------------------------------------------------ url filters ---

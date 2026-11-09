@@ -2,24 +2,25 @@
  * Queue a delivery-challan PDF and download it once the worker finishes.
  *
  * The render runs on Celery, so the button queues
- * `POST /job-work/challans/{id}/pdf`, polls the job row, and then pulls the
- * bytes through the authenticated client - an `<a href>` would fetch without
- * the bearer token. Shared by the order detail and the challan register.
+ * `POST /job-work/challans/{id}/pdf` and hands the 202 to the shared report-job
+ * controller (`features/reports/report-jobs.ts`), which polls the status URL the
+ * 202 names and pulls the bytes through the authenticated client - an `<a href>`
+ * would fetch without the bearer token. Shared by the order detail and the
+ * challan register, where a row has room for one button rather than the
+ * controller's strip, so the job's states are drawn on that button.
  */
 
-import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { FileDown } from 'lucide-react'
-import { useState } from 'react'
 
 import { FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
+import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
-import { describeError, fileMessages, success } from '@/lib/messages'
-import { toast } from '@/lib/toast'
+import { fieldErrorSummary } from '@/lib/form-errors'
+import { describeError, fileMessages } from '@/lib/messages'
 
-import { jobWorkKeys, useReportJob, type QueuedJobData } from './job-work-model'
-
-/** The `data` half of an `AcceptedJobResponse`: what the queue endpoint hands back. */
+import { jobWorkKeys } from './job-work-model'
 
 export function ChallanDownload({
   challanId,
@@ -29,52 +30,27 @@ export function ChallanDownload({
   challanCode: string
 }) {
   const queryClient = useQueryClient()
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [queued, setQueued] = useState(false)
-  const [failed, setFailed] = useState<string | null>(null)
-  const [downloading, setDownloading] = useState(false)
-  const job = useReportJob(queued ? jobId : null)
+  // Saved under the challan's own number rather than the stored document's
+  // name, which is not the challan's.
+  const job = useReportJob({ fileName: `${challanCode}.pdf` })
+  const queue = useMutation({
+    mutationFn: () => api.post<AcceptedJobData>(`/job-work/challans/${challanId}/pdf`, {}),
+    // A fresh attempt stops watching the job it replaces, so that job's
+    // failure no longer shows while the new one is queued.
+    onMutate: () => job.reset(),
+    onSuccess: (accepted) => job.start(accepted),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all }),
+    // Said under the button, where the next press retries it; a toast would
+    // say it twice.
+    meta: { suppressErrorToast: true },
+  })
 
-  const queue = async () => {
-    setJobId(null)
-    setQueued(true)
-    setFailed(null)
-    try {
-      const queuedJob = await api.post<QueuedJobData>(`/job-work/challans/${challanId}/pdf`, {})
-      setJobId(queuedJob.job_id)
-      toast.show(success.queued('Challan'), fileMessages.generating)
-    } catch (error) {
-      setQueued(false)
-      const message = describeError(error)
-      setFailed(message)
-      toast.failure(error, 'Could not queue the challan')
-    } finally {
-      void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
-    }
-  }
-
-  const download = async () => {
-    if (!jobId) return
-    setDownloading(true)
-    try {
-      await api.download(`/reports/jobs/${jobId}/download`, `${challanCode}.pdf`)
-    } catch (error) {
-      toast.failure(error, 'Could not download the challan')
-    } finally {
-      setDownloading(false)
-    }
-  }
-
-  const status = job.data?.status
+  // The status URL itself could not be read: retry reading it rather than
+  // queueing a second PDF.
   if (job.error) {
     return (
       <div className="max-w-xs space-y-1">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void job.refetch()}
-          loading={job.isFetching}
-        >
+        <Button variant="outline" size="sm" onClick={job.retry} loading={job.isRetrying}>
           Retry status
         </Button>
         <FieldError
@@ -84,30 +60,33 @@ export function ChallanDownload({
       </div>
     )
   }
-  if (status === 'COMPLETED') {
+  if (job.phase === 'ready') {
     return (
-      <Button variant="outline" size="sm" onClick={() => void download()} loading={downloading}>
+      <Button variant="outline" size="sm" onClick={job.download} loading={job.isDownloading}>
         <FileDown />
         Download PDF
       </Button>
     )
   }
 
-  const failedMessage =
-    failed ??
-    (status === 'FAILED' ? (job.data?.error_message ?? fileMessages.generationFailed) : null)
+  const generating = queue.isPending || job.phase === 'queued' || job.phase === 'running'
+  const failedMessage = queue.error
+    ? (fieldErrorSummary(queue.error) ?? describeError(queue.error))
+    : job.phase === 'failed'
+      ? (job.job?.error_message ?? fileMessages.generationFailed)
+      : null
 
   return (
     <div className="max-w-xs space-y-1">
       <Button
         variant="outline"
         size="sm"
-        onClick={() => void queue()}
-        loading={queued && status !== 'FAILED'}
+        onClick={() => queue.mutate()}
+        loading={generating}
         title={failedMessage ?? `Queue the PDF for ${challanCode}`}
       >
         <FileDown />
-        {failedMessage ? 'Retry PDF' : queued ? 'Generating...' : 'PDF'}
+        {failedMessage ? 'Retry PDF' : generating ? 'Generating...' : 'PDF'}
       </Button>
       <FieldError className="break-words" message={failedMessage ?? undefined} />
     </div>

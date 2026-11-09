@@ -480,8 +480,12 @@ describe('vendor order action payloads', () => {
     })
     await view.user.click(await screen.findByRole('button', { name: 'Download PO PDF' }))
     await view.user.click(await screen.findByRole('button', { name: 'Download' }))
+    // No name of its own: the file is saved under the one the API suggests.
     await waitFor(() =>
-      expect(download).toHaveBeenCalledWith(`/vendor-portal/documents/${RECEIPT}/download`),
+      expect(download).toHaveBeenCalledWith(
+        `/vendor-portal/documents/${RECEIPT}/download`,
+        undefined,
+      ),
     )
     expect(view.fetch.calls.some((call) => call.path.startsWith('/reports/jobs/'))).toBe(false)
     download.mockRestore()
