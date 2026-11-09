@@ -10,8 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle, Input, Label } from '@/compon
 import { api } from '@/lib/api-client'
 import { formatDate, formatDateTime, formatQuantity, humanise } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
+import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
 import { useListQuery } from '@/hooks/use-list-query'
 
@@ -120,6 +121,7 @@ export function VendorJobWorkDetailPage() {
         note: note.trim() || null,
       }),
     onSuccess: async () => {
+      toast.success(success.recorded('Status update'))
       setNote('')
       setExpectedDate('')
       await Promise.all([
@@ -135,7 +137,7 @@ export function VendorJobWorkDetailPage() {
   if (query.error || !query.data) {
     return (
       <div role="alert" className="rounded-lg border border-destructive/30 p-4 text-sm">
-        {describeError(query.error ?? new Error('Job-work order not found.'))}
+        {query.error ? describeError(query.error) : 'Job-work order not found.'}
       </div>
     )
   }

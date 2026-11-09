@@ -80,6 +80,34 @@ describe('SalesReturnsPage', () => {
     expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
   })
 
+  it.each([
+    ['DRAFT', 'receive', 'Receive', 'Sales return marked received'],
+    ['RECEIVED', 'close', 'Close', 'Sales return closed'],
+  ] as const)('says a %s return was taken through %s', async (status, action, button, title) => {
+    // Before, the panel only closed - indistinguishable from dismissing it.
+    const row = salesReturnRow({ status })
+    const { user } = renderScreen(
+      <>
+        <SalesReturnsPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+        routes: {
+          'GET /sales-returns': page([row]),
+          [`POST /sales-returns/sr-1/${action}`]: ok(row),
+        },
+      },
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
+    await user.click(screen.getByRole('button', { name: button }))
+
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText(title)).toBeVisible()
+    expect(within(toasts).getByText('SR/2026-001')).toBeVisible()
+  })
+
   it('shows close and cancel for a received return', async () => {
     const { user } = renderScreen(<SalesReturnsPage />, {
       permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
@@ -179,36 +207,42 @@ describe('SalesReturnsPage', () => {
 
   it('saves per-serial QC dispositions for a received return', async () => {
     const row = salesReturnRow({ status: 'RECEIVED' })
-    const { user, fetch } = renderScreen(<SalesReturnsPage />, {
-      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
-      routes: {
-        'GET /sales-returns': page([row]),
-        'GET /sales-returns/sr-1': ok({
-          ...row,
-          lines: [
-            {
-              id: 'line-1',
-              serial_ids: ['serial-1'],
-              accepted_serial_ids: [],
-              damaged_serial_ids: [],
-              scrapped_serial_ids: [],
-            },
-          ],
-        }),
-        'POST /sales-returns/sr-1/units': ok({
-          ...row,
-          lines: [
-            {
-              id: 'line-1',
-              serial_ids: ['serial-1'],
-              accepted_serial_ids: ['serial-1'],
-              damaged_serial_ids: [],
-              scrapped_serial_ids: [],
-            },
-          ],
-        }),
+    const { user, fetch } = renderScreen(
+      <>
+        <SalesReturnsPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+        routes: {
+          'GET /sales-returns': page([row]),
+          'GET /sales-returns/sr-1': ok({
+            ...row,
+            lines: [
+              {
+                id: 'line-1',
+                serial_ids: ['serial-1'],
+                accepted_serial_ids: [],
+                damaged_serial_ids: [],
+                scrapped_serial_ids: [],
+              },
+            ],
+          }),
+          'POST /sales-returns/sr-1/units': ok({
+            ...row,
+            lines: [
+              {
+                id: 'line-1',
+                serial_ids: ['serial-1'],
+                accepted_serial_ids: ['serial-1'],
+                damaged_serial_ids: [],
+                scrapped_serial_ids: [],
+              },
+            ],
+          }),
+        },
       },
-    })
+    )
 
     await user.click(await screen.findByRole('button', { name: 'SR/2026-001' }))
     await user.click(await screen.findByRole('button', { name: 'Dispose serial units' }))
@@ -222,6 +256,8 @@ describe('SalesReturnsPage', () => {
       damaged: [],
       scrapped: [],
     })
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText('Serial dispositions recorded')).toBeVisible()
   })
 
   it("names a refused disposition from the 422's field detail, once", async () => {
@@ -273,21 +309,27 @@ describe('SalesReturnsPage', () => {
     // Not on the first page: only a search that names it brings it back. A fixed
     // first page used to be the only way in, so this return could not be raised.
     const searches: URL[] = []
-    const { user, fetch } = renderScreen(<SalesReturnsPage />, {
-      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
-      routes: {
-        'GET /sales-returns': page([]),
-        'GET /warehouses/options': ok([]),
-        'GET /dispatch': ({ url }) => {
-          searches.push(url)
-          return url.searchParams.get('search') === 'DSP-0101'
-            ? page([OLD_DELIVERY])
-            : page([], { has_next: false })
+    const { user, fetch } = renderScreen(
+      <>
+        <SalesReturnsPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+        routes: {
+          'GET /sales-returns': page([]),
+          'GET /warehouses/options': ok([]),
+          'GET /dispatch': ({ url }) => {
+            searches.push(url)
+            return url.searchParams.get('search') === 'DSP-0101'
+              ? page([OLD_DELIVERY])
+              : page([], { has_next: false })
+          },
+          'GET /dispatch/dispatch-101': ok(OLD_DELIVERY_DETAIL),
+          'POST /sales-returns': ok(salesReturnRow({ dispatch_id: 'dispatch-101' })),
         },
-        'GET /dispatch/dispatch-101': ok(OLD_DELIVERY_DETAIL),
-        'POST /sales-returns': ok(salesReturnRow({ dispatch_id: 'dispatch-101' })),
       },
-    })
+    )
 
     await user.click(await screen.findByRole('button', { name: 'New return' }))
     const dialog = await screen.findByRole('dialog', { name: 'New sales return' })
@@ -312,5 +354,8 @@ describe('SalesReturnsPage', () => {
     const named = searches.find((url) => url.searchParams.get('search') === 'DSP-0101')
     expect(named?.searchParams.get('dispatch_type')).toBe('SALES')
     expect(named?.searchParams.get('status')).toBe('DELIVERED')
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText('Sales return created')).toBeVisible()
+    expect(within(toasts).getByText('SR/2026-001')).toBeVisible()
   })
 })

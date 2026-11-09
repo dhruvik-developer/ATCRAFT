@@ -91,7 +91,7 @@ function NewSalesReturnDialog({
   const warehouses = useWarehouseOptions(open)
   const create = useMutation({
     mutationFn: () =>
-      api.post('/sales-returns', {
+      api.post<SalesReturnDetail>('/sales-returns', {
         dispatch_id: dispatchId,
         return_warehouse_id: warehouseId || null,
         notes: notes.trim() || null,
@@ -108,7 +108,8 @@ function NewSalesReturnDialog({
             requires_qc: true,
           })),
       }),
-    onSuccess: () => {
+    onSuccess: (created) => {
+      toast.success(success.created('Sales return'), created.code)
       void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
       onCreated()
       onClose()
@@ -293,6 +294,7 @@ export default function SalesReturnsPage() {
     mutationFn: (payload: { accepted: string[]; damaged: string[]; scrapped: string[] }) =>
       api.post(`/sales-returns/${selected}/units`, payload),
     onSuccess: async () => {
+      toast.success(success.recorded('Serial dispositions'))
       setUnitDispositionOpen(false)
       setUnitDispositions({})
       setUnitDispositionError(null)
@@ -347,11 +349,18 @@ export default function SalesReturnsPage() {
     [],
   )
 
-  async function transition(id: string, action: Exclude<SalesReturnAction, 'cancel'>) {
+  async function transition(row: SalesReturnRow, action: Exclude<SalesReturnAction, 'cancel'>) {
+    const { id } = row
     setTransitionError(null)
     setTransitioning({ id, action })
     try {
       await api.post(`/sales-returns/${id}/${action}`)
+      toast.success(
+        action === 'receive'
+          ? success.statusChanged('Sales return', 'received')
+          : success.closed('Sales return'),
+        row.code,
+      )
       setSelected(null)
       await list.refetch()
     } catch (error) {
@@ -399,7 +408,7 @@ export default function SalesReturnsPage() {
                   onClick={() =>
                     action === 'cancel'
                       ? setCancelling(selectedReturn)
-                      : void transition(selectedReturn.id, action)
+                      : void transition(selectedReturn, action)
                   }
                 >
                   {action === 'receive' ? 'Receive' : action === 'close' ? 'Close' : 'Cancel'}

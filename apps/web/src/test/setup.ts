@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, configure } from '@testing-library/react'
+import { act, cleanup, configure, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, vi } from 'vitest'
 
 // How long `findBy*` and `waitFor` retry. The library's one second failed a
@@ -11,7 +11,28 @@ import { afterEach, beforeEach, vi } from 'vitest'
 const ASYNC_QUERY_TIMEOUT_MS = 5_000
 configure({ asyncUtilTimeout: ASYNC_QUERY_TIMEOUT_MS })
 
-afterEach(() => cleanup())
+afterEach(async () => {
+  // The toast store is a module, so it outlives each test's tree: a toast one
+  // test raised stood in the next test's Notifications region, and an error
+  // toast never dismisses itself - so a later "said once" check counted a
+  // stranger's alert, or a code it looked for was there twice.
+  //
+  // Imported here rather than at the top: whatever a setup file imports is
+  // evaluated before a suite's `vi.mock` is registered, so a static import would
+  // bind the toast store, the message catalogue and the API client to the real
+  // modules in every suite that mocks one of them (push.test.ts mocks the API
+  // client). `importActual` also leaves a suite free to mock the toast module
+  // itself; unmocked, it is the same instance the screen under test raised into.
+  try {
+    const { toast, useToasts } = await vi.importActual<typeof import('@/lib/toast')>('@/lib/toast')
+    const { result, unmount } = renderHook(() => useToasts())
+    act(() => result.current.forEach((notification) => toast.dismiss(notification.id)))
+    unmount()
+  } finally {
+    // Last, so it also removes the container the hook above was rendered into.
+    cleanup()
+  }
+})
 
 // jsdom implements neither of these, and both are touched during a normal
 // render of the layout (theme detection) and the virtualised table.

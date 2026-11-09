@@ -383,6 +383,7 @@ function CycleCard({ record }: { record: QcReworkRecord }) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
+      toast.success(success.started('Rework cycle'), record.code)
     },
     // Said on the cycle's own card; a toast would repeat it.
     meta: { suppressErrorToast: true },

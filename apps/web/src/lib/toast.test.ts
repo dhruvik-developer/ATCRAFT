@@ -1,14 +1,24 @@
 import { act, renderHook } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { ApiError } from './api-client'
 import { errors } from './messages'
 import { toast, useToasts } from './toast'
 
-afterEach(() => {
-  const { result, unmount } = renderHook(() => useToasts())
-  act(() => result.current.forEach((notification) => toast.dismiss(notification.id)))
-  unmount()
+// src/test/setup.ts empties the store after every test, here as everywhere. These
+// two run in order: the first leaves an error toast behind - one never dismisses
+// itself - and the second fails if the shared reset stops reaching this store.
+describe('the store between tests', () => {
+  it('can be left holding an error toast when a test ends', () => {
+    toast.error('Left behind')
+    const { result } = renderHook(() => useToasts())
+    expect(result.current.map((notification) => notification.title)).toEqual(['Left behind'])
+  })
+
+  it('is empty again when the next test starts', () => {
+    const { result } = renderHook(() => useToasts())
+    expect(result.current).toEqual([])
+  })
 })
 
 describe('direct request error notifications', () => {

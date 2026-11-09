@@ -1,11 +1,13 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { api } from '@/lib/api-client'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
 import { VendorInvoiceForm } from './vendor-invoice-form'
+import { VendorJobWorkDetailPage } from './vendor-job-work'
 import {
   canShipOrder,
   orderTab,
@@ -797,5 +799,48 @@ describe('vendor pending amendment projection', () => {
     expect(await screen.findByText('Amended (rev 2)')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Accept' })).toBeVisible()
     expect(screen.getByText('Deliver during working hours')).toBeVisible()
+  })
+})
+
+describe('vendor job-work progress', () => {
+  const JOB_WORK = {
+    id: 'jw-1',
+    code: 'JW-0001',
+    status: 'ISSUED',
+    process_type: 'PLATING',
+    process_description: 'Nickel plating',
+    expected_return_date: '2026-11-20',
+    issued_quantity: '100.0000',
+    received_quantity: '0.0000',
+    pending_quantity: '100.0000',
+    lines: [],
+    challans: [],
+    receipts: [],
+    updates: [],
+  }
+
+  it('acknowledges a progress update the vendor sent', async () => {
+    // It used to refresh the history and say nothing, so a vendor could not
+    // tell a recorded update from one that never left.
+    const { user, fetch } = renderScreen(
+      <>
+        <VendorJobWorkDetailPage />
+        <Toaster />
+      </>,
+      {
+        route: '/vendor/job-work/jw-1',
+        path: '/vendor/job-work/:orderId',
+        routes: {
+          'GET /vendor-portal/job-work/jw-1': ok(JOB_WORK),
+          'POST /vendor-portal/job-work/jw-1/status': ok({ id: 'update-1' }),
+        },
+      },
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Send progress update' }))
+
+    await waitFor(() => fetch.requestFor('POST', '/vendor-portal/job-work/jw-1/status'))
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText('Status update recorded')).toBeVisible()
   })
 })

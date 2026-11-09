@@ -458,6 +458,36 @@ describe('a refused rework cycle', () => {
   })
 })
 
+describe('starting a rework cycle', () => {
+  it('says the cycle was taken to the bench', async () => {
+    // Its siblings - opening and completing a cycle - each said so; this one was silent.
+    const open = {
+      ...detail().rework_records![0]!,
+      status: 'OPEN' as const,
+      started_at: null,
+    }
+    const { user } = renderScreen(
+      <>
+        <ReworkPanel inspection={detail({ rework_records: [open] })} />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.QC_INSPECT],
+        routes: {
+          'GET /routing/work-centers': page([]),
+          'POST /quality/rework/rework-1/start': ok({ ...open, status: 'IN_PROGRESS' }),
+        },
+      },
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Start' }))
+
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(await within(toasts).findByText('Rework cycle started')).toBeVisible()
+    expect(within(toasts).getByText('RW-0001')).toBeVisible()
+  })
+})
+
 describe('rework permission gates', () => {
   it('fails the rework list for an account without qc.view', async () => {
     renderScreen(<QualityPage />, {
