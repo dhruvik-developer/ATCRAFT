@@ -16,7 +16,7 @@
  * several slabs, so adding them would over-count documents.
  */
 
-import { describeError, salesInvoiceMessages } from '@/lib/messages'
+import { describeError } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { RefreshCw } from 'lucide-react'
@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils'
 
 import { financeKeys, type GstSection, type GstSummary } from './finance-types'
 import { periodBounds } from './gst-period'
+import { salesInvoiceMessages } from './sales-invoice-messages'
 
 const COMPONENTS: { key: keyof GstSection; label: string; emphasis?: boolean }[] = [
   { key: 'taxable_amount', label: 'Taxable value' },

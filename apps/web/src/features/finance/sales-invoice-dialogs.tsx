@@ -42,11 +42,12 @@ import {
   toDecimal,
 } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError, errors, salesInvoiceMessages, success } from '@/lib/messages'
+import { describeError, errors, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { financeKeys } from './finance-types'
+import { salesInvoiceMessages } from './sales-invoice-messages'
 import {
   salesInvoiceKeys,
   type SalesInvoiceDetail,
