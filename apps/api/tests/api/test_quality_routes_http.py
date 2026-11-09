@@ -22,21 +22,23 @@ from __future__ import annotations
 
 import io
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from httpx import Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers, UploadFile
 
+from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.modules.audit.models import AuditAction, AuditLog
-from src.modules.documents.models import DocumentCategory
+from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.schemas import DocumentUploadRequest
 from src.modules.documents.service import DocumentService
 from src.modules.inventory import service as inventory
@@ -657,29 +659,30 @@ async def test_readings_that_do_not_fit_the_sheet_are_refused(
     assert status == InspectionStatus.PENDING
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: quality.record_results stores measurement.photo_document_id with no lookup, "
-        "so another company's document (or none at all) is attached to the reading"
-    ),
-)
-@pytest.mark.parametrize("photo", ["another-companys-document", "no-such-document"])
-async def test_a_reading_cannot_attach_a_photo_this_company_does_not_hold(
-    api_client, session, tenant, other_company, lab, tmp_path, monkeypatch, photo
-):
-    monkeypatch.setattr(settings, "storage_path", tmp_path)
-    owner = await seed_support.seed_user(session, company_id=other_company.id)
+async def uploaded_photo(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
+    """A small PNG filed by ``owner``'s company. Patch ``settings.storage_path`` first."""
     upload = UploadFile(
         file=io.BytesIO(PNG),
         size=len(PNG),
         filename="bore.png",
         headers=Headers({"content-type": "image/png"}),
     )
-    theirs = await DocumentService(
+    document = await DocumentService(session, owner).upload(
+        upload, DocumentUploadRequest(category=DocumentCategory.ATTACHMENT)
+    )
+    return document.id
+
+
+@pytest.mark.parametrize("photo", ["another-companys-document", "no-such-document"])
+async def test_a_reading_cannot_attach_a_photo_this_company_does_not_hold(
+    api_client, session, tenant, other_company, lab, tmp_path, monkeypatch, photo
+):
+    monkeypatch.setattr(settings, "storage_path", tmp_path)
+    owner = await seed_support.seed_user(session, company_id=other_company.id)
+    theirs = await uploaded_photo(
         session, TenantContext(company_id=other_company.id, user_id=owner.id)
-    ).upload(upload, DocumentUploadRequest(category=DocumentCategory.ATTACHMENT))
-    photo_id = theirs.id if photo == "another-companys-document" else uuid.uuid4()
+    )
+    photo_id = theirs if photo == "another-companys-document" else uuid.uuid4()
     inspection_id = await checked_inspection(session, tenant, lab)
     ids = await parameter_ids(session, lab.template_id)
     body = readings(ids)
@@ -687,13 +690,46 @@ async def test_a_reading_cannot_attach_a_photo_this_company_does_not_hold(
 
     response = await api_client.post(f"/quality/inspections/{inspection_id}/results", json=body)
 
-    assert response.status_code in {404, 422}, response.text
+    refused(response, 404, "NOT_FOUND")
     stored = await session.scalar(
         select(func.count())
         .select_from(QcInspectionResult)
-        .where(QcInspectionResult.photo_document_id == photo_id)
+        .where(QcInspectionResult.inspection_id == inspection_id)
     )
     assert stored == 0
+
+
+async def test_a_reading_keeps_a_photo_this_company_holds_through_a_correction(
+    api_client, session, tenant, lab, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "storage_path", tmp_path)
+    photo_id = await uploaded_photo(session, tenant)
+    inspection_id = await checked_inspection(session, tenant, lab)
+    ids = await parameter_ids(session, lab.template_id)
+    url = f"/quality/inspections/{inspection_id}/results"
+    body = readings(ids)
+    body["measurements"][0]["photo_document_id"] = str(photo_id)
+    stored_photo = (
+        select(QcInspectionResult.photo_document_id)
+        .where(
+            QcInspectionResult.inspection_id == inspection_id,
+            QcInspectionResult.parameter_id == ids["Bore diameter"],
+        )
+        .scalar_subquery()
+    )
+
+    ok(await api_client.post(url, json=body))
+    assert await session.scalar(select(stored_photo)) == photo_id
+
+    # The file lapses; correcting the value it evidences must not lose the reading.
+    await session.execute(
+        update(Document)
+        .where(Document.id == photo_id)
+        .values(expires_at=utcnow() - timedelta(days=1))
+    )
+    body["measurements"][0]["measured_value_numeric"] = "10.02"
+    ok(await api_client.post(url, json=body))
+    assert await session.scalar(select(stored_photo)) == photo_id
 
 
 async def test_an_inspection_raised_without_a_sheet_has_nothing_to_measure(

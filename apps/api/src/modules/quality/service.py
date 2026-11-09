@@ -113,6 +113,7 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.documents.service import DocumentService
 from src.modules.inventory.models import StockState
 from src.modules.inventory.service import change_stock_state, get_balance
 from src.modules.notifications.alerts import AlertCandidate
@@ -1811,6 +1812,21 @@ async def record_results(
             )
 
         existing = await result_repo.map_for_inspection(inspection.id)
+        # A photo is a bare document id - no foreign key, because the documents
+        # module purges on its own schedule - so this read is all that keeps
+        # another company's file, or no file at all, off a reading.
+        # ASSUMPTION: a photo the reading already carries is not re-checked, so
+        # correcting a value keeps its evidence after the file has expired
+        # (docs/assumptions.md §REF-1).
+        stored_photos = {key: row.photo_document_id for key, row in existing.items()}
+        await DocumentService(session, tenant).require_live(
+            [
+                measurement.photo_document_id
+                for measurement in payload.measurements
+                if measurement.photo_document_id is not None
+                and measurement.photo_document_id != stored_photos.get(measurement.parameter_id)
+            ]
+        )
         recorded_names: list[str] = []
         failed_names: list[str] = []
 

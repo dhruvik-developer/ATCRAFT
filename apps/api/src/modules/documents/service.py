@@ -52,7 +52,7 @@ import codecs
 import hashlib
 import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -746,6 +746,20 @@ class DocumentService:
         self, document_id: uuid.UUID, *, principal: Principal | None = None
     ) -> DocumentRead:
         return DocumentRead.model_validate(await self._load_live(document_id, principal=principal))
+
+    async def require_live(
+        self, document_ids: Sequence[uuid.UUID], *, principal: Principal | None = None
+    ) -> None:
+        """Refuse the first id that is not a live document this caller may read.
+
+        The batched form of :meth:`get_document`'s check, for a record that
+        attaches several documents at once - one query, never one per id. The
+        same "not found" for missing, foreign and expired, for the same reason.
+        """
+        live = await self.repo.live_ids(document_ids, utcnow(), principal=principal)
+        missing = [document_id for document_id in document_ids if document_id not in live]
+        if missing:
+            raise NotFoundError("Document", missing[0])
 
     async def _load_live(
         self, document_id: uuid.UUID, *, principal: Principal | None = None

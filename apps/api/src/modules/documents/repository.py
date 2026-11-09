@@ -15,6 +15,7 @@ exists somewhere else is itself a disclosure.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -76,6 +77,22 @@ class DocumentRepository(BaseRepository[Document]):
             self._scoped(principal=principal).where(Document.id == document_id), now
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def live_ids(
+        self,
+        document_ids: Sequence[uuid.UUID],
+        now: datetime,
+        *,
+        principal: Principal | None = None,
+    ) -> set[uuid.UUID]:
+        """Which of these ids are live documents this caller may read, in one statement."""
+        wanted = list(dict.fromkeys(document_ids))
+        if not wanted:
+            return set()
+        stmt = self._not_expired(
+            self._scoped(principal=principal).where(Document.id.in_(wanted)), now
+        ).with_only_columns(Document.id)
+        return set((await self.session.execute(stmt)).scalars().all())
 
     async def get_for_delete(
         self, document_id: uuid.UUID, *, principal: Principal | None = None
