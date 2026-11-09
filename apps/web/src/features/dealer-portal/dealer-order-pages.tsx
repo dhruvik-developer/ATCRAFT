@@ -49,6 +49,8 @@ function CartQuantity({ line }: { line: SchemaOf<'DealerCartLineRead'> }) {
   const action = useDealerAction(
     (value: string) => api.patch(`${DEALER_API}/cart/lines/${line.id}`, { quantity: value }),
     'Cart updated',
+    // Said under the line's quantity, not again in a toast.
+    { meta: { suppressErrorToast: true } },
   )
   return (
     <form
@@ -101,12 +103,16 @@ export function DealerCartPage() {
     (payload: SchemaOf<'DealerCheckoutRequest'>) =>
       api.post<SchemaOf<'DealerOrderDetail'>>(`${DEALER_API}/checkout`, payload),
     'Order placed for review',
-    (order) => navigate(`/dealer/orders/${order.id}`),
-    (error) => {
-      if (error instanceof ApiError && error.status === 409) {
-        setStaleCart(true)
-        void cart.refetch()
-      }
+    {
+      onSuccess: (order) => navigate(`/dealer/orders/${order.id}`),
+      onError: (error) => {
+        if (error instanceof ApiError && error.status === 409) {
+          setStaleCart(true)
+          void cart.refetch()
+        }
+      },
+      // The checkout form says why, a changed cart included.
+      meta: { suppressErrorToast: true },
     },
   )
   const data = cart.data
@@ -309,13 +315,17 @@ export function DealerCartPage() {
 export function DealerWishlistPage() {
   const { can } = useAuth()
   const list = useDealerRead<SchemaOf<'DealerWishlistRead'>[]>('wishlist')
+  // Both refusals are said once, above the list - so each action clears the
+  // other's, or a stale one would stand in front of the failure just made.
   const remove = useDealerAction(
     (id: string) => api.delete(`${DEALER_API}/wishlist/${id}`),
     'Removed from the wishlist',
+    { meta: { suppressErrorToast: true } },
   )
   const move = useDealerAction(
     (id: string) => api.post(`${DEALER_API}/wishlist/${id}/move-to-cart`),
     'Moved to the cart',
+    { meta: { suppressErrorToast: true } },
   )
   return (
     <>
@@ -345,7 +355,10 @@ export function DealerWishlistPage() {
                     {can(P.DEALER_PORTAL_ORDER) && (
                       <Button
                         className="min-h-11"
-                        onClick={() => move.mutate(item.id)}
+                        onClick={() => {
+                          remove.reset()
+                          move.mutate(item.id)
+                        }}
                         disabled={move.isPending}
                       >
                         Move to cart
@@ -354,7 +367,10 @@ export function DealerWishlistPage() {
                     <Button
                       variant="outline"
                       className="min-h-11"
-                      onClick={() => remove.mutate(item.id)}
+                      onClick={() => {
+                        move.reset()
+                        remove.mutate(item.id)
+                      }}
                       disabled={remove.isPending}
                     >
                       Remove
@@ -485,7 +501,8 @@ export function DealerOrderPage() {
   const cancel = useDealerAction(
     () => api.post(`${DEALER_API}/orders/${orderId}/cancel`, { reason: reason.trim() }),
     'Order cancelled',
-    () => setCancelOpen(false),
+    // The dialog shows the refusal under the reason.
+    { onSuccess: () => setCancelOpen(false), meta: { suppressErrorToast: true } },
   )
   const order = detail.data
   return (

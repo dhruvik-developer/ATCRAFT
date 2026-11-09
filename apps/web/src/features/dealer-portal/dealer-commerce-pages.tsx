@@ -548,9 +548,13 @@ export function DealerReturnsPage() {
     (payload: SchemaOf<'DealerReturnCreate'>) =>
       api.post<SchemaOf<'DealerReturnDetail'>>(`${DEALER_API}/returns`, payload),
     'Return request submitted',
-    () => {
-      setOpen(false)
-      setSelected(undefined)
+    {
+      onSuccess: () => {
+        setOpen(false)
+        setSelected(undefined)
+      },
+      // The dialog shows the refusal above its footer.
+      meta: { suppressErrorToast: true },
     },
   )
   const columns = useMemo<ColumnDef<SchemaOf<'DealerReturnSummary'>, unknown>[]>(

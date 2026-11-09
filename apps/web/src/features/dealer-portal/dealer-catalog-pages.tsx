@@ -51,6 +51,8 @@ function AddToCart({
         quantity: value,
       }),
     'Added to the cart',
+    // Said under the quantity, not again in a toast.
+    { meta: { suppressErrorToast: true } },
   )
   if (!can(P.DEALER_PORTAL_ORDER)) return null
   return (
@@ -90,6 +92,7 @@ function WishlistButton({ itemId, saved = false }: { itemId: string; saved?: boo
   const action = useDealerAction(
     () => api.post(`${DEALER_API}/wishlist`, { item_id: itemId }),
     'Saved to the wishlist',
+    { meta: { suppressErrorToast: true } },
   )
   return (
     <div>
