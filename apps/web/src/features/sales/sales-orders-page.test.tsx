@@ -39,7 +39,16 @@ import { Toaster } from '@/components/ui/toaster'
 import { toDateInput } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
+import { queryKeys } from '@/lib/query-client'
+import {
+  fail,
+  ok,
+  page,
+  renderScreen,
+  type FetchRecorder,
+  type RenderScreenOptions,
+  type RouteTable,
+} from '@/test/harness'
 
 import SalesOrderDetailPage from './sales-order-detail-page'
 import SalesOrdersPage from './sales-orders-page'
@@ -250,6 +259,7 @@ function renderDetail(options: {
   permissions: string[]
   routes?: RouteTable
   withToaster?: boolean
+  cachePolicy?: RenderScreenOptions['cachePolicy']
 }) {
   const ui = options.withToaster ? (
     <>
@@ -264,6 +274,7 @@ function renderDetail(options: {
     route: `/sales-orders/${options.order.id}`,
     path: '/sales-orders/:orderId',
     routes: detailRoutes(options.order, options.routes),
+    cachePolicy: options.cachePolicy,
   })
 }
 
@@ -1225,6 +1236,87 @@ describe('cancelling an order', () => {
     // Trimmed: the surrounding spaces are keystrokes, not part of what the
     // audit trail should quote back in six months.
     expect(body.reason).toBe('Customer withdrew')
+  })
+})
+
+describe('the approvals inbox, after the order moves its pricing approval', () => {
+  // A draft priced below cost waits in the approvals inbox and the dashboard's
+  // preview of it. Cancelling the draft (55483cc) or approving it closes that
+  // request, and a line save re-prices it, which opens, refreshes or withdraws
+  // it. The production cache keeps the queue for a minute and an unobserved
+  // copy for ten, so an approver going back to it saw a request already closed.
+  const awaiting = orderDetail({ requires_approval: true, approved_at: null })
+  // The keys the two screens read, from their own factory.
+  const inboxKeys = [
+    queryKeys.audit.approvals({ limit: 6 }),
+    queryKeys.audit.approvals({ page: 1, limit: 25 }),
+  ]
+
+  function renderWithCachedInbox(permissions: string[], routes: RouteTable) {
+    const view = renderDetail({
+      order: awaiting,
+      permissions: [P.SALES_ORDER_VIEW, ...permissions],
+      routes,
+      cachePolicy: 'production',
+    })
+    for (const queryKey of inboxKeys) view.queryClient.setQueryData(queryKey, { data: [] })
+    return view
+  }
+
+  function expectInboxInvalidated(view: ReturnType<typeof renderWithCachedInbox>) {
+    return waitFor(() => {
+      for (const queryKey of inboxKeys) {
+        expect(view.queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+      }
+    })
+  }
+
+  it('drops the cached queue when the draft is cancelled', async () => {
+    const view = renderWithCachedInbox([P.SALES_ORDER_CANCEL], {
+      [`POST /sales/${ORDER_ID}/cancel`]: ok(orderRow({ status: 'CANCELLED' })),
+    })
+
+    await view.user.click(await screen.findByRole('button', { name: /cancel order/i }))
+    await view.user.type(await stable(() => screen.getByLabelText(/reason/i)), 'Customer withdrew')
+    await view.user.click(screen.getByRole('button', { name: 'Cancel order' }))
+
+    await waitFor(() => view.fetch.requestFor('POST', `/sales/${ORDER_ID}/cancel`))
+    await expectInboxInvalidated(view)
+  })
+
+  it('drops it when the pricing is approved', async () => {
+    const view = renderWithCachedInbox([P.SALES_ORDER_APPROVE], {
+      [`POST /sales/${ORDER_ID}/approve`]: ok(orderRow({ approved_at: '2026-11-09T10:00:00Z' })),
+    })
+
+    await view.user.click(await screen.findByRole('button', { name: /approve pricing/i }))
+    await view.user.click(
+      await stable(() => screen.getByRole('button', { name: 'Approve pricing' })),
+    )
+
+    await waitFor(() => view.fetch.requestFor('POST', `/sales/${ORDER_ID}/approve`))
+    await expectInboxInvalidated(view)
+  })
+
+  it('drops it when a line save re-prices the draft', async () => {
+    const order = orderDetail({
+      requires_approval: true,
+      approved_at: null,
+      lines: [orderLine(), orderLine({ id: 'line-2', line_number: 2, quantity: '4.0000' })],
+    })
+    const view = renderDetail({
+      order,
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+      routes: { [`PATCH /sales/${ORDER_ID}`]: ok(order) },
+      cachePolicy: 'production',
+    })
+    for (const queryKey of inboxKeys) view.queryClient.setQueryData(queryKey, { data: [] })
+
+    await view.user.click(await screen.findByRole('button', { name: 'Remove line 1' }))
+    await view.user.click(await stable(() => screen.getByRole('button', { name: 'Remove line' })))
+
+    await waitFor(() => view.fetch.requestFor('PATCH', `/sales/${ORDER_ID}`))
+    await expectInboxInvalidated(view)
   })
 })
 
