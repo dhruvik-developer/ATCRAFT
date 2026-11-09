@@ -5,13 +5,18 @@
  * draft fields an explicit null clears on `PATCH /job-work/{id}`. That makes
  * the account shown no picker the case worth pinning: the form must send back
  * the centre the order already carries, never the null that would erase it.
+ *
+ * The expected return date follows the same "validate what changed" rule on an
+ * amendment: a slipped date is re-sent and accepted, a new past date is refused
+ * by the API and that refusal belongs under the field.
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { toast } from '@/lib/toast'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import type { JobWorkOrderDetail, JobWorkOrderRow } from './job-work-model'
 import { JobWorkOrderFormDialog } from './job-work-order-form-dialog'
@@ -198,5 +203,66 @@ describe('job-work order form', () => {
     expect(fetch.calls.some((call) => call.path.startsWith('/organization/cost-centres'))).toBe(
       false,
     )
+  })
+})
+
+describe('the expected return date on an amendment', () => {
+  /** A draft whose promised date has already gone by. */
+  const SLIPPED_DATE = '2020-01-10'
+  const slippedRoutes = {
+    ...routes,
+    'GET /job-work/jw-1': ok({ ...DETAIL, expected_return_date: SLIPPED_DATE }),
+  }
+  const slipped = { ...ROW, expected_return_date: SLIPPED_DATE }
+
+  it('re-sends a date that has since slipped, which the API still accepts', async () => {
+    const { user, fetch } = renderScreen(
+      <JobWorkOrderFormDialog open onOpenChange={() => {}} order={slipped} />,
+      { permissions: [P.JOB_WORK_CREATE, P.WAREHOUSE_VIEW], routes: slippedRoutes },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const save = within(dialog).getByRole('button', { name: /save draft/i })
+    await waitFor(() => expect(save).toBeEnabled())
+    await user.click(save)
+
+    const body = (await waitFor(() => fetch.requestFor('PATCH', '/job-work/jw-1'))) as Record<
+      string,
+      unknown
+    >
+    expect(body.expected_return_date).toBe(SLIPPED_DATE)
+  })
+
+  it('shows the refusal of a new date in the past under the field, not as a toast', async () => {
+    const refusal = 'The expected return date is in the past.'
+    const toastError = vi.spyOn(toast, 'error')
+    const { user } = renderScreen(
+      <JobWorkOrderFormDialog open onOpenChange={() => {}} order={slipped} />,
+      {
+        permissions: [P.JOB_WORK_CREATE, P.WAREHOUSE_VIEW],
+        // The application's own error nets, so a toast would really be raised.
+        errorNets: true,
+        routes: {
+          ...slippedRoutes,
+          'PATCH /job-work/jw-1': fail(422, 'VALIDATION_ERROR', refusal, {
+            expected_return_date: '2020-01-05',
+            fields: { expected_return_date: [refusal] },
+          }),
+        },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    // Drawn once the order's lines have landed and the form is seeded.
+    const date = await within(dialog).findByLabelText(/Expected return/)
+    await waitFor(() => expect(date).toHaveValue(SLIPPED_DATE))
+    await user.clear(date)
+    await user.type(date, '2020-01-05')
+    await user.click(within(dialog).getByRole('button', { name: /save draft/i }))
+
+    expect(await within(dialog).findByText(refusal)).toBeVisible()
+    expect(date).toHaveAttribute('aria-invalid', 'true')
+    expect(toastError).not.toHaveBeenCalled()
+    toastError.mockRestore()
   })
 })

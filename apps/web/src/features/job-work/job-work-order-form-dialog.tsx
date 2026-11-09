@@ -578,9 +578,12 @@ export function JobWorkOrderFormDialog({
 
         <form
           onSubmit={handleSubmit((formValues) => {
-            // `POST` refuses a return date in the past; `PATCH` does not
-            // re-check one, so a draft whose promised date has already slipped
-            // stays amendable rather than becoming uneditable.
+            // `POST` refuses a return date in the past, so a new order is held
+            // to it here. `PATCH` refuses one only when the date changes: the
+            // amendment always re-sends the stored date, and a promise that has
+            // since slipped is not a new one, so such a draft stays amendable.
+            // A changed date in the past comes back as a 422 naming
+            // `expected_return_date`, which `applyFieldErrors` puts under it.
             if (!amending && formValues.expected_return_date < today()) {
               setError('expected_return_date', {
                 type: 'manual',
