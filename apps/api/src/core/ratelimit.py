@@ -171,24 +171,34 @@ async def reset_rate_limit(identifier: str, scope: str = "default") -> None:
 #: full of people who mistyped once are not locked out for the shift.
 LOGIN_WINDOW_SECONDS = 300
 
+#: What one client address may spend on each unauthenticated auth step - sign
+#: in, the MFA code, a reset request - in one ``LOGIN_WINDOW_SECONDS`` window.
+#: An address is a *site*, not a person: everyone behind a plant's NAT shares
+#: it, so this is sized for a shift change and driven by configuration
+#: (RATE_LIMIT_AUTH_PER_MINUTE, scaled to the window). Each step keeps its own
+#: counter, so the MFA users of a shift do not spend the sign-in budget twice.
+#: The per-account budgets are fixed security constants; they are what stops
+#: one account being guessed, and they stay strict.
+PER_ADDRESS_AUTH_LIMIT = settings.rate_limit_auth_per_minute * (LOGIN_WINDOW_SECONDS // 60)
+
 
 class RateLimitPolicy:
     LOGIN_PER_EMAIL = ("login_email", 5, LOGIN_WINDOW_SECONDS)
-    # The per-address budget is the one deployments need to tune - hundreds of
-    # users behind one NAT share it - so it is the one driven by configuration
-    # (RATE_LIMIT_AUTH_PER_MINUTE, scaled to the window). The per-account
-    # budget above is a security constant and stays fixed.
-    LOGIN_PER_IP = (
-        "login_ip",
-        settings.rate_limit_auth_per_minute * (LOGIN_WINDOW_SECONDS // 60),
-        LOGIN_WINDOW_SECONDS,
-    )
+    LOGIN_PER_IP = ("login_ip", PER_ADDRESS_AUTH_LIMIT, LOGIN_WINDOW_SECONDS)
     PASSWORD_RESET = ("pwd_reset", 3, 3600)
+    # Keyed on the address the request came from. It was the per-account
+    # PASSWORD_RESET budget keyed on the address, so the fourth reset request in
+    # an hour from a plant's NAT refused everyone on the site.
+    PASSWORD_RESET_PER_IP = ("pwd_reset_ip", PER_ADDRESS_AUTH_LIMIT, LOGIN_WINDOW_SECONDS)
     PHONE_OTP_SEND = ("phone_otp_send", 3, 3600)
     PHONE_OTP_SEND_PER_IP = ("phone_otp_send_ip", 1000, 3600)
     PHONE_OTP_VERIFY = ("phone_otp_verify", 10, 300)
     REFRESH = ("refresh", 30, 300)
     MFA_VERIFY = ("mfa_verify", 5, 300)
+    # Same story as the reset: the per-account MFA_VERIFY budget keyed on the
+    # address turned the sixth code typed on a site in five minutes into a 429
+    # for every MFA user there.
+    MFA_VERIFY_PER_IP = ("mfa_verify_ip", PER_ADDRESS_AUTH_LIMIT, LOGIN_WINDOW_SECONDS)
     MRP_RUN = ("mrp_run", 5, 300)
     REPORT_EXPORT = ("report_export", 10, 600)
     FILE_UPLOAD = ("upload", 60, 300)
@@ -203,6 +213,7 @@ async def enforce_policy(policy: tuple[str, int, int], identifier: str) -> RateL
 
 __all__ = [
     "LOGIN_WINDOW_SECONDS",
+    "PER_ADDRESS_AUTH_LIMIT",
     "RateLimitPolicy",
     "RateLimitResult",
     "check_rate_limit",

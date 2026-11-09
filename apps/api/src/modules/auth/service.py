@@ -481,7 +481,7 @@ class AuthService:
         if not challenge.raw or "pwd" not in challenge.raw.get("amr", []):
             raise AuthenticationError(INVALID_MFA_CHALLENGE, code=ErrorCode.TOKEN_INVALID)
         await enforce_policy(RateLimitPolicy.MFA_VERIFY, str(challenge.subject))
-        await enforce_policy(RateLimitPolicy.MFA_VERIFY, f"ip:{ip_address or 'unknown'}")
+        await enforce_policy(RateLimitPolicy.MFA_VERIFY_PER_IP, ip_address or "unknown")
 
         result: LoginResponse | None = None
         failure: AuthenticationError | None = None
@@ -1072,7 +1072,7 @@ class AuthService:
         which sends the link to the address that requested it.
         """
         await enforce_policy(RateLimitPolicy.PASSWORD_RESET, payload.email)
-        await enforce_policy(RateLimitPolicy.PASSWORD_RESET, f"ip:{ip_address or 'unknown'}")
+        await enforce_policy(RateLimitPolicy.PASSWORD_RESET_PER_IP, ip_address or "unknown")
 
         candidates = await find_accounts_by_email(
             self.session, payload.email, company_code=payload.company_code

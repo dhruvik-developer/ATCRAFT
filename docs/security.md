@@ -429,6 +429,10 @@ which knows the authenticated user and can be both strict and fair.
 | `RATE_LIMIT_DEFAULT_PER_MINUTE`    | 300                       | authenticated user | A detail page fires ~5 queries and a dialog on it ~5 more, so a clerk moving through 15 documents a minute spends ~150.                |
 | `RATE_LIMIT_AUTH_PER_MINUTE`       | 20 (100 per 5-min window) | address            | A shift change is 50 people signing in inside one window, some twice. Caps account _spraying_ at 20 attempts a minute.                 |
 | `LOGIN_PER_EMAIL`                  | 5 per 5 min               | account            | Fixed security constant. This, with the lockout, is what stops credential stuffing — not the per-address budget.                       |
+| `MFA_VERIFY_PER_IP`                | 100 per 5 min, own count  | address            | The second step of the same sign-ins. It was the account budget below, keyed on the address, so a site's sixth code was refused.       |
+| `PASSWORD_RESET_PER_IP`            | 100 per 5 min, own count  | address            | It was the account budget below, keyed on the address, so a site's fourth reset request in an hour was refused for everyone there.     |
+| `MFA_VERIFY`                       | 5 per 5 min               | account            | Fixed security constant: codes guessed against one account, alongside the lockout.                                                     |
+| `PASSWORD_RESET`                   | 3 per hour                | account            | Fixed security constant: reset links mailed to one address.                                                                            |
 
 Two of these were previously set as though the address budget were the fairness
 control: `api_general` at 120 r/m refused a single operator working properly, and
@@ -440,6 +444,8 @@ When raising the per-address login budget, note what it does and does not
 defend. It bounds how many _different_ accounts one address may try. It is not
 what stops one account being guessed repeatedly; `LOGIN_PER_EMAIL` and the
 account lockout do that, and both are fixed constants that no deployment tunes.
+The same setting sizes the MFA step and the reset request per address, each on
+its own counter, and `MFA_VERIFY` and `PASSWORD_RESET` stay fixed per account.
 
 ---
 

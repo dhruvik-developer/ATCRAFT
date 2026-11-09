@@ -212,7 +212,9 @@ class Settings(BaseSettings):
     rate_limit_default_per_minute: Annotated[int, Field(ge=1)] = 300
     # Per-address budget for unauthenticated sign-in attempts, expressed per
     # minute and applied by ``RateLimitPolicy.LOGIN_PER_IP`` over its
-    # five-minute sliding window (20/min -> 100 per 5 min).
+    # five-minute sliding window (20/min -> 100 per 5 min). The MFA step and the
+    # reset request get the same budget, each on its own counter
+    # (``MFA_VERIFY_PER_IP``, ``PASSWORD_RESET_PER_IP``).
     #
     # This is the budget an entire plant shares, because everyone behind one NAT
     # arrives from one address, and a shift change is the worst case: fifty
