@@ -48,9 +48,15 @@ from src.modules.job_work.models import (
     JobWorkReceipt,
 )
 from src.modules.job_work.schemas import ReceiptLineIn, ReceiveRequest
+from src.modules.production.models import (
+    ProductionOrder,
+    ProductionOrderStatus,
+    ProductionSourceType,
+)
 from src.modules.products.models import Item
 from src.workers import celery_app as celery_module
 from tests import seed_support
+from tests.integration.test_assembly_completion import make_kit, raise_order
 from tests.integration.test_job_work_service import (
     PvdJob,
     issued_order,
@@ -263,6 +269,42 @@ async def reservations_for(session: AsyncSession, order_id: uuid.UUID) -> list[R
     return list((await session.execute(stmt)).all())
 
 
+async def production_order(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
+    """A draft production order of ``owner``'s company, built through the ORM."""
+    item = await seed_support.seed_item(
+        session, company_id=owner.company_id, code=f"FG-{uuid.uuid4().hex[:8].upper()}"
+    )
+    store = await seed_support.seed_warehouse(
+        session, company_id=owner.company_id, code=f"MW-{uuid.uuid4().hex[:8].upper()}"
+    )
+    order = ProductionOrder(
+        company_id=owner.company_id,
+        code=f"MO-{uuid.uuid4().hex[:8].upper()}",
+        item_id=item.id,
+        planned_quantity=Decimal("10"),
+        warehouse_id=store.id,
+        planned_start_date=today(),
+        planned_end_date=today() + timedelta(days=5),
+        priority=5,
+        status=ProductionOrderStatus.DRAFT,
+        source_type=ProductionSourceType.MANUAL,
+    )
+    session.add(order)
+    await session.flush()
+    return order.id
+
+
+async def assembly_order(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
+    """A draft assembly order of ``owner``'s company, raised through its service."""
+    kit = await make_kit(session, owner)
+    return (await raise_order(session, owner, kit)).id
+
+
+#: The builder of each source this module resolves by kind, and the other kind.
+SOURCE_BUILDERS = {"PRODUCTION_ORDER": production_order, "ASSEMBLY_ORDER": assembly_order}
+OTHER_KIND = {"PRODUCTION_ORDER": "ASSEMBLY_ORDER", "ASSEMBLY_ORDER": "PRODUCTION_ORDER"}
+
+
 async def count_orders(session: AsyncSession, company_id: uuid.UUID) -> int:
     stmt = (
         select(func.count()).select_from(JobWorkOrder).where(JobWorkOrder.company_id == company_id)
@@ -419,6 +461,45 @@ class TestCreateOrder:
         )
 
         assert (data["source_type"], data["source_id"]) == ("SALES_ORDER", str(ours))
+        assert await column(session, JobWorkOrder.source_id, uuid.UUID(data["id"])) == ours
+
+    @pytest.mark.parametrize("source_type", ["PRODUCTION_ORDER", "ASSEMBLY_ORDER"])
+    @pytest.mark.parametrize("whose", ["another-company", "no-such-order", "another-kind"])
+    async def test_a_production_or_assembly_order_this_company_does_not_hold_is_not_found(
+        self, api_client: AsyncClient, session, tenant, job, foreign, source_type, whose
+    ) -> None:
+        # Another kind is this company's own order of the other kind: an assembly
+        # order's id is not a production order, whichever company holds it.
+        if whose == "another-company":
+            named = await SOURCE_BUILDERS[source_type](session, foreign)
+        elif whose == "another-kind":
+            named = await SOURCE_BUILDERS[OTHER_KIND[source_type]](session, tenant)
+        else:
+            named = uuid.uuid4()
+
+        response = await api_client.post(
+            "/job-work", json=create_body(job, source_type=source_type, source_id=str(named))
+        )
+
+        error = refused(response, 404, "NOT_FOUND")
+        label = "Production order" if source_type == "PRODUCTION_ORDER" else "Assembly order"
+        assert error["message"] == f"{label} not found: {named}"
+        assert await count_orders(session, tenant.company_id) == 0
+
+    @pytest.mark.parametrize("source_type", ["PRODUCTION_ORDER", "ASSEMBLY_ORDER"])
+    async def test_this_companys_production_or_assembly_order_is_kept_as_the_source(
+        self, api_client: AsyncClient, session, tenant, job, source_type
+    ) -> None:
+        ours = await SOURCE_BUILDERS[source_type](session, tenant)
+
+        data = ok(
+            await api_client.post(
+                "/job-work", json=create_body(job, source_type=source_type, source_id=str(ours))
+            ),
+            201,
+        )
+
+        assert (data["source_type"], data["source_id"]) == (source_type, str(ours))
         assert await column(session, JobWorkOrder.source_id, uuid.UUID(data["id"])) == ours
 
     @pytest.mark.parametrize(

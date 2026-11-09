@@ -118,6 +118,7 @@ from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity, to_unit_price
+from src.modules.allocation.repository import ReallocationRequestRepository
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -243,6 +244,7 @@ from src.modules.inventory.serial_labels_pdf import render_serial_labels_pdf
 from src.modules.notifications.alerts import AlertCandidate
 from src.modules.organization.service import require_cost_centre, require_department
 from src.modules.products.models import Item
+from src.modules.sales.repository import SalesOrderLineRepository, SalesOrderRepository
 from src.modules.warehouses.models import Warehouse
 
 log = get_logger(__name__)
@@ -5171,6 +5173,7 @@ class StockTransferService:
             missing = [line.item_id for line in payload.lines if line.item_id not in items]
             if missing:
                 raise NotFoundError("Item", missing[0])
+            await self._assert_source(payload)
 
             await _adopt_named_serials(self.session, self.tenant, payload.lines, items)
             await self._assert_lines_are_traceable(payload, items)
@@ -5561,6 +5564,43 @@ class StockTransferService:
         return await self.get_transfer(transfer_id)
 
     # --- helpers ------------------------------------------------------------
+
+    async def _assert_source(self, payload: StockTransferCreate) -> None:
+        """The source document, and order lines, a new transfer names are this company's.
+
+        ``source_id`` and a line's ``source_line_id`` are bare ids with no foreign
+        key (:class:`TransferSourceType`), and a SALES_ORDER source is read back:
+        the order's fulfilment trace lists the transfer (``sales.fulfilment``).
+        Another company's order, or an id naming none, was stored with 201 and
+        listed nowhere. Each source is read through its owning module's
+        tenant-scoped repository, as production, job work and assembly read
+        theirs: a SALES_ORDER through the sales module, a REALLOCATION - the
+        approved request the transfer executes - through allocation's. An
+        MRP_SUGGESTION stays bare provenance, as on a production order.
+
+        A line's ``source_line_id`` must be a line of the SALES_ORDER source,
+        checked for the whole document in one query. Another company's line,
+        another order's, and one named on a transfer with no sales order are all
+        not a line of this source: the same 404 production answers for each.
+        docs/assumptions.md §REF-1.
+        """
+        source_id = payload.source_id
+        if source_id is not None:
+            if payload.source_type is TransferSourceType.SALES_ORDER:
+                await SalesOrderRepository(self.session, self.tenant).get_or_404(source_id)
+            elif payload.source_type is TransferSourceType.REALLOCATION:
+                await ReallocationRequestRepository(self.session, self.tenant).get_or_404(source_id)
+
+        named = [line.source_line_id for line in payload.lines if line.source_line_id is not None]
+        if not named:
+            return
+        held: set[uuid.UUID] = set()
+        if payload.source_type is TransferSourceType.SALES_ORDER:
+            rows = await SalesOrderLineRepository(self.session, self.tenant).get_many(named)
+            held = {row.id for row in rows if row.sales_order_id == source_id}
+        stray = next((line_id for line_id in named if line_id not in held), None)
+        if stray is not None:
+            raise NotFoundError("Sales order line", stray)
 
     async def _assert_lines_are_traceable(
         self, payload: StockTransferCreate, items: dict[uuid.UUID, ItemFacts]

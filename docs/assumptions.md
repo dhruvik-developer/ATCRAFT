@@ -1386,8 +1386,8 @@ then none - at approval, so editing the header moves every line that names no
 centre of its own. Production orders and job-work orders take only an explicit
 value: an order raised from an MRP suggestion or a sales order carries none,
 and a job-work order does not inherit the centre of the production order it may
-cover (a `PRODUCTION_ORDER` `source_id` is bare provenance this module never
-resolves).
+cover (a `PRODUCTION_ORDER` source is checked to be this company's production
+order, §REF-1, and never read for its centre).
 Material issues carry no centre; they reach one through `production_order_id`.
 A stock adjustment's movements reach its centre through the movement's
 `reference_type` / `reference_id`.
@@ -4621,11 +4621,24 @@ checked against the caller's company when a write names it, and only when it
   the packing hand-over packs for an assembly's customer and sales order
   (§E4-8), the shortfall planner adopts a production draft pegged to its order's
   line as its own and counts a released one as that line's supply, the order's
-  fulfilment trace lists all three, and their screens link to it. The other
-  source types stay bare provenance that no step resolves, as procurement keeps
-  the sources it does not own; job work's `REWORK` source is already held to
-  the receipt line it reworks. The source is set only at creation; an edit
-  cannot change it.
+  fulfilment trace lists all three, and their screens link to it.
+  `POST /job-work` also refuses a `PRODUCTION_ORDER` or `ASSEMBLY_ORDER` source
+  that is not that kind of order of this company (`404 Production order` /
+  `404 Assembly order`, for another company's order, an unknown id, or the
+  other kind's id): a production order's costing adds the charges of every
+  job-work order naming it. The other source types stay bare provenance that no
+  step resolves, as procurement keeps the sources it does not own; job work's
+  `REWORK` source is already held to the receipt line it reworks. The source is
+  set only at creation; an edit cannot change it.
+- **Stock transfer source.** `POST /inventory/transfers` refuses, with 404 and
+  no transfer, a `SALES_ORDER` source that is not a sales order of this company
+  and a `REALLOCATION` source that is not a reallocation request of this
+  company - the request the transfer executes. A line's `source_line_id` must
+  be a line of the `SALES_ORDER` source (`404 Sales order line` for another
+  company's line, another order's, or a line named on a transfer whose source
+  is not a sales order). The order's fulfilment trace lists the transfers that
+  name it. An `MRP_SUGGESTION` source stays bare provenance, as on a production
+  order. The source is set only at creation.
 - **MRP run.** `POST /mrp/runs` refuses, with 404 and no run row, a manual
   demand line whose item is not a live item of this company, and a run scope or
   demand line naming a warehouse that is not this company's or not in the
@@ -4649,7 +4662,10 @@ centre.
 `SalesOrderRepository`; `src/modules/production/service.py` -
 `_assert_source`, through `SalesOrderRepository` and
 `SalesOrderLineRepository`; `src/modules/job_work/service.py` -
-`_assert_sales_order_source`, through `SalesOrderRepository`;
+`_assert_source`, through `SalesOrderRepository`, `ProductionOrderRepository`
+and `AssemblyOrderRepository`; `src/modules/inventory/service.py` -
+`StockTransferService._assert_source`, through `SalesOrderRepository`,
+`SalesOrderLineRepository` and `ReallocationRequestRepository`;
 `src/modules/mrp/service.py` - `_assert_run_references`, through
 `WarehouseRepository.ids_in_scope`.
 

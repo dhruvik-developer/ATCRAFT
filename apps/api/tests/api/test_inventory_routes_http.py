@@ -40,6 +40,9 @@ from src.core.deps import Principal, TenantContext, get_current_principal
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.main import app
+from src.modules.allocation import service as allocation
+from src.modules.allocation.models import DemandType
+from src.modules.allocation.schemas import ReallocationRequestCreate
 from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
 from src.modules.inventory.models import (
     InternalIssue,
@@ -335,6 +338,43 @@ def transfer_body(
         "reason": "Feed the assembly store",
         "lines": [{"item_id": str(item), "quantity": "5", **line}],
     }
+
+
+async def reallocation_request(
+    session: AsyncSession, tenant: TenantContext, item_id: uuid.UUID, warehouse_id: uuid.UUID
+) -> uuid.UUID:
+    """A pending request to give five units promised to one job to a more urgent one.
+
+    The donor holds all twenty units ``stocked`` put at the position: the engine
+    nets free stock off first, and offers no donor while the shelf can cover it.
+    """
+    donor = await allocation.reserve(
+        session,
+        tenant,
+        item_id=item_id,
+        warehouse_id=warehouse_id,
+        quantity=Decimal("20"),
+        demand_type=DemandType.PRODUCTION_ORDER,
+        demand_id=uuid.uuid4(),
+        reason="Promised to a production order",
+    )
+    request = await allocation.AllocationService(session, tenant).create_reallocation_request(
+        ReallocationRequestCreate(
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            quantity=Decimal("5"),
+            to_demand_type=DemandType.PRODUCTION_ORDER,
+            to_demand_id=uuid.uuid4(),
+            priority=1,
+            reason="Line-down production order",
+            from_reservation_id=donor.id,
+        )
+    )
+    return request.id
+
+
+def sourced(body: dict[str, Any], source_type: str, source_id: uuid.UUID) -> dict[str, Any]:
+    return {**body, "source_type": source_type, "source_id": str(source_id)}
 
 
 async def draft_transfer(session: AsyncSession, tenant: TenantContext, unique_code) -> uuid.UUID:
@@ -1297,6 +1337,119 @@ class TestCreateTransfer:
         )
 
         assert error["details"] == {"line_number": 1, "batch_id": str(other_items_lot)}
+        assert (
+            await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
+            == 0
+        )
+
+    @pytest.mark.parametrize(
+        ("source_type", "whose"),
+        [
+            pytest.param("SALES_ORDER", "foreign", id="another-companys-sales-order"),
+            pytest.param("SALES_ORDER", "unknown", id="no-such-sales-order"),
+            pytest.param("REALLOCATION", "foreign", id="another-companys-reallocation"),
+            pytest.param("REALLOCATION", "unknown", id="no-such-reallocation"),
+        ],
+    )
+    async def test_a_source_this_company_does_not_hold_is_not_found(
+        self, api_client, session, tenant, foreign, unique_code, source_type, whose
+    ) -> None:
+        item_id, source_id = await stocked(session, tenant, unique_code)
+        destination_id = await warehouse(session, tenant, unique_code)
+        named = uuid.uuid4()
+        if whose == "foreign" and source_type == "SALES_ORDER":
+            named = (await seed_support.seed_sales_order(session, company_id=foreign.company_id)).id
+        elif whose == "foreign":
+            their_item, their_store = await stocked(session, foreign, unique_code)
+            named = await reallocation_request(session, foreign, their_item, their_store)
+
+        error = refused(
+            await api_client.post(
+                "/inventory/transfers",
+                json=sourced(
+                    transfer_body(source_id, destination_id, item=item_id), source_type, named
+                ),
+            ),
+            404,
+            "NOT_FOUND",
+        )
+
+        label = "Sales order" if source_type == "SALES_ORDER" else "Reallocation request"
+        assert error["message"] == f"{label} not found: {named}"
+        assert (
+            await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
+            == 0
+        )
+
+    async def test_this_companys_order_and_its_line_are_kept_as_the_source(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        item_id, source_id = await stocked(session, tenant, unique_code)
+        destination_id = await warehouse(session, tenant, unique_code)
+        order = await seed_support.seed_sales_order(
+            session, company_id=tenant.company_id, warehouse_id=destination_id
+        )
+        order_id = order.id
+        line_id = (
+            await seed_support.seed_sales_order_line(session, order=order, item_id=item_id)
+        ).id
+
+        data = ok(
+            await api_client.post(
+                "/inventory/transfers",
+                json=sourced(
+                    transfer_body(
+                        source_id, destination_id, item=item_id, source_line_id=str(line_id)
+                    ),
+                    "SALES_ORDER",
+                    order_id,
+                ),
+            ),
+            201,
+        )
+
+        assert (data["source_type"], data["source_id"]) == ("SALES_ORDER", str(order_id))
+        assert data["lines"][0]["source_line_id"] == str(line_id)
+        assert await column(session, StockTransfer.source_id, uuid.UUID(data["id"])) == order_id
+
+    async def test_this_companys_reallocation_request_is_kept_as_the_source(
+        self, api_client, session, tenant, unique_code
+    ) -> None:
+        item_id, source_id = await stocked(session, tenant, unique_code)
+        destination_id = await warehouse(session, tenant, unique_code)
+        request_id = await reallocation_request(session, tenant, item_id, source_id)
+
+        data = ok(
+            await api_client.post(
+                "/inventory/transfers",
+                json=sourced(
+                    transfer_body(source_id, destination_id, item=item_id),
+                    "REALLOCATION",
+                    request_id,
+                ),
+            ),
+            201,
+        )
+
+        assert (data["source_type"], data["source_id"]) == ("REALLOCATION", str(request_id))
+
+    @pytest.mark.parametrize("whose", ["another-order", "another-company", "no-order"])
+    async def test_a_line_that_is_not_a_line_of_the_source_order_is_not_found(
+        self, api_client, session, tenant, foreign, unique_code, whose
+    ) -> None:
+        item_id, source_id = await stocked(session, tenant, unique_code)
+        destination_id = await warehouse(session, tenant, unique_code)
+        order_id = (await seed_support.seed_sales_order(session, company_id=tenant.company_id)).id
+        holder = foreign if whose == "another-company" else tenant
+        elsewhere = await seed_support.seed_sales_order(session, company_id=holder.company_id)
+        line_id = (await seed_support.seed_sales_order_line(session, order=elsewhere)).id
+        body = transfer_body(source_id, destination_id, item=item_id, source_line_id=str(line_id))
+        if whose != "no-order":
+            body = sourced(body, "SALES_ORDER", order_id)
+
+        error = refused(await api_client.post("/inventory/transfers", json=body), 404, "NOT_FOUND")
+
+        assert error["message"] == f"Sales order line not found: {line_id}"
         assert (
             await rows_where(session, StockTransfer, StockTransfer.from_warehouse_id == source_id)
             == 0
