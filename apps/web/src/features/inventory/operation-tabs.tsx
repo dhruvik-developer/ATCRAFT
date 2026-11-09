@@ -43,6 +43,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -213,7 +214,10 @@ function OperationForm({ kind, onClose }: { kind: Kind; onClose: () => void }) {
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       onClose()
     },
-    onError: (failure) => setError(describeError(failure)),
+    // The lines and reason are plain inputs, so a 422 is named here in words -
+    // the field detail first - and the meta keeps the toast from repeating it.
+    onError: (failure) => setError(fieldErrorSummary(failure) || describeError(failure)),
+    meta: { suppressErrorToast: true },
   })
   const submit = () => {
     if (!warehouse || reason.trim().length < REASON_MIN_LENGTH) {
@@ -532,6 +536,8 @@ export default function OperationTab({ kind }: { kind: Kind }) {
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       setPending(null)
     },
+    // Whichever confirmation is open shows the refusal; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const closePending = (open: boolean) => {
     if (!open) {
@@ -730,7 +736,13 @@ export default function OperationTab({ kind }: { kind: Kind }) {
             {detail.data && <OperationLines document={detail.data} />}
           </div>
         )}
-        <FieldError message={action.error ? describeError(action.error) : undefined} />
+        <FieldError
+          message={
+            action.error
+              ? fieldErrorSummary(action.error) || describeError(action.error)
+              : undefined
+          }
+        />
       </ConfirmDialog>
       <ReasonDialog
         open={Boolean(pending) && needsReason}

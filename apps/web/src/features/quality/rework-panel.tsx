@@ -39,7 +39,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useWorkCentreOptions } from '@/features/production/work-order-model'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -376,6 +376,8 @@ function CycleCard({ record }: { record: QcReworkRecord }) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
     },
+    // Said on the cycle's own card; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -442,7 +444,12 @@ function CycleCard({ record }: { record: QcReworkRecord }) {
           </Button>
         )}
       </div>
-      <FieldError className="mt-2" message={start.error ? describeError(start.error) : undefined} />
+      <FieldError
+        className="mt-2"
+        message={
+          start.error ? fieldErrorSummary(start.error) || describeError(start.error) : undefined
+        }
+      />
       {completing && <CompleteCycleForm record={record} onDone={() => setCompleting(false)} />}
     </li>
   )

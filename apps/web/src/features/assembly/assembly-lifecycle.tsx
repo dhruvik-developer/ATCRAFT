@@ -30,6 +30,7 @@ import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatQuantity } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
@@ -82,11 +83,12 @@ export function AssemblyVerdictDialog({
       onOpenChange(false)
     },
     onError: (error) => {
-      // This form owns no field the server names, so the refusal is shown
-      // where the operator is looking: the toast layer stays silent on a
-      // mutation the form owns.
-      setComplaint(describeError(error))
+      // This form owns no field the server names, so the refusal - a 422's
+      // field detail included - is shown where the operator is looking, and
+      // the meta below keeps the global toast from saying it a second time.
+      setComplaint(fieldErrorSummary(error) || describeError(error))
     },
+    meta: { suppressErrorToast: true },
   })
 
   const submit = () => {
@@ -168,7 +170,10 @@ export function AssemblyVerdictDialog({
           {(complaint || record.error) && (
             <Alert variant="destructive">
               <AlertDescription>
-                {complaint ?? (record.error ? describeError(record.error) : undefined)}
+                {complaint ??
+                  (record.error
+                    ? fieldErrorSummary(record.error) || describeError(record.error)
+                    : undefined)}
               </AlertDescription>
             </Alert>
           )}

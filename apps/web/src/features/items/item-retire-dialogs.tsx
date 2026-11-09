@@ -137,6 +137,8 @@ export function RetireItemDialog({
       // that can only fail.
       navigate('/items', { replace: true })
     },
+    // The dialog says why it was refused; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
 
   // Reset on close, not on open: a refused attempt stays readable while the
@@ -242,6 +244,8 @@ export function RetireVariantDialog({
       toast.success(success.retired('Variant'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
+    // The dialog says why it was refused; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
 
   const { reset: clearResult } = retire

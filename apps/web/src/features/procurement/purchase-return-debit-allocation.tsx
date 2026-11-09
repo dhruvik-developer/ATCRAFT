@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
 import { Loader2, Plus, X } from 'lucide-react'
@@ -26,8 +25,10 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { formatMoney, toDecimal } from '@/lib/format'
-import { toast } from '@/lib/toast'
+import { fieldErrorSummary } from '@/lib/form-errors'
+import { describeError } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
+import { toast } from '@/lib/toast'
 
 import {
   purchaseReturnKeys,
@@ -151,6 +152,8 @@ export function PurchaseReturnDebitAllocation({
         `${formatMoney(result.allocated_amount, { currency: purchaseReturn.currency })} applied; ${formatMoney(result.unallocated_amount, { currency: purchaseReturn.currency })} remains unapplied.`,
       )
     },
+    // Said under the allocations with the field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -181,7 +184,9 @@ export function PurchaseReturnDebitAllocation({
       {save.error && (
         <Alert variant="destructive">
           <AlertTitle>Could not save this allocation</AlertTitle>
-          <AlertDescription>{describeError(save.error)}</AlertDescription>
+          <AlertDescription>
+            {fieldErrorSummary(save.error) || describeError(save.error)}
+          </AlertDescription>
         </Alert>
       )}
 

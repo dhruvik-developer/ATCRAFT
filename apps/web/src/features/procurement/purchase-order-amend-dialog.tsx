@@ -74,6 +74,8 @@ export default function PurchaseOrderAmendDialog({
           ),
         )
     },
+    // Said in the editor with the field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   function changeLine(index: number, change: Partial<AmendmentLineDraft>) {

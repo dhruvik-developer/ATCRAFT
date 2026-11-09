@@ -35,6 +35,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -46,8 +47,13 @@ import { SERIAL_BULK_MAX, splitSerialNumbers } from './serial-numbers'
 import { SerialNumbersField } from './serial-numbers-field'
 import type { StockBatchRow, StockSerialDetail, StockSerialRow } from './types'
 
+/**
+ * A refusal, said in the dialog that made the request: the inputs here are
+ * plain fields, so a 422's detail is given in words. Each mutation that shows
+ * it declares `suppressErrorToast`, so the shell does not say it again.
+ */
 function errorMessage(error: unknown): string | undefined {
-  return error ? describeError(error) : undefined
+  return error ? fieldErrorSummary(error) || describeError(error) : undefined
 }
 
 // ------------------------------------------------------------- register batch
@@ -82,6 +88,7 @@ export function RegisterBatchDialog({ onClose }: { onClose: () => void }) {
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       onClose()
     },
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -265,6 +272,7 @@ export function BatchActionDialog({
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       onClose()
     },
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -362,6 +370,7 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
       }
       onClose()
     },
+    meta: { suppressErrorToast: true },
   })
 
   return (

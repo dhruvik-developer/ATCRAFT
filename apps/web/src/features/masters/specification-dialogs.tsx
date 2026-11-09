@@ -157,6 +157,8 @@ export function SpecificationFormDialog({
       applyFieldErrors(error, setError, (field) =>
         field.startsWith('options') ? 'options_text' : field,
       ),
+    // Said above the footer with the field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const pending = mutation.isPending
   return (
@@ -341,6 +343,8 @@ export function SpecificationRetireDialog({
       toast.success(success.retired('Specification'))
       onOpenChange(false)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
   const { reset } = mutation
   useEffect(() => {

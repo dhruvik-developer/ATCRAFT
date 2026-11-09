@@ -15,12 +15,13 @@
  * for everything on hold.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
+import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
 import AssemblyPage from './assembly-page'
 import type {
@@ -359,6 +360,51 @@ describe('recording the QC verdict', () => {
       rejected_quantity: '0',
       reason: 'Gauges passed on all ten',
     })
+  })
+
+  it.each([
+    [
+      'a refusal',
+      fail(409, 'CONFLICT', 'The hold was released by someone else.'),
+      'The hold was released by someone else.',
+    ],
+    [
+      "a 422's field detail",
+      fail(422, 'VALIDATION_ERROR', 'Some fields need attention.', {
+        fields: { accepted_quantity: ['Accepted and rejected must cover the 10 on hold'] },
+      }),
+      'Accepted and rejected must cover the 10 on hold',
+    ],
+  ])('shows %s once, in the verdict dialog', async (_case, response, expected) => {
+    const order = assemblyOrder({
+      status: 'QC_PENDING',
+      requires_qc: true,
+      assembled_quantity: '10.0000',
+      qc_inspection_id: null,
+      qc_held_at: '2026-03-05T10:00:00Z',
+    })
+    const { user } = renderScreen(
+      <>
+        <AssemblyPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.ASSEMBLY_ORDER_VIEW, P.QC_DECIDE],
+        errorNets: true,
+        routes: { ...panelRoutes(order), 'POST /assembly/asm-1/qc-result': response },
+      },
+    )
+    await openPanel(user)
+    await user.click(screen.getByRole('button', { name: /qc verdict/i }))
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Reason' }),
+      'Gauges passed on all ten',
+    )
+    await user.click(screen.getByRole('button', { name: 'Record verdict' }))
+
+    expect(await screen.findByText(expected)).toBeVisible()
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
 
   it('shows no verdict without the decide right', async () => {

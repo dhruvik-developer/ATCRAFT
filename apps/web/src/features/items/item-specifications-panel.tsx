@@ -69,6 +69,8 @@ function SpecificationEditor({
       }
       setErrors(fields)
     },
+    // Said under the values with their field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const template = initial.template ?? []
   const missing = template.filter(

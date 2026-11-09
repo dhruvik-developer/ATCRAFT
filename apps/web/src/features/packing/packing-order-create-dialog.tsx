@@ -23,6 +23,7 @@ import type { ItemDetail } from '@/features/items/item-model'
 import type { SalesOrderDetail } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
 import { formatQuantity, toDecimal } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -149,6 +150,8 @@ export function PackingOrderCreateDialog({
       onCreated(created)
       onOpenChange(false)
     },
+    // Said in the dialog, field detail included; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   const updateLine = (key: number, patch: Partial<DraftLine>) => {
@@ -445,7 +448,9 @@ export function PackingOrderCreateDialog({
 
               {create.error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{describeError(create.error)}</AlertDescription>
+                  <AlertDescription>
+                    {fieldErrorSummary(create.error) || describeError(create.error)}
+                  </AlertDescription>
                 </Alert>
               )}
             </DialogBody>

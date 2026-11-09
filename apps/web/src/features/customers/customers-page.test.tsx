@@ -31,6 +31,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/overlays'
+import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
@@ -95,10 +96,16 @@ function detailOf(row: CustomerRow) {
  * Radix requires a provider above it. The app has one at the layout; without it
  * here the screen would throw for a reason the user never sees.
  */
-function renderCustomers(options: { permissions: string[]; routes: RouteTable; route?: string }) {
+function renderCustomers(options: {
+  permissions: string[]
+  routes: RouteTable
+  route?: string
+  errorNets?: boolean
+}) {
   return renderScreen(
     <TooltipProvider>
       <CustomersPage />
+      <Toaster />
     </TooltipProvider>,
     options,
   )
@@ -466,6 +473,7 @@ describe('retiring an account', () => {
     // the reason still is, so it can be corrected rather than retyped.
     const { user } = renderCustomers({
       permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_DELETE],
+      errorNets: true,
       routes: {
         'GET /customers': page([customer()]),
         [`DELETE /customers/${ACME_ID}`]: fail(
@@ -483,6 +491,35 @@ describe('retiring an account', () => {
     expect(await screen.findByText('The account was not retired')).toBeVisible()
     expect(screen.getByText('C-0001 still has 1,200.00 outstanding')).toBeVisible()
     expect(screen.getByLabelText(/reason/i)).toHaveValue('Duplicate account')
+    // Said once, where the reason is - not again in a toast that never dismisses.
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
+  })
+
+  it("names the refused reason in the dialog when the API's 422 keys it", async () => {
+    // `reason` travels in the query string, so its refusal is keyed `query.reason`:
+    // a key no control owns, which the dialog must still say in words.
+    const { user } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_DELETE],
+      errorNets: true,
+      routes: {
+        'GET /customers': page([customer()]),
+        [`DELETE /customers/${ACME_ID}`]: fail(
+          422,
+          'VALIDATION_ERROR',
+          'Some fields need attention.',
+          { fields: { 'query.reason': ['String should have at most 500 characters'] } },
+        ),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Retire C-0001' }))
+    await user.type(await stable(() => screen.getByLabelText(/reason/i)), 'Duplicate account')
+    await user.click(screen.getByRole('button', { name: 'Retire customer' }))
+
+    expect(await screen.findByText('String should have at most 500 characters')).toBeVisible()
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
   })
 })
 

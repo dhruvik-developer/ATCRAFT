@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/primitives'
 import { UPLOAD_ACCEPT, fileKindLabel, type DocumentRow } from '@/features/documents/document-model'
 import { api } from '@/lib/api-client'
 import { formatDateTime } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -203,6 +204,8 @@ export function InspectionAttachments({ inspectionId }: { inspectionId: string }
       toast.success(success.created('Attachment'), `${document.file_name} attached.`)
     },
     onSettled: () => setUploading(false),
+    // Said under the list, a refused file's own reason included.
+    meta: { suppressErrorToast: true },
   })
 
   if (!canView && !canUpload) return null
@@ -256,7 +259,9 @@ export function InspectionAttachments({ inspectionId }: { inspectionId: string }
       )}
       <FieldError
         className="mt-2"
-        message={upload.error ? describeError(upload.error) : undefined}
+        message={
+          upload.error ? fieldErrorSummary(upload.error) || describeError(upload.error) : undefined
+        }
       />
     </section>
   )

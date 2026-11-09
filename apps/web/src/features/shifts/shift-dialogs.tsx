@@ -14,6 +14,7 @@ import {
 import { Alert, AlertDescription, Input, Label } from '@/components/ui/primitives'
 import type { ShiftOption } from '@/hooks/use-shift-options'
 import { api } from '@/lib/api-client'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -55,6 +56,8 @@ export function ShiftFormDialog({
       toast.success(shift ? success.updated('Shift') : success.created('Shift'))
       onClose()
     },
+    // Said at the top of the form, field detail included; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   return (
     <Dialog
@@ -79,7 +82,9 @@ export function ShiftFormDialog({
           <DialogBody className="space-y-4">
             {save.error && (
               <Alert variant="destructive">
-                <AlertDescription>{describeError(save.error)}</AlertDescription>
+                <AlertDescription>
+                  {fieldErrorSummary(save.error) || describeError(save.error)}
+                </AlertDescription>
               </Alert>
             )}
             <div>

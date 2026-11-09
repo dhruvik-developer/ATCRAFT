@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * Packing orders.
  *
@@ -50,6 +49,8 @@ import {
   humanise,
   toDateInput,
 } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
+import { describeError } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -155,6 +156,9 @@ function CartonScanPanel({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logsAll })
     },
+    // An unknown label is the answer to a search, said under the scanner -
+    // not a toast that stays until it is dismissed.
+    meta: { suppressErrorToast: true },
   })
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -197,7 +201,7 @@ function CartonScanPanel({
       </form>
       {scan.error && (
         <div className="mt-2">
-          <FieldError message={describeError(scan.error)} />
+          <FieldError message={fieldErrorSummary(scan.error) || describeError(scan.error)} />
         </div>
       )}
       {scan.data && (

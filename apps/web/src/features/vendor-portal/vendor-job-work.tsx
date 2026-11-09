@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, Input, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { formatDate, formatDateTime, formatQuantity, humanise } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -126,6 +127,8 @@ export function VendorJobWorkDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['vendor-portal', 'job-work'] }),
       ])
     },
+    // Said under the update form, field detail included; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   if (query.isLoading) return <PanelLoader />
@@ -291,7 +294,7 @@ export function VendorJobWorkDetailPage() {
               {report.error && (
                 <FieldError
                   className="text-sm sm:col-span-2"
-                  message={describeError(report.error)}
+                  message={fieldErrorSummary(report.error) || describeError(report.error)}
                 />
               )}
               <Button type="submit" disabled={report.isPending} className="min-h-11 sm:col-span-2">

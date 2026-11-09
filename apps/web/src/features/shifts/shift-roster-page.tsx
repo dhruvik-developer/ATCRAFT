@@ -109,6 +109,8 @@ export default function ShiftRosterPage() {
       toast.success(success.updated('Roster'))
       setConfirm(null)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
   const columns: ColumnDef<ShiftOption>[] = [
     { accessorKey: 'code', header: 'Code' },

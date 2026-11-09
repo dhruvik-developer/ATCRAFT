@@ -1146,6 +1146,8 @@ export function QcTemplateFormDialog({
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // The alert at the top of the form says it (`formError`); a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   const message = formError(mutation.error)
@@ -1420,6 +1422,8 @@ export function QcTemplateVersionDialog({
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // The alert at the top of the form says it (`formError`); a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
 
   const message = formError(mutation.error)

@@ -300,6 +300,8 @@ export function ManufacturerRetireDialog({
       toast.success(success.retired('Manufacturer'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
 
   const { reset: clearResult } = retire

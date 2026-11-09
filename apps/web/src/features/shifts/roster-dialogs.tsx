@@ -17,6 +17,7 @@ import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { shiftLabel, useShiftOptions } from '@/hooks/use-shift-options'
 import { api, ApiError } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-client'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
@@ -83,6 +84,8 @@ export function RosterDialog({
       toast.success(success.saved('Assignments'))
       onClose()
     },
+    // Said at the top of the form with every conflict; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const conflicts =
     save.error instanceof ApiError && Array.isArray(save.error.details?.conflicts)
@@ -117,7 +120,7 @@ export function RosterDialog({
             {save.error && (
               <Alert variant="destructive">
                 <AlertDescription>
-                  {describeError(save.error)}
+                  {fieldErrorSummary(save.error) || describeError(save.error)}
                   {conflicts.length > 0 && (
                     <ul className="mt-2 list-disc pl-4">
                       {conflicts.map((row, index) => (

@@ -313,6 +313,8 @@ export function BrandRetireDialog({
       toast.success(success.retired('Brand'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
 
   const { reset: clearResult } = retire

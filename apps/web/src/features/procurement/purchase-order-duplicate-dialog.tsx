@@ -101,6 +101,8 @@ export function PurchaseOrderDuplicateDialog({
       toast.success(copy.title, copy.description)
       onResolved(outcome.result, request)
     },
+    // Said in the dialog with the field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const refresh = useMutation({
     mutationFn: onRefresh,
@@ -108,6 +110,8 @@ export function PurchaseOrderDuplicateDialog({
       resolve.reset()
       setReasonError(null)
     },
+    // Said in the dialog, beside the resolution it was refreshing.
+    meta: { suppressErrorToast: true },
   })
   const busy = resolve.isPending || refresh.isPending || isPreparing
   const proposedContexts: DuplicateResolutionScope[] = scopes ?? [

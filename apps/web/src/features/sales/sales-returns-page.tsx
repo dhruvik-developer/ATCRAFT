@@ -26,6 +26,7 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { useAuth } from '@/features/auth/auth-context'
 import { formatDate, formatQuantity } from '@/lib/format'
 import { api } from '@/lib/api-client'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
@@ -117,6 +118,8 @@ function NewSalesReturnDialog({
       setReasons({})
       setNotes('')
     },
+    // Said in the dialog, above its footer; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   const selected = detail.data
   const canSubmit = Boolean(dispatchId) && Object.values(quantities).some(Boolean)
@@ -222,7 +225,9 @@ function NewSalesReturnDialog({
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
-          {create.error && <FieldError message={describeError(create.error)} />}
+          {create.error && (
+            <FieldError message={fieldErrorSummary(create.error) || describeError(create.error)} />
+          )}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -281,6 +286,8 @@ export default function SalesReturnsPage() {
       setSelected(null)
       await queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
   const disposeUnits = useMutation({
     mutationFn: (payload: { accepted: string[]; damaged: string[]; scrapped: string[] }) =>
@@ -297,8 +304,12 @@ export default function SalesReturnsPage() {
       ])
     },
     onError: (error) => {
-      setUnitDispositionError(describeError(error, 'Serial dispositions could not be saved.'))
+      // The dispositions are plain choices, so a 422 is named here in words.
+      setUnitDispositionError(
+        fieldErrorSummary(error) || describeError(error, 'Serial dispositions could not be saved.'),
+      )
     },
+    meta: { suppressErrorToast: true },
   })
 
   const selectedReturn = list.data?.find((row) => row.id === selected) ?? null

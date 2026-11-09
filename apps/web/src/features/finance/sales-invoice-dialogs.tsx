@@ -25,6 +25,7 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, salesInvoiceMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -154,6 +155,8 @@ function CreditNoteDialog({
       toast.success(success.issued('Credit note'))
       onClose()
     },
+    // Said in the dialog, under the quantities; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
   useEffect(() => {
     if (!open) setQuantities({})
@@ -193,7 +196,9 @@ function CreditNoteDialog({
               </div>
             )
           })}
-          {issue.error && <FieldError message={describeError(issue.error)} />}
+          {issue.error && (
+            <FieldError message={fieldErrorSummary(issue.error) || describeError(issue.error)} />
+          )}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -252,6 +257,8 @@ export function RaiseSalesInvoiceDialog({
       toast.success(salesInvoiceMessages.issued, invoice.code)
       onClose()
     },
+    // Said in the dialog, above the preview; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
   return (
     <Dialog open={Boolean(dispatchId)} onOpenChange={(open) => !open && onClose()}>
@@ -288,7 +295,9 @@ export function RaiseSalesInvoiceDialog({
           {preview.error && (
             <LoadError error={preview.error} onRetry={() => void preview.refetch()} />
           )}
-          {issue.error && <FieldError message={describeError(issue.error)} />}
+          {issue.error && (
+            <FieldError message={fieldErrorSummary(issue.error) || describeError(issue.error)} />
+          )}
           {preview.data && (
             <>
               <DescriptionList
@@ -373,6 +382,8 @@ export function SalesInvoiceDetailDialog({
       setReasonTouched(false)
       toast.success(success.cancelled('Sales invoice'))
     },
+    // Said in the dialog, under the reason.
+    meta: { suppressErrorToast: true },
   })
   const invoice = detail.data
   return (
@@ -526,7 +537,9 @@ export function SalesInvoiceDetailDialog({
         {reasonTouched && reason.trim().length < REASON_MIN_LENGTH && (
           <FieldError message="A cancellation needs at least three characters." />
         )}
-        {cancel.error && <FieldError message={describeError(cancel.error)} />}
+        {cancel.error && (
+          <FieldError message={fieldErrorSummary(cancel.error) || describeError(cancel.error)} />
+        )}
       </ConfirmDialog>
       {invoice && (
         <CreditNoteDialog

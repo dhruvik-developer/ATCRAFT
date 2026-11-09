@@ -20,6 +20,7 @@ import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { MAX_ALLOCATIONS, paymentKeys, type PaymentDetail } from './payment-model'
@@ -112,6 +113,8 @@ export function SalesReceiptAllocationDialog({
       toast.success(success.saved('Receipt allocation'))
       onClose()
     },
+    // Said in the dialog, under the allocations; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
   const columns = useMemo<ColumnDef<SalesInvoiceSummary, unknown>[]>(
     () => [
@@ -257,7 +260,9 @@ export function SalesReceiptAllocationDialog({
               message={`Use positive amounts with up to two decimal places, within the receipt total and invoice balance. A receipt may settle at most ${MAX_ALLOCATIONS} invoices.`}
             />
           )}
-          {save.error && <FieldError message={describeError(save.error)} />}
+          {save.error && (
+            <FieldError message={fieldErrorSummary(save.error) || describeError(save.error)} />
+          )}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

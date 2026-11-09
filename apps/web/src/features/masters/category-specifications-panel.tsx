@@ -43,6 +43,8 @@ function TemplateEditor({ initial, canManage }: { initial: Templates; canManage:
       invalidateProductDescriptions(client)
       toast.success(success.saved('Category template'))
     },
+    // Said under the template with its field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   return (
     <form

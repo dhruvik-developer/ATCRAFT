@@ -16,6 +16,7 @@ import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { toDateInput } from '@/lib/format'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -45,6 +46,8 @@ export default function EditTransferDialog({
       void client.invalidateQueries({ queryKey: queryKeys.inventory.all })
       onClose()
     },
+    // Said in the dialog, above its footer; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
   return (
     <Dialog
@@ -88,7 +91,13 @@ export default function EditTransferDialog({
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
-          <FieldError message={update.error ? describeError(update.error) : undefined} />
+          <FieldError
+            message={
+              update.error
+                ? fieldErrorSummary(update.error) || describeError(update.error)
+                : undefined
+            }
+          />
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" disabled={update.isPending} onClick={onClose}>

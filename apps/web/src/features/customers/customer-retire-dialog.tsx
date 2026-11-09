@@ -32,6 +32,7 @@ import { ConfirmDialog, FieldError } from '@/components/shared'
 import { Alert, AlertDescription, AlertTitle, Input, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, messages, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -70,6 +71,8 @@ export function RetireCustomerDialog({
       toast.success(success.retired('Customer'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
+    // The refusal is shown inside the dialog, beside the reason that was typed.
+    meta: { suppressErrorToast: true },
   })
 
   // Reset on close rather than on open: the failure message and what was typed
@@ -115,7 +118,9 @@ export function RetireCustomerDialog({
             <AlertTitle>The account was not retired</AlertTitle>
             {/* The API's own sentence. It names the balance or the state that
                 stood in the way, which is more use than "request failed". */}
-            <AlertDescription>{describeError(retire.error)}</AlertDescription>
+            <AlertDescription>
+              {fieldErrorSummary(retire.error) || describeError(retire.error)}
+            </AlertDescription>
           </Alert>
         )}
 

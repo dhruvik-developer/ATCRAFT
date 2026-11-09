@@ -119,6 +119,8 @@ export function AccessoryFormDialog({
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // Said above the footer with the field detail; a toast would repeat it.
+    meta: { suppressErrorToast: true },
   })
   return (
     <Dialog
@@ -266,6 +268,8 @@ export function ItemAccessoriesPanel({ itemId }: { itemId: string }) {
       invalidateProductDescriptions(client)
       toast.success(success.removed('Accessory'))
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
   const columns = useMemo<ColumnDef<Accessory, unknown>[]>(
     () => [

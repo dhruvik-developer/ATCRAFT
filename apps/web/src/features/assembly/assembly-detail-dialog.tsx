@@ -693,6 +693,8 @@ function CompleteAssemblyDialog({
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
+    // The alert at the top of the form says it; a toast would say it twice.
+    meta: { suppressErrorToast: true },
   })
 
   return (
@@ -713,13 +715,15 @@ function CompleteAssemblyDialog({
           noValidate
         >
           <DialogBody className="space-y-4">
-            {/* The mutation cache stays silent on a 422 that carries field
-                errors, on the understanding that the form shows them. The API
-                reports a serial-count or issued-quantity failure against no
-                field this form renders, so it is surfaced here or nowhere. */}
+            {/* Every refusal of this form is said here and nowhere else (the
+                mutation opts out of the toast). The API reports a serial-count
+                or issued-quantity failure against no field this form renders,
+                and applyFieldErrors puts a model-level 422 on `root`. */}
             {complete.error && (
               <Alert variant="destructive">
-                <AlertDescription>{describeError(complete.error)}</AlertDescription>
+                <AlertDescription>
+                  {errors.root?.message || describeError(complete.error)}
+                </AlertDescription>
               </Alert>
             )}
 
@@ -1191,6 +1195,8 @@ export function AssemblyDetailDialog({
       }
       setReasonFor(null)
     },
+    // The reason dialog shows the refusal beside what was typed.
+    meta: { suppressErrorToast: true },
   })
 
   const openReason = (action: LifecycleAction) => {
