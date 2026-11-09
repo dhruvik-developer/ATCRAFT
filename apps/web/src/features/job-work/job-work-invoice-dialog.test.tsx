@@ -12,7 +12,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
 import type { BillableLine, JobWorkOrderRow } from './job-work-model'
 import { JobWorkInvoiceDialog } from './job-work-invoice-dialog'
@@ -181,4 +181,84 @@ describe('recording a job-work invoice', () => {
     const named = searches.find((url) => url.searchParams.get('search') === 'JW-0001')
     expect(named?.searchParams.get('vendor_id')).toBe('vn-1')
   }, 120_000)
+
+  it('names a draft whose submit failed, and only submits it on the retry', async () => {
+    // The create succeeded and the submit did not: a second create would reuse
+    // the vendor's invoice number and answer 409 while no open screen showed it.
+    let submits = 0
+    const { user, fetch } = renderBill({
+      'POST /finance/vendor-invoices/vi-1/submit': () => {
+        submits += 1
+        return submits === 1
+          ? fail(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable.')
+          : ok(SUBMITTED)
+      },
+    })
+
+    await pickTheOrderAndNumberTheBill(user)
+    await user.click(screen.getByRole('button', { name: /save and submit/i }))
+
+    expect(
+      await screen.findByText('Draft VINV/2026-27/00041 was saved but not submitted'),
+    ).toBeVisible()
+    // Held as it was saved: an edit here would not reach the draft.
+    expect(screen.getByRole('textbox', { name: /vendor invoice number/i })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Submit VINV/2026-27/00041' }))
+
+    await waitFor(() => expect(submits).toBe(2))
+    expect(
+      fetch.calls.filter(
+        (call) => call.method === 'POST' && call.path === '/finance/vendor-invoices',
+      ),
+    ).toHaveLength(1)
+  }, 120_000)
+
+  it('says what the API refused when the create is rejected field by field', async () => {
+    const refusal = 'Quantity exceeds the good output received.'
+    const { user, fetch } = renderBill({
+      'POST /finance/vendor-invoices': fail(
+        422,
+        'VALIDATION_ERROR',
+        'Some fields need attention.',
+        {
+          fields: { 'lines.0.quantity': [refusal] },
+        },
+      ),
+    })
+
+    await pickTheOrderAndNumberTheBill(user)
+    await user.click(screen.getByRole('button', { name: /save and submit/i }))
+
+    expect(await screen.findByText(refusal)).toBeVisible()
+    expect(screen.getByText('The bill was not saved')).toBeVisible()
+    expect(fetch.calls.some((call) => call.path.endsWith('/submit'))).toBe(false)
+  }, 120_000)
 })
+
+function renderBill(routes: RouteTable) {
+  return renderScreen(<JobWorkInvoiceDialog open onOpenChange={() => {}} />, {
+    permissions: [P.VENDOR_INVOICE_CREATE, P.VENDOR_VIEW, P.JOB_WORK_VIEW],
+    routes: {
+      'GET /vendors': page([VENDOR]),
+      'GET /vendors/vn-1': ok(VENDOR),
+      'GET /job-work': page([ORDER]),
+      'GET /job-work/jw-1/billable-lines': ok([BILLABLE]),
+      'POST /finance/vendor-invoices': ok(CREATED),
+      'POST /finance/vendor-invoices/vi-1/submit': ok(SUBMITTED),
+      ...routes,
+    },
+  })
+}
+
+async function pickTheOrderAndNumberTheBill(
+  user: ReturnType<typeof renderBill>['user'],
+): Promise<void> {
+  await screen.findByRole('dialog')
+  await user.click(await screen.findByRole('combobox', { name: 'Vendor' }))
+  await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
+  await user.click(await screen.findByRole('combobox', { name: 'Job-work order' }))
+  await user.click(await screen.findByRole('option', { name: /JW-0001/ }))
+  expect(await screen.findByDisplayValue('58.0000')).toBeVisible()
+  await user.type(screen.getByRole('textbox', { name: /vendor invoice number/i }), 'CHR/2026/0101')
+}

@@ -47,6 +47,7 @@ import {
 } from '@/features/finance/finance-types'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDate, formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -105,6 +106,13 @@ export function JobWorkInvoiceDialog({
   const [invoiceDate, setInvoiceDate] = useState(() => toDateInput(new Date()))
   const [isInterstate, setIsInterstate] = useState(false)
   const [touched, setTouched] = useState(false)
+  /**
+   * Set when the bill was created but submitting it then failed. The draft is a
+   * real document from that moment: another create would reuse the vendor's
+   * invoice number and answer 409, and nothing open would show the draft. So it
+   * is named, the form is held as it was saved, and Save only submits it.
+   */
+  const [strandedDraft, setStrandedDraft] = useState<{ id: string; code: string } | null>(null)
 
   const canPickVendor = can(P.VENDOR_VIEW)
 
@@ -120,6 +128,7 @@ export function JobWorkInvoiceDialog({
     setInvoiceDate(toDateInput(new Date()))
     setIsInterstate(false)
     setTouched(false)
+    setStrandedDraft(null)
   }, [open])
 
   const linesQuery = useBillableLines(orderId, open && Boolean(orderId))
@@ -230,8 +239,21 @@ export function JobWorkInvoiceDialog({
           is_interstate: isInterstate,
         })),
       }
-      const created = await api.post<VendorInvoiceDetail>('/finance/vendor-invoices', payload)
-      return api.post<VendorInvoiceDetail>(`/finance/vendor-invoices/${created.id}/submit`)
+      let draft = strandedDraft
+      if (!draft) {
+        const created = await api.post<VendorInvoiceDetail>('/finance/vendor-invoices', payload)
+        draft = { id: created.id, code: created.code }
+      }
+      try {
+        return await api.post<VendorInvoiceDetail>(`/finance/vendor-invoices/${draft.id}/submit`)
+      } catch (error) {
+        setStrandedDraft(draft)
+        // The draft exists whatever happens next: the screens that list bills
+        // must show it, not only the success path's refetch.
+        void queryClient.invalidateQueries({ queryKey: financeKeys.all })
+        void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
+        throw error
+      }
     },
     onSuccess: (submitted) => {
       void queryClient.invalidateQueries({ queryKey: financeKeys.all })
@@ -244,6 +266,10 @@ export function JobWorkInvoiceDialog({
       onSaved?.(submitted)
     },
   })
+
+  // A 422 naming fields is left to the screen by the global handler, and this
+  // form has no control per API field - so its sentences are said here.
+  const refusal = fieldErrorSummary(save.error)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -266,220 +292,246 @@ export function JobWorkInvoiceDialog({
             </Alert>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <VendorPicker
-              id="jw-invoice-vendor"
-              label="Vendor"
-              value={vendorId}
-              onChange={(next) => {
-                setVendorId(next)
-                setOrderId('')
-                setOrder(null)
-                setEdits({})
-              }}
-              placeholder="Search the vendor master"
-            />
+          {strandedDraft && (
+            <Alert variant="warning">
+              <AlertTitle>Draft {strandedDraft.code} was saved but not submitted</AlertTitle>
+              <AlertDescription>
+                Submitting again sends {strandedDraft.code} exactly as it was saved, so the form is
+                held as it was. To change or remove the bill instead, open {strandedDraft.code} on
+                the vendor invoices screen.
+              </AlertDescription>
+            </Alert>
+          )}
 
-            {/* Searched on the server: a fixed first page of the vendor's orders
+          {/* Held once a draft exists: what is on screen is what was saved. */}
+          <fieldset disabled={Boolean(strandedDraft)} className="min-w-0 space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <VendorPicker
+                id="jw-invoice-vendor"
+                label="Vendor"
+                value={vendorId}
+                onChange={(next) => {
+                  setVendorId(next)
+                  setOrderId('')
+                  setOrder(null)
+                  setEdits({})
+                }}
+                placeholder="Search the vendor master"
+              />
+
+              {/* Searched on the server: a fixed first page of the vendor's orders
                 made a bill for any older order impossible to record. */}
-            <JobWorkOrderPicker
-              id="jw-invoice-order"
-              label="Job-work order"
-              required
-              vendorId={vendorId}
-              value={orderId || null}
-              onChange={(next, row) => {
-                setOrderId(next ?? '')
-                setOrder(row)
-                setEdits({})
-              }}
-              placeholder={vendorId ? 'Search this vendor’s orders' : 'Choose a vendor first'}
-            />
-          </div>
+              <JobWorkOrderPicker
+                id="jw-invoice-order"
+                label="Job-work order"
+                required
+                vendorId={vendorId}
+                value={orderId || null}
+                onChange={(next, row) => {
+                  setOrderId(next ?? '')
+                  setOrder(row)
+                  setEdits({})
+                }}
+                placeholder={vendorId ? 'Search this vendor’s orders' : 'Choose a vendor first'}
+              />
+            </div>
 
-          {orderId !== '' && (
-            <>
-              {linesQuery.isLoading && <Skeleton className="h-32 w-full" />}
-              {linesQuery.error && !linesQuery.isLoading && (
-                <Alert variant="destructive">
-                  <AlertTitle>The billable lines could not be read</AlertTitle>
-                  <AlertDescription>{describeError(linesQuery.error)}</AlertDescription>
-                </Alert>
-              )}
-              {!linesQuery.isLoading && !linesQuery.error && billable.length === 0 && (
-                <Alert variant="info">
-                  <AlertTitle>Nothing left to bill</AlertTitle>
-                  <AlertDescription>
-                    {order
-                      ? `Every receipt line of ${order.code} is fully billed.`
-                      : 'Every receipt line of this order is fully billed.'}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {billable.length > 0 && (
-                <div className="space-y-3">
-                  {billable.map((line) => {
-                    const edit = edits[line.job_work_receipt_line_id]
-                    if (!edit) return null
-                    return (
-                      <div key={line.job_work_receipt_line_id} className="rounded-lg border p-3">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <Checkbox
-                            id={`jw-bill-${line.job_work_receipt_line_id}`}
-                            checked={edit.selected}
-                            onCheckedChange={(checked) =>
-                              setEdit(line.job_work_receipt_line_id, {
-                                selected: checked === true,
-                              })
-                            }
-                          />
-                          <Label
-                            htmlFor={`jw-bill-${line.job_work_receipt_line_id}`}
-                            className="font-medium"
-                          >
-                            Receipt {line.receipt_code} line {line.line_number}
-                          </Label>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDate(line.receipt_date)} · good output {line.output_quantity} ·
-                            billed {line.invoiced_amount} of {line.charges}
-                          </span>
-                          <span className="ml-auto text-sm font-medium tabular">
-                            Unbilled {formatMoney(line.unbilled_amount)}
-                          </span>
-                        </div>
-
-                        {edit.selected && (
-                          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                            <div>
-                              <Label htmlFor={`jw-qty-${line.job_work_receipt_line_id}`} required>
-                                Quantity
-                              </Label>
-                              <Input
-                                id={`jw-qty-${line.job_work_receipt_line_id}`}
-                                value={edit.quantity}
-                                onChange={(event) =>
-                                  setEdit(line.job_work_receipt_line_id, {
-                                    quantity: event.target.value,
-                                  })
-                                }
-                                inputMode="decimal"
-                                autoComplete="off"
-                                className="mt-1.5 text-right tabular"
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor={`jw-price-${line.job_work_receipt_line_id}`} required>
-                                Unit price
-                              </Label>
-                              <Input
-                                id={`jw-price-${line.job_work_receipt_line_id}`}
-                                value={edit.unit_price}
-                                onChange={(event) =>
-                                  setEdit(line.job_work_receipt_line_id, {
-                                    unit_price: event.target.value,
-                                  })
-                                }
-                                inputMode="decimal"
-                                autoComplete="off"
-                                className="mt-1.5 text-right tabular"
-                              />
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                Agreed {line.rate_per_unit}{' '}
-                                {humanise(line.rate_basis).toLowerCase()}
-                              </p>
-                            </div>
-                            <div>
-                              <Label htmlFor={`jw-tax-${line.job_work_receipt_line_id}`}>
-                                GST rate %
-                              </Label>
-                              <Input
-                                id={`jw-tax-${line.job_work_receipt_line_id}`}
-                                value={edit.tax_rate}
-                                onChange={(event) =>
-                                  setEdit(line.job_work_receipt_line_id, {
-                                    tax_rate: event.target.value,
-                                  })
-                                }
-                                inputMode="decimal"
-                                autoComplete="off"
-                                placeholder={line.tax_rate ?? '0'}
-                                className="mt-1.5 text-right tabular"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </>
-          )}
-
-          {chosen.length > 0 && (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="jw-invoice-number" required>
-                    Vendor invoice number
-                  </Label>
-                  <Input
-                    id="jw-invoice-number"
-                    value={invoiceNumber}
-                    onChange={(event) => setInvoiceNumber(event.target.value)}
-                    autoComplete="off"
-                    maxLength={64}
-                    className="mt-1.5"
-                    placeholder="As printed on the vendor's bill"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="jw-invoice-date" required>
-                    Vendor invoice date
-                  </Label>
-                  <Input
-                    id="jw-invoice-date"
-                    type="date"
-                    value={invoiceDate}
-                    onChange={(event) => setInvoiceDate(event.target.value)}
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2.5 text-sm">
-                <Checkbox
-                  checked={isInterstate}
-                  onCheckedChange={(checked) => setIsInterstate(checked === true)}
-                />
-                Inter-state supply - the whole tax is IGST
-              </label>
-
-              <div className="rounded-lg border p-3 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="tabular">{formatMoney(totals.subtotal.toFixed())}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tax</span>
-                  <span className="tabular">{formatMoney(totals.tax.toFixed())}</span>
-                </div>
-                <div className="mt-1 flex justify-between border-t pt-1 font-medium">
-                  <span>Total</span>
-                  <span className="tabular">{formatMoney(totals.total.toFixed())}</span>
-                </div>
-                {!pendingRecovery.isZero() && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Approval will also recover {formatMoney(pendingRecovery.toFixed())} of excess
-                    loss against this vendor.
-                  </p>
+            {orderId !== '' && (
+              <>
+                {linesQuery.isLoading && <Skeleton className="h-32 w-full" />}
+                {linesQuery.error && !linesQuery.isLoading && (
+                  <Alert variant="destructive">
+                    <AlertTitle>The billable lines could not be read</AlertTitle>
+                    <AlertDescription>{describeError(linesQuery.error)}</AlertDescription>
+                  </Alert>
                 )}
-              </div>
-            </>
+                {!linesQuery.isLoading && !linesQuery.error && billable.length === 0 && (
+                  <Alert variant="info">
+                    <AlertTitle>Nothing left to bill</AlertTitle>
+                    <AlertDescription>
+                      {order
+                        ? `Every receipt line of ${order.code} is fully billed.`
+                        : 'Every receipt line of this order is fully billed.'}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {billable.length > 0 && (
+                  <div className="space-y-3">
+                    {billable.map((line) => {
+                      const edit = edits[line.job_work_receipt_line_id]
+                      if (!edit) return null
+                      return (
+                        <div key={line.job_work_receipt_line_id} className="rounded-lg border p-3">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <Checkbox
+                              id={`jw-bill-${line.job_work_receipt_line_id}`}
+                              checked={edit.selected}
+                              onCheckedChange={(checked) =>
+                                setEdit(line.job_work_receipt_line_id, {
+                                  selected: checked === true,
+                                })
+                              }
+                            />
+                            <Label
+                              htmlFor={`jw-bill-${line.job_work_receipt_line_id}`}
+                              className="font-medium"
+                            >
+                              Receipt {line.receipt_code} line {line.line_number}
+                            </Label>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(line.receipt_date)} · good output {line.output_quantity} ·
+                              billed {line.invoiced_amount} of {line.charges}
+                            </span>
+                            <span className="ml-auto text-sm font-medium tabular">
+                              Unbilled {formatMoney(line.unbilled_amount)}
+                            </span>
+                          </div>
+
+                          {edit.selected && (
+                            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                              <div>
+                                <Label htmlFor={`jw-qty-${line.job_work_receipt_line_id}`} required>
+                                  Quantity
+                                </Label>
+                                <Input
+                                  id={`jw-qty-${line.job_work_receipt_line_id}`}
+                                  value={edit.quantity}
+                                  onChange={(event) =>
+                                    setEdit(line.job_work_receipt_line_id, {
+                                      quantity: event.target.value,
+                                    })
+                                  }
+                                  inputMode="decimal"
+                                  autoComplete="off"
+                                  className="mt-1.5 text-right tabular"
+                                />
+                              </div>
+                              <div>
+                                <Label
+                                  htmlFor={`jw-price-${line.job_work_receipt_line_id}`}
+                                  required
+                                >
+                                  Unit price
+                                </Label>
+                                <Input
+                                  id={`jw-price-${line.job_work_receipt_line_id}`}
+                                  value={edit.unit_price}
+                                  onChange={(event) =>
+                                    setEdit(line.job_work_receipt_line_id, {
+                                      unit_price: event.target.value,
+                                    })
+                                  }
+                                  inputMode="decimal"
+                                  autoComplete="off"
+                                  className="mt-1.5 text-right tabular"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Agreed {line.rate_per_unit}{' '}
+                                  {humanise(line.rate_basis).toLowerCase()}
+                                </p>
+                              </div>
+                              <div>
+                                <Label htmlFor={`jw-tax-${line.job_work_receipt_line_id}`}>
+                                  GST rate %
+                                </Label>
+                                <Input
+                                  id={`jw-tax-${line.job_work_receipt_line_id}`}
+                                  value={edit.tax_rate}
+                                  onChange={(event) =>
+                                    setEdit(line.job_work_receipt_line_id, {
+                                      tax_rate: event.target.value,
+                                    })
+                                  }
+                                  inputMode="decimal"
+                                  autoComplete="off"
+                                  placeholder={line.tax_rate ?? '0'}
+                                  className="mt-1.5 text-right tabular"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {chosen.length > 0 && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="jw-invoice-number" required>
+                      Vendor invoice number
+                    </Label>
+                    <Input
+                      id="jw-invoice-number"
+                      value={invoiceNumber}
+                      onChange={(event) => setInvoiceNumber(event.target.value)}
+                      autoComplete="off"
+                      maxLength={64}
+                      className="mt-1.5"
+                      placeholder="As printed on the vendor's bill"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="jw-invoice-date" required>
+                      Vendor invoice date
+                    </Label>
+                    <Input
+                      id="jw-invoice-date"
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(event) => setInvoiceDate(event.target.value)}
+                      className="mt-1.5"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2.5 text-sm">
+                  <Checkbox
+                    checked={isInterstate}
+                    onCheckedChange={(checked) => setIsInterstate(checked === true)}
+                  />
+                  Inter-state supply - the whole tax is IGST
+                </label>
+
+                <div className="rounded-lg border p-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="tabular">{formatMoney(totals.subtotal.toFixed())}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tax</span>
+                    <span className="tabular">{formatMoney(totals.tax.toFixed())}</span>
+                  </div>
+                  <div className="mt-1 flex justify-between border-t pt-1 font-medium">
+                    <span>Total</span>
+                    <span className="tabular">{formatMoney(totals.total.toFixed())}</span>
+                  </div>
+                  {!pendingRecovery.isZero() && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Approval will also recover {formatMoney(pendingRecovery.toFixed())} of excess
+                      loss against this vendor.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </fieldset>
+
+          {refusal && (
+            <Alert variant="destructive">
+              <AlertTitle>
+                {strandedDraft ? 'The bill was not submitted' : 'The bill was not saved'}
+              </AlertTitle>
+              <AlertDescription>{refusal}</AlertDescription>
+            </Alert>
           )}
 
-          {touched && problems.length > 0 && (
+          {touched && !strandedDraft && problems.length > 0 && (
             <Alert variant="destructive">
               <AlertTitle>Check the bill before saving</AlertTitle>
               <AlertDescription>
@@ -500,14 +552,18 @@ export function JobWorkInvoiceDialog({
           <Button
             disabled={save.isPending || !vendorId || orderId === ''}
             onClick={() => {
-              if (problems.length > 0) {
+              if (!strandedDraft && problems.length > 0) {
                 setTouched(true)
                 return
               }
               save.mutate()
             }}
           >
-            {save.isPending ? 'Saving…' : 'Save and submit'}
+            {save.isPending
+              ? 'Saving…'
+              : strandedDraft
+                ? `Submit ${strandedDraft.code}`
+                : 'Save and submit'}
           </Button>
         </DialogFooter>
       </DialogContent>
