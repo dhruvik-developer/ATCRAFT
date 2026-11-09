@@ -412,6 +412,23 @@ class OrderPartyRepository(BaseRepository[CustomerAddress]):
         )
         return (await self.session.execute(stmt.limit(1))).first() is not None
 
+    async def transporter_in_tenant(self, transporter_id: uuid.UUID) -> bool:
+        """Confirm the carrier an order names is a live transporter of this tenant.
+
+        ``sales_orders.transporter_id`` is a bare UUID with no foreign key (the
+        vendors module owns ``transporters``), so this read is the whole of the
+        reference check - the same one ``customers`` makes for a customer's
+        default carrier.
+        """
+        from src.modules.vendors.models import Transporter
+
+        stmt = select(Transporter.id).where(
+            Transporter.company_id == self.tenant.company_id,
+            Transporter.id == transporter_id,
+            Transporter.deleted_at.is_(None),
+        )
+        return (await self.session.execute(stmt.limit(1))).first() is not None
+
 
 class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
     model = SalesOrderLine

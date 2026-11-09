@@ -1646,6 +1646,24 @@ def _assert_seller_state_known(seller_state_code: str | None, priced: Sequence[P
     )
 
 
+async def _assert_transporter(
+    parties: OrderPartyRepository,
+    transporter_id: uuid.UUID | None,
+    *,
+    current: uuid.UUID | None = None,
+) -> None:
+    """The carrier an order names must be one of this company's transporters.
+
+    ASSUMPTION: only a change is checked. Re-saving the carrier the order
+    already names writes nothing new, and must keep working after that
+    transporter retires (docs/assumptions.md §REF-1).
+    """
+    if transporter_id is None or transporter_id == current:
+        return
+    if not await parties.transporter_in_tenant(transporter_id):
+        raise NotFoundError("Transporter", transporter_id)
+
+
 # -----------------------------------------------------------------------------
 # Projection
 # -----------------------------------------------------------------------------
@@ -1936,6 +1954,7 @@ async def create_order(
             raise NotFoundError("Warehouse", payload.warehouse_id)
         if payload.branch_id is not None and not await parties.branch_in_tenant(payload.branch_id):
             raise NotFoundError("Branch", payload.branch_id)
+        await _assert_transporter(parties, payload.transporter_id)
 
         billing_id, shipping_id, seller_state, place_of_supply = await _resolve_shipping_context(
             session,
@@ -2160,6 +2179,7 @@ async def _update_draft(
     """Re-price a draft in place. Lines are replaced wholesale when sent."""
     parties = OrderPartyRepository(session, tenant)
     customer = await get_customer_for_order(session, tenant, order.customer_id)
+    stored_transporter_id = order.transporter_id
 
     sent = payload.model_dump(exclude_unset=True, exclude={"lines"})
     for field, value in sent.items():
@@ -2175,6 +2195,7 @@ async def _update_draft(
         raise NotFoundError("Warehouse", payload.warehouse_id)
     if payload.branch_id is not None and not await parties.branch_in_tenant(payload.branch_id):
         raise NotFoundError("Branch", payload.branch_id)
+    await _assert_transporter(parties, payload.transporter_id, current=stored_transporter_id)
     if order.required_date < order.order_date:
         raise ValidationError("The required date cannot be before the order date.")
 
@@ -2300,6 +2321,11 @@ async def _update_confirmed(
             "and raise a replacement instead.",
             details={"order_id": str(order.id), "frozen_fields": frozen},
         )
+    await _assert_transporter(
+        OrderPartyRepository(session, tenant),
+        payload.transporter_id,
+        current=order.transporter_id,
+    )
 
     for field in (
         "customer_po_number",

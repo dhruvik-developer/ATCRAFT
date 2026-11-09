@@ -4569,3 +4569,28 @@ vendors and warehouses schemas; `src/modules/users/schemas.py` -
 **Impact if wrong.** Raise the constant. The columns are `TEXT` and `JSONB`, so
 no migration is needed; a form that states its own limit should be raised with
 it.
+
+## §REF-1. A tenant reference check holds what a write newly names
+
+**Assumed.** A bare id another module owns - a transporter, a document - is
+checked against the caller's company when a write names it, and only when it
+*changes*:
+
+- **Sales order carrier.** `POST /sales` and both edit paths of
+  `PATCH /sales/{id}` (draft and confirmed) refuse a `transporter_id` that is
+  not a live transporter of this company with 404. Re-sending the carrier the
+  order already names is not re-checked.
+
+**Why.** A UUID is globally unique, so neither a foreign key nor the absence of
+one says which company a row belongs to; the read through the tenant-scoped
+repository is the check. Re-checking an unchanged reference would make an
+unrelated edit fail because the referenced record retired after it was chosen -
+the rule `StockAdjustmentService.update` already follows for a draft's cost
+centre.
+
+**Where.** `src/modules/sales/service.py` - `_assert_transporter`;
+`src/modules/sales/repository.py` - `OrderPartyRepository.transporter_in_tenant`.
+
+**Impact if wrong.** Check every non-null value in the helper instead; the
+cost is that an edit of a record naming a retired transporter must also clear
+or replace it.

@@ -417,28 +417,61 @@ async def test_another_companys_customer_or_store_is_not_found(
     assert count == 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT: sales.create_order stores payload.transporter_id unchecked; customers "
-        "validates the same bare reference through transporter_exists"
-    ),
-)
-async def test_another_companys_transporter_is_not_accepted_on_an_order(
-    api_client, session, other_company, desk, unique_code
-):
-    theirs = Transporter(
-        company_id=other_company.id,
+async def carrier(session: AsyncSession, company_id: uuid.UUID, unique_code) -> uuid.UUID:
+    row = Transporter(
+        company_id=company_id,
         code=unique_code("T"),
         name="Elsewhere Roadways",
         transporter_type="COURIER",
     )
-    session.add(theirs)
+    session.add(row)
     await session.flush()
+    return row.id
+
+
+async def test_this_companys_transporter_is_kept_on_an_order(
+    api_client, session, company, desk, unique_code
+):
+    ours = await carrier(session, company.id, unique_code)
     body = order_body(desk)
-    body["transporter_id"] = str(theirs.id)
+    body["transporter_id"] = str(ours)
+
+    data = ok(await api_client.post("/sales", json=body), 201)
+
+    assert data["transporter_id"] == str(ours)
+
+
+async def test_another_companys_transporter_is_not_accepted_on_an_order(
+    api_client, session, other_company, desk, unique_code
+):
+    theirs = await carrier(session, other_company.id, unique_code)
+    body = order_body(desk)
+    body["transporter_id"] = str(theirs)
 
     refused(await api_client.post("/sales", json=body), 404, "NOT_FOUND")
+
+
+@pytest.mark.parametrize("stage", ["draft", "confirmed"])
+async def test_an_edit_may_change_the_carrier_only_to_one_of_this_companys(
+    api_client, session, tenant, principal, company, other_company, desk, unique_code, stage
+):
+    make = place if stage == "draft" else confirmed
+    order_id, _ = await make(session, tenant, principal, desk)
+    theirs = await carrier(session, other_company.id, unique_code)
+    ours = await carrier(session, company.id, unique_code)
+
+    refused(
+        await api_client.patch(f"/sales/{order_id}", json={"transporter_id": str(theirs)}),
+        404,
+        "NOT_FOUND",
+    )
+    assert (
+        await session.scalar(select(SalesOrder.transporter_id).where(SalesOrder.id == order_id))
+        is None
+    )
+
+    data = ok(await api_client.patch(f"/sales/{order_id}", json={"transporter_id": str(ours)}))
+    assert data["transporter_id"] == str(ours)
 
 
 # -----------------------------------------------------------------------------
