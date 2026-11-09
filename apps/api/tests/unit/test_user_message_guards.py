@@ -166,6 +166,54 @@ def spelled_reason_minimums(source: str, minimum: int) -> list[str]:
     return [f"line {line}" for line in sorted(lines)]
 
 
+_PAREN_PLURAL = re.compile(r"[A-Za-z]\(s\)")
+
+
+def spelled_plurals(source: str) -> list[str]:
+    """``line N`` for each literal that writes a noun as ``line(s)``.
+
+    The twin of the frontend's ``test_frontend_plurals.py``: a count reads with
+    its noun in the right number through ``messages.plural`` - '1 line',
+    '3 lines' - and a sentence whose verb would have to agree is worded so it
+    does. Docstrings and comments are not read; code such as ``str(s)`` is not
+    a literal.
+    """
+    lines = {line for line, text in _text_literals(source) if _PAREN_PLURAL.search(text)}
+    return [f"line {line}" for line in sorted(lines)]
+
+
+def test_no_message_writes_a_noun_as_one_or_many() -> None:
+    failures = [
+        f"  {path.relative_to(SRC).as_posix()}: {hit}"
+        for path in _python_files()
+        for hit in spelled_plurals(path.read_text(encoding="utf-8"))
+    ]
+
+    assert not failures, (
+        f"{len(failures)} sentence(s) write a noun as '(s)':\n"
+        + "\n".join(failures)
+        + "\n\nCount through src.core.messages.plural - plural(len(lines), 'line') - and "
+        "word a verb that must agree with the count so it does."
+    )
+
+
+def test_the_plural_rule_flags_the_shapes_that_shipped() -> None:
+    source = "\n".join(
+        [
+            "def summary(lines, units, order):",
+            '    """Released 3 reservation(s) - a docstring is not read."""',
+            "    a = f'Packed into {len(lines)} carton(s)'",
+            "    b = 'Demand exists for de-activated item(s), which were still planned: '",
+            "    c = f'{order.code}: {plural(len(lines), \"line\")}'",
+            "    d = sorted(str(s) for s in units)",
+            "    # one line(s) in a comment",
+            "    e = f'Carton(s) {listed} of the packing order'",
+        ]
+    )
+
+    assert spelled_plurals(source) == ["line 3", "line 4", "line 8"]
+
+
 def test_no_message_spells_out_the_reason_minimum() -> None:
     failures = [
         f"  {path.relative_to(SRC).as_posix()}: {hit}"

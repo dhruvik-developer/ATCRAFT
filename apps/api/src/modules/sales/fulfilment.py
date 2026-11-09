@@ -38,6 +38,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.deps import TenantContext
+from src.core.messages import plural
 from src.core.types import ZERO
 from src.modules.sales.models import SalesOrderLine
 from src.modules.sales.repository import (
@@ -632,7 +633,7 @@ async def _packing_documents(
             document_date=order.planned_date,
             expected_date=order.packed_date,
             secondary_quantity=order.total_cartons,
-            detail=f"{order.total_cartons} carton(s)",
+            detail=f"{plural(order.total_cartons, 'carton')}",
         )
         for order in (await session.execute(stmt)).scalars()
     ]

@@ -26,7 +26,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
-from src.core.messages import VENDOR_ACCOUNT_REQUIRED, needs_time_zone
+from src.core.messages import VENDOR_ACCOUNT_REQUIRED, needs_time_zone, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination, api_path
@@ -498,7 +498,7 @@ class VendorPortalService:
         """Flag the goods as packed and waiting for collection (a flag, not a status)."""
         if payload.ready_on is not None and payload.ready_on.tzinfo is None:
             raise ValidationError(needs_time_zone("ready time"))
-        packages = f" - {payload.packages} package(s)" if payload.packages else ""
+        packages = f" - {plural(payload.packages, 'package')}" if payload.packages else ""
         return await self._update(
             order_id,
             {

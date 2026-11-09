@@ -92,7 +92,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import draft_only_delete, inactive, other_customer_order
+from src.core.messages import draft_only_delete, inactive, listed, other_customer_order, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1555,7 +1555,9 @@ async def create_order(
             entity_type=AUDIT_PACKING_ORDER,
             entity_id=order.id,
             entity_code=order.code,
-            summary=(f"Created {order.code}: pack {len(lines)} line(s) for {customer.code}"),
+            summary=(
+                f"Created {order.code}: pack {plural(len(lines), 'line')} for {customer.code}"
+            ),
             user_id=tenant.user_id,
             new_values={
                 **snapshot(order, ORDER_AUDITED_FIELDS),
@@ -2814,7 +2816,8 @@ async def _assert_final_qc_accepted(
     if blocking:
         numbers = ", ".join(str(line.line_number) for line in blocking)
         raise BusinessRuleError(
-            f"{order.code} cannot {action}: line(s) {numbers} still owe an ACCEPTED "
+            f"{order.code} cannot {action}: {'line' if len(blocking) == 1 else 'lines'} "
+            f"{numbers} {'owes' if len(blocking) == 1 else 'still owe'} an ACCEPTED "
             "final inspection. Decide the inspections, or repack and re-inspect a "
             "rejected line.",
             details={
@@ -2867,8 +2870,9 @@ async def start_packing(
             ]
             if gated:
                 raise BusinessRuleError(
-                    f"{order.code} cannot start: line(s) {', '.join(map(str, gated))} "
-                    "require final QC and the quality module is not available.",
+                    f"{order.code} cannot start: {'line' if len(gated) == 1 else 'lines'} "
+                    f"{listed(gated)} {'requires' if len(gated) == 1 else 'require'} final "
+                    "QC and the quality module is not available.",
                     details={"order_id": str(order.id), "blocked_line_numbers": gated},
                 )
         await _transition(
@@ -2882,7 +2886,7 @@ async def start_packing(
                 entity_type=AUDIT_PACKING_ORDER,
                 entity_id=order.id,
                 entity_code=order.code,
-                summary=(f"{order.code} raised {raised} FINAL inspection(s) on start"),
+                summary=(f"{order.code} raised {plural(raised, 'FINAL inspection')} on start"),
                 user_id=tenant.user_id,
                 new_values={
                     "final_inspections_raised": raised,
@@ -2944,8 +2948,8 @@ async def complete_packing(
             )
         if totals.open_count:
             raise BusinessRuleError(
-                f"{order.code} still has {totals.open_count} unsealed carton(s); seal them "
-                "before completing.",
+                f"{order.code} still has {plural(totals.open_count, 'unsealed carton')}; seal "
+                f"{'it' if totals.open_count == 1 else 'them'} before completing.",
                 details={"order_id": str(order.id), "open_cartons": totals.open_count},
             )
 
@@ -2958,7 +2962,8 @@ async def complete_packing(
         ]
         if short and not payload.allow_short_pack:
             raise BusinessRuleError(
-                f"{order.code} is short-packed on line(s) {', '.join(map(str, short))}. "
+                f"{order.code} is short-packed on {'line' if len(short) == 1 else 'lines'} "
+                f"{listed(short)}. "
                 "Pack the balance, or complete with allow_short_pack.",
                 details={"order_id": str(order.id), "short_packed_lines": short},
             )
@@ -2988,7 +2993,7 @@ async def complete_packing(
             entity_id=order.id,
             entity_code=order.code,
             summary=(
-                f"{order.code} packed into {totals.carton_count} carton(s), "
+                f"{order.code} packed into {plural(totals.carton_count, 'carton')}, "
                 f"{totals.gross_weight} kg gross"
             ),
             user_id=tenant.user_id,
@@ -3316,7 +3321,7 @@ async def cancel_order(
         totals = await carton_repo.totals_for_order(order.id)
         if totals.sealed_count:
             raise BusinessRuleError(
-                f"{order.code} has {totals.sealed_count} sealed carton(s) and has already "
+                f"{order.code} has {plural(totals.sealed_count, 'sealed carton')} and has already "
                 "consumed packing material; it cannot be cancelled.",
                 details={"order_id": str(order.id), "sealed_cartons": totals.sealed_count},
             )

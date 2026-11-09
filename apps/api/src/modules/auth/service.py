@@ -69,6 +69,7 @@ from src.core.messages import (
     MFA_UNAVAILABLE,
     SESSION_ENDED_FOR_SECURITY,
     SESSION_REVOKED,
+    plural,
 )
 from src.core.pagination import PageParams
 from src.core.ratelimit import RateLimitPolicy, enforce_policy, reset_rate_limit
@@ -666,7 +667,8 @@ class AuthService:
                 entity_id=record.id,
                 entity_code=record.session_id[:64],
                 summary=(
-                    f"Refresh token replay detected; revoked {len(revoked)} session(s) in the chain"
+                    f"Refresh token replay detected; revoked {plural(len(revoked), 'session')} in "
+                    "the chain"
                 ),
                 user_id=record.user_id,
                 context={"detail": detail, "revoked_sessions": len(revoked)},

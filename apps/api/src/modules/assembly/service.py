@@ -111,6 +111,7 @@ from src.core.messages import (
     cancel_not_delete,
     held_for_inspection,
     output_not_serial_tracked,
+    plural,
     verdict_differs_from_inspection,
 )
 from src.core.pagination import PageParams, SortParams
@@ -457,8 +458,10 @@ def plan_consumption(
                 )
             if len(serials) != int(quantity):
                 raise BusinessRuleError(
-                    f"Component line {component.line_number} consumes {quantity} serialised "
-                    f"unit(s); {len(serials)} serial number(s) were named.",
+                    f"Component line {component.line_number} consumes "
+                    f"{plural(quantity, 'serialised unit')}, but "
+                    f"{plural(len(serials), 'serial number')} "
+                    f"{'was' if len(serials) == 1 else 'were'} named.",
                     code=ErrorCode.SERIAL_REQUIRED,
                     details={
                         "line_number": component.line_number,
@@ -1301,8 +1304,8 @@ async def _assert_kit_available(
         for component in sorted(short, key=lambda row: row.line_number)
     ]
     raise KitShortageError(
-        f"{order.code} cannot be released: {len(rows)} component(s) are short at its "
-        "component warehouse - "
+        f"{order.code} cannot be released: {plural(len(rows), 'component')} "
+        f"{'is' if len(rows) == 1 else 'are'} short at its component warehouse - "
         + ", ".join(f"{row['item_code']} short {row['short']}" for row in rows)
         + ". Nothing was reserved.",
         details={
@@ -1602,7 +1605,7 @@ async def create_order(
             entity_code=order.code,
             summary=(
                 f"Created {order.code}: assemble {order.planned_quantity} of "
-                f"{output_item.code} from {len(components)} component(s)"
+                f"{output_item.code} from {plural(len(components), 'component')}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -1971,7 +1974,7 @@ async def issue_components(
             summary=(
                 f"Topped up the components on the bench for {order.code}"
                 if top_up
-                else f"Issued {len(components)} component line(s) to {order.code}"
+                else f"Issued {plural(len(components), 'component line')} to {order.code}"
             ),
             user_id=tenant.user_id,
             old_values={"issued": before},
@@ -2339,7 +2342,7 @@ async def complete_assembly(
             entity_code=order.code,
             summary=(
                 f"{order.code} assembled {assembled} (rejected {rejected}) consuming "
-                f"{len(plan)} component line(s) in {len(posted)} movement(s)"
+                f"{plural(len(plan), 'component line')} in {plural(len(posted), 'movement')}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -2402,7 +2405,7 @@ def _assert_verdict_covers_hold(
     held = to_quantity(Decimal(order.assembled_quantity))
     if accepted + refused != held:
         raise BusinessRuleError(
-            f"{order.code} is holding {held} unit(s) for inspection; the verdict accounts "
+            f"{order.code} is holding {plural(held, 'unit')} for inspection; the verdict accounts "
             f"for {accepted + refused}.",
             details={
                 "held_quantity": str(held),
@@ -2832,7 +2835,8 @@ async def cancel_order(
                 entity_type=AUDIT_ASSEMBLY_ORDER,
                 entity_id=order.id,
                 entity_code=order.code,
-                summary=f"Released {released} component reservation(s) held by {order.code}",
+                summary=f"Released {plural(released, 'component reservation')} held by "
+                f"{order.code}",
                 user_id=tenant.user_id,
                 new_values={"released_reservations": released},
                 context={"reason": reason},

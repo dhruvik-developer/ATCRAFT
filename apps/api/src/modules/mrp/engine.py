@@ -162,6 +162,7 @@ from src.core.demand_provenance import (
 )
 from src.core.errors import BusinessRuleError, ErrorCode
 from src.core.logging import get_logger
+from src.core.messages import plural
 from src.core.types import ZERO, to_quantity
 from src.modules.bom.engine import apply_scrap, line_requirement
 from src.modules.bom.models import DEFAULT_MAX_EXPLOSION_DEPTH, BomType
@@ -1641,7 +1642,8 @@ def _late_supply_warning(entries: Sequence[tuple[str, SupplySplit]]) -> str:
         else ""
     )
     return (
-        f"{len(entries)} short item(s) have inbound supply inside the horizon "
+        f"{plural(len(entries), 'short item')} "
+        f"{'has' if len(entries) == 1 else 'have'} inbound supply inside the horizon "
         f"that arrives AFTER it is needed, so it was not netted and the shortage "
         f"stands: {listed}{suffix}"
     )
@@ -1651,9 +1653,11 @@ def _missing_item_warning(item_ids: Iterable[uuid.UUID]) -> str:
     ids = sorted(str(i) for i in item_ids)
     listed = ", ".join(ids[:10])
     suffix = f" (and {len(ids) - 10} more)" if len(ids) > 10 else ""
+    one = len(ids) == 1
     return (
-        f"{len(ids)} item(s) referenced by demand or a bill of materials are not "
-        f"readable in this company and were skipped: {listed}{suffix}"
+        f"{plural(len(ids), 'item')} referenced by demand or a bill of materials "
+        f"{'is' if one else 'are'} not readable in this company and {'was' if one else 'were'} "
+        f"skipped: {listed}{suffix}"
     )
 
 
@@ -1731,7 +1735,11 @@ async def plan(
     if inactive:
         codes = sorted(items[i].code for i in inactive)
         warnings.append(
-            "Demand exists for de-activated item(s), which were still planned: "
+            (
+                "Demand exists for a de-activated item, which was still planned: "
+                if len(codes) == 1
+                else "Demand exists for de-activated items, which were still planned: "
+            )
             + ", ".join(codes[:10])
             + (f" (and {len(codes) - 10} more)" if len(codes) > 10 else "")
         )

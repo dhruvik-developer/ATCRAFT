@@ -32,6 +32,7 @@ from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, DuplicateError, NotFoundError
+from src.core.messages import plural
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination, api_path
@@ -407,7 +408,7 @@ async def create_follow_up(
             tenant,
             follow,
             f"Follow-up opened with {currency} {amount} overdue across "
-            f"{overdue.overdue_invoice_count} invoice(s).",
+            f"{plural(overdue.overdue_invoice_count, 'invoice')}.",
         )
         await record_audit(
             session,
@@ -896,7 +897,7 @@ async def scan_overdue_receivables(
             tenant,
             follow,
             f"Follow-up opened automatically with {currency} {amount} overdue across "
-            f"{row.overdue_invoice_count} invoice(s).",
+            f"{plural(row.overdue_invoice_count, 'invoice')}.",
         )
         live_map[key] = follow
         result.opened += 1

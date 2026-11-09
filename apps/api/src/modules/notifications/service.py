@@ -58,7 +58,7 @@ from src.core.deps import TenantContext
 from src.core.errors import NotFoundError, ValidationError
 from src.core.ids import new_id
 from src.core.logging import get_logger, get_request_id
-from src.core.messages import RECORD_REFERENCE_PAIR, too_long
+from src.core.messages import RECORD_REFERENCE_PAIR, plural, too_long
 from src.core.pagination import CursorParams
 from src.core.responses import CursorPagination
 from src.core.state_machine import StateMachine, Transition
@@ -731,7 +731,7 @@ async def notify(
             entity_type=AUDIT_ENTITY,
             entity_id=written[0].id if len(written) == 1 else None,
             entity_code=str(notification_type),
-            summary=f"Notified {len(written)} recipient(s): {clean_title}",
+            summary=f"Notified {plural(len(written), 'recipient')}: {clean_title}",
             user_id=persisted_actor,
             new_values={
                 "notification_type": str(notification_type),
@@ -951,7 +951,7 @@ async def notify_many(
                 entity_type=AUDIT_ENTITY,
                 entity_id=written[0].id if len(written) == 1 else None,
                 entity_code=str(notification_type),
-                summary=f"Notified {len(written)} recipient(s): {prepared[0].title}",
+                summary=f"Notified {plural(len(written), 'recipient')}: {prepared[0].title}",
                 user_id=persisted_actor,
                 new_values={
                     "notification_type": notification_type.value,
@@ -1165,7 +1165,7 @@ class NotificationService:
                     company_id=self.tenant.company_id,
                     action=AuditAction.STATUS_CHANGE,
                     entity_type=AUDIT_ENTITY,
-                    summary=f"Marked {marked} notification(s) read",
+                    summary=f"Marked {plural(marked, 'notification')} read",
                     user_id=self.tenant.user_id,
                     old_values={"status": str(NotificationReadState.UNREAD)},
                     new_values={"status": str(NotificationReadState.READ)},
@@ -1214,7 +1214,7 @@ class NotificationService:
                 company_id=self.tenant.company_id,
                 action=AuditAction.UPDATE,
                 entity_type="notification_preference",
-                summary=f"Updated {len(rows)} notification preference(s)",
+                summary=f"Updated {plural(len(rows), 'notification preference')}",
                 user_id=self.tenant.user_id,
                 # Every channel flag the row carries, read off the request model
                 # rather than listed here: a hand-kept list is how the push

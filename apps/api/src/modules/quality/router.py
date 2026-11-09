@@ -25,7 +25,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.messages import success_message
+from src.core.messages import plural, success_message
 from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -450,7 +450,7 @@ async def record_results(
 ) -> ApiResponse[RecordResultsResponse]:
     outcome = await service.record_results(session, tenant, inspection_id, payload)
     return ApiResponse[RecordResultsResponse].ok(
-        outcome, success_message(f"{len(payload.measurements)} measurement(s)", "recorded")
+        outcome, success_message(f"{plural(len(payload.measurements), 'measurement')}", "recorded")
     )
 
 

@@ -68,7 +68,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.messages import NO_FIELDS_TO_UPDATE, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import (
     ALL_PERMISSIONS,
@@ -1827,7 +1827,7 @@ class RoleService:
                     entity_code=role.code,
                     summary=(
                         f"Permission set of role {role.code} changed; "
-                        f"{affected} account(s) affected"
+                        f"{plural(affected, 'account')} affected"
                     ),
                     user_id=self.tenant.user_id,
                     old_values={"permissions": before.get("permissions")},
@@ -1846,7 +1846,7 @@ class RoleService:
                     to_status=str(state_to),
                     user_id=self.tenant.user_id,
                     action=AuditAction.ROLE_CHANGE,
-                    reason=f"{affected} account(s) affected",
+                    reason=f"{plural(affected, 'account')} affected",
                 )
 
         return await self.get_role(role_id)
@@ -1871,7 +1871,7 @@ class RoleService:
             holders = await self.users.count_users_with_role(role.id)
             if BLOCK_ROLE_DELETION_WHILE_HELD and holders:
                 raise referenced_in_use(
-                    f"Role {role.code} is still held by {holders} account(s). "
+                    f"Role {role.code} is still held by {plural(holders, 'account')}. "
                     "Reassign them before deleting it.",
                     code=role.code,
                     user_count=holders,

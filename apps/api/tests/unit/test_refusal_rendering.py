@@ -36,6 +36,7 @@ from src.core.messages import (
     too_long,
 )
 from src.modules.bom.schemas import BomCreate
+from src.modules.mrp.engine import _missing_item_warning
 from src.modules.mrp.schemas import MrpRunFilters
 from src.modules.procurement.schemas import RequisitionConversionRequest, _validate_line_numbers
 from src.modules.production.schemas import MaterialIssueCreate, ProductionEntryCreate
@@ -326,3 +327,19 @@ def test_a_blank_vendor_note_is_refused_on_the_note() -> None:
         )
 
     assert _field_error(error) == (("note",), "Write a note, or leave it out.")
+
+
+# --- a count and its verb agree, for one and for many -----------------------------------
+
+
+def test_a_count_and_its_verb_agree_for_one_and_for_many() -> None:
+    one, two = uuid.uuid4(), uuid.uuid4()
+
+    assert _missing_item_warning([one]).startswith(
+        "1 item referenced by demand or a bill of materials is not readable in this company "
+        "and was skipped: "
+    )
+    assert _missing_item_warning([one, two]).startswith(
+        "2 items referenced by demand or a bill of materials are not readable in this company "
+        "and were skipped: "
+    )

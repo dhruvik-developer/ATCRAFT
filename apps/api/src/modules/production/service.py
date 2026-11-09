@@ -60,7 +60,7 @@ from src.core.errors import (
     SelfApprovalError,
     ValidationError,
 )
-from src.core.messages import draft_only_delete, output_not_serial_tracked
+from src.core.messages import draft_only_delete, output_not_serial_tracked, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -2023,8 +2023,8 @@ async def release_order(
             entity_id=order.id,
             entity_code=order.code,
             summary=(
-                f"Released {order.code}: {len(components)} component(s) snapshotted from "
-                f"{bom.code}, {len(work_orders)} operation(s), "
+                f"Released {order.code}: {plural(len(components), 'component')} snapshotted from "
+                f"{bom.code}, {plural(len(work_orders), 'operation')}, "
                 f"{len(shortages)} short"
             ),
             user_id=tenant.user_id,
@@ -2052,10 +2052,11 @@ async def release_order(
             fully_reserved=payload.reserve_material and not shortages,
             shortages=shortages,
             message=(
-                f"{order.code} released with {len(components)} component(s)."
+                f"{order.code} released with {plural(len(components), 'component')}."
                 if not shortages
                 else (
-                    f"{order.code} released, but {len(shortages)} component(s) could not be "
+                    f"{order.code} released, but {plural(len(shortages), 'component')} could not "
+                    "be "
                     "fully held. The job can still be issued against what was found."
                 )
             )
@@ -2310,7 +2311,8 @@ async def complete_order(
                 entry.qc_inspection_code or str(entry.qc_inspection_id) for entry in open_holds
             )
             raise BusinessRuleError(
-                f"{order.code} cannot complete: {len(open_holds)} booking(s) still hold "
+                f"{order.code} cannot complete: {plural(len(open_holds), 'booking')} still "
+                f"{'holds' if len(open_holds) == 1 else 'hold'} "
                 f"output for QC ({codes}). Decide the inspections first.",
                 details={
                     "order_code": order.code,
@@ -2492,7 +2494,8 @@ async def cancel_order(
         if outstanding:
             raise BusinessRuleError(
                 f"{order.code} is still holding material for "
-                f"{len(outstanding)} component(s). Return it to the store before cancelling.",
+                f"{plural(len(outstanding), 'component')}. Return it to the store before "
+                "cancelling.",
                 details={
                     "order_code": order.code,
                     "components": [
@@ -2755,7 +2758,7 @@ async def create_material_issue(
             entity_code=issue.code,
             summary=(
                 f"Drafted {issue_type.lower()} {issue.code} against {order.code}: "
-                f"{issue.line_count} line(s), {issue.total_quantity} units"
+                f"{plural(issue.line_count, 'line')}, {issue.total_quantity} units"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -3010,7 +3013,7 @@ async def post_material_issue(
             entity_code=issue.code,
             summary=(
                 f"Posted {issue.code} against {order.code}: {issue.total_quantity} units "
-                f"over {len(transactions)} movement(s), value {issue.total_cost}"
+                f"over {plural(len(transactions), 'movement')}, value {issue.total_cost}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -3034,8 +3037,9 @@ async def post_material_issue(
                 f"{issue.code} posted; {order.code} is now {order.status}."
                 if not outstanding
                 else (
-                    f"{issue.code} posted; {len(outstanding)} component(s) are still "
-                    "short of their requirement."
+                    f"{issue.code} posted; {plural(len(outstanding), 'component')} "
+                    f"{'is' if len(outstanding) == 1 else 'are'} still short of "
+                    f"{'its' if len(outstanding) == 1 else 'their'} requirement."
                 )
             ),
         )

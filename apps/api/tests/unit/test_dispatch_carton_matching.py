@@ -159,7 +159,9 @@ def test_packed_goods_no_line_carries_are_refused_by_carton_number() -> None:
     carried, left_behind, item, other = (uuid.uuid4() for _ in range(4))
     lines = [_line([], item)]
 
-    with pytest.raises(BusinessRuleError, match=r"Carton\(s\) 7 of the packing order") as excinfo:
+    with pytest.raises(
+        BusinessRuleError, match=r"^Carton 7 of the packing order holds goods"
+    ) as excinfo:
         assign_cartons(
             lines,
             [_content(carried, item, number=1), _content(left_behind, other, "4", number=7)],

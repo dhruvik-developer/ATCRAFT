@@ -67,6 +67,7 @@ from src.core.messages import (
     TAX_RATE_NEGATIVE,
     cancel_not_delete,
     no_price_configured,
+    plural,
 )
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -1136,7 +1137,7 @@ async def _notify_shortfall_plan(
     kinds = {document.kind for document in plan.documents}
     documents = len({(document.kind, document.id) for document in plan.documents})
     lines = sorted({document.line_number for document in plan.documents})
-    title = f"Stock shortage on {order.code}: {documents} draft document(s) raised"
+    title = f"Stock shortage on {order.code}: {plural(documents, 'draft document')} raised"
     raised = (
         "Production orders and purchase requisitions"
         if {"PRODUCTION_ORDER", "PURCHASE_REQUISITION"} <= kinds
@@ -2028,7 +2029,7 @@ async def create_order(
             entity_id=order.id,
             entity_code=order.code,
             summary=(
-                f"Created {order.code} for {customer.code}: {len(lines)} line(s), "
+                f"Created {order.code} for {customer.code}: {plural(len(lines), 'line')}, "
                 f"{order.currency} {order.total_amount}"
             ),
             user_id=tenant.user_id,
@@ -2860,7 +2861,7 @@ async def allocate_order(
                 entity_code=order.code,
                 summary=(
                     f"Allocated newly available stock to {order.code}: "
-                    f"{len(topped.reserved_now)} line(s) topped up, "
+                    f"{plural(len(topped.reserved_now), 'line')} topped up, "
                     f"{len(topped.shortfalls)} still short"
                 ),
                 user_id=tenant.user_id,
@@ -2986,7 +2987,7 @@ async def confirm_order(
             entity_code=order.code,
             summary=(
                 f"Reserved stock for {order.code}: {len(lines) - len(shortfalls)} of "
-                f"{len(lines)} line(s) fully covered"
+                f"{plural(len(lines), 'line')} fully covered"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -3142,7 +3143,7 @@ async def cancel_order(
                 entity_type=AUDIT_SALES_ORDER,
                 entity_id=order.id,
                 entity_code=order.code,
-                summary=f"Released {released} reservation(s) held by {order.code}",
+                summary=f"Released {plural(released, 'reservation')} held by {order.code}",
                 user_id=tenant.user_id,
                 new_values={"released_reservations": released},
                 context={"reason": reason},

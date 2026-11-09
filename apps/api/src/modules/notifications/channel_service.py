@@ -12,7 +12,7 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError
 from src.core.ids import new_id
-from src.core.messages import channel_not_enabled
+from src.core.messages import channel_not_enabled, plural
 from src.core.messaging import (
     MessagingOutcome,
     WhatsAppCloudProvider,
@@ -87,7 +87,7 @@ class NotificationChannelService:
                 company_id=self.tenant.company_id,
                 action=AuditAction.CONFIG_CHANGE,
                 entity_type="notification_channel_template",
-                summary=f"Updated {len(written)} messaging template(s)",
+                summary=f"Updated {plural(len(written), 'messaging template')}",
                 user_id=self.tenant.user_id,
                 new_values={
                     "templates": [

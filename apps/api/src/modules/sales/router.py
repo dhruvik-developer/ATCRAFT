@@ -19,7 +19,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
-from src.core.messages import success_message
+from src.core.messages import plural, success_message
 from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -294,7 +294,8 @@ async def confirm_order(
     message = (
         "Order confirmed and fully allocated"
         if result.allocation.fully_allocated
-        else f"Order confirmed; {result.allocation.total_shortfall_lines} line(s) short of stock"
+        else f"Order confirmed; {plural(result.allocation.total_shortfall_lines, 'line')} short of "
+        "stock"
     )
     return ApiResponse[ConfirmResult].ok(result, message)
 
@@ -359,7 +360,7 @@ async def allocate_order(
     message = (
         "Every line is now fully reserved"
         if view.fully_allocated
-        else f"{view.total_shortfall_lines} line(s) still short of stock"
+        else f"{plural(view.total_shortfall_lines, 'line')} still short of stock"
     )
     return ApiResponse[OrderAllocationRead].ok(view, message)
 
@@ -405,7 +406,10 @@ async def plan_shortfall(
     plan = await service.plan_shortfall(session, tenant, order_id, reason=payload.reason)
     documents = len({(document.kind, document.id) for document in plan.documents})
     if documents:
-        message = f"{documents} draft document(s) now cover the shortfall"
+        message = (
+            f"{plural(documents, 'draft document')} now "
+            f"{'covers' if documents == 1 else 'cover'} the shortfall"
+        )
     elif plan.needs_job_work:
         message = "The shortfall needs job work; no draft was raised"
     else:

@@ -33,7 +33,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
-from src.core.messages import DEALER_ACCOUNT_REQUIRED, PRICE_QUANTITY_NOT_POSITIVE
+from src.core.messages import DEALER_ACCOUNT_REQUIRED, PRICE_QUANTITY_NOT_POSITIVE, plural
 from src.core.pagination import OffsetPagination, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.types import to_money, to_quantity, to_unit_price
@@ -1201,7 +1201,7 @@ class DealerPortalService:
                 entity_code=order_code,
                 summary=(
                     f"Dealer checkout {order_code} for {customer.code}: "
-                    f"{len(created_lines)} line(s), {order.currency} {order.total_amount}"
+                    f"{plural(len(created_lines), 'line')}, {order.currency} {order.total_amount}"
                 ),
                 user_id=self.tenant.user_id,
                 new_values={
@@ -1244,7 +1244,7 @@ class DealerPortalService:
             notification_type=NotificationType.DEALER_ORDER_REQUEST_RECEIVED,
             title=f"New order request from {customer.name}",
             body=(
-                f"{order.code}: {line_count} line(s), "
+                f"{order.code}: {plural(line_count, 'line')}, "
                 f"{order.currency} {order.total_amount}. Raised through the dealer portal."
             ),
             severity=NotificationSeverity.INFO,

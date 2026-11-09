@@ -113,7 +113,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id, persisted_actor
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record, line_not_serial_tracked
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record, line_not_serial_tracked, plural
 from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
 from src.core.permissions import Permission
@@ -5003,8 +5003,8 @@ class TraceabilityService:
                 units = units_by_position.get((position.warehouse_id, position.location_id), [])
                 if Decimal(len(units)) != quantity:
                     raise BusinessRuleError(
-                        f"Lot {batch.batch_number} has {quantity} available unit(s) but "
-                        f"{len(units)} in-stock serial(s) in this position. Reconcile the "
+                        f"Lot {batch.batch_number} has {plural(quantity, 'available unit')} but "
+                        f"{plural(len(units), 'in-stock serial')} in this position. Reconcile the "
                         "serial register before quarantining the lot.",
                         details={
                             "batch_id": str(batch.id),
@@ -5109,7 +5109,9 @@ class TraceabilityService:
             from src.modules.notifications.service import notify_role
 
             body = (
-                f"{len(expired)} lot(s) expired and {len(warning)} expire within {warn_days} days."
+                f"{plural(len(expired), 'lot')} expired and {plural(len(warning), 'lot')} "
+                f"{'expires' if len(warning) == 1 else 'expire'} within "
+                f"{plural(warn_days, 'day')}."
             )
             await notify_role(
                 self.session,
@@ -8736,7 +8738,7 @@ async def below_reorder_alert_candidates(
         AlertCandidate(
             entity_type="company",
             entity_id=tenant.company_id,
-            title=f"{len(rows)} item/warehouse position(s) are below reorder level",
+            title=f"{plural(len(rows), 'item/warehouse position')} below reorder level",
             body=f"Below-reorder positions: {preview}. Review inventory.",
             action_url="/inventory",
         )

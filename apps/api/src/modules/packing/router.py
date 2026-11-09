@@ -21,7 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission, spend_budget
-from src.core.messages import success_message
+from src.core.messages import plural, success_message
 from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.ratelimit import RateLimitPolicy
@@ -421,7 +421,7 @@ async def complete_packing(
 ) -> ApiResponse[PackingCompletionResult]:
     result = await service.complete_packing(session, tenant, order_id, payload)
     return ApiResponse[PackingCompletionResult].ok(
-        result, message=f"Packed into {result.total_cartons} carton(s)"
+        result, message=f"Packed into {plural(result.total_cartons, 'carton')}"
     )
 
 

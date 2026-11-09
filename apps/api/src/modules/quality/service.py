@@ -107,6 +107,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
+from src.core.messages import plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1100,7 +1101,8 @@ async def create_template(
             entity_type=AUDIT_QC_TEMPLATE,
             entity_id=template.id,
             entity_code=template.code,
-            summary=f"QC template {template.code} v1 created with {len(parameters)} parameter(s)",
+            summary=f"QC template {template.code} v1 created with "
+            f"{plural(len(parameters), 'parameter')}",
             user_id=tenant.user_id,
             new_values=snapshot(template, _TEMPLATE_AUDITED_FIELDS),
         )
@@ -1143,8 +1145,9 @@ async def update_template(
             used = await inspection_repo.count_for_template(template.id)
             if used:
                 raise BusinessRuleError(
-                    f"{template.code} v{template.version} has been applied to {used} "
-                    "inspection(s), so its specification is frozen. Raise a new version instead - "
+                    f"{template.code} v{template.version} has been applied to "
+                    f"{plural(used, 'inspection')}, so its specification is frozen. Raise a new "
+                    "version instead - "
                     "editing it in place would restate whether those inspections passed.",
                     code=ErrorCode.REFERENCED_RECORD_IN_USE,
                     details={"template_id": str(template.id), "inspection_count": used},
@@ -1896,7 +1899,7 @@ async def record_results(
             entity_id=inspection.id,
             entity_code=inspection.code,
             summary=(
-                f"{len(recorded_names)} measurement(s) recorded on {inspection.code}"
+                f"{plural(len(recorded_names), 'measurement')} recorded on {inspection.code}"
                 + (f"; out of specification: {', '.join(failed_names)}" if failed_names else "")
             ),
             user_id=tenant.user_id,

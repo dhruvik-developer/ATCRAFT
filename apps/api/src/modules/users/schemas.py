@@ -119,7 +119,7 @@ def _validate_permissions(values: list[str] | None) -> list[str]:
     unknown = sorted(value for value in cleaned if value not in _VALID_PERMISSIONS)
     if unknown:
         raise ValueError(
-            "Unknown permission(s): "
+            ("Unknown permission: " if len(unknown) == 1 else "Unknown permissions: ")
             + ", ".join(unknown)
             + ". Permissions come from the compiled registry - see "
             "GET /roles/permissions/catalogue."

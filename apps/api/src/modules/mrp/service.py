@@ -67,6 +67,7 @@ from src.core.errors import (
     is_refusal,
 )
 from src.core.logging import get_logger
+from src.core.messages import plural
 from src.core.observability import mrp_run_duration, mrp_runs_total
 from src.core.pagination import PageParams, SortParams
 from src.core.ratelimit import RateLimitPolicy, enforce_policy
@@ -720,7 +721,7 @@ async def start_run(
                 entity_code=run.code,
                 summary=(
                     f"MRP run {run.code} created over {payload.horizon_days} days "
-                    f"with {len(demand)} demand line(s), mode {mode}"
+                    f"with {plural(len(demand), 'demand line')}, mode {mode}"
                 ),
                 user_id=tenant.user_id,
                 new_values={
@@ -1120,8 +1121,8 @@ async def execute_run(
             entity_id=run.id,
             entity_code=run.code,
             summary=(
-                f"MRP run {run.code} produced {len(plan.suggestions)} suggestion(s) "
-                f"from {len(plan.requirements)} requirement(s)"
+                f"MRP run {run.code} produced {plural(len(plan.suggestions), 'suggestion')} "
+                f"from {plural(len(plan.requirements), 'requirement')}"
             ),
             user_id=tenant.user_id,
             new_values=dict(plan.stats),
@@ -1143,8 +1144,8 @@ async def execute_run(
             notification_type=NotificationType.MRP_RUN_COMPLETED,
             title=("MRP run completed with shortages" if shortage_count else "MRP run completed"),
             body=(
-                f"Run {run.code} produced {shortage_count} shortage(s) and "
-                f"{len(plan.suggestions)} suggestion(s)."
+                f"Run {run.code} produced {plural(shortage_count, 'shortage')} and "
+                f"{plural(len(plan.suggestions), 'suggestion')}."
             ),
             severity=(
                 NotificationSeverity.WARNING if shortage_count else NotificationSeverity.SUCCESS
@@ -1713,7 +1714,7 @@ async def bulk_ignore_suggestions(
         ignored_ids=ignored,
         skipped_ids=skipped,
         message=(
-            f"{len(ignored)} suggestion(s) ignored"
+            f"{plural(len(ignored), 'suggestion')} ignored"
             + (f", {len(skipped)} skipped because they were no longer open" if skipped else "")
         ),
     )

@@ -28,7 +28,7 @@ from src.core.deps import (
     require_permission,
     spend_budget,
 )
-from src.core.messages import success_message
+from src.core.messages import plural, success_message
 from src.core.pagination import (
     CursorParams,
     PageParams,
@@ -431,13 +431,13 @@ async def convert_batch_to_orders(
 
 def _preview_message(result: RequisitionConversionResult) -> str:
     if result.unresolved_lines:
-        return f"{len(result.unresolved_lines)} line(s) cannot be converted yet"
-    return f"{len(result.groups)} purchase order(s) would be raised"
+        return f"{plural(len(result.unresolved_lines), 'line')} cannot be converted yet"
+    return f"{plural(len(result.groups), 'purchase order')} would be raised"
 
 
 def _converted_message(result: RequisitionConversionResult) -> str:
     codes = ", ".join(group.purchase_order_code or "" for group in result.groups)
-    return f"Raised {len(result.groups)} purchase order(s): {codes}"
+    return f"Raised {plural(len(result.groups), 'purchase order')}: {codes}"
 
 
 @router.post(
@@ -801,7 +801,8 @@ async def send_rfq(
         session, tenant, rfq_id, RfqStatus.SENT, reason=payload.reason or "Sent to vendors"
     )
     return ApiResponse[RfqSummary].ok(
-        RfqSummary.model_validate(rfq), f"RFQ {rfq.code} sent to {len(rfq.vendor_ids)} vendor(s)"
+        RfqSummary.model_validate(rfq),
+        f"RFQ {rfq.code} sent to {plural(len(rfq.vendor_ids), 'vendor')}",
     )
 
 
@@ -997,7 +998,7 @@ async def check_duplicates(
 ) -> ApiResponse[DuplicateCheckResult]:
     result = await service.check_duplicates(session, tenant, payload)
     message = (
-        f"{len(result.candidates)} possible duplicate(s) found"
+        f"{plural(len(result.candidates), 'possible duplicate')} found"
         if result.candidates
         else "No duplicate purchase orders found"
     )
@@ -1060,7 +1061,7 @@ async def create_purchase_order(
     )
     message = f"Purchase order {order.code} raised"
     if candidates:
-        message += f" over {len(candidates)} acknowledged duplicate(s)"
+        message += f" over {plural(len(candidates), 'acknowledged duplicate')}"
     return ApiResponse[PurchaseOrderDetail].ok(
         await service.describe_purchase_order(session, tenant, order, lines), message
     )
@@ -1733,7 +1734,7 @@ async def post_goods_receipt(
         f"purchase order is now {result.purchase_order_status}"
     )
     if result.qc_hold_line_count:
-        message += f" ({result.qc_hold_line_count} line(s) held for inspection)"
+        message += f" ({plural(result.qc_hold_line_count, 'line')} held for inspection)"
     return ApiResponse[GoodsReceiptPostResult].ok(result, message)
 
 

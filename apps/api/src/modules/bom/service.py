@@ -39,7 +39,7 @@ from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, SelfApprovalError
 from src.core.logging import get_logger
-from src.core.messages import date_before, obsolete_not_delete
+from src.core.messages import date_before, obsolete_not_delete, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -647,7 +647,7 @@ async def create_bom(
             entity_id=bom.id,
             entity_code=bom.code,
             summary=f"Created {bom.code} v{bom.version} for {parent.code} "
-            f"with {len(lines)} component line(s)",
+            f"with {plural(len(lines), 'component line')}",
             user_id=tenant.user_id,
             new_values={
                 **snapshot(bom, BOM_AUDITED_FIELDS),

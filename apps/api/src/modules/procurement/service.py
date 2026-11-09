@@ -64,7 +64,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import line_not_serial_tracked
+from src.core.messages import line_not_serial_tracked, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission, resolve_role_grants
 from src.core.responses import OffsetPagination
@@ -1217,7 +1217,7 @@ async def _create_requisition(
             entity_type=AUDIT_REQUISITION,
             entity_id=requisition.id,
             entity_code=requisition.code,
-            summary=f"Raised {requisition.code} with {len(lines)} line(s)",
+            summary=f"Raised {requisition.code} with {plural(len(lines), 'line')}",
             user_id=tenant.user_id,
             new_values={
                 **snapshot(requisition, REQUISITION_AUDITED_FIELDS),
@@ -1609,7 +1609,8 @@ async def create_rfq(
             entity_id=rfq.id,
             entity_code=rfq.code,
             summary=(
-                f"Raised {rfq.code} for {len(lines)} line(s) to {len(rfq.vendor_ids)} vendor(s)"
+                f"Raised {rfq.code} for {plural(len(lines), 'line')} to "
+                f"{plural(len(rfq.vendor_ids), 'vendor')}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -2421,7 +2422,8 @@ def _overall_recommendation(
         else ""
     )
     return winner_id, (
-        f"{name} is recommended: best value on {won} of {total_lines} quoted line(s){detail}."
+        f"{name} is recommended: best value on {won} of "
+        f"{plural(total_lines, 'quoted line')}{detail}."
     )
 
 
@@ -2853,7 +2855,7 @@ async def _create_purchase_order(
         entity_id=order.id,
         entity_code=order.code,
         summary=(
-            f"Raised {order.code} on {vendor.code}: {len(lines)} line(s), "
+            f"Raised {order.code} on {vendor.code}: {plural(len(lines), 'line')}, "
             f"{order.currency} {order.total_amount}"
         ),
         user_id=tenant.user_id,
@@ -4491,7 +4493,8 @@ async def convert_requisitions_to_orders(
         plan = await _plan_conversion(session, tenant, requisition_ids, payload, lock=True)
         if plan.unresolved:
             raise BusinessRuleError(
-                f"{len(plan.unresolved)} line(s) cannot be converted, so no purchase order was "
+                f"{plural(len(plan.unresolved), 'line')} cannot be converted, so no purchase order "
+                "was "
                 "raised: "
                 + "; ".join(
                     f"{u.requisition_code} line {u.line_number} ({u.item_code}): "
@@ -5083,7 +5086,7 @@ async def post_goods_receipt(
             entity_code=receipt.code,
             summary=(
                 f"Posted {receipt.code}: {receipt.total_accepted_quantity} accepted into "
-                f"{len(movements)} stock position(s), "
+                f"{plural(len(movements), 'stock position')}, "
                 f"{receipt.total_rejected_quantity} rejected"
             ),
             user_id=tenant.user_id,
@@ -5329,7 +5332,7 @@ async def _advance_order_after_receipt(
         entity_code=order.code,
         target=follow_on,
         reason=(
-            f"{awaiting_qc} line(s) awaiting incoming inspection"
+            f"{plural(awaiting_qc, 'line')} awaiting incoming inspection"
             if awaiting_qc
             else "All receipts posted and no inspection required"
         ),
@@ -5733,7 +5736,7 @@ async def create_purchase_return(
             entity_code=purchase_return.code,
             summary=(
                 f"Raised {purchase_return.code} against {receipt.code}: "
-                f"{len(lines)} line(s), {purchase_return.total_amount}"
+                f"{plural(len(lines), 'line')}, {purchase_return.total_amount}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -5915,7 +5918,8 @@ async def post_purchase_return(
             entity_id=purchase_return.id,
             entity_code=purchase_return.code,
             summary=(
-                f"Posted {purchase_return.code}: {len(movements)} line(s) returned to the vendor"
+                f"Posted {purchase_return.code}: {plural(len(movements), 'line')} returned to the "
+                "vendor"
             ),
             user_id=tenant.user_id,
             new_values={

@@ -55,7 +55,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.messages import NO_FIELDS_TO_UPDATE, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -550,7 +550,7 @@ def compute_vendor_rating(window: VendorPerformanceWindow) -> VendorRatingResult
             has_quality_evidence=window.inspected_quantity > 0,
             is_sufficient=False,
             reason=(
-                f"Only {window.receipt_count} measurable receipt(s) in the last "
+                f"Only {plural(window.receipt_count, 'measurable receipt')} in the last "
                 f"{window.window_days} days; at least {MIN_RECEIPTS_FOR_RATING} are needed."
             ),
         )

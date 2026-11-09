@@ -229,7 +229,8 @@ async def run(
     unknown = sorted(set(only) - set(STAGE_ORDER))
     if unknown:
         raise DemoDataError(
-            f"unknown stage(s): {', '.join(unknown)}. Known: {', '.join(STAGE_ORDER)}"
+            f"Unknown {'stage' if len(unknown) == 1 else 'stages'}: {', '.join(unknown)}. "
+            f"Known: {', '.join(STAGE_ORDER)}."
         )
 
     async with session_scope() as session:

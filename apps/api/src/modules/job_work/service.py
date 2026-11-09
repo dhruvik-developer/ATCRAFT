@@ -169,6 +169,7 @@ from src.core.messages import (
     held_for_inspection,
     inactive,
     inactive_record,
+    plural,
     verdict_differs_from_inspection,
 )
 from src.core.pagination import PageParams, SortParams
@@ -595,7 +596,7 @@ def plan_line_receipt(
     # interpret and no tolerance to allow: more than was sent cannot come back.
     if returned > outstanding:
         raise BusinessRuleError(
-            f"Line {line_number} would return {returned} unprocessed unit(s) but only "
+            f"Line {line_number} would return {plural(returned, 'unprocessed unit')} but only "
             f"{outstanding} is at the vendor.",
             code=ErrorCode.INSUFFICIENT_STOCK,
             details={
@@ -621,7 +622,8 @@ def plan_line_receipt(
     cumulative = to_quantity(to_quantity(output_received_so_far) + delivered_output)
     if cumulative > ceiling:
         raise BusinessRuleError(
-            f"Line {line_number} expected {to_quantity(expected_output_quantity)} unit(s) of "
+            f"Line {line_number} expected {plural(to_quantity(expected_output_quantity), 'unit')} "
+            "of "
             f"output; {cumulative} would be received, beyond the "
             f"{EXCESS_RECEIPT_TOLERANCE_PERCENT}% tolerance. Check the quantity or raise a "
             "second order for the excess.",
@@ -639,8 +641,9 @@ def plan_line_receipt(
     )
     if to_quantity(raw_for_output + returned) > input_ceiling:
         raise BusinessRuleError(
-            f"Line {line_number} would account for {to_quantity(raw_for_output + returned)} "
-            f"unit(s) of input but only {outstanding} is at the vendor.",
+            f"Line {line_number} would account for "
+            f"{plural(to_quantity(raw_for_output + returned), 'unit')} of input but only "
+            f"{outstanding} is at the vendor.",
             code=ErrorCode.INSUFFICIENT_STOCK,
             details={
                 "line_number": line_number,
@@ -1963,7 +1966,8 @@ async def create_order(
             entity_id=order.id,
             entity_code=order.code,
             summary=(
-                f"Created {order.code}: {order.process_type} at {vendor_code}, {len(lines)} line(s)"
+                f"Created {order.code}: {order.process_type} at {vendor_code}, "
+                f"{plural(len(lines), 'line')}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -2315,7 +2319,7 @@ async def cancel_order(
                 entity_type=AUDIT_JOB_WORK_ORDER,
                 entity_id=order.id,
                 entity_code=order.code,
-                summary=f"Released {released} reservation(s) held by {order.code}",
+                summary=f"Released {plural(released, 'reservation')} held by {order.code}",
                 user_id=tenant.user_id,
                 new_values={"released_reservations": released},
                 context={"reason": reason},
@@ -2641,7 +2645,7 @@ async def issue_order(
             title=f"Job work pending: {order.code}",
             body=(
                 f"{challan.code} was issued on {challan.challan_date.isoformat()} with "
-                f"{challan.total_quantity} unit(s) due back by "
+                f"{plural(challan.total_quantity, 'unit')} due back by "
                 f"{challan.expected_return_date.isoformat()}."
             ),
             permission=Permission.VENDOR_PORTAL_JOB_WORK.value,
@@ -2660,7 +2664,8 @@ async def issue_order(
             entity_id=challan.id,
             entity_code=challan.code,
             summary=(
-                f"{challan.code} issued {challan.total_quantity} unit(s) of company material "
+                f"{challan.code} issued {plural(challan.total_quantity, 'unit')} of company "
+                "material "
                 f"to the vendor under {order.code}; stock moved to the JOB_WORK state and "
                 "remains company owned"
             ),
@@ -2906,7 +2911,7 @@ def assert_excess_loss_authorised(
         return excess_total
     if not approve_excess_loss:
         raise ApprovalRequiredError(
-            f"{order_code} would write off {excess_total} unit(s) more than the agreed "
+            f"{order_code} would write off {plural(excess_total, 'unit')} more than the agreed "
             "process loss allows. Approve the excess to post the receipt; the value will "
             "be debited to the vendor.",
             details={
@@ -3340,7 +3345,7 @@ async def receive(
                 f"{receipt.code} received {receipt.total_output_quantity} good, "
                 f"{receipt.total_rejected_quantity} rejected, "
                 f"{receipt.total_scrap_quantity} scrapped against {order.code} "
-                f"in {len(posted)} movement(s)"
+                f"in {plural(len(posted), 'movement')}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -3486,7 +3491,8 @@ def assert_verdict_covers_hold(
         return
     label = item_code if item_code is not None else str(item_id)
     raise BusinessRuleError(
-        f"{held_quantity} unit(s) of {label} are on hold; the verdict accounts "
+        f"{plural(held_quantity, 'unit')} of {label} "
+        f"{'is' if held_quantity == 1 else 'are'} on hold; the verdict accounts "
         f"for {accepted + rejected}.",
         details={
             "item_id": str(item_id),

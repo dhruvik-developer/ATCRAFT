@@ -12,6 +12,7 @@ from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.ids import new_id
+from src.core.messages import plural
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit
 from src.modules.notifications.alerts import (
@@ -139,7 +140,7 @@ class NotificationAlertService:
                     company_id=self.tenant.company_id,
                     action=AuditAction.CONFIG_CHANGE,
                     entity_type="notification_alert_rule",
-                    summary=f"Updated {len(changed) + len(reset)} smart alert rule(s)",
+                    summary=f"Updated {plural(len(changed) + len(reset), 'smart alert rule')}",
                     user_id=self.tenant.user_id,
                     old_values=before_values,
                     new_values=after_values,
@@ -282,8 +283,15 @@ async def reconcile_alert(
                 drafts.append(
                     NotificationDraft(
                         user_ids=tuple(internal_ids),
-                        title=f"{len(due_candidates)} {rule.name.lower()} alert(s)",
-                        body=f"{len(due_candidates)} records currently meet the alert condition.",
+                        title=(
+                            f"{len(due_candidates)} {rule.name.lower()} "
+                            f"{'alert' if len(due_candidates) == 1 else 'alerts'}"
+                        ),
+                        body=(
+                            f"{plural(len(due_candidates), 'record')} currently "
+                            f"{'meets' if len(due_candidates) == 1 else 'meet'} "
+                            "the alert condition."
+                        ),
                         severity=NotificationSeverity(rule.severity),
                         action_url=due_candidates[0].action_url,
                         group_key=f"alert:{rule.key.value}",
@@ -331,7 +339,8 @@ async def reconcile_alert(
                 company_id=tenant.company_id,
                 action=AuditAction.STATUS_CHANGE,
                 entity_type="notification_alert_rule",
-                summary=f"Smart alert {rule.key.value} notified {len(due_candidates)} episode(s)",
+                summary=f"Smart alert {rule.key.value} notified "
+                f"{plural(len(due_candidates), 'episode')}",
                 user_id=None,
                 actor_label="notifications.scan_smart_alerts",
                 context={

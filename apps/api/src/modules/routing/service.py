@@ -59,6 +59,7 @@ from src.core.messages import (
     date_before,
     inactive_record,
     obsolete_not_delete,
+    plural,
 )
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.permissions import Permission
@@ -895,8 +896,8 @@ class WorkCenterService:
             counts = await self.repo.machine_counts([work_center.id])
             if counts.get(work_center.id, 0):
                 raise referenced_in_use(
-                    f"{work_center.code} still has {counts[work_center.id]} machine(s). "
-                    "Move or retire them first.",
+                    f"{work_center.code} still has {plural(counts[work_center.id], 'machine')}. "
+                    f"Move or retire {'it' if counts[work_center.id] == 1 else 'them'} first.",
                     work_center_code=work_center.code,
                     machine_count=counts[work_center.id],
                 )
@@ -1333,7 +1334,7 @@ class RoutingService:
                 entity_code=routing.code,
                 summary=(
                     f"Created routing {routing.code} v{routing.version} for {item.code} "
-                    f"with {len(operations)} operation(s)"
+                    f"with {plural(len(operations), 'operation')}"
                 ),
                 user_id=self.tenant.user_id,
                 new_values={
@@ -2304,7 +2305,8 @@ class ShiftRosterService:
                 )
             if len(source) * days > MAX_ROSTER_BULK:
                 raise BusinessRuleError(
-                    f"Copying {len(source)} assignment(s) onto {days} day(s) is more than "
+                    f"Copying {plural(len(source), 'assignment')} onto {plural(days, 'day')} is "
+                    "more than "
                     f"{MAX_ROSTER_BULK} at once. Narrow the work centre or the dates.",
                     details={"limit": MAX_ROSTER_BULK, "days": days},
                 )

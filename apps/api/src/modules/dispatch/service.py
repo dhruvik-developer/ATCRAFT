@@ -80,7 +80,7 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, ValidationError
 from src.core.logging import get_logger
-from src.core.messages import inactive, other_customer_order
+from src.core.messages import inactive, other_customer_order, plural
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -975,7 +975,8 @@ def assign_cartons(
     if unloaded:
         listed = ", ".join(str(numbers[carton]) for carton in unloaded)
         raise BusinessRuleError(
-            f"Carton(s) {listed} of the packing order hold goods no line of this consignment "
+            f"{'Carton' if len(unloaded) == 1 else 'Cartons'} {listed} of the packing order "
+            f"{'holds' if len(unloaded) == 1 else 'hold'} goods no line of this consignment "
             "carries, and a consignment takes the whole packing order. Add a line for each "
             "item, lot and order line that was packed.",
             details={"carton_ids": [str(carton) for carton in unloaded]},
@@ -1625,7 +1626,7 @@ async def create_dispatch(
             entity_type=AUDIT_DISPATCH,
             entity_id=dispatch.id,
             entity_code=dispatch.code,
-            summary=f"Raised dispatch {dispatch.code} with {len(lines)} line(s)",
+            summary=f"Raised dispatch {dispatch.code} with {plural(len(lines), 'line')}",
             user_id=tenant.user_id,
             new_values=snapshot(dispatch, DISPATCH_AUDITED_FIELDS),
             context={"line_count": len(lines)},
@@ -2246,8 +2247,8 @@ async def dispatch_consignment(
             entity_id=dispatch.id,
             entity_code=dispatch.code,
             summary=(
-                f"Dispatched {dispatch.code}: {len(lines)} line(s), "
-                f"{len(posted_ids)} stock movement(s)"
+                f"Dispatched {dispatch.code}: {plural(len(lines), 'line')}, "
+                f"{plural(len(posted_ids), 'stock movement')}"
             ),
             user_id=tenant.user_id,
             context={
@@ -2689,7 +2690,7 @@ async def delayed_alert_candidates(
             title=f"Consignment {row.code} is past its promised delivery date",
             body=(
                 f"{row.code} was promised for {row.expected_delivery_date} and is "
-                f"{row.delay_days} day(s) overdue. Open the dispatch tracking board."
+                f"{plural(row.delay_days, 'day')} overdue. Open the dispatch tracking board."
             ),
             action_url="/dispatch?tab=tracking&delayed_only=true",
         )
@@ -2707,13 +2708,13 @@ async def _raise_delay_alert(
     """Alert one company about its overdue consignments and mark them notified."""
     worst = max(delayed, key=lambda row: row.delay_days)
     headline = (
-        f"{len(delayed)} consignment(s) are past their promised delivery date"
+        f"{plural(len(delayed), 'consignment')} are past their promised delivery date"
         if len(delayed) > 1
         else f"Consignment {worst.code} is past its promised delivery date"
     )
     body = (
         f"{worst.code} was promised for {worst.expected_delivery_date} and is "
-        f"{worst.delay_days} day(s) overdue"
+        f"{plural(worst.delay_days, 'day')} overdue"
         + (f" ({worst.party_name})" if worst.party_name else "")
         + ". Open the dispatch tracking board to review the full list."
     )
@@ -2744,7 +2745,7 @@ async def _raise_delay_alert(
             entity_type=AUDIT_DISPATCH,
             entity_id=worst.dispatch_id,
             entity_code=worst.code,
-            summary=f"Delay sweep flagged {len(delayed)} overdue consignment(s)",
+            summary=f"Delay sweep flagged {plural(len(delayed), 'overdue consignment')}",
             user_id=None,
             actor_label="notifications.scan_smart_alerts",
             context={

@@ -93,7 +93,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
-from src.core.messages import date_before, inactive_record
+from src.core.messages import date_before, inactive_record, plural
 from src.core.pagination import DateCursor, DateCursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -4607,7 +4607,8 @@ async def allocate_payment(
             entity_id=payment.id,
             entity_code=payment.code,
             summary=(
-                f"Allocated {new_allocated} of {payment.code} across {len(plan.final)} invoice(s)"
+                f"Allocated {new_allocated} of {payment.code} across "
+                f"{plural(len(plan.final), 'invoice')}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -4625,7 +4626,7 @@ async def allocate_payment(
             title=f"Payment {payment.code} allocated to your invoices",
             body=(
                 f"{payment.currency} {to_money(new_allocated)} allocated across "
-                f"{len(plan.final)} invoice(s)."
+                f"{plural(len(plan.final), 'invoice')}."
             ),
         )
 
@@ -4920,7 +4921,7 @@ async def allocate_purchase_return_debit(
             entity_code=purchase_return.code,
             summary=(
                 f"Allocated {plan.total} of {purchase_return.code} across "
-                f"{len(plan.final)} vendor invoice(s)"
+                f"{plural(len(plan.final), 'vendor invoice')}"
             ),
             user_id=tenant.user_id,
             old_values={

@@ -169,7 +169,7 @@ class TestVerdictCoversHold:
             )
 
         assert exc.value.message == (
-            "12.0000 unit(s) of HNDL-PVD-01 are on hold; the verdict accounts for 10.0000."
+            "12.0000 units of HNDL-PVD-01 are on hold; the verdict accounts for 10.0000."
         )
         assert str(item_id) not in exc.value.message
         assert exc.value.details["item_code"] == "HNDL-PVD-01"

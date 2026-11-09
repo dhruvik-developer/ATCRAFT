@@ -74,6 +74,7 @@ from src.core.database import affected_rows, session_scope, transaction
 from src.core.deps import TenantContext, system_tenant
 from src.core.errors import BusinessRuleError
 from src.core.logging import get_logger
+from src.core.messages import plural
 from src.core.observability import count_sweep_failure
 from src.core.permissions import Permission
 from src.modules.allocation import service as allocation_service
@@ -915,7 +916,7 @@ async def notify_job_work_overdue(
             notification_type=NotificationType.JOB_WORK_OVERDUE,
             title=f"Job work overdue: {order.code}",
             body=(
-                f"{order.code} is {overdue_days} day(s) past its expected return date. "
+                f"{order.code} is {plural(overdue_days, 'day')} past its expected return date. "
                 "Please review the outstanding job-work consignment."
             ),
             permission=Permission.VENDOR_PORTAL_JOB_WORK.value,
