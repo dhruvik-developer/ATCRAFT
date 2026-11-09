@@ -3,7 +3,7 @@
  * Record on every row that may still take output.
  */
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -97,5 +97,23 @@ describe('the daily bookings tab', () => {
       fetch.requestFor('POST', `/production/${ORDER.id}/entries`),
     )) as Record<string, unknown>
     expect(body.produced_quantity).toBe('5')
+  })
+
+  it('reads the chosen date through the shared date input', async () => {
+    const windows: string[] = []
+    bookings({
+      'GET /production/entries': ({ url }: { url: URL }) => {
+        windows.push(`${url.searchParams.get('entry_from')}..${url.searchParams.get('entry_to')}`)
+        return page([ENTRY])
+      },
+    })
+    await screen.findByText('PO-0001')
+
+    const field = screen.getByLabelText('Date')
+    // The shared Input: its focus ring, shadow and disabled look, not a pasted copy.
+    expect(field).toHaveClass('focus-visible:ring-2', 'disabled:opacity-50', 'shadow-sm')
+    fireEvent.change(field, { target: { value: '2026-11-02' } })
+
+    await waitFor(() => expect(windows).toContain('2026-11-02..2026-11-02'))
   })
 })

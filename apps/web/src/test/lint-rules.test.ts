@@ -460,6 +460,50 @@ describe('the lint rules that replace review comments', () => {
     expect(await rulesFiredBy(code, 'src/components/ui/primitives.tsx')).toEqual([])
   })
 
+  it('refuses the browser checkbox outside the design-system primitives', async () => {
+    const code = [
+      'export function MineOnly({ mine, onChange }: { mine: boolean; onChange: (v: boolean) => void }) {',
+      '  return (',
+      '    <label>',
+      '      <input type="checkbox" checked={mine} onChange={(event) => onChange(event.target.checked)} />',
+      '      My follow-ups',
+      '    </label>',
+      '  )',
+      '}',
+      '',
+    ].join('\n')
+
+    expect(await rulesFiredBy(code, 'src/features/collections/mine-only.tsx')).toEqual([
+      'no-restricted-syntax',
+    ])
+    expect(await rulesFiredBy(code, 'src/components/ui/primitives.tsx')).toEqual([])
+  })
+
+  it('accepts Checkbox, and the native inputs that are not checkboxes', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { Checkbox, Label } from '@/components/ui/primitives'",
+        '',
+        'export function MineOnly({ mine, onChange }: { mine: boolean; onChange: (v: boolean) => void }) {',
+        '  return (',
+        '    <>',
+        '      <Label>',
+        '        <Checkbox checked={mine} onCheckedChange={(checked) => onChange(checked === true)} />',
+        '        My follow-ups',
+        '      </Label>',
+        '      <input type="file" hidden />',
+        '      <input type="hidden" name="kind" value="INVOICE" />',
+        '    </>',
+        '  )',
+        '}',
+        '',
+      ].join('\n'),
+      'src/features/collections/mine-only.tsx',
+    )
+
+    expect(fired).toEqual([])
+  })
+
   it('accepts NativeSelect, whatever its size', async () => {
     const fired = await rulesFiredBy(
       [

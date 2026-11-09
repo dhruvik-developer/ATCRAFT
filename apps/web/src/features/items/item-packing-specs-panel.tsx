@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Input, Label, NativeSelect } from '@/components/ui/primitives'
+import { Checkbox, Input, Label, NativeSelect } from '@/components/ui/primitives'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useAuth } from '@/features/auth/auth-context'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
@@ -148,10 +148,9 @@ function PackingSpecDialog({
             />
           </div>
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={isDefault}
-              onChange={(event) => setIsDefault(event.target.checked)}
+              onCheckedChange={(checked) => setIsDefault(checked === true)}
             />
             Use as the default MRP recipe for this material
           </label>

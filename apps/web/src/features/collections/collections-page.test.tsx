@@ -92,6 +92,33 @@ describe('collections worklist', () => {
     expect(requestQuery?.get('min_overdue_days')).toBe('30')
   })
 
+  it('filters to my follow-ups from the shared checkbox, through the URL the worklist reads', async () => {
+    const queries: URLSearchParams[] = []
+    const { user } = renderScreen(<CollectionsPage />, {
+      permissions: [P.COLLECTION_VIEW],
+      route: '/finance/collections',
+      routes: {
+        [`GET ${WORKLIST_PATH}`]: ({ url }) => {
+          queries.push(url.searchParams)
+          return page([worklistRow()])
+        },
+      },
+    })
+
+    expect(await screen.findAllByText(/Northline Distributors/)).not.toHaveLength(0)
+    // The phone filter panel and the desktop toolbar each draw one.
+    const [mine] = screen.getAllByRole('checkbox', { name: 'My follow-ups' })
+    expect(mine).not.toBeChecked()
+    await user.click(mine!)
+
+    await waitFor(() => expect(queries.at(-1)?.get('assigned_to_me')).toBe('true'))
+    for (const box of screen.getAllByRole('checkbox', { name: 'My follow-ups' })) {
+      expect(box).toBeChecked()
+    }
+    await user.click(screen.getAllByRole('checkbox', { name: 'My follow-ups' })[0]!)
+    await waitFor(() => expect(queries.at(-1)?.get('assigned_to_me')).toBe('false'))
+  })
+
   it('says why the worklist did not load and loads it on a retry', async () => {
     let reads = 0
     const { user } = renderScreen(<CollectionsPage />, {

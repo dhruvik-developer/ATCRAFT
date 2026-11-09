@@ -32,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { Badge, Separator } from '@/components/ui/primitives'
+import { Badge, Input, Separator } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { PushSessionBridge } from '@/features/notifications/push-session'
 import { api } from '@/lib/api-client'
@@ -163,13 +163,13 @@ export function AppLayout() {
                 }}
               >
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
+                <Input
                   type="search"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search items..."
                   aria-label="Search items"
-                  className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="pl-8"
                 />
               </form>
             )}

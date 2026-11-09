@@ -23,7 +23,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/overlays'
-import { Card, CardContent, Input, Label, Textarea } from '@/components/ui/primitives'
+import { Card, CardContent, Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
@@ -507,21 +507,19 @@ export default function CollectionsPage() {
                     </SelectContent>
                   </Select>
                   <Label className="flex items-center gap-2 whitespace-nowrap text-sm">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={assignedToMe}
-                      onChange={(event) =>
-                        setFilter('assigned_to_me', event.target.checked ? 'true' : undefined)
+                      onCheckedChange={(checked) =>
+                        setFilter('assigned_to_me', checked === true ? 'true' : undefined)
                       }
                     />
                     My follow-ups
                   </Label>
                   <Label className="flex items-center gap-2 whitespace-nowrap text-sm">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={dealerOnly}
-                      onChange={(event) =>
-                        setFilter('dealer_only', event.target.checked ? 'true' : undefined)
+                      onCheckedChange={(checked) =>
+                        setFilter('dealer_only', checked === true ? 'true' : undefined)
                       }
                     />
                     Dealer channels
@@ -591,24 +589,19 @@ export default function CollectionsPage() {
                   </SelectContent>
                 </Select>
                 <Label className="flex items-center gap-2 whitespace-nowrap text-sm">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={registerLiveOnly}
-                    onChange={(event) =>
-                      setFilter('live_only', event.target.checked ? undefined : 'false')
+                    onCheckedChange={(checked) =>
+                      setFilter('live_only', checked === true ? undefined : 'false')
                     }
                   />
                   Live only
                 </Label>
                 <Label className="flex items-center gap-2 whitespace-nowrap text-sm">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={registerAssignedToMe}
-                    onChange={(event) =>
-                      setFilter(
-                        'followup_assigned_to_me',
-                        event.target.checked ? 'true' : undefined,
-                      )
+                    onCheckedChange={(checked) =>
+                      setFilter('followup_assigned_to_me', checked === true ? 'true' : undefined)
                     }
                   />
                   Assigned to me
@@ -673,20 +666,20 @@ function MobileWorklistFilters({
         onChange={(event) => setFilter('min_overdue_days', event.target.value || undefined)}
       />
       <Label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={assignedToMe}
-          onChange={(event) =>
-            setFilter('assigned_to_me', event.target.checked ? 'true' : undefined)
+          onCheckedChange={(checked) =>
+            setFilter('assigned_to_me', checked === true ? 'true' : undefined)
           }
         />
         My follow-ups
       </Label>
       <Label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={dealerOnly}
-          onChange={(event) => setFilter('dealer_only', event.target.checked ? 'true' : undefined)}
+          onCheckedChange={(checked) =>
+            setFilter('dealer_only', checked === true ? 'true' : undefined)
+          }
         />
         Dealer channels
       </Label>
@@ -1113,10 +1106,9 @@ function FollowUpDialog({
                         </div>
                         {canBlockCustomer && (
                           <Label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={blockCustomer}
-                              onChange={(event) => setBlockCustomer(event.target.checked)}
+                              onCheckedChange={(checked) => setBlockCustomer(checked === true)}
                             />
                             Place the customer on credit hold
                           </Label>

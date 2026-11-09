@@ -84,6 +84,15 @@ const nativeSelect = {
     "Use NativeSelect from '@/components/ui/primitives' (size 'sm' | 'touch' where the screen needs it), which draws a native select the way Input is drawn.",
 }
 
+const nativeCheckbox = {
+  // Ten filter and form checkboxes drew the browser's own control - its accent
+  // colour and its size - beside the Checkbox every other screen uses.
+  selector:
+    "JSXOpeningElement[name.name='input'] > JSXAttribute[name.name='type'][value.value='checkbox']",
+  message:
+    "Use Checkbox from '@/components/ui/primitives' inside the Label, with onCheckedChange={(checked) => ... checked === true ...}.",
+}
+
 const queryFnSignal = {
   // TanStack aborts a query whose function read the signal once no screen
   // observes it - the search a keystroke superseded, the dialog that closed.
@@ -181,6 +190,7 @@ export default tseslint.config(
         literalQueryKey,
         queryFnSignal,
         nativeSelect,
+        nativeCheckbox,
       ],
       'no-restricted-properties': ['error', ...localeFormatting, ...browserStorageProperties],
       'no-restricted-globals': ['error', ...browserStorageGlobals],

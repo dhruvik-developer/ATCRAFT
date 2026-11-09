@@ -12,7 +12,15 @@ import {
   StatusBadge,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Badge, Card, CardContent, Input, Label, NativeSelect } from '@/components/ui/primitives'
+import {
+  Badge,
+  Card,
+  CardContent,
+  Checkbox,
+  Input,
+  Label,
+  NativeSelect,
+} from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -236,21 +244,19 @@ export function DealerCatalogPage() {
           </NativeSelect>
         </div>
         <label className="flex min-h-11 items-center gap-2 text-sm">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={searchParams.get('in_stock_only') === 'true'}
-            onChange={(event) =>
-              list.setParam('in_stock_only', event.target.checked ? 'true' : undefined)
+            onCheckedChange={(checked) =>
+              list.setParam('in_stock_only', checked === true ? 'true' : undefined)
             }
           />
           Available items only
         </label>
         <label className="flex min-h-11 items-center gap-2 text-sm">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={searchParams.get('on_offer_only') === 'true'}
-            onChange={(event) =>
-              list.setParam('on_offer_only', event.target.checked ? 'true' : undefined)
+            onCheckedChange={(checked) =>
+              list.setParam('on_offer_only', checked === true ? 'true' : undefined)
             }
           />
           On offer

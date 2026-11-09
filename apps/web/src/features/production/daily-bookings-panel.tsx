@@ -19,7 +19,7 @@ import { Link } from 'react-router-dom'
 import { DataTable } from '@/components/data-table'
 import { StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription, AlertTitle, Label } from '@/components/ui/primitives'
+import { Alert, AlertDescription, AlertTitle, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ShiftSelect } from '@/features/shifts/shift-select'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -120,13 +120,13 @@ export function DailyBookingsPanel() {
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
           <Label htmlFor="daily-bookings-date">Date</Label>
-          <input
+          <Input
             id="daily-bookings-date"
             type="date"
             value={date}
             max={localTodayISO()}
             onChange={(event) => event.target.value && setDate(event.target.value)}
-            className="mt-1 flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            className="mt-1 w-auto"
           />
         </div>
         <div>
