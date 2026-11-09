@@ -1,4 +1,3 @@
-import { describeError } from '@/lib/messages'
 /**
  * Company settings that change how other screens behave.
  *
@@ -36,6 +35,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import type { SalesSettings } from '@/features/sales/sales-types'
 import { api } from '@/lib/api-client'
 import { reportFieldErrors } from '@/lib/form-errors'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -161,7 +161,7 @@ export default function SettingsPage() {
       setDraft(null)
       toast.success(
         saved.is_default
-          ? 'Built-in default restored'
+          ? success.restored('Built-in default')
           : saved.auto_plan_on_confirm
             ? 'Automatic shortfall planning is on'
             : 'Automatic shortfall planning is off',
@@ -183,7 +183,9 @@ export default function SettingsPage() {
       queryClient.setQueryData(queryKeys.audit.approvalSettings, saved)
       setApprovalDraft(null)
       toast.success(
-        saved.is_default ? 'Approval defaults restored' : 'Approval thresholds updated',
+        saved.is_default
+          ? success.restored('Approval defaults')
+          : success.updated('Approval thresholds'),
         saved.is_default
           ? 'This company no longer overrides the built-in approval thresholds.'
           : 'The values apply to the next approval-gated action in this company.',

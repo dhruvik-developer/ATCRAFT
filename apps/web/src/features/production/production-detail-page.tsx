@@ -1025,11 +1025,11 @@ export default function ProductionDetailPage() {
         return
       }
 
-      // Past tense per transition; "started" has no catalogue verb of its own.
+      // Past tense per transition.
       const done: Record<ActionKey, string> = {
         approve: success.approved('Production order'),
         release: success.released('Production order'),
-        start: 'Production started',
+        start: success.started('Production'),
         complete: success.completed('Production order'),
         close: success.closed('Production order'),
       }

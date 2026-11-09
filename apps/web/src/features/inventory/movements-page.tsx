@@ -880,7 +880,7 @@ function PhysicalCountsTab() {
                       at +
                       ' taken when the sheet was opened. Nothing moves until the sheet is confirmed.',
                     confirmLabel: 'Start counting',
-                    successTitle: 'Count started',
+                    successTitle: success.started('Count'),
                     successBody: count.code + ' is open for keying counts.',
                   })
                 }
@@ -919,7 +919,7 @@ function PhysicalCountsTab() {
                       'The sheet goes back to being counted. Figures already keyed stay in place ' +
                       'to be corrected, and the snapshot is not retaken.',
                     confirmLabel: 'Reopen for recount',
-                    successTitle: 'Count reopened',
+                    successTitle: success.reopened('Count'),
                     successBody: count.code + ' is open for recounting.',
                     requiresReason: true,
                   })

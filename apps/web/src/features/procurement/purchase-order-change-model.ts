@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
-import { messages } from '@/lib/messages'
+import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -102,14 +102,14 @@ export function duplicateResolutionSuccess(result: DuplicateResolutionResult) {
       }
     case 'CREATE_WITH_APPROVAL':
       return {
-        title: 'Separate purchase order created',
+        title: success.created('Separate purchase order'),
         description: `${codes} must complete approval before being sent to the vendor.`,
       }
     case 'CANCEL_REQUEST':
       return result.discarded
         ? { title: 'Duplicate request discarded', description: 'No purchase order was created.' }
         : {
-            title: 'Duplicate request cancelled',
+            title: success.cancelled('Duplicate request'),
             description: `${result.cancelled_requisition_line_ids?.length ?? 0} requisition line(s) cancelled. Existing ordered history is retained.`,
           }
   }

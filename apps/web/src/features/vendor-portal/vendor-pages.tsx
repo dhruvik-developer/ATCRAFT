@@ -31,7 +31,7 @@ import {
   formatQuantity,
   humanise,
 } from '@/lib/format'
-import { empty, fileMessages } from '@/lib/messages'
+import { empty, fileMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -490,7 +490,7 @@ function Shipments({ rows, canDeliver = false }: { rows: VendorShipment[]; canDe
     onError: (error) => reportFieldErrors(error, 'Delivery could not be recorded'),
     onSuccess: async (_, row) => {
       await client.invalidateQueries({ queryKey: queryKeys.vendorPortal.all })
-      toast.success(`Shipment ${row.shipment_number} marked delivered`)
+      toast.success(success.statusChanged(`Shipment ${row.shipment_number}`, 'delivered'))
     },
   })
   return (

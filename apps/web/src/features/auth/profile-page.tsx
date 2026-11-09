@@ -89,7 +89,7 @@ function MessagingProfileCard() {
     mutationFn: () => api.post<{ expires_in_seconds: number }>('/auth/me/phone/verification', {}),
     onSuccess: () => {
       setCodeRequested(true)
-      toast.success('Verification code sent')
+      toast.success(success.sent('Verification code'))
     },
   })
   const verifyCode = useMutation({
@@ -108,7 +108,7 @@ function MessagingProfileCard() {
     onSuccess: async () => {
       await refreshUser()
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all })
-      toast.success('Messaging consent updated')
+      toast.success(success.updated('Messaging consent'))
     },
   })
 

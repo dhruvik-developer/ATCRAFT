@@ -1,5 +1,3 @@
-import { describeError } from '@/lib/messages'
-
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BellRing, Save } from 'lucide-react'
 import { useState } from 'react'
@@ -29,6 +27,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { reportFieldErrors } from '@/lib/form-errors'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -141,7 +140,10 @@ export default function AlertsPage() {
     onSuccess: (saved) => {
       queryClient.setQueryData(queryKeys.notifications.alertRules, saved)
       setDrafts({})
-      toast.success('Alert rules saved', 'The updated thresholds apply to the next alert scan.')
+      toast.success(
+        success.saved('Alert rules'),
+        'The updated thresholds apply to the next alert scan.',
+      )
     },
     onError: (error) => reportFieldErrors(error, 'Could not save alert rules'),
   })

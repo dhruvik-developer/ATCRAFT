@@ -212,14 +212,14 @@ const STANDING_COPY: Record<
     description: 'It becomes selectable on new orders again.',
     confirmLabel: 'Activate',
     destructive: false,
-    successTitle: 'Customer activated',
+    successTitle: success.activated('Customer'),
   },
   deactivate: {
     title: 'Deactivate this account?',
     description: 'It stops being offered on new orders. Existing documents are unaffected.',
     confirmLabel: 'Deactivate',
     destructive: true,
-    successTitle: 'Customer deactivated',
+    successTitle: success.deactivated('Customer'),
   },
 }
 

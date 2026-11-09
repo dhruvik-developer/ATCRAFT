@@ -18,7 +18,7 @@ import {
 import { Input, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { describeError } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -99,7 +99,7 @@ export function InboundDocumentDialog({
       await client.invalidateQueries({
         queryKey: scope === 'vendor' ? queryKeys.vendorPortal.all : queryKeys.procurement.all,
       })
-      toast.success(`${file.file_name} uploaded`)
+      toast.success(success.uploaded(file.file_name))
       onClose()
     },
   })

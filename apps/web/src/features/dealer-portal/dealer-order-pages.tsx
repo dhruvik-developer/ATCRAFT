@@ -35,6 +35,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -48,7 +49,7 @@ function CartQuantity({ line }: { line: SchemaOf<'DealerCartLineRead'> }) {
   const [error, setError] = useState<string>()
   const action = useDealerAction(
     (value: string) => api.patch(`${DEALER_API}/cart/lines/${line.id}`, { quantity: value }),
-    'Cart updated',
+    success.updated('Cart'),
     // Said under the line's quantity, not again in a toast.
     { meta: { suppressErrorToast: true } },
   )
@@ -500,7 +501,7 @@ export function DealerOrderPage() {
   const [trackingId, setTrackingId] = useState<string>()
   const cancel = useDealerAction(
     () => api.post(`${DEALER_API}/orders/${orderId}/cancel`, { reason: reason.trim() }),
-    'Order cancelled',
+    success.cancelled('Order'),
     // The dialog shows the refusal under the reason.
     { onSuccess: () => setCancelOpen(false), meta: { suppressErrorToast: true } },
   )

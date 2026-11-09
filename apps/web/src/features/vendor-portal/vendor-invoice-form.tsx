@@ -20,7 +20,7 @@ import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, toDecimal } from '@/lib/format'
-import { describeError } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
@@ -180,7 +180,7 @@ export function VendorInvoiceForm({ onClose }: { onClose: () => void }) {
       ),
     onSuccess: async (invoice) => {
       await client.invalidateQueries({ queryKey: queryKeys.vendorPortal.all })
-      toast.success(`Invoice ${invoice.vendor_invoice_number} submitted`)
+      toast.success(success.submitted(`Invoice ${invoice.vendor_invoice_number}`))
       onClose()
     },
   })

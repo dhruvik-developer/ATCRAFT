@@ -708,7 +708,7 @@ export function CreateAdjustmentDialog({
     },
     onSuccess: (result) => {
       toast.success(
-        adjustment ? success.updated('Adjustment') : 'Adjustment raised',
+        adjustment ? success.updated('Adjustment') : success.raised('Adjustment'),
         result.code + ' is saved as a draft.',
       )
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })

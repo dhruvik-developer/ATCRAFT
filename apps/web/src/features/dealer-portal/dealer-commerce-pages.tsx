@@ -22,6 +22,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
@@ -547,7 +548,7 @@ export function DealerReturnsPage() {
   const create = useDealerAction(
     (payload: SchemaOf<'DealerReturnCreate'>) =>
       api.post<SchemaOf<'DealerReturnDetail'>>(`${DEALER_API}/returns`, payload),
-    'Return request submitted',
+    success.submitted('Return request'),
     {
       onSuccess: () => {
         setOpen(false)

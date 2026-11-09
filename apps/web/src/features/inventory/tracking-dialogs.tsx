@@ -237,7 +237,7 @@ const ACTION_COPY: Record<
     description:
       'The lot becomes active again. Stock already in QC hold stays there deliberately: releasing stock from a hold is a separate warehouse movement with its own record.',
     confirm: 'Activate lot',
-    done: 'Batch activated',
+    done: success.activated('Batch'),
     destructive: false,
   },
   expire: {

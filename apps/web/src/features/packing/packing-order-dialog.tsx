@@ -1118,7 +1118,7 @@ function ReinspectLine({ order, line }: { order: PackingOrderDetail; line: Packi
       void queryClient.invalidateQueries({ queryKey: packingKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
-      toast.success('Replacement inspection raised', `Line ${line.line_number}`)
+      toast.success(success.raised('Replacement inspection'), `Line ${line.line_number}`)
       setOpen(false)
       setSerialIds([])
       setBatchId('')
@@ -1233,7 +1233,7 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
   // code is the body. Built from a map rather than the action slug, which read
   // as an instruction ("Packing order hand over") rather than a result.
   const done: Record<Exclude<OrderAction, 'complete'>, string> = {
-    start: 'Packing started',
+    start: success.started('Packing'),
     'hand-over': 'Handed to dispatch',
     close: success.closed('Packing order'),
     cancel: success.cancelled('Packing order'),

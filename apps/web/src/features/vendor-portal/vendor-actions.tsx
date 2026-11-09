@@ -18,6 +18,7 @@ import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { InboundDocumentDialog } from '@/features/procurement/inbound-document-dialog'
@@ -122,8 +123,8 @@ export function VendorActionDialog({
           : kind === 'decline'
             ? `${order.code} declined`
             : kind === 'delivery-date'
-              ? `Committed delivery date of ${order.code} updated`
-              : `${order.code} marked ready for dispatch`,
+              ? success.updated(`Committed delivery date of ${order.code}`)
+              : success.statusChanged(order.code, 'ready for dispatch'),
       )
       onClose()
     },

@@ -1184,7 +1184,7 @@ export function AssemblyDetailDialog({
         const titles = {
           approve: success.approved('Assembly order'),
           release: success.released('Assembly order'),
-          start: 'Assembly started',
+          start: success.started('Assembly'),
           close: success.closed('Assembly order'),
           cancel: success.cancelled('Assembly order'),
         } satisfies Record<Exclude<LifecycleAction, 'delete'>, string>

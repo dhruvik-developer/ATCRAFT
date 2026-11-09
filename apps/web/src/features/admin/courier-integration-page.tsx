@@ -22,7 +22,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { formatDateTime, humanise } from '@/lib/format'
 import { reportFieldErrors } from '@/lib/form-errors'
-import { describeError } from '@/lib/messages'
+import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -117,7 +117,7 @@ export default function CourierIntegrationPage() {
     onSuccess: async () => {
       await refreshAccounts()
       setDraft(EMPTY_DRAFT)
-      toast.success('Courier account created')
+      toast.success(success.created('Courier account'))
     },
   })
 
@@ -137,7 +137,7 @@ export default function CourierIntegrationPage() {
       await refreshAccounts()
       setEditingId(null)
       setEditDraft(null)
-      toast.success('Courier account updated')
+      toast.success(success.updated('Courier account'))
     },
   })
 
