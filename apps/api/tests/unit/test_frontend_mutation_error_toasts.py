@@ -15,6 +15,13 @@ suppressErrorToast: true }`` when it renders the failure itself. Its own
 ``onError`` may still put a 422's field detail on screen - ``applyFieldErrors``
 or ``reportFieldErrors``, the one case the net leaves alone - but it never
 raises an error toast of its own.
+
+The same double has a quieter shape: a component that shows its mutation's
+whole failure - ``describeError`` or ``dealerError`` of it, a ``ReasonDialog``
+given ``error=``, or an ``onError`` that writes one into state - while the
+mutation still lets the net toast it. Fifty-seven did, from confirm dialogs to
+form alerts. Showing only ``fieldErrorSummary`` is not that: it is the 422
+detail the net leaves to the screen, and the net still says everything else.
 """
 
 from __future__ import annotations
@@ -143,6 +150,50 @@ def toasting_handlers(source: str) -> list[str]:
     return found
 
 
+_MUTATION = re.compile(
+    r"\bconst\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*(?:useMutation|useDealerAction)\s*(?:<[^>]*>)?\("
+)
+#: Where a component ends: the next top-level function, or component bound to a const.
+_TOP_LEVEL = re.compile(
+    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\b|^(?:export\s+)?const\s+[A-Z][\w$]*\s*=",
+    re.M,
+)
+#: What says a failure whole. ``fieldErrorSummary`` alone is the 422 detail.
+_SAYS = r"\b(?:describeError|dealerError)\s*\("
+
+
+def _component_end(source: str, offset: int) -> int:
+    following = _TOP_LEVEL.search(source, offset)
+    return following.start() if following else len(source)
+
+
+def shown_and_toasted(source: str) -> list[str]:
+    """``line N: name`` for a mutation its component shows the failure of, toast left on.
+
+    The reads are looked for in the declaring component only, so two
+    components in one file can each name a mutation ``retire``.
+    """
+    found = []
+    for match in _MUTATION.finditer(source):
+        name = match.group("name")
+        call = source[match.end() : _expression_end(source, match.end(), stop_at_comma=False)]
+        if "suppressErrorToast" in call:
+            continue
+        scope = source[match.start() : _component_end(source, match.end())]
+        read = re.escape(name)
+        shows = re.search(rf"{_SAYS}\s*{read}\.error\b|\berror=\{{\s*{read}\.error\s*\}}", scope)
+        writes = any(
+            re.search(r"\bset\w+\s*\(", handler) and re.search(_SAYS, handler)
+            for handler in (
+                call[on_error.end() : _expression_end(call, on_error.end(), stop_at_comma=True)]
+                for on_error in _ON_ERROR.finditer(call)
+            )
+        )
+        if shows or writes:
+            found.append(f"line {_line(source, match.start())}: {name}")
+    return found
+
+
 def _sources() -> list[Path]:
     return sorted(
         path
@@ -175,6 +226,23 @@ def test_no_mutation_toasts_its_own_failure() -> None:
         "lib/query-client say it, or render the failure in place and declare "
         "`meta: { suppressErrorToast: true }`. A 422's field detail is the exception: "
         "applyFieldErrors or reportFieldErrors from '@/lib/form-errors'."
+    )
+
+
+def test_no_mutation_is_shown_in_place_and_toasted_as_well() -> None:
+    doubled = {
+        path.relative_to(WEB_SRC).as_posix(): found
+        for path in _sources()
+        if (found := shown_and_toasted(path.read_text(encoding="utf-8")))
+    }
+    assert not doubled, (
+        "A screen shows a mutation's failure and the global net toasts it as well:\n  "
+        + "\n  ".join(f"{name}: {', '.join(found)}" for name, found in doubled.items())
+        + "\n\nDeclare `meta: { suppressErrorToast: true }` on the mutation, and say "
+        "every failure in place: `fieldErrorSummary(error) || describeError(error)` for "
+        "a plain slot, `errors.root?.message || describeError(error)` for a "
+        "react-hook-form alert (a model-level 422 lands on `root`). Check the dialog "
+        "stays open when the request fails, or nothing will say it."
     )
 
 
@@ -224,3 +292,63 @@ def test_the_rule_ignores_field_detail_meta_and_other_toasts() -> None:
         "<img src={url} onError={() => toast.error('A JSX attribute is not a mutation')} />\n"
     )
     assert toasting_handlers(source) == []
+
+
+def test_the_shown_rule_finds_the_shapes_that_shipped() -> None:
+    source = (
+        "function RetireDialog() {\n"
+        "  const retire = useMutation({ mutationFn: drop })\n"
+        "  return <Alert>{describeError(retire.error)}</Alert>\n"
+        "}\n"
+        "function OrderPage() {\n"
+        "  const cancel = useDealerAction(act, 'Order cancelled', { onSuccess: close })\n"
+        "  return <FieldError message={cancel.error ? dealerError(cancel.error) : undefined} />\n"
+        "}\n"
+        "export function StatusDialog() {\n"
+        "  const change = useMutation({ mutationFn: post })\n"
+        "  return <ReasonDialog open error={change.error} />\n"
+        "}\n"
+        "const PushCard = () => {\n"
+        "  const test = useMutation({\n"
+        "    mutationFn: send,\n"
+        "    onError: (error) => {\n"
+        "      setFailure(\n"
+        "        describeError(error),\n"
+        "      )\n"
+        "    },\n"
+        "  })\n"
+        "}\n"
+    )
+    assert shown_and_toasted(source) == [
+        "line 2: retire",
+        "line 6: cancel",
+        "line 10: change",
+        "line 14: test",
+    ]
+
+
+def test_the_shown_rule_ignores_opt_outs_field_detail_and_a_namesake() -> None:
+    source = (
+        "function Form() {\n"
+        "  const save = useMutation({ mutationFn: put, meta: { suppressErrorToast: true } })\n"
+        "  return <Alert>{errors.root?.message || describeError(save.error)}</Alert>\n"
+        "}\n"
+        "function Lines() {\n"
+        "  const run = useMutation({ mutationFn: post })\n"
+        "  return <FieldError message={fieldErrorSummary(run.error) || undefined} />\n"
+        "}\n"
+        "function Quiet() {\n"
+        "  const mutation = useMutation({ mutationFn: drop })\n"
+        "  return <Button onClick={() => mutation.mutate()} />\n"
+        "}\n"
+        "export function Loud() {\n"
+        "  const mutation = useMutation({ mutationFn: put, meta: { suppressErrorToast: true } })\n"
+        "  return <Alert>{describeError(mutation.error)}</Alert>\n"
+        "}\n"
+        "function Detail() {\n"
+        "  const detail = useQuery({ queryKey, queryFn })\n"
+        "  const pdf = useMutation({ mutationFn: download })\n"
+        "  return <LoadError error={detail.error} />\n"
+        "}\n"
+    )
+    assert shown_and_toasted(source) == []

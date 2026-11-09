@@ -11,6 +11,7 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
@@ -246,15 +247,26 @@ const DRAFT_BOM: BomDetail = {
 }
 
 function renderEditDialog(routes: RouteTable = {}) {
-  return renderScreen(<BomEditDialog bom={{ ...DRAFT_BOM }} open onOpenChange={() => {}} />, {
-    permissions: [P.BOM_VIEW, P.BOM_UPDATE],
-    routes: {
-      [`GET /products/items/${SCREW.id}`]: ok(SCREW),
-      [`GET /products/items/${ITEM.id}`]: ok(ITEM),
-      'GET /routing/work-centers': page([]),
-      ...routes,
+  return renderScreen(
+    <>
+      <BomEditDialog bom={{ ...DRAFT_BOM }} open onOpenChange={() => {}} />
+      <Toaster />
+    </>,
+    {
+      permissions: [P.BOM_VIEW, P.BOM_UPDATE],
+      errorNets: true,
+      routes: {
+        [`GET /products/items/${SCREW.id}`]: ok(SCREW),
+        [`GET /products/items/${ITEM.id}`]: ok(ITEM),
+        'GET /routing/work-centers': page([]),
+        ...routes,
+      },
     },
-  })
+  )
+}
+
+function toastAlerts() {
+  return within(screen.getByRole('region', { name: 'Notifications' })).queryAllByRole('alert')
 }
 
 describe('editing a draft', () => {
@@ -316,5 +328,21 @@ describe('editing a draft', () => {
     expect(await within(dialog).findByText(/changed by someone else/)).toBeInTheDocument()
     // The dialog stays open so the edit can be re-applied after a reload.
     expect(within(dialog).getByRole('button', { name: /save changes/i })).toBeVisible()
+    // Said once: an error toast never dismisses itself, so a copy would outlive the form.
+    expect(toastAlerts()).toHaveLength(0)
+  })
+
+  it('says any other refusal on the form too, with its reference', async () => {
+    const { user } = renderEditDialog({
+      [`PATCH /bom/${DRAFT_BOM.id}`]: fail(503, 'SERVICE_UNAVAILABLE', 'The service is busy.'),
+    })
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    expect(
+      await within(dialog).findByText('The service is busy. (reference test)'),
+    ).toBeInTheDocument()
+    expect(toastAlerts()).toHaveLength(0)
   })
 })

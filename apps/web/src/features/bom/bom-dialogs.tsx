@@ -816,16 +816,17 @@ export function BomEditDialog({
       onOpenChange(false)
     },
     onError: (error) => {
-      // The bill carries an optimistic lock: a second engineer saving first
-      // answers this save with a 409, which has no field behind it. It lands
-      // on the form's root slot (and the mutation toast) rather than vanishing
-      // into the field-error machinery, which only speaks 422.
-      if (error instanceof ApiError && error.status === 409) {
-        setError('root', { type: 'server', message: describeError(error) })
+      // A 422's field detail goes on its controls, and a model-level one on
+      // `root`. Every other refusal lands on `root` too - above all the 409
+      // from the bill's optimistic lock, when a second engineer saved first,
+      // which has no field behind it - so the form says each one, once.
+      if (error instanceof ApiError && Object.keys(error.fieldErrors).length > 0) {
+        applyFieldErrors(error, setError)
         return
       }
-      applyFieldErrors(error, setError)
+      setError('root', { type: 'server', message: describeError(error) })
     },
+    meta: { suppressErrorToast: true },
   })
 
   return (
