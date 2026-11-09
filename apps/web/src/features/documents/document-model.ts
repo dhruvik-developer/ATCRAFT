@@ -164,6 +164,13 @@ export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0
  */
 export const KNOWN_ENTITY_TYPES = ['qc_inspection', 'packing_order', 'report_snapshot'] as const
 
+/**
+ * The record type the dealer catalogue publishes from. Every JPEG, PNG or WebP
+ * filed against a sellable item is shown to every dealer, by this type alone
+ * (docs/assumptions.md §DOC-1), so filing one is publishing it.
+ */
+export const CATALOGUE_ENTITY_TYPE = 'item'
+
 // ----------------------------------------------------------- file types -----
 
 /**

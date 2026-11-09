@@ -82,6 +82,7 @@ import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import {
+  CATALOGUE_ENTITY_TYPE,
   DOCUMENT_CATEGORIES,
   ENTITY_TYPE_PATTERN,
   FILE_KINDS,
@@ -294,8 +295,13 @@ function UploadDialog({
         <DialogHeader>
           <DialogTitle>Upload a file</DialogTitle>
           <DialogDescription>
-            Stored against this company and downloadable only by someone signed in to it. The server
-            checks the content against the type it claims to be.
+            {/* Filing an image against an item publishes it to every dealer
+                (docs/assumptions.md §DOC-1), which "signed in" would not tell
+                the person doing it. */}
+            {entityType.trim().toLowerCase() === CATALOGUE_ENTITY_TYPE
+              ? 'Stored against this company. A JPEG, PNG or WebP image filed against a sellable item appears in the dealer catalogue, where every dealer can see and download it; any other file downloads only for someone signed in to this company.'
+              : 'Stored against this company and downloadable only by someone signed in to it.'}{' '}
+            The server checks the content against the type it claims to be.
           </DialogDescription>
         </DialogHeader>
 

@@ -45,6 +45,41 @@ function toastAlerts() {
   return within(screen.getByRole('region', { name: 'Notifications' })).queryAllByRole('alert')
 }
 
+describe('who can read what is uploaded', () => {
+  async function openUpload() {
+    const view = renderScreen(<DocumentsPage />, {
+      permissions: [P.DOCUMENT_VIEW, P.DOCUMENT_UPLOAD],
+      routes: { 'GET /documents': page([]) },
+    })
+    const openers = await screen.findAllByRole('button', { name: 'Upload a file' })
+    await view.user.click(openers[0] as HTMLElement)
+    return { ...view, dialog: await screen.findByRole('dialog') }
+  }
+
+  it('says a file is for signed-in accounts when it is filed against no item', async () => {
+    const { user, dialog } = await openUpload()
+    await user.type(within(dialog).getByLabelText('Attach to record type'), 'qc_inspection')
+
+    expect(dialog).toHaveAccessibleDescription(
+      /downloadable only by someone signed in to it\. The server checks the content/,
+    )
+    expect(within(dialog).queryByText(/dealer catalogue/)).not.toBeInTheDocument()
+  })
+
+  it('says an image filed against an item is published to every dealer', async () => {
+    // The dealer catalogue shows every JPEG, PNG or WebP filed against a
+    // sellable item to every dealer, by the record type alone (§DOC-1), so
+    // "only someone signed in" misled the person publishing it.
+    const { user, dialog } = await openUpload()
+    await user.type(within(dialog).getByLabelText('Attach to record type'), ' Item ')
+
+    expect(dialog).toHaveAccessibleDescription(
+      /appears in the dealer catalogue, where every dealer can see and download it/,
+    )
+    expect(within(dialog).queryByText(/downloadable only by someone/)).not.toBeInTheDocument()
+  })
+})
+
 describe('a refused upload', () => {
   it("shows the API's reason once, in the dialog", async () => {
     const dialog = await uploadRefusedWith(
