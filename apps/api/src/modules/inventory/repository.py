@@ -1529,6 +1529,24 @@ class StockBatchRepository(BaseRepository[StockBatch]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def lock_many(self, batch_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, StockBatch]:
+        """Lock several lots in one statement, in primary-key order, re-read under the lock.
+
+        One round trip whatever the count, and the fixed order means two
+        postings emptying overlapping lots queue rather than deadlock.
+        """
+        wanted = sorted(set(batch_ids))
+        if not wanted:
+            return {}
+        stmt = (
+            self._scoped()
+            .where(StockBatch.id.in_(wanted))
+            .order_by(StockBatch.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return {batch.id: batch for batch in (await self.session.execute(stmt)).scalars().all()}
+
     def build_list_stmt(
         self,
         *,

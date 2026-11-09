@@ -105,6 +105,7 @@ from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -1974,6 +1975,43 @@ async def test_every_dismissal_is_audited(ctx: Ctx) -> None:
         AuditLog.entity_id == suggestion.id,
     )
     assert (await ctx.session.execute(stmt)).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_a_bulk_dismissal_writes_its_audit_rows_in_one_statement(ctx: Ctx) -> None:
+    """One audit row per dismissal, and one round trip for all of them.
+
+    The suggestions are locked for the whole call, so a flush per row is a
+    per-row wait for a conversion queued behind the planner.
+    """
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "10")])
+    run = await run_plan(ctx)
+    found = [await suggestion_for(ctx, run.id, item) for item in (ctx.kit, ctx.screw, ctx.handle)]
+    first, *rest = [suggestion.id for suggestion in found if suggestion is not None]
+    assert len(rest) == 2
+
+    def audit_inserts(statements: list[str]) -> int:
+        return sum(
+            1 for text in statements if text.lstrip().upper().startswith("INSERT INTO AUDIT_LOGS")
+        )
+
+    with counted(ctx.session.bind) as one:
+        await service.bulk_ignore_suggestions(
+            ctx.session, ctx.tenant, BulkIgnoreRequest(suggestion_ids=[first], reason="Obsolete")
+        )
+    with counted(ctx.session.bind) as two:
+        result = await service.bulk_ignore_suggestions(
+            ctx.session, ctx.tenant, BulkIgnoreRequest(suggestion_ids=rest, reason="Obsolete")
+        )
+
+    assert result.ignored_ids == rest
+    assert audit_inserts(one) == audit_inserts(two) == 1
+    audited = select(func.count(AuditLog.id)).where(
+        AuditLog.company_id == ctx.tenant.company_id,
+        AuditLog.entity_type == "mrp_suggestion",
+        AuditLog.entity_id.in_([first, *rest]),
+    )
+    assert (await ctx.session.execute(audited)).scalar_one() == 3
 
 
 @pytest.mark.asyncio

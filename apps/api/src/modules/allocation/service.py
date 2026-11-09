@@ -2465,6 +2465,7 @@ async def expire_stale_reservations(
                         f"{reservation.demand_code or reservation.demand_id} ({reason})"
                     ),
                     context={"expires_at": reservation.expires_at, "release_reason": reason},
+                    flush=False,
                 )
                 # The lifecycle row every other reservation transition writes
                 # (release, consume, reallocation): an auditor filtering the log
@@ -2481,7 +2482,11 @@ async def expire_stale_reservations(
                     user_id=tenant.user_id,
                     action=AuditAction.RESERVATION_CHANGE,
                     reason=reason,
+                    flush=False,
                 )
+            # Both audit rows of every expiry go out in one flush, while the
+            # balance locks are still held, instead of two round trips each.
+            await session.flush()
 
     log.info(
         "allocation.reservations_expired",

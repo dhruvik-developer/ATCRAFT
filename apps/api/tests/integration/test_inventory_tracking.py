@@ -28,10 +28,12 @@ from sqlalchemy import select
 
 from src.core.clock import today
 from src.core.errors import BusinessRuleError
+from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import (
     BatchStatus,
     InventoryTransaction,
     SerialStatus,
+    StockSerial,
     TransactionType,
 )
 from src.modules.inventory.schemas import (
@@ -43,13 +45,16 @@ from src.modules.inventory.schemas import (
     StockTransferCreate,
 )
 from src.modules.inventory.service import (
+    MovementRequest,
     StockAdjustmentService,
     StockTransferService,
     TraceabilityService,
     get_balance,
     post_movement,
+    post_movements,
 )
 from tests.seed_support import seed_item, seed_warehouse
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -252,6 +257,66 @@ class TestBatchLifecycle:
         trace = TraceabilityService(session, tenant)
         assert (await trace.get_batch(sooner.id)).status is BatchStatus.CONSUMED
         assert (await trace.get_batch(later.id)).status is BatchStatus.ACTIVE
+
+    async def test_lots_emptied_together_are_locked_and_closed_in_one_pass(
+        self, session, tenant, engine, unique_code
+    ) -> None:
+        """Closing the lots a posting emptied is one locking read, not one per lot.
+
+        The posting still holds its balance locks while it closes them, so a
+        per-lot round trip there is a per-lot wait for every order queued behind
+        it. Both lots must still be closed, each with its own lifecycle row.
+        """
+        item = await seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=unique_code("LOTS"),
+            is_batch_tracked=True,
+        )
+        warehouse = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("WH")
+        )
+        lots = [await _lot(session, tenant, item, number=unique_code("LOT")) for _ in range(2)]
+        for lot in lots:
+            await _receive(session, tenant, item, warehouse, "2", batch_id=lot.id)
+
+        with counted(engine) as statements:
+            await post_movements(
+                session,
+                tenant,
+                [
+                    MovementRequest(
+                        item_id=item.id,
+                        warehouse_id=warehouse.id,
+                        quantity=Decimal("2"),
+                        transaction_type=TransactionType.MATERIAL_ISSUE,
+                        reference_type="test",
+                        reference_id=None,
+                        reference_code=None,
+                        reason="Use up both lots",
+                        batch_id=lot.id,
+                    )
+                    for lot in lots
+                ],
+            )
+
+        lot_locks = [
+            text for text in statements if "FROM stock_batches" in text and "FOR UPDATE" in text
+        ]
+        assert len(lot_locks) == 1, lot_locks
+        trace = TraceabilityService(session, tenant)
+        for lot in lots:
+            assert (await trace.get_batch(lot.id)).status is BatchStatus.CONSUMED
+        closed = (
+            await session.execute(
+                select(AuditLog.entity_id).where(
+                    AuditLog.company_id == tenant.company_id,
+                    AuditLog.entity_id.in_([lot.id for lot in lots]),
+                    AuditLog.summary.contains("CONSUMED"),
+                )
+            )
+        ).scalars()
+        assert sorted(closed) == sorted(lot.id for lot in lots)
 
     async def test_the_expiry_sweep_expires_the_past_and_warns_about_the_near(
         self, session, tenant, unique_code
@@ -558,6 +623,105 @@ class TestSerialMovement:
             )
         )
         assert draft.lines[0].serial_ids == [retired.id]
+
+
+class TestSerialRegistration:
+    async def test_a_document_may_mint_more_units_than_the_label_desk_takes(
+        self, session, tenant, unique_code
+    ) -> None:
+        """``MAX_SERIAL_BULK`` bounds the label desk's request, not a completion.
+
+        Production and assembly completions, goods receipts and job-work
+        receipts name their new units through ``resolve_serial_ids``. It used to
+        build the label desk's request model for them, so a 501-unit run - which
+        the completion's own schema allows - failed validation inside the
+        service: an unhandled error, a 500, and nothing telling the operator
+        what was wrong. A unit printed ahead of the goods is still adopted, and
+        the ids come back in the order the document named the labels.
+        """
+        item = await seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=unique_code("RUN"),
+            is_serial_tracked=True,
+        )
+        warehouse = await seed_warehouse(
+            session, company_id=tenant.company_id, code=unique_code("WH")
+        )
+        labels = [f"{item.code}-{index:04d}" for index in range(MAX_SERIAL_BULK + 1)]
+        trace = TraceabilityService(session, tenant)
+        [printed] = await trace.bulk_create_serials(
+            StockSerialBulkCreate(item_id=item.id, serial_numbers=[labels[7]])
+        )
+
+        ids = await trace.resolve_serial_ids(
+            item.id,
+            labels,
+            batch_id=None,
+            warehouse_id=warehouse.id,
+            location_id=None,
+            received_on=today(),
+            source="TEST/RUN",
+        )
+
+        assert len(set(ids)) == len(labels)
+        assert ids[7] == printed.id
+        named = dict(
+            (
+                await session.execute(
+                    select(StockSerial.id, StockSerial.serial_number).where(StockSerial.id.in_(ids))
+                )
+            ).all()
+        )
+        assert [named[serial_id] for serial_id in ids] == labels
+
+    async def test_a_label_run_writes_its_audit_rows_in_one_statement(
+        self, session, tenant, engine, unique_code
+    ) -> None:
+        """Every unit is audited, and the audit rows cost one round trip per run.
+
+        Receipts and completions mint their units through the same registration,
+        so a per-unit flush there was thousands of sequential inserts on one
+        large assembly.
+        """
+        item = await seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=unique_code("LBL"),
+            is_serial_tracked=True,
+        )
+        trace = TraceabilityService(session, tenant)
+
+        def audit_inserts(statements: list[str]) -> int:
+            return sum(
+                1
+                for text in statements
+                if text.lstrip().upper().startswith("INSERT INTO AUDIT_LOGS")
+            )
+
+        with counted(engine) as small:
+            await trace.bulk_create_serials(
+                StockSerialBulkCreate(
+                    item_id=item.id, serial_numbers=[unique_code("SN") for _ in range(3)]
+                )
+            )
+        with counted(engine) as large:
+            run = await trace.bulk_create_serials(
+                StockSerialBulkCreate(
+                    item_id=item.id, serial_numbers=[unique_code("SN") for _ in range(30)]
+                )
+            )
+
+        assert audit_inserts(small) == audit_inserts(large) == 1
+        audited = (
+            await session.execute(
+                select(AuditLog.entity_id).where(
+                    AuditLog.company_id == tenant.company_id,
+                    AuditLog.entity_id.in_([unit.id for unit in run]),
+                )
+            )
+        ).scalars()
+        assert sorted(audited) == sorted(unit.id for unit in run)
 
 
 def test_bulk_registration_is_bounded_and_normalises_labels() -> None:

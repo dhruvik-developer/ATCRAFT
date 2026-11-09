@@ -204,3 +204,47 @@ async def test_a_skipped_inconsistent_row_writes_no_lifecycle_entry(
     assert reservation.status is ReservationStatus.ACTIVE
     assert audit["status"] == []
     assert audit["audit"] == []
+
+
+async def test_a_sweep_flushes_its_audit_rows_once_however_many_expire(
+    monkeypatch: pytest.MonkeyPatch, audit: dict[str, list[dict[str, Any]]]
+) -> None:
+    """Both audit rows of every expiry are staged and flushed together.
+
+    The sweep holds up to a batch of balance locks while it writes them, so two
+    round trips per reservation were two waits per reservation for every live
+    order queued behind it.
+    """
+    tenant = _tenant()
+    grains = [
+        BalanceGrain(
+            item_id=uuid.uuid4(), warehouse_id=uuid.uuid4(), location_id=None, batch_id=None
+        )
+        for _ in range(3)
+    ]
+    reservations = [_reservation(tenant, grain) for grain in grains]
+    balances = {grain: _balance(tenant, grain, reserved=Decimal("10")) for grain in grains}
+
+    async def _due(self: Any, moment: datetime, *, limit: int) -> list[StockReservation]:
+        return reservations
+
+    async def _lock_reservations(
+        self: Any, ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, StockReservation]:
+        return {row.id: row for row in reservations if row.id in set(ids)}
+
+    async def _lock(self: Any, wanted: list[BalanceGrain]) -> dict[BalanceGrain, InventoryBalance]:
+        return {grain: balances[grain] for grain in wanted}
+
+    monkeypatch.setattr(StockReservationRepository, "due_for_expiry", _due)
+    monkeypatch.setattr(StockReservationRepository, "lock_reservations", _lock_reservations)
+    monkeypatch.setattr(MovementEngine, "lock", _lock)
+    session = _Session()
+
+    expired = await expire_stale_reservations(session, tenant, reason=REASON)
+
+    assert expired == [row.id for row in reservations]
+    assert len(audit["audit"]) == len(audit["status"]) == 3
+    assert {entry["flush"] for entry in audit["audit"] + audit["status"]} == {False}
+    # One flush for the reservation and balance changes, one for the audit rows.
+    assert session.flushes == 2

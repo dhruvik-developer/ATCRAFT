@@ -1702,8 +1702,12 @@ async def bulk_ignore_suggestions(
                 to_status=str(MrpSuggestionStatus.IGNORED),
                 user_id=tenant.user_id,
                 reason=payload.reason,
+                flush=False,
             )
             ignored.append(suggestion_id)
+        # One flush for every dismissal's audit row, inside the transaction so a
+        # constraint violation still surfaces in this operation.
+        await session.flush()
 
     log.info("mrp.suggestions_ignored", ignored=len(ignored), skipped=len(skipped))
     return BulkIgnoreResult(

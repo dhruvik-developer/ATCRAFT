@@ -2747,10 +2747,12 @@ class MovementEngine:
         if not batch_ids:
             return
         totals = await self.balances.batch_totals(batch_ids, scoped=False)
-        for batch_id, quantity in totals.items():
-            if quantity.owned != 0:
-                continue
-            batch = await self.batches.lock_for_update(batch_id)
+        emptied = sorted(batch_id for batch_id, quantity in totals.items() if quantity.owned == 0)
+        # One locking read for every emptied lot, in primary-key order, rather
+        # than one per lot while the posting's balance locks are held.
+        locked = await self.batches.lock_many(emptied)
+        for batch_id in emptied:
+            batch = locked.get(batch_id)
             if batch is None or BatchStatus(batch.status) is BatchStatus.CONSUMED:
                 continue
             previous = BatchStatus(batch.status)
@@ -2767,6 +2769,7 @@ class MovementEngine:
                 to_status=str(BatchStatus.CONSUMED),
                 user_id=self.tenant.user_id,
                 reason="Batch quantity reached zero.",
+                flush=False,
             )
         await self.session.flush()
 
@@ -4504,10 +4507,10 @@ class TraceabilityService:
     async def bulk_create_serials(self, payload: StockSerialBulkCreate) -> list[StockSerialRead]:
         """Register a label run in one transaction.
 
-        This is the only bulk entry point into the serial register, and it is
-        capped at :data:`MAX_SERIAL_BULK`. Anything larger belongs on the goods
-        receipt that actually brought the units in, where each serial is tied to
-        a purchase order line and a batch.
+        This is the only bulk endpoint into the serial register, and its request
+        is capped at :data:`MAX_SERIAL_BULK`. Anything larger belongs on the
+        goods receipt that actually brought the units in, where each serial is
+        tied to a purchase order line and a batch.
         """
         async with transaction(self.session):
             items = await self.inventory.item_facts([payload.item_id])
@@ -4519,51 +4522,88 @@ class TraceabilityService:
                     f"{item.code} is not serial tracked, so it has no serial numbers to record.",
                     details={"item_code": item.code, "item_id": str(item.id)},
                 )
-            await self._validate_serial_position(
-                item_id=payload.item_id,
+            serials = await self._register_serials(
+                item,
+                payload.serial_numbers,
                 batch_id=payload.batch_id,
                 warehouse_id=payload.warehouse_id,
                 location_id=payload.location_id,
+                received_on=payload.received_on,
+                unit_cost=payload.unit_cost,
+                notes=payload.notes,
             )
-            existing = await self.serials.by_numbers(payload.item_id, payload.serial_numbers)
-            if existing:
-                duplicate = next(iter(existing))
-                raise DuplicateError(
-                    f"Serial {duplicate} already exists for item {item.code}.",
-                    details={"serial_number": duplicate, "duplicates": sorted(existing)},
-                )
-            serials = [
-                StockSerial(
-                    item_id=payload.item_id,
-                    serial_number=serial_number,
-                    batch_id=payload.batch_id,
-                    warehouse_id=payload.warehouse_id,
-                    location_id=payload.location_id,
-                    received_on=payload.received_on or today(),
-                    unit_cost=payload.unit_cost,
-                    notes=payload.notes,
-                )
-                for serial_number in payload.serial_numbers
-            ]
-            for serial in serials:
-                self.serials.add(serial)
-            await self.session.flush()
-            for serial in serials:
-                await record_audit(
-                    self.session,
-                    company_id=self.tenant.company_id,
-                    action=AuditAction.CREATE,
-                    entity_type=AUDIT_ENTITY_SERIAL,
-                    entity_id=serial.id,
-                    entity_code=serial.serial_number,
-                    summary=f"Created serial {serial.serial_number} for {item.code}",
-                    user_id=self.tenant.user_id,
-                    new_values=snapshot(
-                        serial, ["item_id", "serial_number", "status", "unit_cost"]
-                    ),
-                )
-            await self.session.flush()
             return await self._serial_reads(serials)
+
+    async def _register_serials(
+        self,
+        item: ItemFacts,
+        serial_numbers: Sequence[str],
+        *,
+        batch_id: uuid.UUID | None,
+        warehouse_id: uuid.UUID | None,
+        location_id: uuid.UUID | None,
+        received_on: date | None,
+        unit_cost: Decimal,
+        notes: str | None = None,
+    ) -> list[StockSerial]:
+        """Write new units into the register: position checked, duplicates refused, audited.
+
+        Shared by the label desk's bulk registration and by
+        :meth:`resolve_serial_ids`, which mints the units a receipt or a
+        completion names. The labels arrive normalised. There is no count cap
+        here: :data:`MAX_SERIAL_BULK` belongs to the label desk's request model,
+        and a production run of 600 serialised units must register all 600 -
+        each document's own schema bounds how many units it may name. Building
+        that request model for a completion turned a 501-unit run into an
+        unhandled validation error and a 500.
+
+        The audit rows are staged and flushed once, after the units' own flush,
+        so a large run costs one round trip for them rather than one per unit.
+        """
+        await self._validate_serial_position(
+            item_id=item.id,
+            batch_id=batch_id,
+            warehouse_id=warehouse_id,
+            location_id=location_id,
+        )
+        existing = await self.serials.by_numbers(item.id, serial_numbers)
+        if existing:
+            duplicate = next(iter(existing))
+            raise DuplicateError(
+                f"Serial {duplicate} already exists for item {item.code}.",
+                details={"serial_number": duplicate, "duplicates": sorted(existing)},
+            )
+        serials = [
+            StockSerial(
+                item_id=item.id,
+                serial_number=serial_number,
+                batch_id=batch_id,
+                warehouse_id=warehouse_id,
+                location_id=location_id,
+                received_on=received_on or today(),
+                unit_cost=unit_cost,
+                notes=notes,
+            )
+            for serial_number in serial_numbers
+        ]
+        for serial in serials:
+            self.serials.add(serial)
+        await self.session.flush()
+        for serial in serials:
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_ENTITY_SERIAL,
+                entity_id=serial.id,
+                entity_code=serial.serial_number,
+                summary=f"Created serial {serial.serial_number} for {item.code}",
+                user_id=self.tenant.user_id,
+                new_values=snapshot(serial, ["item_id", "serial_number", "status", "unit_cost"]),
+                flush=False,
+            )
+        await self.session.flush()
+        return serials
 
     async def serial_labels_pdf(self, serial_ids: Sequence[uuid.UUID]) -> bytes:
         """Render registered serials the caller may see, in the order they were asked for."""
@@ -4642,24 +4682,21 @@ class TraceabilityService:
                             "batch_id": str(serial.batch_id) if serial.batch_id else None,
                         },
                     )
+        ids = {serial_number: serial.id for serial_number, serial in existing.items()}
         missing = [serial_number for serial_number in cleaned if serial_number not in existing]
         if missing:
-            await self.bulk_create_serials(
-                StockSerialBulkCreate(
-                    item_id=item_id,
-                    serial_numbers=missing,
+            async with transaction(self.session):
+                minted = await self._register_serials(
+                    item,
+                    missing,
                     batch_id=batch_id,
                     warehouse_id=warehouse_id,
                     location_id=location_id,
                     received_on=received_on,
                     unit_cost=unit_cost,
                 )
-            )
-        after = await self.serials.by_numbers(item_id, cleaned)
-        absent = [serial_number for serial_number in cleaned if serial_number not in after]
-        if absent:
-            raise NotFoundError("Stock serial", absent[0])
-        return [after[number].id for number in cleaned]
+            ids.update((serial.serial_number, serial.id) for serial in minted)
+        return [ids[number] for number in cleaned]
 
     async def _validate_serial_position(
         self,
