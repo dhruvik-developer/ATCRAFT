@@ -19,6 +19,7 @@ import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { downloadCsv } from '@/lib/csv'
 import { formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { success } from '@/lib/messages'
@@ -36,8 +37,13 @@ function today(): string {
   return toDateInput(new Date())
 }
 
-/** The ledger as a CSV download, straight from the rows on screen. */
-function downloadCsv(vendorCode: string, rows: VendorLedgerItemRow[]): void {
+/**
+ * The ledger as a CSV download, straight from the rows on screen.
+ *
+ * Through lib/csv, which neutralises a value that would run as a formula: an
+ * item code is free text, and one beginning with `=` is valid.
+ */
+function downloadLedgerCsv(vendorCode: string, rows: VendorLedgerItemRow[]): void {
   const header = [
     'item',
     'opening',
@@ -51,10 +57,9 @@ function downloadCsv(vendorCode: string, rows: VendorLedgerItemRow[]): void {
     'charges_billed',
     'vendor_debits',
   ]
-  const escape = (value: string): string =>
-    /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
-  const body = rows.map((row) =>
-    [
+  downloadCsv(`vendor-ledger-${vendorCode}.csv`, [
+    header,
+    ...rows.map((row) => [
       row.item_code || row.item_id,
       row.opening_quantity,
       row.issued_quantity,
@@ -66,19 +71,8 @@ function downloadCsv(vendorCode: string, rows: VendorLedgerItemRow[]): void {
       row.charges_accrued,
       row.charges_billed,
       row.vendor_debits,
-    ]
-      .map((value) => escape(String(value)))
-      .join(','),
-  )
-  const blob = new Blob([[header.join(','), ...body].join('\n')], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `vendor-ledger-${vendorCode}.csv`
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
+    ]),
+  ])
 }
 
 export default function JobWorkLedgerTab() {
@@ -225,7 +219,7 @@ export default function JobWorkLedgerTab() {
           size="sm"
           disabled={rows.length === 0}
           onClick={() => {
-            downloadCsv(vendor?.code ?? 'vendor', rows)
+            downloadLedgerCsv(vendor?.code ?? 'vendor', rows)
             toast.success(success.exported('Ledger'), `${rows.length} row(s) downloaded as CSV.`)
           }}
         >
