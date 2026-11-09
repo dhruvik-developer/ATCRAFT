@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import Select, case, delete, func, or_, select
@@ -25,6 +25,7 @@ from src.modules.dealer_portal.models import (
     DealerWishlistItem,
 )
 from src.modules.documents.models import Document
+from src.modules.documents.repository import document_not_expired
 from src.modules.inventory.models import InventoryBalance
 from src.modules.products.models import Brand, Item, ItemCategory, ItemVariant
 from src.modules.products.specification_repository import specification_predicates
@@ -451,9 +452,15 @@ class CatalogueRepository(BaseRepository[Item]):
         }
 
     async def primary_images(
-        self, item_ids: Sequence[uuid.UUID], *, limit_per_item: int
+        self, item_ids: Sequence[uuid.UUID], *, limit_per_item: int, now: datetime
     ) -> dict[uuid.UUID, list[uuid.UUID]]:
-        """Image document ids per item, oldest first, capped. One query."""
+        """Live image document ids per item, the chosen one first, capped. One query.
+
+        Only images ``/dealer-portal/images/{id}`` will serve: an image past its
+        retention date reads as absent there, so it is ranked out here - before
+        the cap - and the next live image takes its place, the item's chosen
+        primary image included.
+        """
         if not item_ids or limit_per_item < 1:
             return {}
         ranked = (
@@ -477,6 +484,7 @@ class CatalogueRepository(BaseRepository[Item]):
                 Document.entity_type == CATALOGUE_ENTITY,
                 Document.entity_id.in_(list(dict.fromkeys(item_ids))),
                 Document.mime_type.in_(IMAGE_MIME_TYPES),
+                document_not_expired(now),
             )
             .subquery()
         )

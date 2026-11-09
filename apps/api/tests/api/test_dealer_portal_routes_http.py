@@ -41,11 +41,11 @@ from typing import Any
 
 import pytest
 from httpx import Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers, UploadFile
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.modules.audit.models import AuditAction, AuditLog
@@ -62,7 +62,7 @@ from src.modules.dealer_portal.promotion_schemas import DealerBannerCreate, Deal
 from src.modules.dealer_portal.promotion_service import PromotionService
 from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.schemas import DispatchCreate, DispatchRequest, InTransitRequest
-from src.modules.documents.models import DocumentCategory
+from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.schemas import DocumentUploadRequest
 from src.modules.documents.service import DocumentService
 from src.modules.finance import credit_note_service, sales_invoice_service
@@ -1621,6 +1621,48 @@ async def test_the_image_route_serves_only_images_the_dealer_may_see(
     live = await api_client.get(f"/dealer-portal/images/{promo}")
     assert live.status_code == 200, live.text
     assert live.content == banner_png
+
+
+async def test_an_image_past_its_retention_date_is_neither_listed_nor_served(
+    api_client, session, tenant, shop, storage
+):
+    # Between an image's retention date and the purge sweep the row is still
+    # there, and the image route already answers 404 for it. The catalogue kept
+    # listing the id, so the dealer saw a broken image - in the list as well,
+    # when the lapsed file was the item's chosen primary image.
+    front = await stored(
+        session, tenant, PNG, "image/png", "front.png", entity_type="item", entity_id=shop.item_id
+    )
+    lapsed = await stored(
+        session,
+        tenant,
+        PNG + b"last season",
+        "image/png",
+        "old.png",
+        entity_type="item",
+        entity_id=shop.item_id,
+    )
+    await products_service.set_item_image(session, tenant, shop.item_id, lapsed)
+    await session.execute(
+        update(Document)
+        .where(Document.id == lapsed)
+        .values(expires_at=utcnow() - timedelta(minutes=1))
+    )
+    sign_in(shop.dealer)
+
+    detail = ok(await api_client.get(f"/dealer-portal/catalog/items/{shop.item_id}"))
+    assert detail["image_ids"] == [str(front)]
+    assert detail["primary_image_id"] == str(front)
+    page = ok(
+        await api_client.get("/dealer-portal/catalog/items", params={"search": shop.item_code})
+    )
+    assert [row["primary_image_id"] for row in page if row["id"] == str(shop.item_id)] == [
+        str(front)
+    ]
+    refused(await api_client.get(f"/dealer-portal/images/{lapsed}"), 404, "NOT_FOUND")
+    served = await api_client.get(f"/dealer-portal/images/{front}")
+    assert served.status_code == 200, served.text
+    assert served.content == PNG
 
 
 # -----------------------------------------------------------------------------

@@ -21,7 +21,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
@@ -428,7 +428,7 @@ class DealerPortalService:
         wishlist = await self.wishlist_repo.ids_for_user()
         wishlist_items = {item_id for item_id, _ in wishlist}
         cart = await self.cart_line_repo.quantities_for_user()
-        images = await self.catalog.primary_images(item_ids, limit_per_item=1)
+        images = await self.catalog.primary_images(item_ids, limit_per_item=1, now=utcnow())
 
         items: list[DealerCatalogItem] = []
         for row in rows:
@@ -481,7 +481,9 @@ class DealerPortalService:
         available = await self.catalog.available_by_item([item.id])
         wishlist = await self.wishlist_repo.ids_for_user()
         cart = await self.cart_line_repo.quantities_for_user()
-        images = await self.catalog.primary_images([item.id], limit_per_item=CATALOGUE_MAX_IMAGES)
+        images = await self.catalog.primary_images(
+            [item.id], limit_per_item=CATALOGUE_MAX_IMAGES, now=utcnow()
+        )
 
         price = self._channel_price(item, rows, CATALOGUE_PRICE_QUANTITY, context.price_type)
         offers = self._matching_offers(context, item, CATALOGUE_PRICE_QUANTITY)

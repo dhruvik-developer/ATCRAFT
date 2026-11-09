@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select
+from sqlalchemy import ColumnElement, Select, or_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.document_access import document_read_predicates
@@ -33,6 +33,17 @@ from src.modules.documents.schemas import DocumentFilters
 #: whole backlog in a single transaction would hold row locks and an open
 #: transaction for as long as the unlinks take.
 MAX_PURGE_BATCH = 500
+
+
+def document_not_expired(now: datetime) -> ColumnElement[bool]:
+    """The expiry half of a live document: no retention date, or one still ahead.
+
+    The one statement of the rule. Every read here applies it, and so must a
+    query in another module that names document ids for a client to fetch - the
+    dealer catalogue's item images - or it lists a file the download answers
+    404 for, between the retention date passing and the purge sweep removing it.
+    """
+    return or_(Document.expires_at.is_(None), Document.expires_at > now)
 
 
 class DocumentRepository(BaseRepository[Document]):
@@ -67,7 +78,7 @@ class DocumentRepository(BaseRepository[Document]):
     # --- reads --------------------------------------------------------------
 
     def _not_expired(self, stmt: Select[Any], now: datetime) -> Select[Any]:
-        return stmt.where((Document.expires_at.is_(None)) | (Document.expires_at > now))
+        return stmt.where(document_not_expired(now))
 
     async def get_live(
         self, document_id: uuid.UUID, now: datetime, *, principal: Principal | None = None
@@ -147,4 +158,4 @@ class DocumentRepository(BaseRepository[Document]):
         return list((await self.session.execute(stmt)).scalars().unique().all())
 
 
-__all__ = ["MAX_PURGE_BATCH", "DocumentRepository"]
+__all__ = ["MAX_PURGE_BATCH", "DocumentRepository", "document_not_expired"]
