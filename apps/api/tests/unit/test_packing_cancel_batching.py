@@ -64,6 +64,7 @@ class TestCancelOrder:
             "bulk_delete": [],
             "released": [],
             "transitions": [],
+            "claims_released": [],
         }
 
         async def _lock_order(repo: Any, order_id: uuid.UUID) -> Any:
@@ -103,6 +104,15 @@ class TestCancelOrder:
             assert order_id == order.id
             assert kwargs["reason"] == "Customer withdrew the order"
 
+        class _Assembly:
+            """The assembly hand-over seam: records the claims given back."""
+
+            async def release_claims(
+                self, session: Any, tenant: Any, packing_order_id: uuid.UUID, *, reason: str
+            ) -> None:
+                calls["claims_released"].append((packing_order_id, reason))
+
+        monkeypatch.setattr(packing_service, "resolve_assembly_port", _Assembly)
         monkeypatch.setattr(packing_service, "_lock_order", _lock_order)
         monkeypatch.setattr(packing_service, "_apply_packed_quantities", _apply)
         monkeypatch.setattr(packing_service, "_transition", _transition)
@@ -130,6 +140,10 @@ class TestCancelOrder:
         # The lines still get back everything the cartons held.
         assert calls["released"] == [{LINE_A: Decimal("5"), LINE_B: Decimal("1")}]
         assert calls["transitions"] == [(PackingOrderStatus.CANCELLED, AuditAction.CANCEL)]
+        # Any assembly the order had claimed is given back in the same call.
+        assert calls["claims_released"] == [
+            (order.id, "Packing order PK/2026-27/00003 cancelled: Customer withdrew the order")
+        ]
 
 
 class _Capture:
