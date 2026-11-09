@@ -524,6 +524,15 @@ Constraint violations and transient PostgreSQL failures are translated into
 safe business or retryable errors by `exception_handlers.py`; unexpected errors
 are logged with their context and receive the shared generic response.
 
+Free text the key-based redaction cannot see into stays out of the log as well.
+The engine is built with `hide_parameters` (`HIDE_STATEMENT_PARAMETERS` in
+`core/database.py`), so a failed statement's text - in every traceback, the
+worker's `task.failed` line and the error tracker - keeps its SQL and drops the
+values it bound. A refusal (an `AppError` below 500) is logged by code, status
+and path, not by its sentence, which names what the person typed: an address, a
+PAN, a GSTIN. A constraint violation is logged by the constraint, table and
+column the server named, not by the driver's `DETAIL`, which quotes the row.
+
 Incoming request IDs are accepted only when they are at most 64 ASCII
 alphanumeric, hyphen, underscore or dot characters; otherwise the server
 generates an ID. Client IP candidates must parse as an IP address before they

@@ -52,6 +52,15 @@ def affected_rows(result: object) -> int:
 # -----------------------------------------------------------------------------
 
 
+#: Whether a statement's bound values are kept out of its error text. On:
+#: ``str()`` of a failed statement otherwise ends ``[parameters: ('person@
+#: example.com', ...)]``, and that text reaches every traceback, the worker's
+#: ``task.failed`` line and the error tracker - the names, addresses, phone
+#: numbers, GSTINs and amounts a failing write was carrying. The SQL stays,
+#: which is what diagnoses the fault; ``DB_ECHO`` logs no values either.
+HIDE_STATEMENT_PARAMETERS = True
+
+
 def _create_engine() -> AsyncEngine:
     # Tests run against a single connection so a transaction can wrap the whole
     # test; production uses a bounded QueuePool.
@@ -59,6 +68,7 @@ def _create_engine() -> AsyncEngine:
         return create_async_engine(
             settings.database_url,
             echo=settings.db_echo,
+            hide_parameters=HIDE_STATEMENT_PARAMETERS,
             poolclass=NullPool,
             future=True,
         )
@@ -66,6 +76,7 @@ def _create_engine() -> AsyncEngine:
     return create_async_engine(
         settings.database_url,
         echo=settings.db_echo,
+        hide_parameters=HIDE_STATEMENT_PARAMETERS,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout,

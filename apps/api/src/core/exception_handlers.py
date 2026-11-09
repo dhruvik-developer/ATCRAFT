@@ -53,14 +53,23 @@ def _payload(
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    """Deliberate, expected failures. Logged at info/warning, never as errors."""
-    log_method = log.warning if exc.status_code >= 500 else log.info
+    """Deliberate, expected failures. Logged at info/warning, never as errors.
+
+    A refusal's sentence is not logged: it is written for the person who made
+    the request, who receives it, and it names what they typed - "An account
+    with the address priya@example.com already exists", a PAN, a GSTIN - which
+    the key-based redaction cannot see inside free text. The code, status and
+    path say which rule refused, and the request id ties the line to the
+    response. A server-side failure keeps its sentence: it was written for us.
+    """
+    is_server_error = exc.status_code >= 500
+    log_method = log.warning if is_server_error else log.info
     log_method(
         "error.application",
         code=str(exc.code),
         status=exc.status_code,
         path=request.url.path,
-        detail=exc.message,
+        **({"detail": exc.message} if is_server_error else {}),
     )
     headers = {}
     if exc.status_code == 429:
@@ -161,6 +170,25 @@ def _sqlstate(exc: BaseException) -> str | None:
     return None
 
 
+def _schema_name(exc: BaseException, field: str) -> str | None:
+    """A schema identifier the server reported with the error - never a value.
+
+    PostgreSQL names the constraint, table and column a violation hit as
+    separate fields: asyncpg exposes them on its error, which SQLAlchemy's
+    adapted error keeps as ``__cause__``; psycopg exposes them on ``diag``.
+    """
+    original = getattr(exc, "orig", None)
+    for candidate in (original, getattr(original, "__cause__", None)):
+        if candidate is None:
+            continue
+        value = getattr(candidate, field, None) or getattr(
+            getattr(candidate, "diag", None), field, None
+        )
+        if value:
+            return str(value)
+    return None
+
+
 def _foreign_key_outcome(lowered: str) -> tuple[ErrorCode, str, int]:
     """PostgreSQL raises two different FK violations under one SQLSTATE.
 
@@ -210,11 +238,20 @@ def classify_integrity_error(exc: BaseException) -> tuple[ErrorCode, str, int]:
 async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
     """Database constraint violations, translated without leaking schema detail.
 
-    The driver message names tables, columns and constraints. It goes to the log;
-    the client gets a generic sentence keyed to the class of violation.
+    The log gets the constraint, table and column the server named; the client
+    gets a generic sentence keyed to the class of violation. Not the driver's
+    message: its ``DETAIL`` quotes the row - ``Key (company_id, email)=(...,
+    priya@example.com) already exists`` - and the identifiers are what say which
+    rule was broken.
     """
-    raw = str(getattr(exc, "orig", exc))
-    log.warning("error.integrity", path=request.url.path, sqlstate=_sqlstate(exc), detail=raw[:500])
+    log.warning(
+        "error.integrity",
+        path=request.url.path,
+        sqlstate=_sqlstate(exc),
+        constraint=_schema_name(exc, "constraint_name"),
+        table=_schema_name(exc, "table_name"),
+        column=_schema_name(exc, "column_name"),
+    )
 
     code, message, status = classify_integrity_error(exc)
     return JSONResponse(status_code=status, content=_payload(request, code, message))

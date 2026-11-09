@@ -15,8 +15,9 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import IntegrityError
 
-from src.core.errors import ErrorCode
+from src.core.errors import AppError, DuplicateError, ErrorCode
 from src.core.exception_handlers import (
+    app_error_handler,
     classify_integrity_error,
     integrity_error_handler,
     validation_error_handler,
@@ -184,6 +185,68 @@ async def test_the_client_never_sees_the_driver_message() -> None:
     text = response.body.decode()
     assert "item_vendor_links" not in text
     assert "constraint" not in text
+
+
+class _UniqueViolationError(Exception):
+    """asyncpg's error as SQLAlchemy keeps it under its adapted one: the message
+    quotes the row in its DETAIL, and the server's field names sit beside it."""
+
+    sqlstate = "23505"
+    constraint_name = "uq_users_company_id_email"
+    table_name = "users"
+    column_name = None
+
+    def __str__(self) -> str:
+        return (
+            'duplicate key value violates unique constraint "uq_users_company_id_email"\n'
+            "DETAIL:  Key (company_id, email)=(0190, priya@example.com) already exists."
+        )
+
+
+async def test_the_integrity_log_names_the_rule_and_never_the_row(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cause = _UniqueViolationError()
+    adapted = _DriverError(f"<class 'UniqueViolationError'>: {cause}", "23505")
+    adapted.__cause__ = cause
+
+    response = await integrity_error_handler(_request(), IntegrityError("INSERT ...", {}, adapted))
+
+    assert response.status_code == 409
+    out = capsys.readouterr().out
+    assert "error.integrity" in out
+    assert "uq_users_company_id_email" in out
+    assert "users" in out
+    assert "23505" in out
+    assert "priya@example.com" not in out
+    assert "DETAIL" not in out
+
+
+async def test_a_refusals_sentence_is_not_logged(capsys: pytest.CaptureFixture[str]) -> None:
+    """It is written for the person who typed it - and names what they typed."""
+    await app_error_handler(
+        _request(),
+        DuplicateError("An account with the address priya@example.com already exists."),
+    )
+
+    out = capsys.readouterr().out
+    assert "error.application" in out
+    assert str(ErrorCode.DUPLICATE_DOCUMENT) in out
+    assert "/api/v1/products/items/1" in out
+    assert "priya@example.com" not in out
+
+
+async def test_a_server_failures_sentence_is_logged(capsys: pytest.CaptureFixture[str]) -> None:
+    await app_error_handler(
+        _request(),
+        AppError(
+            "The report could not be queued for background generation.",
+            code=ErrorCode.SERVICE_UNAVAILABLE,
+            status_code=503,
+        ),
+    )
+
+    assert "could not be queued for background generation" in capsys.readouterr().out
 
 
 # -----------------------------------------------------------------------------
