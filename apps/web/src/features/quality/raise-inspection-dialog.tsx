@@ -48,7 +48,7 @@ import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { humanise } from '@/lib/format'
+import { humanise, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -227,7 +227,10 @@ export function RaiseInspectionDialog({
 
         <form
           onSubmit={handleSubmit((values) => {
-            if (serialTracked && values.serial_ids.length !== Number(values.inspected_quantity)) {
+            if (
+              serialTracked &&
+              !toDecimal(values.inspected_quantity).equals(values.serial_ids.length)
+            ) {
               setError('serial_ids', { message: 'Select one serial unit for each inspected unit.' })
               return
             }

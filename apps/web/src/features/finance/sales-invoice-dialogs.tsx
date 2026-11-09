@@ -18,7 +18,7 @@ import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
+import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
 import { describeError, salesInvoiceMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -161,13 +161,16 @@ function CreditNoteDialog({
         </DialogHeader>
         <DialogBody className="space-y-4">
           {invoice.lines.map((line) => {
-            const remaining = Number(line.quantity) - Number(line.credited_quantity)
+            // Decimal, not Number: 10.3 - 10.1 in floating point is 0.20000000000000107.
+            const remaining = toDecimal(line.quantity)
+              .minus(toDecimal(line.credited_quantity))
+              .toFixed()
             return (
               <div key={line.id} className="grid gap-2 sm:grid-cols-[1fr_10rem]">
                 <div>
                   <p className="font-medium">{line.description}</p>
                   <p className="text-sm text-muted-foreground">
-                    Remaining: {remaining} {line.uom_code}
+                    Remaining: {formatQuantity(remaining, line.uom_code)}
                   </p>
                 </div>
                 <Input

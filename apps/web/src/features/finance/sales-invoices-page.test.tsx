@@ -237,6 +237,23 @@ describe('sales invoices', () => {
       vi.unstubAllEnvs()
     }
   })
+  it('states the quantity left to credit exactly, with its unit', async () => {
+    // 10.3 - 10.1 is 0.20000000000000107 in floating point.
+    const partlyCredited = invoice({
+      lines: [{ ...preview.lines[0]!, quantity: '10.3000', credited_quantity: '10.1000' }],
+    })
+    const { user } = renderScreen(<SalesInvoiceDetailDialog invoiceId={ID} onClose={() => {}} />, {
+      permissions: [P.SALES_INVOICE_VIEW, P.CREDIT_NOTE_CREATE],
+      routes: { [`GET /finance/sales-invoices/${ID}`]: ok(partlyCredited) },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Issue credit note' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Issue credit note' })
+    expect(within(dialog).getByText('Remaining: 0.2 NOS')).toBeVisible()
+    expect(within(dialog).getByRole('spinbutton', { name: /credit quantity/i })).toHaveAttribute(
+      'max',
+      '0.2',
+    )
+  })
   it('sends an audited cancellation reason when allowed', async () => {
     const { user, fetch } = renderScreen(
       <SalesInvoiceDetailDialog invoiceId={ID} onClose={() => {}} />,

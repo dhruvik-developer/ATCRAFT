@@ -28,6 +28,16 @@ const utcDateSlice = {
     'A slice of toISOString() is the UTC date or time, not the local one. Use toDateInput / toDateTimeInput from lib/format.ts (today is toDateInput(new Date())), or its date-only helpers for calendar arithmetic.',
 }
 
+const decimalThroughNumber = {
+  // API quantities and money are decimal strings computed with decimal.js
+  // (lib/format.ts). Number() on one is a float: a credit note printed its
+  // remaining quantity, 10.3 less 10.1, as 0.20000000000000107.
+  selector:
+    'CallExpression[callee.name=/^(Number|parseFloat)$/] > MemberExpression[property.name=/(quantity|amount|price|total|rate)$/]',
+  message:
+    'An API decimal is a string for decimal.js: use toDecimal(...) from lib/format.ts to compute or compare it, and formatQuantity / formatMoney to show it.',
+}
+
 export default tseslint.config(
   { ignores: ['dist', 'node_modules', 'coverage'] },
   {
@@ -72,12 +82,18 @@ export default tseslint.config(
       // it guards silently does nothing. Confirm with ConfirmDialog, and collect
       // an audit reason with ReasonDialog (components/shared.tsx).
       'no-alert': 'error',
-      'no-restricted-syntax': ['error', destructiveButtonClassName, utcDateSlice],
+      'no-restricted-syntax': [
+        'error',
+        destructiveButtonClassName,
+        utcDateSlice,
+        decimalThroughNumber,
+      ],
     },
   },
   {
-    // The one home of date conversion, including the calendar arithmetic that
-    // is UTC on purpose because it involves no instant.
+    // The one home of value conversion: the calendar arithmetic that is UTC on
+    // purpose because it involves no instant, and the final Number() a
+    // formatter takes once all decimal arithmetic is done.
     files: ['src/lib/format.ts'],
     rules: {
       'no-restricted-syntax': ['error', destructiveButtonClassName],

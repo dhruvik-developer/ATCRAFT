@@ -145,7 +145,7 @@ function LinesCard({ order }: { order: JobWorkOrderDetail }) {
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
-          Number(row.original.rejected_quantity) > 0 ? (
+          toDecimal(row.original.rejected_quantity).greaterThan(0) ? (
             <span className="tabular font-medium text-destructive">
               {formatQuantity(row.original.rejected_quantity)}
             </span>
@@ -159,7 +159,7 @@ function LinesCard({ order }: { order: JobWorkOrderDetail }) {
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
-          Number(row.original.scrap_quantity) > 0 ? (
+          toDecimal(row.original.scrap_quantity).greaterThan(0) ? (
             <span className="tabular">{formatQuantity(row.original.scrap_quantity)}</span>
           ) : (
             <span className="text-muted-foreground">-</span>
@@ -245,7 +245,7 @@ function ReconciliationCard({
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
-          Number(row.original.outstanding_quantity) > 0 ? (
+          toDecimal(row.original.outstanding_quantity).greaterThan(0) ? (
             <span className="tabular font-medium">
               {formatQuantity(row.original.outstanding_quantity)}
             </span>
@@ -271,7 +271,7 @@ function ReconciliationCard({
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
-          Number(row.original.excess_loss_quantity) > 0 ? (
+          toDecimal(row.original.excess_loss_quantity).greaterThan(0) ? (
             <span className="tabular font-medium text-destructive">
               {formatQuantity(row.original.excess_loss_quantity)}
             </span>
@@ -373,7 +373,7 @@ function ReceiptsCard({
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
-          Number(row.original.total_rejected_quantity) > 0 ? (
+          toDecimal(row.original.total_rejected_quantity).greaterThan(0) ? (
             <span className="tabular font-medium text-destructive">
               {formatQuantity(row.original.total_rejected_quantity)}
             </span>
@@ -405,13 +405,16 @@ function ReceiptsCard({
         cell: ({ row }) => {
           const rejectedLines = (row.original.lines ?? []).filter(
             (line) =>
-              Number(line.rejected_quantity) > 0 && line.rejection_action === 'RETURN_TO_STOCK',
+              toDecimal(line.rejected_quantity).greaterThan(0) &&
+              line.rejection_action === 'RETURN_TO_STOCK',
           )
           // Rework the worst line first: the prefill names one line's output,
           // and the planner adjusts from there.
           const worst = rejectedLines
             .slice()
-            .sort((a, b) => Number(b.rejected_quantity) - Number(a.rejected_quantity))[0]
+            .sort((a, b) =>
+              toDecimal(b.rejected_quantity).comparedTo(toDecimal(a.rejected_quantity)),
+            )[0]
           if (!canRework || !worst) return <span className="text-muted-foreground">-</span>
           return (
             <Button

@@ -128,4 +128,35 @@ describe('the lint rules that replace review comments', () => {
       'no-restricted-syntax',
     ])
   })
+
+  it('refuses Number() or parseFloat() over an API decimal', async () => {
+    const fired = await rulesFiredBy(
+      [
+        'type Line = { quantity: string; credited_quantity: string; unit_price: string }',
+        'export function remaining(line: Line): number {',
+        '  return Number(line.quantity) - Number(line.credited_quantity) + parseFloat(line.unit_price)',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired.filter((rule) => rule === 'no-restricted-syntax')).toHaveLength(3)
+  })
+
+  it('accepts decimal arithmetic, and Number() over a plain count', async () => {
+    const fired = await rulesFiredBy(
+      [
+        "import { toDecimal } from '@/lib/format'",
+        '',
+        'type Line = { quantity: string; credited_quantity: string; packages: string }',
+        'export function remaining(line: Line) {',
+        '  const left = toDecimal(line.quantity).minus(toDecimal(line.credited_quantity))',
+        '  return [left.toFixed(), Number(line.packages)]',
+        '}',
+        '',
+      ].join('\n'),
+    )
+
+    expect(fired).toEqual([])
+  })
 })
