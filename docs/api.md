@@ -284,10 +284,13 @@ timeouts return **409**.
 Paths use lowercase words separated by hyphens, with plural resource names
 where appropriate. Path and query parameter names and JSON fields use
 `snake_case`. Existing action paths (such as `/approve`) describe explicit
-business transitions. Every operation has a summary, tag and unique operation
-ID in OpenAPI. HTTP 201 identifies creation, 200 identifies reads and completed
-actions, and 202 identifies queued work; successful updates and removals that
-return an envelope use 200.
+business transitions. Every operation has a tag, a unique operation ID and a
+summary of its own in OpenAPI - written in the route, never FastAPI's title of
+the function name, and no two alike, because the summary is what Swagger and
+the Postman collection name the request by
+(`tests/unit/test_http_route_conventions.py`). HTTP 201 identifies creation,
+200 identifies reads and completed actions, and 202 identifies queued work;
+successful updates and removals that return an envelope use 200.
 
 ## Message conventions
 

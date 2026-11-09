@@ -70,6 +70,7 @@ PageDep = Annotated[PageParams, Depends(page_params)]
         require_permission(Permission.SETTINGS_VIEW),
         Depends(forbid_vendor_users),
     ],
+    summary="List courier accounts",
 )
 async def list_accounts(
     session: DbSession, tenant: Tenant, params: PageDep
@@ -86,6 +87,7 @@ async def list_accounts(
         require_permission(Permission.SETTINGS_MANAGE),
         Depends(forbid_vendor_users),
     ],
+    summary="Connect a courier account",
 )
 async def create_account(
     payload: CourierAccountCreate, session: DbSession, tenant: Tenant
@@ -103,6 +105,7 @@ async def create_account(
         require_permission(Permission.SETTINGS_MANAGE),
         Depends(forbid_vendor_users),
     ],
+    summary="Edit or deactivate a courier account",
 )
 async def update_account(
     account_id: uuid.UUID,
@@ -123,6 +126,7 @@ async def update_account(
         require_permission(Permission.SETTINGS_MANAGE),
         Depends(forbid_vendor_users),
     ],
+    summary="Reset a courier account's webhook secret",
 )
 async def rotate_webhook(
     account_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -145,6 +149,7 @@ async def rotate_webhook(
         require_permission(Permission.SETTINGS_MANAGE),
         Depends(forbid_vendor_users),
     ],
+    summary="Test a courier account's connection",
 )
 async def test_connection(
     account_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -163,6 +168,7 @@ async def test_connection(
         require_permission(Permission.DISPATCH_UPDATE),
         Depends(forbid_vendor_users),
     ],
+    summary="Pull the latest courier tracking now",
 )
 async def refresh_tracking(
     payload: CourierRefreshRequest, session: DbSession, tenant: Tenant
@@ -183,6 +189,7 @@ async def refresh_tracking(
         require_permission(Permission.DISPATCH_VIEW),
         Depends(forbid_vendor_users),
     ],
+    summary="List received courier tracking events",
 )
 async def list_events(
     session: DbSession,
@@ -210,6 +217,7 @@ async def list_events(
     response_model=ApiResponse[dict[str, int]],
     status_code=status.HTTP_202_ACCEPTED,
     include_in_schema=True,
+    summary="Receive a signed courier tracking webhook",
 )
 async def courier_webhook(
     token: str, request: Request, session: DbSession

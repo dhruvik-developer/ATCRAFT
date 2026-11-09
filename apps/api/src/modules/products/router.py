@@ -931,6 +931,7 @@ async def unlink_vendor(
     "/items/{item_id}/image",
     response_model=ApiResponse[ItemImageUpdate],
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
+    summary="Set or clear an item's primary image",
 )
 async def set_item_image(
     item_id: uuid.UUID, payload: ItemImageUpdate, session: DbSession, tenant: Tenant

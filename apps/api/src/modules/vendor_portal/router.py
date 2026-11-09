@@ -566,7 +566,7 @@ async def rating(session: DbSession, tenant: Tenant) -> ApiResponse[VendorRating
     "/purchase-orders/{order_id}/pdf",
     response_model=AcceptedJobResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Generate the purchase order PDF",
+    summary="Generate the PDF of a purchase order placed with this vendor",
     description="Queued; poll the portal job route it returns, then follow its download_url.",
     dependencies=[
         require_permission(Permission.VENDOR_PORTAL_ACCESS),

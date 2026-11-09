@@ -1593,7 +1593,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Banners */
+        /** Banners live for this dealer */
         get: operations["banners_api_v1_dealer_portal_banners_get"];
         put?: never;
         post?: never;
@@ -1751,7 +1751,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Catalogue Specification Filters */
+        /** Specifications the dealer catalogue can filter by */
         get: operations["catalogue_specification_filters_api_v1_dealer_portal_catalog_specifications_get"];
         put?: never;
         post?: never;
@@ -1788,7 +1788,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Credit Notes */
+        /** List the dealer's credit notes */
         get: operations["list_credit_notes_api_v1_dealer_portal_credit_notes_get"];
         put?: never;
         post?: never;
@@ -1805,7 +1805,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Credit Note */
+        /** One of the dealer's credit notes */
         get: operations["get_credit_note_api_v1_dealer_portal_credit_notes__note_id__get"];
         put?: never;
         post?: never;
@@ -1824,7 +1824,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Credit Note Pdf */
+        /** Queue the PDF of one of the dealer's credit notes */
         post: operations["credit_note_pdf_api_v1_dealer_portal_credit_notes__note_id__pdf_post"];
         delete?: never;
         options?: never;
@@ -1859,7 +1859,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download */
+        /** Download one of the dealer's PDFs */
         get: operations["download_api_v1_dealer_portal_documents__document_id__download_get"];
         put?: never;
         post?: never;
@@ -1876,7 +1876,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Image */
+        /** A product or promotion image the dealer may see */
         get: operations["image_api_v1_dealer_portal_images__document_id__get"];
         put?: never;
         post?: never;
@@ -1893,7 +1893,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Invoices */
+        /** List the dealer's invoices */
         get: operations["list_invoices_api_v1_dealer_portal_invoices_get"];
         put?: never;
         post?: never;
@@ -1910,7 +1910,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Invoice */
+        /** One of the dealer's invoices */
         get: operations["get_invoice_api_v1_dealer_portal_invoices__invoice_id__get"];
         put?: never;
         post?: never;
@@ -1929,7 +1929,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Invoice Pdf */
+        /** Queue the PDF of one of the dealer's invoices */
         post: operations["invoice_pdf_api_v1_dealer_portal_invoices__invoice_id__pdf_post"];
         delete?: never;
         options?: never;
@@ -1944,7 +1944,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Job */
+        /** Status of one of the dealer's PDF jobs */
         get: operations["get_job_api_v1_dealer_portal_jobs__job_id__get"];
         put?: never;
         post?: never;
@@ -1978,7 +1978,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Offers */
+        /** Offers live for this dealer */
         get: operations["offers_api_v1_dealer_portal_offers_get"];
         put?: never;
         post?: never;
@@ -2080,10 +2080,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Returns */
+        /** List the dealer's return requests */
         get: operations["list_returns_api_v1_dealer_portal_returns_get"];
         put?: never;
-        /** Request Return */
+        /** Request a return from a delivered consignment */
         post: operations["request_return_api_v1_dealer_portal_returns_post"];
         delete?: never;
         options?: never;
@@ -2098,7 +2098,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Eligible Dispatches */
+        /** Consignments the dealer may still return goods from */
         get: operations["eligible_dispatches_api_v1_dealer_portal_returns_eligible_dispatches_get"];
         put?: never;
         post?: never;
@@ -2115,7 +2115,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Return */
+        /** One of the dealer's return requests */
         get: operations["get_return_api_v1_dealer_portal_returns__return_id__get"];
         put?: never;
         post?: never;
@@ -2528,10 +2528,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Credit Notes */
+        /** List credit notes */
         get: operations["list_credit_notes_api_v1_finance_credit_notes_get"];
         put?: never;
-        /** Create Credit Note */
+        /** Issue a credit note */
         post: operations["create_credit_note_api_v1_finance_credit_notes_post"];
         delete?: never;
         options?: never;
@@ -2546,7 +2546,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Credit Note */
+        /** One credit note with its lines */
         get: operations["get_credit_note_api_v1_finance_credit_notes__note_id__get"];
         put?: never;
         post?: never;
@@ -2565,7 +2565,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel Credit Note */
+        /** Cancel a credit note */
         post: operations["cancel_credit_note_api_v1_finance_credit_notes__note_id__cancel_post"];
         delete?: never;
         options?: never;
@@ -2582,7 +2582,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Credit Note Pdf */
+        /** Queue the credit note PDF */
         post: operations["credit_note_pdf_api_v1_finance_credit_notes__note_id__pdf_post"];
         delete?: never;
         options?: never;
@@ -3209,10 +3209,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Accounts */
+        /** List courier accounts */
         get: operations["list_accounts_api_v1_integrations_courier_accounts_get"];
         put?: never;
-        /** Create Account */
+        /** Connect a courier account */
         post: operations["create_account_api_v1_integrations_courier_accounts_post"];
         delete?: never;
         options?: never;
@@ -3233,7 +3233,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update Account */
+        /** Edit or deactivate a courier account */
         patch: operations["update_account_api_v1_integrations_courier_accounts__account_id__patch"];
         trace?: never;
     };
@@ -3246,7 +3246,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Rotate Webhook */
+        /** Reset a courier account's webhook secret */
         post: operations["rotate_webhook_api_v1_integrations_courier_accounts__account_id__rotate_webhook_post"];
         delete?: never;
         options?: never;
@@ -3263,7 +3263,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Test Connection */
+        /** Test a courier account's connection */
         post: operations["test_connection_api_v1_integrations_courier_accounts__account_id__test_post"];
         delete?: never;
         options?: never;
@@ -3278,7 +3278,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Events */
+        /** List received courier tracking events */
         get: operations["list_events_api_v1_integrations_courier_events_get"];
         put?: never;
         post?: never;
@@ -3297,7 +3297,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh Tracking */
+        /** Pull the latest courier tracking now */
         post: operations["refresh_tracking_api_v1_integrations_courier_refresh_post"];
         delete?: never;
         options?: never;
@@ -3314,7 +3314,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Courier Webhook */
+        /** Receive a signed courier tracking webhook */
         post: operations["courier_webhook_api_v1_integrations_courier_webhook__token__post"];
         delete?: never;
         options?: never;
@@ -4859,7 +4859,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Push Config */
+        /** Read the Web Push configuration */
         get: operations["push_config_api_v1_notifications_push_config_get"];
         put?: never;
         post?: never;
@@ -4876,10 +4876,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Subscriptions */
+        /** List this account's push devices */
         get: operations["list_subscriptions_api_v1_notifications_push_subscriptions_get"];
         put?: never;
-        /** Subscribe */
+        /** Subscribe this browser to push notifications */
         post: operations["subscribe_api_v1_notifications_push_subscriptions_post"];
         delete?: never;
         options?: never;
@@ -4896,7 +4896,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Unregister */
+        /** Unsubscribe a browser by its push endpoint */
         post: operations["unregister_api_v1_notifications_push_subscriptions_unregister_post"];
         delete?: never;
         options?: never;
@@ -4914,7 +4914,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Subscription */
+        /** Remove a push device */
         delete: operations["delete_subscription_api_v1_notifications_push_subscriptions__subscription_id__delete"];
         options?: never;
         head?: never;
@@ -4930,7 +4930,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Test Push */
+        /** Send a test push notification to this account's devices */
         post: operations["test_push_api_v1_notifications_push_test_post"];
         delete?: never;
         options?: never;
@@ -7323,9 +7323,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Category Specifications */
+        /** Get a category's specification template */
         get: operations["category_specifications_api_v1_products_categories__category_id__specifications_get"];
-        /** Replace Category Specifications */
+        /** Replace a category's specification template */
         put: operations["replace_category_specifications_api_v1_products_categories__category_id__specifications_put"];
         post?: never;
         delete?: never;
@@ -7344,11 +7344,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Accessory */
+        /** Remove an item accessory */
         delete: operations["delete_accessory_api_v1_products_item_accessories__accessory_id__delete"];
         options?: never;
         head?: never;
-        /** Update Accessory */
+        /** Update an item accessory */
         patch: operations["update_accessory_api_v1_products_item_accessories__accessory_id__patch"];
         trace?: never;
     };
@@ -7437,10 +7437,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Item Accessories */
+        /** List an item's accessories */
         get: operations["item_accessories_api_v1_products_items__item_id__accessories_get"];
         put?: never;
-        /** Create Accessory */
+        /** Add an accessory to an item */
         post: operations["create_accessory_api_v1_products_items__item_id__accessories_post"];
         delete?: never;
         options?: never;
@@ -7456,7 +7456,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Set Item Image */
+        /** Set or clear an item's primary image */
         put: operations["set_item_image_api_v1_products_items__item_id__image_put"];
         post?: never;
         delete?: never;
@@ -7510,7 +7510,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Item Attribute Options */
+        /** List the specification attributes an item may carry */
         get: operations["item_attribute_options_api_v1_products_items__item_id__specification_attributes_get"];
         put?: never;
         post?: never;
@@ -7527,9 +7527,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Item Specifications */
+        /** Get an item's specification values */
         get: operations["item_specifications_api_v1_products_items__item_id__specifications_get"];
-        /** Replace Item Specifications */
+        /** Replace an item's specification values */
         put: operations["replace_item_specifications_api_v1_products_items__item_id__specifications_put"];
         post?: never;
         delete?: never;
@@ -7659,10 +7659,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Attributes */
+        /** List specification attributes */
         get: operations["list_attributes_api_v1_products_specification_attributes_get"];
         put?: never;
-        /** Create Attribute */
+        /** Create a specification attribute */
         post: operations["create_attribute_api_v1_products_specification_attributes_post"];
         delete?: never;
         options?: never;
@@ -7677,15 +7677,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Attribute */
+        /** Get one specification attribute */
         get: operations["get_attribute_api_v1_products_specification_attributes__attribute_id__get"];
         put?: never;
         post?: never;
-        /** Retire Attribute */
+        /** Retire a specification attribute */
         delete: operations["retire_attribute_api_v1_products_specification_attributes__attribute_id__delete"];
         options?: never;
         head?: never;
-        /** Update Attribute */
+        /** Update a specification attribute */
         patch: operations["update_attribute_api_v1_products_specification_attributes__attribute_id__patch"];
         trace?: never;
     };
@@ -7696,7 +7696,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Specification Categories */
+        /** List item categories for specification templates */
         get: operations["specification_categories_api_v1_products_specification_categories_get"];
         put?: never;
         post?: never;
@@ -7818,10 +7818,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Banners */
+        /** List dealer banners */
         get: operations["list_banners_api_v1_promotions_banners_get"];
         put?: never;
-        /** Create Banner */
+        /** Create a dealer banner */
         post: operations["create_banner_api_v1_promotions_banners_post"];
         delete?: never;
         options?: never;
@@ -7836,15 +7836,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Banner */
+        /** Get one dealer banner */
         get: operations["get_banner_api_v1_promotions_banners__identity__get"];
         put?: never;
         post?: never;
-        /** Retire Banner */
+        /** Delete a dealer banner by retiring it */
         delete: operations["retire_banner_api_v1_promotions_banners__identity__delete"];
         options?: never;
         head?: never;
-        /** Update Banner */
+        /** Update a dealer banner */
         patch: operations["update_banner_api_v1_promotions_banners__identity__patch"];
         trace?: never;
     };
@@ -7857,7 +7857,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Activate Banner */
+        /** Activate a dealer banner */
         post: operations["activate_banner_api_v1_promotions_banners__identity__activate_post"];
         delete?: never;
         options?: never;
@@ -7874,7 +7874,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Deactivate Banner */
+        /** Deactivate a dealer banner */
         post: operations["deactivate_banner_api_v1_promotions_banners__identity__deactivate_post"];
         delete?: never;
         options?: never;
@@ -7891,7 +7891,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Retire Banner With Reason */
+        /** Retire a dealer banner */
         post: operations["retire_banner_with_reason_api_v1_promotions_banners__identity__retire_post"];
         delete?: never;
         options?: never;
@@ -7906,10 +7906,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Offers */
+        /** List dealer offers */
         get: operations["list_offers_api_v1_promotions_offers_get"];
         put?: never;
-        /** Create Offer */
+        /** Create a dealer offer */
         post: operations["create_offer_api_v1_promotions_offers_post"];
         delete?: never;
         options?: never;
@@ -7924,15 +7924,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Offer */
+        /** Get one dealer offer */
         get: operations["get_offer_api_v1_promotions_offers__identity__get"];
         put?: never;
         post?: never;
-        /** Retire Offer */
+        /** Delete a dealer offer by retiring it */
         delete: operations["retire_offer_api_v1_promotions_offers__identity__delete"];
         options?: never;
         head?: never;
-        /** Update Offer */
+        /** Update a dealer offer */
         patch: operations["update_offer_api_v1_promotions_offers__identity__patch"];
         trace?: never;
     };
@@ -7945,7 +7945,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Activate Offer */
+        /** Activate a dealer offer */
         post: operations["activate_offer_api_v1_promotions_offers__identity__activate_post"];
         delete?: never;
         options?: never;
@@ -7962,7 +7962,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Deactivate Offer */
+        /** Deactivate a dealer offer */
         post: operations["deactivate_offer_api_v1_promotions_offers__identity__deactivate_post"];
         delete?: never;
         options?: never;
@@ -7977,7 +7977,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Preview Offer */
+        /** Count the items a dealer offer reaches */
         get: operations["preview_offer_api_v1_promotions_offers__identity__preview_get"];
         put?: never;
         post?: never;
@@ -7996,7 +7996,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Retire Offer With Reason */
+        /** Retire a dealer offer */
         post: operations["retire_offer_with_reason_api_v1_promotions_offers__identity__retire_post"];
         delete?: never;
         options?: never;
@@ -8313,7 +8313,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Consumption By Department */
+        /** Consumption by department */
         get: operations["consumption_by_department_api_v1_reports_consumption_by_department_get"];
         put?: never;
         post?: never;
@@ -8927,7 +8927,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Scrap Register */
+        /** Scrap register */
         get: operations["scrap_register_api_v1_reports_scrap_register_get"];
         put?: never;
         post?: never;
@@ -9689,10 +9689,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Sales Returns */
+        /** List sales returns */
         get: operations["list_sales_returns_api_v1_sales_returns_get"];
         put?: never;
-        /** Create Sales Return */
+        /** Raise a sales return against a dispatch */
         post: operations["create_sales_return_api_v1_sales_returns_post"];
         delete?: never;
         options?: never;
@@ -9707,7 +9707,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Sales Return */
+        /** One sales return with its lines */
         get: operations["get_sales_return_api_v1_sales_returns__return_id__get"];
         put?: never;
         post?: never;
@@ -9726,7 +9726,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Cancel Sales Return */
+        /** Cancel a sales return */
         post: operations["cancel_sales_return_api_v1_sales_returns__return_id__cancel_post"];
         delete?: never;
         options?: never;
@@ -9743,7 +9743,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Close Sales Return */
+        /** Close a sales return */
         post: operations["close_sales_return_api_v1_sales_returns__return_id__close_post"];
         delete?: never;
         options?: never;
@@ -9760,7 +9760,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Receive Sales Return */
+        /** Receive a sales return's goods */
         post: operations["receive_sales_return_api_v1_sales_returns__return_id__receive_post"];
         delete?: never;
         options?: never;
@@ -9777,7 +9777,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Dispose Sales Return Units */
+        /** Disposition a sales return's serial units */
         post: operations["dispose_sales_return_units_api_v1_sales_returns__return_id__units_post"];
         delete?: never;
         options?: never;
@@ -10630,7 +10630,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate the purchase order PDF
+         * Generate the PDF of a purchase order placed with this vendor
          * @description Queued; poll the portal job route it returns, then follow its download_url.
          */
         post: operations["order_pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post"];

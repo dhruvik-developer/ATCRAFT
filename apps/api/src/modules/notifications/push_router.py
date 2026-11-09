@@ -26,12 +26,18 @@ router = APIRouter(prefix="/push", dependencies=[require_permission(Permission.N
 CursorDep = Annotated[CursorParams, Depends(cursor_params)]
 
 
-@router.get("/config", response_model=ApiResponse[PushConfigRead])
+@router.get(
+    "/config", response_model=ApiResponse[PushConfigRead], summary="Read the Web Push configuration"
+)
 async def push_config(session: DbSession, tenant: Tenant) -> ApiResponse[PushConfigRead]:
     return ApiResponse.ok(PushService.config())
 
 
-@router.post("/subscriptions", response_model=ApiResponse[PushSubscriptionRead])
+@router.post(
+    "/subscriptions",
+    response_model=ApiResponse[PushSubscriptionRead],
+    summary="Subscribe this browser to push notifications",
+)
 async def subscribe(
     payload: PushSubscribeRequest, request: Request, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PushSubscriptionRead]:
@@ -41,7 +47,11 @@ async def subscribe(
     )
 
 
-@router.get("/subscriptions", response_model=CursorPaginatedResponse[PushSubscriptionRead])
+@router.get(
+    "/subscriptions",
+    response_model=CursorPaginatedResponse[PushSubscriptionRead],
+    summary="List this account's push devices",
+)
 async def list_subscriptions(
     session: DbSession, tenant: Tenant, params: CursorDep
 ) -> CursorPaginatedResponse[PushSubscriptionRead]:
@@ -49,7 +59,11 @@ async def list_subscriptions(
     return CursorPaginatedResponse(data=rows, pagination=pagination)
 
 
-@router.delete("/subscriptions/{subscription_id}", response_model=ApiResponse[PushDeleteRead])
+@router.delete(
+    "/subscriptions/{subscription_id}",
+    response_model=ApiResponse[PushDeleteRead],
+    summary="Remove a push device",
+)
 async def delete_subscription(
     subscription_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PushDeleteRead]:
@@ -59,7 +73,11 @@ async def delete_subscription(
     )
 
 
-@router.post("/subscriptions/unregister", response_model=ApiResponse[PushDeleteRead])
+@router.post(
+    "/subscriptions/unregister",
+    response_model=ApiResponse[PushDeleteRead],
+    summary="Unsubscribe a browser by its push endpoint",
+)
 async def unregister(
     payload: PushEndpointRequest, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PushDeleteRead]:
@@ -69,7 +87,11 @@ async def unregister(
     )
 
 
-@router.post("/test", response_model=ApiResponse[PushTestRead])
+@router.post(
+    "/test",
+    response_model=ApiResponse[PushTestRead],
+    summary="Send a test push notification to this account's devices",
+)
 async def test_push(session: DbSession, tenant: Tenant) -> ApiResponse[PushTestRead]:
     return ApiResponse.ok(
         PushTestRead(queued=await PushService(session, tenant).test()),

@@ -39,6 +39,7 @@ PageDep = Annotated[PageParams, Depends(page_params)]
     "",
     response_model=PaginatedResponse[SalesReturnSummary],
     dependencies=[require_permission(Permission.SALES_RETURN_VIEW)],
+    summary="List sales returns",
 )
 async def list_sales_returns(
     session: DbSession, tenant: Tenant, params: PageDep
@@ -52,6 +53,7 @@ async def list_sales_returns(
     response_model=ApiResponse[SalesReturnDetail],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.SALES_RETURN_CREATE)],
+    summary="Raise a sales return against a dispatch",
 )
 async def create_sales_return(
     payload: SalesReturnCreate, session: DbSession, tenant: Tenant
@@ -66,6 +68,7 @@ async def create_sales_return(
     "/{return_id}",
     response_model=ApiResponse[SalesReturnDetail],
     dependencies=[require_permission(Permission.SALES_RETURN_VIEW)],
+    summary="One sales return with its lines",
 )
 async def get_sales_return(
     return_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -77,6 +80,7 @@ async def get_sales_return(
     "/{return_id}/receive",
     response_model=ApiResponse[SalesReturnDetail],
     dependencies=[require_permission(Permission.SALES_RETURN_CREATE)],
+    summary="Receive a sales return's goods",
 )
 async def receive_sales_return(
     return_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -91,6 +95,7 @@ async def receive_sales_return(
     "/{return_id}/units",
     response_model=ApiResponse[SalesReturnDetail],
     dependencies=[require_permission(Permission.SALES_RETURN_CREATE)],
+    summary="Disposition a sales return's serial units",
 )
 async def dispose_sales_return_units(
     return_id: uuid.UUID,
@@ -108,6 +113,7 @@ async def dispose_sales_return_units(
     "/{return_id}/close",
     response_model=ApiResponse[SalesReturnDetail],
     dependencies=[require_permission(Permission.SALES_RETURN_CREATE)],
+    summary="Close a sales return",
 )
 async def close_sales_return(
     return_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -122,6 +128,7 @@ async def close_sales_return(
     "/{return_id}/cancel",
     response_model=ApiResponse[SalesReturnDetail],
     dependencies=[require_permission(Permission.SALES_RETURN_CREATE)],
+    summary="Cancel a sales return",
 )
 async def cancel_sales_return(
     return_id: uuid.UUID,

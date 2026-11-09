@@ -1259,6 +1259,7 @@ async def cost_centre_expense(
     response_model=None,
     responses=_report_responses(PaginatedResponse[ScrapRegisterRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
+    summary="Scrap register",
 )
 async def scrap_register(
     session: DbSession,
@@ -1279,6 +1280,7 @@ async def scrap_register(
     response_model=None,
     responses=_report_responses(PaginatedResponse[ConsumptionByDepartmentRow]),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
+    summary="Consumption by department",
 )
 async def consumption_by_department(
     session: DbSession,

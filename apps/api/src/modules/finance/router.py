@@ -134,6 +134,7 @@ ReasonQuery = Annotated[
     "/credit-notes",
     response_model=PaginatedResponse[CreditNoteSummary],
     dependencies=[require_permission(Permission.CREDIT_NOTE_VIEW)],
+    summary="List credit notes",
 )
 async def list_credit_notes(
     session: DbSession, tenant: Tenant, params: PageDep, sort: SortDep
@@ -147,6 +148,7 @@ async def list_credit_notes(
     response_model=ApiResponse[CreditNoteDetail],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.CREDIT_NOTE_CREATE)],
+    summary="Issue a credit note",
 )
 async def create_credit_note(
     payload: CreditNoteCreate, session: DbSession, tenant: Tenant
@@ -159,6 +161,7 @@ async def create_credit_note(
     "/credit-notes/{note_id}",
     response_model=ApiResponse[CreditNoteDetail],
     dependencies=[require_permission(Permission.CREDIT_NOTE_VIEW)],
+    summary="One credit note with its lines",
 )
 async def get_credit_note(
     note_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -172,6 +175,7 @@ async def get_credit_note(
     "/credit-notes/{note_id}/cancel",
     response_model=ApiResponse[CreditNoteDetail],
     dependencies=[require_permission(Permission.CREDIT_NOTE_CANCEL)],
+    summary="Cancel a credit note",
 )
 async def cancel_credit_note(
     note_id: uuid.UUID,
@@ -191,6 +195,7 @@ async def cancel_credit_note(
         require_permission(Permission.CREDIT_NOTE_VIEW),
         spend_budget(RateLimitPolicy.DOCUMENT_PDF),
     ],
+    summary="Queue the credit note PDF",
 )
 async def credit_note_pdf(
     note_id: uuid.UUID, session: DbSession, tenant: Tenant

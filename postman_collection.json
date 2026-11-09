@@ -3432,36 +3432,7 @@
     {
       "item": [
         {
-          "name": "Courier Webhook",
-          "request": {
-            "description": "Courier Webhook",
-            "header": [],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "integrations",
-                "courier",
-                "webhook",
-                ":token"
-              ],
-              "raw": "{{base_url}}/api/v1/integrations/courier/webhook/{token}",
-              "variable": [
-                {
-                  "description": "token of the record",
-                  "key": "token",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Create Account",
+          "name": "Connect a courier account",
           "request": {
             "body": {
               "mode": "raw",
@@ -3472,7 +3443,7 @@
               },
               "raw": "{\n  \"code\": \"\",\n  \"display_name\": \"\",\n  \"provider\": \"SHIPROCKET\",\n  \"auto_confirm_delivery\": true,\n  \"credentials\": {\n    \"email\": {},\n    \"password\": {}\n  },\n  \"is_active\": true,\n  \"transporter_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
             },
-            "description": "Create Account",
+            "description": "Connect a courier account",
             "header": [
               {
                 "key": "Content-Type",
@@ -3496,9 +3467,52 @@
           }
         },
         {
-          "name": "List Accounts",
+          "name": "Edit or deactivate a courier account",
           "request": {
-            "description": "List Accounts",
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"auto_confirm_delivery\": false,\n  \"credentials\": {\n    \"email\": {},\n    \"password\": {}\n  },\n  \"display_name\": \"\",\n  \"is_active\": false,\n  \"transporter_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
+            },
+            "description": "Edit or deactivate a courier account",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "accounts",
+                ":account_id"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/accounts/{account_id}",
+              "variable": [
+                {
+                  "description": "account_id of the record",
+                  "key": "account_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List courier accounts",
+          "request": {
+            "description": "List courier accounts",
             "header": [],
             "method": "GET",
             "url": {
@@ -3537,9 +3551,9 @@
           }
         },
         {
-          "name": "List Events",
+          "name": "List received courier tracking events",
           "request": {
-            "description": "List Events",
+            "description": "List received courier tracking events",
             "header": [],
             "method": "GET",
             "url": {
@@ -3590,7 +3604,7 @@
           }
         },
         {
-          "name": "Refresh Tracking",
+          "name": "Pull the latest courier tracking now",
           "request": {
             "body": {
               "mode": "raw",
@@ -3601,7 +3615,7 @@
               },
               "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shipment_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
-            "description": "Refresh Tracking",
+            "description": "Pull the latest courier tracking now",
             "header": [
               {
                 "key": "Content-Type",
@@ -3625,9 +3639,38 @@
           }
         },
         {
-          "name": "Rotate Webhook",
+          "name": "Receive a signed courier tracking webhook",
           "request": {
-            "description": "Rotate Webhook",
+            "description": "Receive a signed courier tracking webhook",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "courier",
+                "webhook",
+                ":token"
+              ],
+              "raw": "{{base_url}}/api/v1/integrations/courier/webhook/{token}",
+              "variable": [
+                {
+                  "description": "token of the record",
+                  "key": "token",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reset a courier account's webhook secret",
+          "request": {
+            "description": "Reset a courier account's webhook secret",
             "header": [],
             "method": "POST",
             "url": {
@@ -3655,9 +3698,9 @@
           }
         },
         {
-          "name": "Test Connection",
+          "name": "Test a courier account's connection",
           "request": {
-            "description": "Test Connection",
+            "description": "Test a courier account's connection",
             "header": [],
             "method": "POST",
             "url": {
@@ -3674,49 +3717,6 @@
                 "test"
               ],
               "raw": "{{base_url}}/api/v1/integrations/courier/accounts/{account_id}/test",
-              "variable": [
-                {
-                  "description": "account_id of the record",
-                  "key": "account_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Update Account",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"auto_confirm_delivery\": false,\n  \"credentials\": {\n    \"email\": {},\n    \"password\": {}\n  },\n  \"display_name\": \"\",\n  \"is_active\": false,\n  \"transporter_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
-            },
-            "description": "Update Account",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "PATCH",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "integrations",
-                "courier",
-                "accounts",
-                ":account_id"
-              ],
-              "raw": "{{base_url}}/api/v1/integrations/courier/accounts/{account_id}",
               "variable": [
                 {
                   "description": "account_id of the record",
@@ -4765,6 +4765,34 @@
     {
       "item": [
         {
+          "name": "A product or promotion image the dealer may see",
+          "request": {
+            "description": "A product or promotion image the dealer may see",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "images",
+                ":document_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/images/{document_id}",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Active brands holding sellable items",
           "request": {
             "description": "Active brands holding sellable items",
@@ -4821,9 +4849,9 @@
           }
         },
         {
-          "name": "Banners",
+          "name": "Banners live for this dealer",
           "request": {
-            "description": "Banners",
+            "description": "Banners live for this dealer",
             "header": [],
             "method": "GET",
             "url": {
@@ -4900,47 +4928,6 @@
                   "value": ""
                 }
               ]
-            }
-          }
-        },
-        {
-          "name": "Catalogue Specification Filters",
-          "request": {
-            "description": "Catalogue Specification Filters",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "catalog",
-                "specifications"
-              ],
-              "query": [
-                {
-                  "description": "1-based page number",
-                  "disabled": true,
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "description": "Rows per page",
-                  "disabled": true,
-                  "key": "limit",
-                  "value": "50"
-                },
-                {
-                  "description": "Include an exact total row count",
-                  "disabled": true,
-                  "key": "with_total",
-                  "value": "True"
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/specifications?"
             }
           }
         },
@@ -5053,96 +5040,9 @@
           }
         },
         {
-          "name": "Credit Note Pdf",
+          "name": "Consignments the dealer may still return goods from",
           "request": {
-            "description": "Credit Note Pdf",
-            "header": [],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "credit-notes",
-                ":note_id",
-                "pdf"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes/{note_id}/pdf",
-              "variable": [
-                {
-                  "description": "note_id of the record",
-                  "key": "note_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Dealer-safe tracking: courier, tracking id, dates, events",
-          "request": {
-            "description": "The driver's mobile number and the freight cost are never included.",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "dispatches",
-                ":dispatch_id",
-                "tracking"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/dispatches/{dispatch_id}/tracking",
-              "variable": [
-                {
-                  "description": "dispatch_id of the record",
-                  "key": "dispatch_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Download",
-          "request": {
-            "description": "Download",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "documents",
-                ":document_id",
-                "download"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/documents/{document_id}/download",
-              "variable": [
-                {
-                  "description": "document_id of the record",
-                  "key": "document_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Eligible Dispatches",
-          "request": {
-            "description": "Eligible Dispatches",
+            "description": "Consignments the dealer may still return goods from",
             "header": [],
             "method": "GET",
             "url": {
@@ -5181,6 +5081,64 @@
           }
         },
         {
+          "name": "Dealer-safe tracking: courier, tracking id, dates, events",
+          "request": {
+            "description": "The driver's mobile number and the freight cost are never included.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "dispatches",
+                ":dispatch_id",
+                "tracking"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/dispatches/{dispatch_id}/tracking",
+              "variable": [
+                {
+                  "description": "dispatch_id of the record",
+                  "key": "dispatch_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Download one of the dealer's PDFs",
+          "request": {
+            "description": "Download one of the dealer's PDFs",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "documents",
+                ":document_id",
+                "download"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/documents/{document_id}/download",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Empty the cart",
           "request": {
             "description": "Empty the cart",
@@ -5201,178 +5159,9 @@
           }
         },
         {
-          "name": "Get Credit Note",
+          "name": "List the dealer's credit notes",
           "request": {
-            "description": "Get Credit Note",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "credit-notes",
-                ":note_id"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes/{note_id}",
-              "variable": [
-                {
-                  "description": "note_id of the record",
-                  "key": "note_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Invoice",
-          "request": {
-            "description": "Get Invoice",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "invoices",
-                ":invoice_id"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/invoices/{invoice_id}",
-              "variable": [
-                {
-                  "description": "invoice_id of the record",
-                  "key": "invoice_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Job",
-          "request": {
-            "description": "Get Job",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "jobs",
-                ":job_id"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/jobs/{job_id}",
-              "variable": [
-                {
-                  "description": "job_id of the record",
-                  "key": "job_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Return",
-          "request": {
-            "description": "Get Return",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "returns",
-                ":return_id"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/returns/{return_id}",
-              "variable": [
-                {
-                  "description": "return_id of the record",
-                  "key": "return_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Image",
-          "request": {
-            "description": "Image",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "images",
-                ":document_id"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/images/{document_id}",
-              "variable": [
-                {
-                  "description": "document_id of the record",
-                  "key": "document_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Invoice Pdf",
-          "request": {
-            "description": "Invoice Pdf",
-            "header": [],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "dealer-portal",
-                "invoices",
-                ":invoice_id",
-                "pdf"
-              ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/invoices/{invoice_id}/pdf",
-              "variable": [
-                {
-                  "description": "invoice_id of the record",
-                  "key": "invoice_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "List Credit Notes",
-          "request": {
-            "description": "List Credit Notes",
+            "description": "List the dealer's credit notes",
             "header": [],
             "method": "GET",
             "url": {
@@ -5416,9 +5205,9 @@
           }
         },
         {
-          "name": "List Invoices",
+          "name": "List the dealer's invoices",
           "request": {
-            "description": "List Invoices",
+            "description": "List the dealer's invoices",
             "header": [],
             "method": "GET",
             "url": {
@@ -5462,9 +5251,9 @@
           }
         },
         {
-          "name": "List Returns",
+          "name": "List the dealer's return requests",
           "request": {
-            "description": "List Returns",
+            "description": "List the dealer's return requests",
             "header": [],
             "method": "GET",
             "url": {
@@ -5539,9 +5328,9 @@
           }
         },
         {
-          "name": "Offers",
+          "name": "Offers live for this dealer",
           "request": {
-            "description": "Offers",
+            "description": "Offers live for this dealer",
             "header": [],
             "method": "GET",
             "url": {
@@ -5579,6 +5368,62 @@
           }
         },
         {
+          "name": "One of the dealer's credit notes",
+          "request": {
+            "description": "One of the dealer's credit notes",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "credit-notes",
+                ":note_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes/{note_id}",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the dealer's invoices",
+          "request": {
+            "description": "One of the dealer's invoices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "One of the dealer's orders, with fulfilment progress",
           "request": {
             "description": "One of the dealer's orders, with fulfilment progress",
@@ -5600,6 +5445,34 @@
                 {
                   "description": "order_id of the record",
                   "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the dealer's return requests",
+          "request": {
+            "description": "One of the dealer's return requests",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "returns",
+                ":return_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/returns/{return_id}",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
                   "value": ""
                 }
               ]
@@ -5629,6 +5502,64 @@
                 {
                   "description": "item_id of the record",
                   "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Queue the PDF of one of the dealer's credit notes",
+          "request": {
+            "description": "Queue the PDF of one of the dealer's credit notes",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "credit-notes",
+                ":note_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/credit-notes/{note_id}/pdf",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Queue the PDF of one of the dealer's invoices",
+          "request": {
+            "description": "Queue the PDF of one of the dealer's invoices",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "invoices",
+                ":invoice_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/invoices/{invoice_id}/pdf",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
                   "value": ""
                 }
               ]
@@ -5693,7 +5624,7 @@
           }
         },
         {
-          "name": "Request Return",
+          "name": "Request a return from a delivered consignment",
           "request": {
             "body": {
               "mode": "raw",
@@ -5704,7 +5635,7 @@
               },
               "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {}\n    }\n  ],\n  \"notes\": \"\"\n}"
             },
-            "description": "Request Return",
+            "description": "Request a return from a delivered consignment",
             "header": [
               {
                 "key": "Content-Type",
@@ -5846,6 +5777,75 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items?"
+            }
+          }
+        },
+        {
+          "name": "Specifications the dealer catalogue can filter by",
+          "request": {
+            "description": "Specifications the dealer catalogue can filter by",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "specifications"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/specifications?"
+            }
+          }
+        },
+        {
+          "name": "Status of one of the dealer's PDF jobs",
+          "request": {
+            "description": "Status of one of the dealer's PDF jobs",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "jobs",
+                ":job_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/jobs/{job_id}",
+              "variable": [
+                {
+                  "description": "job_id of the record",
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -7639,7 +7639,7 @@
           }
         },
         {
-          "name": "Cancel Credit Note",
+          "name": "Cancel a credit note",
           "request": {
             "body": {
               "mode": "raw",
@@ -7650,7 +7650,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Cancel Credit Note",
+            "description": "Cancel a credit note",
             "header": [
               {
                 "key": "Content-Type",
@@ -7718,69 +7718,6 @@
                 {
                   "description": "invoice_id of the record",
                   "key": "invoice_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Create Credit Note",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"lines\": [\n    {\n      \"sales_invoice_line_id\": {},\n      \"quantity\": {},\n      \"taxable_amount\": {}\n    }\n  ],\n  \"note_date\": \"2026-01-01\",\n  \"reason_type\": \"RETURN\",\n  \"sales_invoice_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sales_return_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
-            },
-            "description": "Create Credit Note",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "finance",
-                "credit-notes"
-              ],
-              "raw": "{{base_url}}/api/v1/finance/credit-notes"
-            }
-          }
-        },
-        {
-          "name": "Credit Note Pdf",
-          "request": {
-            "description": "Credit Note Pdf",
-            "header": [],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "finance",
-                "credit-notes",
-                ":note_id",
-                "pdf"
-              ],
-              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}/pdf",
-              "variable": [
-                {
-                  "description": "note_id of the record",
-                  "key": "note_id",
                   "value": ""
                 }
               ]
@@ -7987,34 +7924,6 @@
           }
         },
         {
-          "name": "Get Credit Note",
-          "request": {
-            "description": "Get Credit Note",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "finance",
-                "credit-notes",
-                ":note_id"
-              ],
-              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}",
-              "variable": [
-                {
-                  "description": "note_id of the record",
-                  "key": "note_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
           "name": "Hold an invoice while it is argued with the vendor",
           "request": {
             "body": {
@@ -8058,6 +7967,40 @@
           }
         },
         {
+          "name": "Issue a credit note",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"lines\": [\n    {\n      \"sales_invoice_line_id\": {},\n      \"quantity\": {},\n      \"taxable_amount\": {}\n    }\n  ],\n  \"note_date\": \"2026-01-01\",\n  \"reason_type\": \"RETURN\",\n  \"sales_invoice_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sales_return_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Issue a credit note",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes"
+            }
+          }
+        },
+        {
           "name": "Issue and post a GST sales invoice",
           "request": {
             "body": {
@@ -8092,9 +8035,9 @@
           }
         },
         {
-          "name": "List Credit Notes",
+          "name": "List credit notes",
           "request": {
-            "description": "List Credit Notes",
+            "description": "List credit notes",
             "header": [],
             "method": "GET",
             "url": {
@@ -8562,6 +8505,34 @@
           }
         },
         {
+          "name": "One credit note with its lines",
+          "request": {
+            "description": "One credit note with its lines",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes",
+                ":note_id"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "One ledger account",
           "request": {
             "description": "One ledger account",
@@ -8843,6 +8814,35 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/finance/sales-invoices/preview?"
+            }
+          }
+        },
+        {
+          "name": "Queue the credit note PDF",
+          "request": {
+            "description": "Queue the credit note PDF",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes",
+                ":note_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}/pdf",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -13342,35 +13342,6 @@
           }
         },
         {
-          "name": "Delete Subscription",
-          "request": {
-            "description": "Delete Subscription",
-            "header": [],
-            "method": "DELETE",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "notifications",
-                "push",
-                "subscriptions",
-                ":subscription_id"
-              ],
-              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/{subscription_id}",
-              "variable": [
-                {
-                  "description": "subscription_id of the record",
-                  "key": "subscription_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
           "name": "Effective smart-alert rules",
           "request": {
             "description": "Effective smart-alert rules",
@@ -13407,41 +13378,6 @@
                 "channels"
               ],
               "raw": "{{base_url}}/api/v1/notifications/channels"
-            }
-          }
-        },
-        {
-          "name": "List Subscriptions",
-          "request": {
-            "description": "List Subscriptions",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "notifications",
-                "push",
-                "subscriptions"
-              ],
-              "query": [
-                {
-                  "description": "Opaque cursor from the previous page",
-                  "disabled": true,
-                  "key": "cursor",
-                  "value": ""
-                },
-                {
-                  "description": "",
-                  "disabled": true,
-                  "key": "limit",
-                  "value": "50"
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions?"
             }
           }
         },
@@ -13493,6 +13429,41 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/notifications?"
+            }
+          }
+        },
+        {
+          "name": "List this account's push devices",
+          "request": {
+            "description": "List this account's push devices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions?"
             }
           }
         },
@@ -13639,9 +13610,9 @@
           }
         },
         {
-          "name": "Push Config",
+          "name": "Read the Web Push configuration",
           "request": {
-            "description": "Push Config",
+            "description": "Read the Web Push configuration",
             "header": [],
             "method": "GET",
             "url": {
@@ -13656,6 +13627,35 @@
                 "config"
               ],
               "raw": "{{base_url}}/api/v1/notifications/push/config"
+            }
+          }
+        },
+        {
+          "name": "Remove a push device",
+          "request": {
+            "description": "Remove a push device",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                ":subscription_id"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/{subscription_id}",
+              "variable": [
+                {
+                  "description": "subscription_id of the record",
+                  "key": "subscription_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -13695,7 +13695,28 @@
           }
         },
         {
-          "name": "Subscribe",
+          "name": "Send a test push notification to this account's devices",
+          "request": {
+            "description": "Send a test push notification to this account's devices",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "test"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/test"
+            }
+          }
+        },
+        {
+          "name": "Subscribe this browser to push notifications",
           "request": {
             "body": {
               "mode": "raw",
@@ -13706,7 +13727,7 @@
               },
               "raw": "{\n  \"endpoint\": \"\",\n  \"keys\": {\n    \"auth\": \"\",\n    \"p256dh\": \"\"\n  },\n  \"device_label\": \"\",\n  \"expiration_time\": 0\n}"
             },
-            "description": "Subscribe",
+            "description": "Subscribe this browser to push notifications",
             "header": [
               {
                 "key": "Content-Type",
@@ -13726,27 +13747,6 @@
                 "subscriptions"
               ],
               "raw": "{{base_url}}/api/v1/notifications/push/subscriptions"
-            }
-          }
-        },
-        {
-          "name": "Test Push",
-          "request": {
-            "description": "Test Push",
-            "header": [],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "notifications",
-                "push",
-                "test"
-              ],
-              "raw": "{{base_url}}/api/v1/notifications/push/test"
             }
           }
         },
@@ -13771,7 +13771,7 @@
           }
         },
         {
-          "name": "Unregister",
+          "name": "Unsubscribe a browser by its push endpoint",
           "request": {
             "body": {
               "mode": "raw",
@@ -13782,7 +13782,7 @@
               },
               "raw": "{\n  \"endpoint\": \"\"\n}"
             },
-            "description": "Unregister",
+            "description": "Unsubscribe a browser by its push endpoint",
             "header": [
               {
                 "key": "Content-Type",
@@ -21230,11 +21230,25 @@
           }
         },
         {
-          "name": "Category Specifications",
+          "name": "Add an accessory to an item",
           "request": {
-            "description": "Category Specifications",
-            "header": [],
-            "method": "GET",
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"accessory_item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"quantity\": 0,\n  \"relation\": \"OPTIONAL\",\n  \"sort_order\": 0\n}"
+            },
+            "description": "Add an accessory to an item",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
             "url": {
               "host": [
                 "{{base_url}}"
@@ -21243,15 +21257,15 @@
                 "api",
                 "v1",
                 "products",
-                "categories",
-                ":category_id",
-                "specifications"
+                "items",
+                ":item_id",
+                "accessories"
               ],
-              "raw": "{{base_url}}/api/v1/products/categories/{category_id}/specifications",
+              "raw": "{{base_url}}/api/v1/products/items/{item_id}/accessories",
               "variable": [
                 {
-                  "description": "category_id of the record",
-                  "key": "category_id",
+                  "description": "item_id of the record",
+                  "key": "item_id",
                   "value": ""
                 }
               ]
@@ -21296,83 +21310,6 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/products/uom-conversions/convert?"
-            }
-          }
-        },
-        {
-          "name": "Create Accessory",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"accessory_item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"quantity\": 0,\n  \"relation\": \"OPTIONAL\",\n  \"sort_order\": 0\n}"
-            },
-            "description": "Create Accessory",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "items",
-                ":item_id",
-                "accessories"
-              ],
-              "raw": "{{base_url}}/api/v1/products/items/{item_id}/accessories",
-              "variable": [
-                {
-                  "description": "item_id of the record",
-                  "key": "item_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Create Attribute",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"value_type\": \"TEXT\",\n  \"is_active\": true,\n  \"is_filterable\": false,\n  \"options\": [\n    \"\"\n  ],\n  \"sort_order\": 0,\n  \"unit\": \"\"\n}"
-            },
-            "description": "Create Attribute",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "specification-attributes"
-              ],
-              "raw": "{{base_url}}/api/v1/products/specification-attributes"
             }
           }
         },
@@ -21441,6 +21378,40 @@
                 "manufacturers"
               ],
               "raw": "{{base_url}}/api/v1/products/manufacturers"
+            }
+          }
+        },
+        {
+          "name": "Create a specification attribute",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"value_type\": \"TEXT\",\n  \"is_active\": true,\n  \"is_filterable\": false,\n  \"options\": [\n    \"\"\n  ],\n  \"sort_order\": 0,\n  \"unit\": \"\"\n}"
+            },
+            "description": "Create a specification attribute",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "specification-attributes"
+              ],
+              "raw": "{{base_url}}/api/v1/products/specification-attributes"
             }
           }
         },
@@ -21615,45 +21586,9 @@
           }
         },
         {
-          "name": "Delete Accessory",
+          "name": "Get a category's specification template",
           "request": {
-            "description": "Delete Accessory",
-            "header": [],
-            "method": "DELETE",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "item-accessories",
-                ":accessory_id"
-              ],
-              "query": [
-                {
-                  "description": "",
-                  "disabled": false,
-                  "key": "reason",
-                  "value": ""
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/products/item-accessories/{accessory_id}?",
-              "variable": [
-                {
-                  "description": "accessory_id of the record",
-                  "key": "accessory_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Get Attribute",
-          "request": {
-            "description": "Get Attribute",
+            "description": "Get a category's specification template",
             "header": [],
             "method": "GET",
             "url": {
@@ -21664,14 +21599,44 @@
                 "api",
                 "v1",
                 "products",
-                "specification-attributes",
-                ":attribute_id"
+                "categories",
+                ":category_id",
+                "specifications"
               ],
-              "raw": "{{base_url}}/api/v1/products/specification-attributes/{attribute_id}",
+              "raw": "{{base_url}}/api/v1/products/categories/{category_id}/specifications",
               "variable": [
                 {
-                  "description": "attribute_id of the record",
-                  "key": "attribute_id",
+                  "description": "category_id of the record",
+                  "key": "category_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get an item's specification values",
+          "request": {
+            "description": "Get an item's specification values",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "items",
+                ":item_id",
+                "specifications"
+              ],
+              "raw": "{{base_url}}/api/v1/products/items/{item_id}/specifications",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
                   "value": ""
                 }
               ]
@@ -21791,9 +21756,9 @@
           }
         },
         {
-          "name": "Item Accessories",
+          "name": "Get one specification attribute",
           "request": {
-            "description": "Item Accessories",
+            "description": "Get one specification attribute",
             "header": [],
             "method": "GET",
             "url": {
@@ -21804,119 +21769,14 @@
                 "api",
                 "v1",
                 "products",
-                "items",
-                ":item_id",
-                "accessories"
+                "specification-attributes",
+                ":attribute_id"
               ],
-              "query": [
-                {
-                  "description": "1-based page number",
-                  "disabled": true,
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "description": "Rows per page",
-                  "disabled": true,
-                  "key": "limit",
-                  "value": "50"
-                },
-                {
-                  "description": "Include an exact total row count",
-                  "disabled": true,
-                  "key": "with_total",
-                  "value": "True"
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/products/items/{item_id}/accessories?",
+              "raw": "{{base_url}}/api/v1/products/specification-attributes/{attribute_id}",
               "variable": [
                 {
-                  "description": "item_id of the record",
-                  "key": "item_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Item Attribute Options",
-          "request": {
-            "description": "Item Attribute Options",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "items",
-                ":item_id",
-                "specification-attributes"
-              ],
-              "query": [
-                {
-                  "description": "",
-                  "disabled": true,
-                  "key": "search",
-                  "value": ""
-                },
-                {
-                  "description": "1-based page number",
-                  "disabled": true,
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "description": "Rows per page",
-                  "disabled": true,
-                  "key": "limit",
-                  "value": "50"
-                },
-                {
-                  "description": "Include an exact total row count",
-                  "disabled": true,
-                  "key": "with_total",
-                  "value": "True"
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/products/items/{item_id}/specification-attributes?",
-              "variable": [
-                {
-                  "description": "item_id of the record",
-                  "key": "item_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Item Specifications",
-          "request": {
-            "description": "Item Specifications",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "items",
-                ":item_id",
-                "specifications"
-              ],
-              "raw": "{{base_url}}/api/v1/products/items/{item_id}/specifications",
-              "variable": [
-                {
-                  "description": "item_id of the record",
-                  "key": "item_id",
+                  "description": "attribute_id of the record",
+                  "key": "attribute_id",
                   "value": ""
                 }
               ]
@@ -21967,9 +21827,9 @@
           }
         },
         {
-          "name": "List Attributes",
+          "name": "List an item's accessories",
           "request": {
-            "description": "List Attributes",
+            "description": "List an item's accessories",
             "header": [],
             "method": "GET",
             "url": {
@@ -21980,27 +21840,11 @@
                 "api",
                 "v1",
                 "products",
-                "specification-attributes"
+                "items",
+                ":item_id",
+                "accessories"
               ],
               "query": [
-                {
-                  "description": "",
-                  "disabled": true,
-                  "key": "search",
-                  "value": ""
-                },
-                {
-                  "description": "",
-                  "disabled": true,
-                  "key": "is_active",
-                  "value": "False"
-                },
-                {
-                  "description": "",
-                  "disabled": true,
-                  "key": "filterable_only",
-                  "value": "False"
-                },
                 {
                   "description": "1-based page number",
                   "disabled": true,
@@ -22018,21 +21862,16 @@
                   "disabled": true,
                   "key": "with_total",
                   "value": "True"
-                },
-                {
-                  "description": "Field to sort by",
-                  "disabled": true,
-                  "key": "sort_by",
-                  "value": ""
-                },
-                {
-                  "description": "Sort direction",
-                  "disabled": true,
-                  "key": "sort_dir",
-                  "value": "asc"
                 }
               ],
-              "raw": "{{base_url}}/api/v1/products/specification-attributes?"
+              "raw": "{{base_url}}/api/v1/products/items/{item_id}/accessories?",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -22351,6 +22190,52 @@
           }
         },
         {
+          "name": "List item categories for specification templates",
+          "request": {
+            "description": "List item categories for specification templates",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "specification-categories"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/specification-categories?"
+            }
+          }
+        },
+        {
           "name": "List manufacturers",
           "request": {
             "description": "List manufacturers",
@@ -22411,6 +22296,131 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/products/manufacturers?"
+            }
+          }
+        },
+        {
+          "name": "List specification attributes",
+          "request": {
+            "description": "List specification attributes",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "specification-attributes"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_active",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "filterable_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/specification-attributes?"
+            }
+          }
+        },
+        {
+          "name": "List the specification attributes an item may carry",
+          "request": {
+            "description": "List the specification attributes an item may carry",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "items",
+                ":item_id",
+                "specification-attributes"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/items/{item_id}/specification-attributes?",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -22618,6 +22628,42 @@
           }
         },
         {
+          "name": "Remove an item accessory",
+          "request": {
+            "description": "Remove an item accessory",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "item-accessories",
+                ":accessory_id"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/item-accessories/{accessory_id}?",
+              "variable": [
+                {
+                  "description": "accessory_id of the record",
+                  "key": "accessory_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Remove an item-vendor link",
           "request": {
             "description": "Remove an item-vendor link",
@@ -22646,7 +22692,7 @@
           }
         },
         {
-          "name": "Replace Category Specifications",
+          "name": "Replace a category's specification template",
           "request": {
             "body": {
               "mode": "raw",
@@ -22657,7 +22703,7 @@
               },
               "raw": "{\n  \"specifications\": [\n    {\n      \"specification_attribute_id\": {},\n      \"is_required\": {},\n      \"sort_order\": {}\n    }\n  ]\n}"
             },
-            "description": "Replace Category Specifications",
+            "description": "Replace a category's specification template",
             "header": [
               {
                 "key": "Content-Type",
@@ -22689,7 +22735,7 @@
           }
         },
         {
-          "name": "Replace Item Specifications",
+          "name": "Replace an item's specification values",
           "request": {
             "body": {
               "mode": "raw",
@@ -22700,7 +22746,7 @@
               },
               "raw": "{\n  \"values\": [\n    {\n      \"specification_attribute_id\": {},\n      \"value_bool\": {},\n      \"value_number\": {},\n      \"value_option\": {},\n      \"value_text\": {}\n    }\n  ]\n}"
             },
-            "description": "Replace Item Specifications",
+            "description": "Replace an item's specification values",
             "header": [
               {
                 "key": "Content-Type",
@@ -22787,42 +22833,6 @@
           }
         },
         {
-          "name": "Retire Attribute",
-          "request": {
-            "description": "Retire Attribute",
-            "header": [],
-            "method": "DELETE",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "specification-attributes",
-                ":attribute_id"
-              ],
-              "query": [
-                {
-                  "description": "",
-                  "disabled": false,
-                  "key": "reason",
-                  "value": ""
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/products/specification-attributes/{attribute_id}?",
-              "variable": [
-                {
-                  "description": "attribute_id of the record",
-                  "key": "attribute_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
           "name": "Retire a brand",
           "request": {
             "description": "Archives the brand. Refused while live items carry it.",
@@ -22888,6 +22898,42 @@
                 {
                   "description": "manufacturer_id of the record",
                   "key": "manufacturer_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire a specification attribute",
+          "request": {
+            "description": "Retire a specification attribute",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "specification-attributes",
+                ":attribute_id"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/specification-attributes/{attribute_id}?",
+              "variable": [
+                {
+                  "description": "attribute_id of the record",
+                  "key": "attribute_id",
                   "value": ""
                 }
               ]
@@ -23306,7 +23352,7 @@
           }
         },
         {
-          "name": "Set Item Image",
+          "name": "Set or clear an item's primary image",
           "request": {
             "body": {
               "mode": "raw",
@@ -23317,7 +23363,7 @@
               },
               "raw": "{\n  \"document_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
-            "description": "Set Item Image",
+            "description": "Set or clear an item's primary image",
             "header": [
               {
                 "key": "Content-Type",
@@ -23342,136 +23388,6 @@
                 {
                   "description": "item_id of the record",
                   "key": "item_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Specification Categories",
-          "request": {
-            "description": "Specification Categories",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "specification-categories"
-              ],
-              "query": [
-                {
-                  "description": "",
-                  "disabled": true,
-                  "key": "search",
-                  "value": ""
-                },
-                {
-                  "description": "1-based page number",
-                  "disabled": true,
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "description": "Rows per page",
-                  "disabled": true,
-                  "key": "limit",
-                  "value": "50"
-                },
-                {
-                  "description": "Include an exact total row count",
-                  "disabled": true,
-                  "key": "with_total",
-                  "value": "True"
-                }
-              ],
-              "raw": "{{base_url}}/api/v1/products/specification-categories?"
-            }
-          }
-        },
-        {
-          "name": "Update Accessory",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"notes\": \"\",\n  \"quantity\": 0,\n  \"relation\": \"OPTIONAL\",\n  \"sort_order\": 0\n}"
-            },
-            "description": "Update Accessory",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "PATCH",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "item-accessories",
-                ":accessory_id"
-              ],
-              "raw": "{{base_url}}/api/v1/products/item-accessories/{accessory_id}",
-              "variable": [
-                {
-                  "description": "accessory_id of the record",
-                  "key": "accessory_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Update Attribute",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"is_active\": false,\n  \"is_filterable\": false,\n  \"name\": \"\",\n  \"options\": [\n    \"\"\n  ],\n  \"sort_order\": 0,\n  \"unit\": \"\",\n  \"value_type\": \"TEXT\"\n}"
-            },
-            "description": "Update Attribute",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "PATCH",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "products",
-                "specification-attributes",
-                ":attribute_id"
-              ],
-              "raw": "{{base_url}}/api/v1/products/specification-attributes/{attribute_id}",
-              "variable": [
-                {
-                  "description": "attribute_id of the record",
-                  "key": "attribute_id",
                   "value": ""
                 }
               ]
@@ -23605,6 +23521,48 @@
           }
         },
         {
+          "name": "Update a specification attribute",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"is_active\": false,\n  \"is_filterable\": false,\n  \"name\": \"\",\n  \"options\": [\n    \"\"\n  ],\n  \"sort_order\": 0,\n  \"unit\": \"\",\n  \"value_type\": \"TEXT\"\n}"
+            },
+            "description": "Update a specification attribute",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "specification-attributes",
+                ":attribute_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/specification-attributes/{attribute_id}",
+              "variable": [
+                {
+                  "description": "attribute_id of the record",
+                  "key": "attribute_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Update a unit of measure",
           "request": {
             "body": {
@@ -23724,6 +23682,48 @@
                 {
                   "description": "item_id of the record",
                   "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update an item accessory",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"notes\": \"\",\n  \"quantity\": 0,\n  \"relation\": \"OPTIONAL\",\n  \"sort_order\": 0\n}"
+            },
+            "description": "Update an item accessory",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "item-accessories",
+                ":accessory_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/item-accessories/{accessory_id}",
+              "variable": [
+                {
+                  "description": "accessory_id of the record",
+                  "key": "accessory_id",
                   "value": ""
                 }
               ]
@@ -23862,7 +23862,7 @@
     {
       "item": [
         {
-          "name": "Activate Banner",
+          "name": "Activate a dealer banner",
           "request": {
             "body": {
               "mode": "raw",
@@ -23873,7 +23873,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Activate Banner",
+            "description": "Activate a dealer banner",
             "header": [
               {
                 "key": "Content-Type",
@@ -23905,7 +23905,7 @@
           }
         },
         {
-          "name": "Activate Offer",
+          "name": "Activate a dealer offer",
           "request": {
             "body": {
               "mode": "raw",
@@ -23916,7 +23916,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Activate Offer",
+            "description": "Activate a dealer offer",
             "header": [
               {
                 "key": "Content-Type",
@@ -23948,7 +23948,36 @@
           }
         },
         {
-          "name": "Create Banner",
+          "name": "Count the items a dealer offer reaches",
+          "request": {
+            "description": "Count the items a dealer offer reaches",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity",
+                "preview"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}/preview",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create a dealer banner",
           "request": {
             "body": {
               "mode": "raw",
@@ -23959,7 +23988,7 @@
               },
               "raw": "{\n  \"code\": \"\",\n  \"image_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"title\": \"\",\n  \"audience_price_type\": \"SALE\",\n  \"link_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"link_kind\": \"NONE\",\n  \"sort_order\": 0,\n  \"status\": \"ACTIVE\",\n  \"subtitle\": \"\",\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
             },
-            "description": "Create Banner",
+            "description": "Create a dealer banner",
             "header": [
               {
                 "key": "Content-Type",
@@ -23982,7 +24011,7 @@
           }
         },
         {
-          "name": "Create Offer",
+          "name": "Create a dealer offer",
           "request": {
             "body": {
               "mode": "raw",
@@ -23993,7 +24022,7 @@
               },
               "raw": "{\n  \"code\": \"\",\n  \"discount_percentage\": 0,\n  \"scope_kind\": \"ALL\",\n  \"title\": \"\",\n  \"audience_price_type\": \"SALE\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"is_active\": false,\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"min_quantity\": 0,\n  \"sort_order\": 0,\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
             },
-            "description": "Create Offer",
+            "description": "Create a dealer offer",
             "header": [
               {
                 "key": "Content-Type",
@@ -24016,7 +24045,7 @@
           }
         },
         {
-          "name": "Deactivate Banner",
+          "name": "Deactivate a dealer banner",
           "request": {
             "body": {
               "mode": "raw",
@@ -24027,7 +24056,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Deactivate Banner",
+            "description": "Deactivate a dealer banner",
             "header": [
               {
                 "key": "Content-Type",
@@ -24059,7 +24088,7 @@
           }
         },
         {
-          "name": "Deactivate Offer",
+          "name": "Deactivate a dealer offer",
           "request": {
             "body": {
               "mode": "raw",
@@ -24070,7 +24099,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Deactivate Offer",
+            "description": "Deactivate a dealer offer",
             "header": [
               {
                 "key": "Content-Type",
@@ -24102,9 +24131,65 @@
           }
         },
         {
-          "name": "Get Banner",
+          "name": "Delete a dealer banner by retiring it",
           "request": {
-            "description": "Get Banner",
+            "description": "Delete a dealer banner by retiring it",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "banners",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete a dealer offer by retiring it",
+          "request": {
+            "description": "Delete a dealer offer by retiring it",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "promotions",
+                "offers",
+                ":identity"
+              ],
+              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}",
+              "variable": [
+                {
+                  "description": "identity of the record",
+                  "key": "identity",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get one dealer banner",
+          "request": {
+            "description": "Get one dealer banner",
             "header": [],
             "method": "GET",
             "url": {
@@ -24130,9 +24215,9 @@
           }
         },
         {
-          "name": "Get Offer",
+          "name": "Get one dealer offer",
           "request": {
-            "description": "Get Offer",
+            "description": "Get one dealer offer",
             "header": [],
             "method": "GET",
             "url": {
@@ -24158,9 +24243,9 @@
           }
         },
         {
-          "name": "List Banners",
+          "name": "List dealer banners",
           "request": {
-            "description": "List Banners",
+            "description": "List dealer banners",
             "header": [],
             "method": "GET",
             "url": {
@@ -24204,9 +24289,9 @@
           }
         },
         {
-          "name": "List Offers",
+          "name": "List dealer offers",
           "request": {
-            "description": "List Offers",
+            "description": "List dealer offers",
             "header": [],
             "method": "GET",
             "url": {
@@ -24250,64 +24335,7 @@
           }
         },
         {
-          "name": "Preview Offer",
-          "request": {
-            "description": "Preview Offer",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "promotions",
-                "offers",
-                ":identity",
-                "preview"
-              ],
-              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}/preview",
-              "variable": [
-                {
-                  "description": "identity of the record",
-                  "key": "identity",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Retire Banner",
-          "request": {
-            "description": "Retire Banner",
-            "header": [],
-            "method": "DELETE",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "promotions",
-                "banners",
-                ":identity"
-              ],
-              "raw": "{{base_url}}/api/v1/promotions/banners/{identity}",
-              "variable": [
-                {
-                  "description": "identity of the record",
-                  "key": "identity",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Retire Banner With Reason",
+          "name": "Retire a dealer banner",
           "request": {
             "body": {
               "mode": "raw",
@@ -24318,7 +24346,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Retire Banner With Reason",
+            "description": "Retire a dealer banner",
             "header": [
               {
                 "key": "Content-Type",
@@ -24350,35 +24378,7 @@
           }
         },
         {
-          "name": "Retire Offer",
-          "request": {
-            "description": "Retire Offer",
-            "header": [],
-            "method": "DELETE",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "promotions",
-                "offers",
-                ":identity"
-              ],
-              "raw": "{{base_url}}/api/v1/promotions/offers/{identity}",
-              "variable": [
-                {
-                  "description": "identity of the record",
-                  "key": "identity",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Retire Offer With Reason",
+          "name": "Retire a dealer offer",
           "request": {
             "body": {
               "mode": "raw",
@@ -24389,7 +24389,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Retire Offer With Reason",
+            "description": "Retire a dealer offer",
             "header": [
               {
                 "key": "Content-Type",
@@ -24421,7 +24421,7 @@
           }
         },
         {
-          "name": "Update Banner",
+          "name": "Update a dealer banner",
           "request": {
             "body": {
               "mode": "raw",
@@ -24432,7 +24432,7 @@
               },
               "raw": "{\n  \"audience_price_type\": \"SALE\",\n  \"image_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"link_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"link_kind\": \"NONE\",\n  \"sort_order\": 0,\n  \"status\": \"ACTIVE\",\n  \"subtitle\": \"\",\n  \"title\": \"\",\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
             },
-            "description": "Update Banner",
+            "description": "Update a dealer banner",
             "header": [
               {
                 "key": "Content-Type",
@@ -24463,7 +24463,7 @@
           }
         },
         {
-          "name": "Update Offer",
+          "name": "Update a dealer offer",
           "request": {
             "body": {
               "mode": "raw",
@@ -24474,7 +24474,7 @@
               },
               "raw": "{\n  \"audience_price_type\": \"SALE\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"discount_percentage\": 0,\n  \"is_active\": false,\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"min_quantity\": 0,\n  \"scope_kind\": \"ALL\",\n  \"sort_order\": 0,\n  \"title\": \"\",\n  \"valid_from\": \"2026-01-01\",\n  \"valid_to\": \"2026-01-01\"\n}"
             },
-            "description": "Update Offer",
+            "description": "Update a dealer offer",
             "header": [
               {
                 "key": "Content-Type",
@@ -25457,9 +25457,9 @@
           }
         },
         {
-          "name": "Consumption By Department",
+          "name": "Consumption by department",
           "request": {
-            "description": "Consumption By Department",
+            "description": "Consumption by department",
             "header": [],
             "method": "GET",
             "url": {
@@ -30084,9 +30084,9 @@
           }
         },
         {
-          "name": "Scrap Register",
+          "name": "Scrap register",
           "request": {
-            "description": "Scrap Register",
+            "description": "Scrap register",
             "header": [],
             "method": "GET",
             "url": {
@@ -33770,7 +33770,7 @@
     {
       "item": [
         {
-          "name": "Cancel Sales Return",
+          "name": "Cancel a sales return",
           "request": {
             "body": {
               "mode": "raw",
@@ -33781,7 +33781,7 @@
               },
               "raw": "{\n  \"reason\": \"\"\n}"
             },
-            "description": "Cancel Sales Return",
+            "description": "Cancel a sales return",
             "header": [
               {
                 "key": "Content-Type",
@@ -33812,9 +33812,9 @@
           }
         },
         {
-          "name": "Close Sales Return",
+          "name": "Close a sales return",
           "request": {
-            "description": "Close Sales Return",
+            "description": "Close a sales return",
             "header": [],
             "method": "POST",
             "url": {
@@ -33840,40 +33840,7 @@
           }
         },
         {
-          "name": "Create Sales Return",
-          "request": {
-            "body": {
-              "mode": "raw",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {},\n      \"qc_inspection_id\": {},\n      \"requires_qc\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source\": \"ERP\"\n}"
-            },
-            "description": "Create Sales Return",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "method": "POST",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "sales-returns"
-              ],
-              "raw": "{{base_url}}/api/v1/sales-returns"
-            }
-          }
-        },
-        {
-          "name": "Dispose Sales Return Units",
+          "name": "Disposition a sales return's serial units",
           "request": {
             "body": {
               "mode": "raw",
@@ -33884,7 +33851,7 @@
               },
               "raw": "{\n  \"accepted\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"damaged\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"scrapped\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
             },
-            "description": "Dispose Sales Return Units",
+            "description": "Disposition a sales return's serial units",
             "header": [
               {
                 "key": "Content-Type",
@@ -33915,36 +33882,9 @@
           }
         },
         {
-          "name": "Get Sales Return",
+          "name": "List sales returns",
           "request": {
-            "description": "Get Sales Return",
-            "header": [],
-            "method": "GET",
-            "url": {
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "sales-returns",
-                ":return_id"
-              ],
-              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}",
-              "variable": [
-                {
-                  "description": "return_id of the record",
-                  "key": "return_id",
-                  "value": ""
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "List Sales Returns",
-          "request": {
-            "description": "List Sales Returns",
+            "description": "List sales returns",
             "header": [],
             "method": "GET",
             "url": {
@@ -33981,9 +33921,69 @@
           }
         },
         {
-          "name": "Receive Sales Return",
+          "name": "One sales return with its lines",
           "request": {
-            "description": "Receive Sales Return",
+            "description": "One sales return with its lines",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns",
+                ":return_id"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Raise a sales return against a dispatch",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {},\n      \"qc_inspection_id\": {},\n      \"requires_qc\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source\": \"ERP\"\n}"
+            },
+            "description": "Raise a sales return against a dispatch",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns"
+            }
+          }
+        },
+        {
+          "name": "Receive a sales return's goods",
+          "request": {
+            "description": "Receive a sales return's goods",
             "header": [],
             "method": "POST",
             "url": {
@@ -35157,7 +35157,7 @@
           }
         },
         {
-          "name": "Generate the purchase order PDF",
+          "name": "Generate the PDF of a purchase order placed with this vendor",
           "request": {
             "description": "Queued; poll the portal job route it returns, then follow its download_url.",
             "header": [],

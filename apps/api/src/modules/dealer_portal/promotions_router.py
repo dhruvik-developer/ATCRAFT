@@ -44,6 +44,7 @@ PageDep = Annotated[PageParams, Depends(page_params)]
     "/banners/{identity}/activate",
     response_model=ApiResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Activate a dealer banner",
 )
 async def activate_banner(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -60,6 +61,7 @@ async def activate_banner(
     "/banners/{identity}/deactivate",
     response_model=ApiResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Deactivate a dealer banner",
 )
 async def deactivate_banner(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -76,6 +78,7 @@ async def deactivate_banner(
     "/banners/{identity}/retire",
     response_model=ApiResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Retire a dealer banner",
 )
 async def retire_banner_with_reason(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -90,6 +93,7 @@ async def retire_banner_with_reason(
     "/offers/{identity}/activate",
     response_model=ApiResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Activate a dealer offer",
 )
 async def activate_offer(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -106,6 +110,7 @@ async def activate_offer(
     "/offers/{identity}/deactivate",
     response_model=ApiResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Deactivate a dealer offer",
 )
 async def deactivate_offer(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -122,6 +127,7 @@ async def deactivate_offer(
     "/offers/{identity}/retire",
     response_model=ApiResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Retire a dealer offer",
 )
 async def retire_offer_with_reason(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -136,6 +142,7 @@ async def retire_offer_with_reason(
     "/offers/{identity}/preview",
     response_model=ApiResponse[DealerOfferPreview],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
+    summary="Count the items a dealer offer reaches",
 )
 async def preview_offer(
     identity: uuid.UUID, session: DbSession, tenant: Tenant
@@ -148,6 +155,7 @@ async def preview_offer(
     "/banners",
     response_model=PaginatedResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
+    summary="List dealer banners",
 )
 async def list_banners(
     session: DbSession,
@@ -167,6 +175,7 @@ async def list_banners(
     "/banners/{identity}",
     response_model=ApiResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
+    summary="Get one dealer banner",
 )
 async def get_banner(
     identity: uuid.UUID, session: DbSession, tenant: Tenant
@@ -180,6 +189,7 @@ async def get_banner(
     response_model=ApiResponse[DealerBannerRead],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Create a dealer banner",
 )
 async def create_banner(
     payload: DealerBannerCreate, session: DbSession, tenant: Tenant
@@ -194,6 +204,7 @@ async def create_banner(
     "/banners/{identity}",
     response_model=ApiResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Update a dealer banner",
 )
 async def update_banner(
     identity: uuid.UUID, payload: DealerBannerUpdate, session: DbSession, tenant: Tenant
@@ -208,6 +219,7 @@ async def update_banner(
     "/banners/{identity}",
     response_model=ApiResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Delete a dealer banner by retiring it",
 )
 async def retire_banner(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant
@@ -222,6 +234,7 @@ async def retire_banner(
     "/offers",
     response_model=PaginatedResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
+    summary="List dealer offers",
 )
 async def list_offers(
     session: DbSession,
@@ -241,6 +254,7 @@ async def list_offers(
     "/offers/{identity}",
     response_model=ApiResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_VIEW)],
+    summary="Get one dealer offer",
 )
 async def get_offer(
     identity: uuid.UUID, session: DbSession, tenant: Tenant
@@ -254,6 +268,7 @@ async def get_offer(
     response_model=ApiResponse[DealerOfferRead],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Create a dealer offer",
 )
 async def create_offer(
     payload: DealerOfferCreate, session: DbSession, tenant: Tenant
@@ -268,6 +283,7 @@ async def create_offer(
     "/offers/{identity}",
     response_model=ApiResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Update a dealer offer",
 )
 async def update_offer(
     identity: uuid.UUID, payload: DealerOfferUpdate, session: DbSession, tenant: Tenant
@@ -282,6 +298,7 @@ async def update_offer(
     "/offers/{identity}",
     response_model=ApiResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.PROMOTION_MANAGE)],
+    summary="Delete a dealer offer by retiring it",
 )
 async def retire_offer(
     identity: uuid.UUID, payload: PromotionRetire, session: DbSession, tenant: Tenant

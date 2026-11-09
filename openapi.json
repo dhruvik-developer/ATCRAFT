@@ -103069,7 +103069,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Banners",
+        "summary": "Banners live for this dealer",
         "tags": [
           "Dealer Portal"
         ]
@@ -104869,7 +104869,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Catalogue Specification Filters",
+        "summary": "Specifications the dealer catalogue can filter by",
         "tags": [
           "Dealer Portal"
         ]
@@ -105211,7 +105211,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Credit Notes",
+        "summary": "List the dealer's credit notes",
         "tags": [
           "Dealer Portal"
         ]
@@ -105359,7 +105359,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Credit Note",
+        "summary": "One of the dealer's credit notes",
         "tags": [
           "Dealer Portal"
         ]
@@ -105507,7 +105507,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Credit Note Pdf",
+        "summary": "Queue the PDF of one of the dealer's credit notes",
         "tags": [
           "Dealer Portal"
         ]
@@ -105805,7 +105805,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Download",
+        "summary": "Download one of the dealer's PDFs",
         "tags": [
           "Dealer Portal"
         ]
@@ -105966,7 +105966,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Image",
+        "summary": "A product or promotion image the dealer may see",
         "tags": [
           "Dealer Portal"
         ]
@@ -106161,7 +106161,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Invoices",
+        "summary": "List the dealer's invoices",
         "tags": [
           "Dealer Portal"
         ]
@@ -106309,7 +106309,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Invoice",
+        "summary": "One of the dealer's invoices",
         "tags": [
           "Dealer Portal"
         ]
@@ -106457,7 +106457,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Invoice Pdf",
+        "summary": "Queue the PDF of one of the dealer's invoices",
         "tags": [
           "Dealer Portal"
         ]
@@ -106605,7 +106605,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Job",
+        "summary": "Status of one of the dealer's PDF jobs",
         "tags": [
           "Dealer Portal"
         ]
@@ -106919,7 +106919,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Offers",
+        "summary": "Offers live for this dealer",
         "tags": [
           "Dealer Portal"
         ]
@@ -107912,7 +107912,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Returns",
+        "summary": "List the dealer's return requests",
         "tags": [
           "Dealer Portal"
         ]
@@ -108056,7 +108056,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Request Return",
+        "summary": "Request a return from a delivered consignment",
         "tags": [
           "Dealer Portal"
         ]
@@ -108234,7 +108234,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Eligible Dispatches",
+        "summary": "Consignments the dealer may still return goods from",
         "tags": [
           "Dealer Portal"
         ]
@@ -108382,7 +108382,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Return",
+        "summary": "One of the dealer's return requests",
         "tags": [
           "Dealer Portal"
         ]
@@ -114276,7 +114276,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Credit Notes",
+        "summary": "List credit notes",
         "tags": [
           "Finance"
         ]
@@ -114420,7 +114420,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Credit Note",
+        "summary": "Issue a credit note",
         "tags": [
           "Finance"
         ]
@@ -114568,7 +114568,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Credit Note",
+        "summary": "One credit note with its lines",
         "tags": [
           "Finance"
         ]
@@ -114726,7 +114726,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Cancel Credit Note",
+        "summary": "Cancel a credit note",
         "tags": [
           "Finance"
         ]
@@ -114874,7 +114874,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Credit Note Pdf",
+        "summary": "Queue the credit note PDF",
         "tags": [
           "Finance"
         ]
@@ -122160,7 +122160,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Accounts",
+        "summary": "List courier accounts",
         "tags": [
           "Courier Integration"
         ]
@@ -122304,7 +122304,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Account",
+        "summary": "Connect a courier account",
         "tags": [
           "Courier Integration"
         ]
@@ -122462,7 +122462,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Update Account",
+        "summary": "Edit or deactivate a courier account",
         "tags": [
           "Courier Integration"
         ]
@@ -122610,7 +122610,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Rotate Webhook",
+        "summary": "Reset a courier account's webhook secret",
         "tags": [
           "Courier Integration"
         ]
@@ -122758,7 +122758,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Test Connection",
+        "summary": "Test a courier account's connection",
         "tags": [
           "Courier Integration"
         ]
@@ -122977,7 +122977,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Events",
+        "summary": "List received courier tracking events",
         "tags": [
           "Courier Integration"
         ]
@@ -123123,7 +123123,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Refresh Tracking",
+        "summary": "Pull the latest courier tracking now",
         "tags": [
           "Courier Integration"
         ]
@@ -123265,7 +123265,7 @@
             "description": "Service temporarily unavailable"
           }
         },
-        "summary": "Courier Webhook",
+        "summary": "Receive a signed courier tracking webhook",
         "tags": [
           "Courier Integration"
         ]
@@ -141296,7 +141296,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Push Config",
+        "summary": "Read the Web Push configuration",
         "tags": [
           "Notifications"
         ]
@@ -141464,7 +141464,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Subscriptions",
+        "summary": "List this account's push devices",
         "tags": [
           "Notifications"
         ]
@@ -141608,7 +141608,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Subscribe",
+        "summary": "Subscribe this browser to push notifications",
         "tags": [
           "Notifications"
         ]
@@ -141754,7 +141754,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Unregister",
+        "summary": "Unsubscribe a browser by its push endpoint",
         "tags": [
           "Notifications"
         ]
@@ -141902,7 +141902,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete Subscription",
+        "summary": "Remove a push device",
         "tags": [
           "Notifications"
         ]
@@ -142038,7 +142038,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Test Push",
+        "summary": "Send a test push notification to this account's devices",
         "tags": [
           "Notifications"
         ]
@@ -172995,7 +172995,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Category Specifications",
+        "summary": "Get a category's specification template",
         "tags": [
           "Products"
         ]
@@ -173151,7 +173151,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Replace Category Specifications",
+        "summary": "Replace a category's specification template",
         "tags": [
           "Products"
         ]
@@ -173311,7 +173311,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete Accessory",
+        "summary": "Remove an item accessory",
         "tags": [
           "Products"
         ]
@@ -173467,7 +173467,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Update Accessory",
+        "summary": "Update an item accessory",
         "tags": [
           "Products"
         ]
@@ -175603,7 +175603,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Item Accessories",
+        "summary": "List an item's accessories",
         "tags": [
           "Products"
         ]
@@ -175759,7 +175759,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Accessory",
+        "summary": "Add an accessory to an item",
         "tags": [
           "Products"
         ]
@@ -175917,7 +175917,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Set Item Image",
+        "summary": "Set or clear an item's primary image",
         "tags": [
           "Products"
         ]
@@ -176726,7 +176726,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Item Attribute Options",
+        "summary": "List the specification attributes an item may carry",
         "tags": [
           "Products"
         ]
@@ -176874,7 +176874,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Item Specifications",
+        "summary": "Get an item's specification values",
         "tags": [
           "Products"
         ]
@@ -177030,7 +177030,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Replace Item Specifications",
+        "summary": "Replace an item's specification values",
         "tags": [
           "Products"
         ]
@@ -179323,7 +179323,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Attributes",
+        "summary": "List specification attributes",
         "tags": [
           "Products"
         ]
@@ -179467,7 +179467,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Attribute",
+        "summary": "Create a specification attribute",
         "tags": [
           "Products"
         ]
@@ -179627,7 +179627,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Retire Attribute",
+        "summary": "Retire a specification attribute",
         "tags": [
           "Products"
         ]
@@ -179773,7 +179773,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Attribute",
+        "summary": "Get one specification attribute",
         "tags": [
           "Products"
         ]
@@ -179929,7 +179929,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Update Attribute",
+        "summary": "Update a specification attribute",
         "tags": [
           "Products"
         ]
@@ -180124,7 +180124,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Specification Categories",
+        "summary": "List item categories for specification templates",
         "tags": [
           "Products"
         ]
@@ -181784,7 +181784,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Banners",
+        "summary": "List dealer banners",
         "tags": [
           "Promotions"
         ]
@@ -181928,7 +181928,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Banner",
+        "summary": "Create a dealer banner",
         "tags": [
           "Promotions"
         ]
@@ -182086,7 +182086,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Retire Banner",
+        "summary": "Delete a dealer banner by retiring it",
         "tags": [
           "Promotions"
         ]
@@ -182232,7 +182232,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Banner",
+        "summary": "Get one dealer banner",
         "tags": [
           "Promotions"
         ]
@@ -182388,7 +182388,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Update Banner",
+        "summary": "Update a dealer banner",
         "tags": [
           "Promotions"
         ]
@@ -182546,7 +182546,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Activate Banner",
+        "summary": "Activate a dealer banner",
         "tags": [
           "Promotions"
         ]
@@ -182704,7 +182704,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Deactivate Banner",
+        "summary": "Deactivate a dealer banner",
         "tags": [
           "Promotions"
         ]
@@ -182862,7 +182862,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Retire Banner With Reason",
+        "summary": "Retire a dealer banner",
         "tags": [
           "Promotions"
         ]
@@ -183057,7 +183057,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Offers",
+        "summary": "List dealer offers",
         "tags": [
           "Promotions"
         ]
@@ -183201,7 +183201,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Offer",
+        "summary": "Create a dealer offer",
         "tags": [
           "Promotions"
         ]
@@ -183359,7 +183359,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Retire Offer",
+        "summary": "Delete a dealer offer by retiring it",
         "tags": [
           "Promotions"
         ]
@@ -183505,7 +183505,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Offer",
+        "summary": "Get one dealer offer",
         "tags": [
           "Promotions"
         ]
@@ -183661,7 +183661,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Update Offer",
+        "summary": "Update a dealer offer",
         "tags": [
           "Promotions"
         ]
@@ -183819,7 +183819,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Activate Offer",
+        "summary": "Activate a dealer offer",
         "tags": [
           "Promotions"
         ]
@@ -183977,7 +183977,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Deactivate Offer",
+        "summary": "Deactivate a dealer offer",
         "tags": [
           "Promotions"
         ]
@@ -184125,7 +184125,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Preview Offer",
+        "summary": "Count the items a dealer offer reaches",
         "tags": [
           "Promotions"
         ]
@@ -184283,7 +184283,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Retire Offer With Reason",
+        "summary": "Retire a dealer offer",
         "tags": [
           "Promotions"
         ]
@@ -188477,7 +188477,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Consumption By Department",
+        "summary": "Consumption by department",
         "tags": [
           "Reports"
         ]
@@ -203955,7 +203955,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Scrap Register",
+        "summary": "Scrap register",
         "tags": [
           "Reports"
         ]
@@ -216008,7 +216008,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Sales Returns",
+        "summary": "List sales returns",
         "tags": [
           "Sales Returns"
         ]
@@ -216152,7 +216152,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Sales Return",
+        "summary": "Raise a sales return against a dispatch",
         "tags": [
           "Sales Returns"
         ]
@@ -216300,7 +216300,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Sales Return",
+        "summary": "One sales return with its lines",
         "tags": [
           "Sales Returns"
         ]
@@ -216458,7 +216458,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Cancel Sales Return",
+        "summary": "Cancel a sales return",
         "tags": [
           "Sales Returns"
         ]
@@ -216606,7 +216606,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Close Sales Return",
+        "summary": "Close a sales return",
         "tags": [
           "Sales Returns"
         ]
@@ -216754,7 +216754,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Receive Sales Return",
+        "summary": "Receive a sales return's goods",
         "tags": [
           "Sales Returns"
         ]
@@ -216912,7 +216912,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Dispose Sales Return Units",
+        "summary": "Disposition a sales return's serial units",
         "tags": [
           "Sales Returns"
         ]
@@ -226020,7 +226020,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Generate the purchase order PDF",
+        "summary": "Generate the PDF of a purchase order placed with this vendor",
         "tags": [
           "Vendor Portal"
         ]

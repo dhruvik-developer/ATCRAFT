@@ -10,8 +10,11 @@ none - so every test below passed over an empty list.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 import pytest
+from fastapi import APIRouter
+from fastapi.routing import APIRoute
 from starlette.routing import compile_path
 
 from src.core.responses import AcceptedJobResponse
@@ -75,3 +78,61 @@ def test_resource_creation_and_queued_jobs_document_their_http_status(
             assert route.status_code == 201, mounted.path
         if route.response_model is AcceptedJobResponse:
             assert route.status_code == 202, mounted.path
+
+
+def summary_faults(routes: Iterable[MountedRoute]) -> list[str]:
+    """Documented operations with no summary of their own, or one another shares.
+
+    FastAPI titles a route that names no summary after its function, so
+    ``list_credit_notes`` in finance and in the dealer portal both read "List
+    Credit Notes" in Swagger and in the Postman collection - two requests nobody
+    can tell apart. docs/api.md promises every operation a summary; this holds it
+    to one that is its own. Compared without case, as a reader compares them.
+    """
+    faults: list[str] = []
+    seen: dict[str, str] = {}
+    for mounted in routes:
+        if not mounted.route.include_in_schema:
+            continue
+        summary = (mounted.route.summary or "").strip()
+        if not summary:
+            faults.append(f"{mounted}: no summary")
+            continue
+        key = summary.casefold()
+        if key in seen:
+            faults.append(f"{mounted}: summary {summary!r} also names {seen[key]}")
+        else:
+            seen[key] = str(mounted)
+    return faults
+
+
+def test_every_documented_operation_has_a_summary_of_its_own(
+    routes: tuple[MountedRoute, ...],
+) -> None:
+    assert summary_faults(routes) == []
+
+
+def test_the_summary_rule_finds_a_missing_and_a_shared_summary() -> None:
+    probe = APIRouter()
+
+    @probe.get("/first", summary="List things")
+    async def first() -> None: ...
+
+    @probe.get("/second", summary="list things")
+    async def second() -> None: ...
+
+    @probe.get("/third")
+    async def third() -> None: ...
+
+    @probe.get("/hidden", include_in_schema=False)
+    async def hidden() -> None: ...
+
+    mounted = [
+        MountedRoute(module="probe", path=route.path, route=route)
+        for route in probe.routes
+        if isinstance(route, APIRoute)
+    ]
+    assert summary_faults(mounted) == [
+        "GET /second: summary 'list things' also names GET /first",
+        "GET /third: no summary",
+    ]

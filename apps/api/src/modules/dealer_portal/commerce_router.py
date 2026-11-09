@@ -37,6 +37,7 @@ PageDep = Annotated[PageParams, Depends(page_params)]
     "/banners",
     response_model=PaginatedResponse[DealerBannerRead],
     dependencies=[require_permission(Permission.DEALER_PORTAL_BROWSE)],
+    summary="Banners live for this dealer",
 )
 async def banners(
     session: DbSession, tenant: Tenant, params: PageDep
@@ -49,6 +50,7 @@ async def banners(
     "/offers",
     response_model=PaginatedResponse[DealerOfferRead],
     dependencies=[require_permission(Permission.DEALER_PORTAL_BROWSE)],
+    summary="Offers live for this dealer",
 )
 async def offers(
     session: DbSession, tenant: Tenant, params: PageDep
@@ -71,6 +73,7 @@ async def offers(
             "description": "An image of a visible product or promotion",
         }
     },
+    summary="A product or promotion image the dealer may see",
 )
 async def image(document_id: uuid.UUID, session: DbSession, tenant: Tenant) -> StreamingResponse:
     result = await PromotionService(session, tenant).image(document_id)
@@ -92,6 +95,7 @@ async def image(document_id: uuid.UUID, session: DbSession, tenant: Tenant) -> S
     "/invoices",
     response_model=PaginatedResponse[DealerInvoiceSummary],
     dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    summary="List the dealer's invoices",
 )
 async def list_invoices(
     session: DbSession,
@@ -107,6 +111,7 @@ async def list_invoices(
     "/invoices/{invoice_id}",
     response_model=ApiResponse[DealerInvoiceDetail],
     dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    summary="One of the dealer's invoices",
 )
 async def get_invoice(
     invoice_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -124,6 +129,7 @@ async def get_invoice(
         require_permission(Permission.DEALER_PORTAL_ACCOUNT),
         spend_budget(RateLimitPolicy.DOCUMENT_PDF),
     ],
+    summary="Queue the PDF of one of the dealer's invoices",
 )
 async def invoice_pdf(
     invoice_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -135,6 +141,7 @@ async def invoice_pdf(
     "/credit-notes",
     response_model=PaginatedResponse[DealerCreditNoteSummary],
     dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    summary="List the dealer's credit notes",
 )
 async def list_credit_notes(
     session: DbSession, tenant: Tenant, params: PageDep, invoice_id: uuid.UUID | None = None
@@ -149,6 +156,7 @@ async def list_credit_notes(
     "/credit-notes/{note_id}",
     response_model=ApiResponse[DealerCreditNoteDetail],
     dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    summary="One of the dealer's credit notes",
 )
 async def get_credit_note(
     note_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -166,6 +174,7 @@ async def get_credit_note(
         require_permission(Permission.DEALER_PORTAL_ACCOUNT),
         spend_budget(RateLimitPolicy.DOCUMENT_PDF),
     ],
+    summary="Queue the PDF of one of the dealer's credit notes",
 )
 async def credit_note_pdf(
     note_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -177,6 +186,7 @@ async def credit_note_pdf(
     "/returns/eligible-dispatches",
     response_model=PaginatedResponse[DealerEligibleDispatch],
     dependencies=[require_permission(Permission.DEALER_PORTAL_RETURN)],
+    summary="Consignments the dealer may still return goods from",
 )
 async def eligible_dispatches(
     session: DbSession, tenant: Tenant, params: PageDep
@@ -189,6 +199,7 @@ async def eligible_dispatches(
     "/returns",
     response_model=PaginatedResponse[DealerReturnSummary],
     dependencies=[require_permission(Permission.DEALER_PORTAL_RETURN)],
+    summary="List the dealer's return requests",
 )
 async def list_returns(
     session: DbSession, tenant: Tenant, params: PageDep
@@ -201,6 +212,7 @@ async def list_returns(
     "/returns/{return_id}",
     response_model=ApiResponse[DealerReturnDetail],
     dependencies=[require_permission(Permission.DEALER_PORTAL_RETURN)],
+    summary="One of the dealer's return requests",
 )
 async def get_return(
     return_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -215,6 +227,7 @@ async def get_return(
     response_model=ApiResponse[DealerReturnDetail],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.DEALER_PORTAL_RETURN)],
+    summary="Request a return from a delivered consignment",
 )
 async def request_return(
     payload: DealerReturnCreate, session: DbSession, tenant: Tenant
@@ -227,6 +240,7 @@ async def request_return(
     "/jobs/{job_id}",
     response_model=ApiResponse[ReportJobRead],
     dependencies=[require_permission(Permission.DEALER_PORTAL_ACCOUNT)],
+    summary="Status of one of the dealer's PDF jobs",
 )
 async def get_job(
     job_id: uuid.UUID, session: DbSession, tenant: Tenant
@@ -244,6 +258,7 @@ async def get_job(
             "description": "The dealer's own statutory PDF",
         }
     },
+    summary="Download one of the dealer's PDFs",
 )
 async def download(document_id: uuid.UUID, session: DbSession, tenant: Tenant) -> StreamingResponse:
     result = await DealerCommerceService(session, tenant).download(document_id)

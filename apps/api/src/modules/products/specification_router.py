@@ -37,6 +37,7 @@ ReasonQuery = Annotated[str, Query(min_length=3, max_length=255, pattern=r"\S.{1
     "/specification-attributes",
     response_model=PaginatedResponse[SpecificationAttributeRead],
     dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_VIEW)],
+    summary="List specification attributes",
 )
 async def list_attributes(
     session: DbSession,
@@ -58,6 +59,7 @@ async def list_attributes(
     response_model=ApiResponse[SpecificationAttributeRead],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_MANAGE)],
+    summary="Create a specification attribute",
 )
 async def create_attribute(
     session: DbSession, tenant: Tenant, payload: SpecificationAttributeCreate
@@ -72,6 +74,7 @@ async def create_attribute(
     "/specification-attributes/{attribute_id}",
     response_model=ApiResponse[SpecificationAttributeRead],
     dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_VIEW)],
+    summary="Get one specification attribute",
 )
 async def get_attribute(
     session: DbSession, tenant: Tenant, attribute_id: uuid.UUID
@@ -83,6 +86,7 @@ async def get_attribute(
     "/specification-attributes/{attribute_id}",
     response_model=ApiResponse[SpecificationAttributeRead],
     dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_MANAGE)],
+    summary="Update a specification attribute",
 )
 async def update_attribute(
     session: DbSession,
@@ -100,6 +104,7 @@ async def update_attribute(
     "/specification-attributes/{attribute_id}",
     response_model=ApiResponse[None],
     dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_MANAGE)],
+    summary="Retire a specification attribute",
 )
 async def retire_attribute(
     session: DbSession, tenant: Tenant, attribute_id: uuid.UUID, reason: ReasonQuery
@@ -114,6 +119,7 @@ async def retire_attribute(
     dependencies=[
         require_any_permission(Permission.ITEM_ATTRIBUTE_VIEW, Permission.ITEM_ATTRIBUTE_MANAGE)
     ],
+    summary="List item categories for specification templates",
 )
 async def specification_categories(
     session: DbSession,
@@ -131,6 +137,7 @@ async def specification_categories(
     dependencies=[
         require_any_permission(Permission.ITEM_ATTRIBUTE_VIEW, Permission.ITEM_ATTRIBUTE_MANAGE)
     ],
+    summary="Get a category's specification template",
 )
 async def category_specifications(
     session: DbSession, tenant: Tenant, category_id: uuid.UUID
@@ -144,6 +151,7 @@ async def category_specifications(
     "/categories/{category_id}/specifications",
     response_model=ApiResponse[CategorySpecificationsRead],
     dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_MANAGE)],
+    summary="Replace a category's specification template",
 )
 async def replace_category_specifications(
     session: DbSession,
@@ -163,6 +171,7 @@ async def replace_category_specifications(
     "/items/{item_id}/specification-attributes",
     response_model=PaginatedResponse[SpecificationAttributeRead],
     dependencies=[require_any_permission(Permission.ITEM_VIEW, Permission.ITEM_UPDATE)],
+    summary="List the specification attributes an item may carry",
 )
 async def item_attribute_options(
     session: DbSession,
@@ -181,6 +190,7 @@ async def item_attribute_options(
     "/items/{item_id}/specifications",
     response_model=ApiResponse[ItemSpecificationsRead],
     dependencies=[require_permission(Permission.ITEM_VIEW)],
+    summary="Get an item's specification values",
 )
 async def item_specifications(
     session: DbSession, tenant: Tenant, item_id: uuid.UUID
@@ -194,6 +204,7 @@ async def item_specifications(
     "/items/{item_id}/specifications",
     response_model=ApiResponse[ItemSpecificationsRead],
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
+    summary="Replace an item's specification values",
 )
 async def replace_item_specifications(
     session: DbSession, tenant: Tenant, item_id: uuid.UUID, payload: ItemSpecificationsReplace
@@ -208,6 +219,7 @@ async def replace_item_specifications(
     "/items/{item_id}/accessories",
     response_model=PaginatedResponse[ItemAccessoryRead],
     dependencies=[require_permission(Permission.ITEM_VIEW)],
+    summary="List an item's accessories",
 )
 async def item_accessories(
     session: DbSession, tenant: Tenant, item_id: uuid.UUID, params: PageDep
@@ -221,6 +233,7 @@ async def item_accessories(
     response_model=ApiResponse[ItemAccessoryRead],
     status_code=status.HTTP_201_CREATED,
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
+    summary="Add an accessory to an item",
 )
 async def create_accessory(
     session: DbSession, tenant: Tenant, item_id: uuid.UUID, payload: ItemAccessoryCreate
@@ -235,6 +248,7 @@ async def create_accessory(
     "/item-accessories/{accessory_id}",
     response_model=ApiResponse[ItemAccessoryRead],
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
+    summary="Update an item accessory",
 )
 async def update_accessory(
     session: DbSession, tenant: Tenant, accessory_id: uuid.UUID, payload: ItemAccessoryUpdate
@@ -249,6 +263,7 @@ async def update_accessory(
     "/item-accessories/{accessory_id}",
     response_model=ApiResponse[None],
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
+    summary="Remove an item accessory",
 )
 async def delete_accessory(
     session: DbSession, tenant: Tenant, accessory_id: uuid.UUID, reason: ReasonQuery

@@ -176,6 +176,7 @@ async def catalog_items(
     "/catalog/specifications",
     response_model=PaginatedResponse[DealerSpecificationFilterRead],
     dependencies=[require_permission(Permission.DEALER_PORTAL_BROWSE)],
+    summary="Specifications the dealer catalogue can filter by",
 )
 async def catalogue_specification_filters(
     session: DbSession, tenant: Tenant, params: PageDep
