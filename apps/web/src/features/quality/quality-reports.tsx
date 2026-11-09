@@ -29,6 +29,7 @@ import {
 
 import { Link } from 'react-router-dom'
 
+import { AXIS_TICK, ChartDataTable, ChartTooltip } from '@/components/chart'
 import { EmptyState } from '@/components/shared'
 import {
   Select,
@@ -59,8 +60,6 @@ import type {
   VendorQualitySummary as VendorQualitySummaryPayload,
 } from './quality-types'
 
-const AXIS_TICK = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' }
-
 /**
  * The window, in days.
  *
@@ -73,89 +72,6 @@ const PERIODS = [
   { value: '180', label: 'Last 180 days' },
   { value: '365', label: 'Last 365 days' },
 ] as const
-
-interface TooltipEntry {
-  dataKey?: string | number
-  name?: string | number
-  value?: number | string
-  color?: string
-}
-
-/**
- * Recharts' default tooltip paints an inline white background, which is
- * unreadable in dark mode. This one wears the popover tokens instead.
- */
-function ChartTooltip({
-  active,
-  payload,
-  label,
-  formatValue,
-}: {
-  active?: boolean
-  payload?: TooltipEntry[]
-  label?: string | number
-  formatValue: (value: number, key: string) => string
-}) {
-  if (!active || !payload?.length) return null
-
-  return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
-      <p className="mb-1 font-medium text-popover-foreground">
-        {label === undefined ? '' : String(label)}
-      </p>
-      <ul className="space-y-0.5">
-        {payload.map((entry) => (
-          <li key={String(entry.dataKey)} className="flex items-center gap-2">
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: entry.color }}
-              aria-hidden
-            />
-            <span className="text-muted-foreground">{String(entry.name ?? entry.dataKey)}</span>
-            <span className="ml-auto tabular text-popover-foreground">
-              {formatValue(Number(entry.value ?? 0), String(entry.dataKey))}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-/** The chart's figures as a real table, for screen readers and for copying. */
-function ChartDataTable({
-  caption,
-  headers,
-  rows,
-}: {
-  caption: string
-  headers: string[]
-  rows: string[][]
-}) {
-  return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          {headers.map((header) => (
-            <th key={header} scope="col">
-              {header}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={row[0] ?? index}>
-            {row.map((cell, cellIndex) => (
-              <td key={`${cell}-${cellIndex}`}>{cell}</td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
 
 function ReportCard({
   title,

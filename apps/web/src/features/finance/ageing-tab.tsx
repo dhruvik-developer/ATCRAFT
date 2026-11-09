@@ -42,6 +42,7 @@ import {
   YAxis,
 } from 'recharts'
 
+import { AXIS_TICK, ChartDataTable, ChartTooltip } from '@/components/chart'
 import { DataTable } from '@/components/data-table'
 import { StatTile } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -126,7 +127,6 @@ const BUCKETS: {
 ]
 
 const CHART_ROWS = 10
-const AXIS_TICK = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' }
 /** Parties per denomination. The API caps this at 500. */
 const PARTY_LIMIT = 200
 
@@ -470,15 +470,12 @@ export function AgeingTab() {
                 />
                 <Tooltip
                   cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }}
-                  contentStyle={{
-                    background: 'hsl(var(--popover))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: 'var(--radius)',
-                    fontSize: 12,
-                    color: 'hsl(var(--popover-foreground))',
-                  }}
-                  formatter={(value) =>
-                    formatMoney(value as number, { currency: blockCurrency || undefined })
+                  content={
+                    <ChartTooltip
+                      formatValue={(value) =>
+                        formatMoney(value, { currency: blockCurrency || undefined })
+                      }
+                    />
                   }
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -496,33 +493,18 @@ export function AgeingTab() {
             </ResponsiveContainer>
           )}
           {report.data && (
-            <div className="sr-only">
-              <table>
-                <caption>Outstanding amount by party and age bucket, in {blockCurrency}</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Party</th>
-                    {BUCKETS.map((bucket) => (
-                      <th key={bucket.key} scope="col">
-                        {bucket.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, CHART_ROWS).map((row) => (
-                    <tr key={`${row.party_id}-${row.currency}`}>
-                      <th scope="row">{row.party_name}</th>
-                      {BUCKETS.map((bucket) => (
-                        <td key={bucket.key}>
-                          {formatMoney(row[bucket.key], { currency: row.currency })}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ChartDataTable
+              caption={`Outstanding amount by party and age bucket, in ${blockCurrency}`}
+              headers={['Party', ...BUCKETS.map((bucket) => bucket.label)]}
+              rows={rows
+                .slice(0, CHART_ROWS)
+                .map((row) => [
+                  row.party_name,
+                  ...BUCKETS.map((bucket) =>
+                    formatMoney(row[bucket.key], { currency: row.currency }),
+                  ),
+                ])}
+            />
           )}
         </CardContent>
       </Card>
