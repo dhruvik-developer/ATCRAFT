@@ -363,7 +363,7 @@ export function AgeingTab() {
 
       {report.error && !report.isLoading && (
         <Alert variant="destructive">
-          <AlertTitle>The ageing report could not be loaded</AlertTitle>
+          <AlertTitle>Could not load the ageing report</AlertTitle>
           <AlertDescription>{describeError(report.error)}</AlertDescription>
         </Alert>
       )}

@@ -913,7 +913,7 @@ describe('packing list status recovery', () => {
         },
       })
       await h.user.click(screen.getByRole('button', { name: /generate packing list/i }))
-      expect(await screen.findByText('Packing list could not be generated')).toBeVisible()
+      expect(await screen.findByText('Could not generate the packing list')).toBeVisible()
       expect(screen.getByRole('button', { name: 'Retry status' })).toBeEnabled()
       expect(screen.queryByRole('button', { name: /generate packing list/i })).toBeNull()
 

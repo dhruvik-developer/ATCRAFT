@@ -607,7 +607,7 @@ export function VendorInvoiceMatchDialog({
 
             {matchQuery.error && !matchQuery.isLoading && (
               <Alert variant="destructive">
-                <AlertTitle>The match could not be read</AlertTitle>
+                <AlertTitle>Could not read the match</AlertTitle>
                 <AlertDescription>
                   {describeError(matchQuery.error)} Approval stays unavailable until the match is
                   known.

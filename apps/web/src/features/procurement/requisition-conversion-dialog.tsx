@@ -442,7 +442,7 @@ export default function RequisitionConversionDialog({
 
             {!preview.isLoading && preview.error && (
               <Alert variant="destructive">
-                <AlertTitle>The proposal could not be worked out</AlertTitle>
+                <AlertTitle>Could not work out the proposal</AlertTitle>
                 <AlertDescription>
                   {describeError(preview.error)}
                   <span className="mt-3 flex flex-wrap gap-2">

@@ -103,7 +103,7 @@ describe('messaging administration', () => {
     await user.click(screen.getByRole('button', { name: 'Add template' }))
     await user.click(screen.getByRole('button', { name: 'Save templates' }))
 
-    const headline = await screen.findByText('The templates were not saved')
+    const headline = await screen.findByText('Could not save the templates')
     const summary = headline.closest<HTMLElement>('[role="alert"]')!
     expect(
       within(summary).getByText('WHATSAPP · Approval Pending: Approved template name is required.'),
@@ -113,7 +113,7 @@ describe('messaging administration', () => {
     // Naming the template clears the complaint, and the save goes through.
     const names = screen.getAllByLabelText('Approved template name')
     await user.type(names[1]!, 'approval_pending')
-    expect(screen.queryByText('The templates were not saved')).not.toBeInTheDocument()
+    expect(screen.queryByText('Could not save the templates')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save templates' }))
     await waitFor(() =>
       expect(fetch.requestFor('PUT', '/notifications/channel-templates')).toMatchObject({

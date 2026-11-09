@@ -701,7 +701,7 @@ function ConversionsTab() {
 
       {units.data?.truncated && (
         <Alert variant="warning" className="mb-4">
-          <AlertTitle>Some units could not be named</AlertTitle>
+          <AlertTitle>Could not name some units</AlertTitle>
           <AlertDescription>
             This company has more units than one page can carry, so a conversion pointing at one of
             the later ones shows as &ldquo;Unknown unit&rdquo;. The factor and its direction are

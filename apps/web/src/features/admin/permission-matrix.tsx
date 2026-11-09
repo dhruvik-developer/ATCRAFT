@@ -228,7 +228,7 @@ export function PermissionMatrix({
 
       {saveError && (
         <Alert variant="destructive">
-          <AlertTitle>The permissions were not saved</AlertTitle>
+          <AlertTitle>Could not save the permissions</AlertTitle>
           <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}

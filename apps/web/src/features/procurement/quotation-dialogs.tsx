@@ -757,7 +757,7 @@ export function QuotationDecisionDialog({
               paper, so the failure is stated and the dialog carries on. */}
           {!comparison.isLoading && comparison.error && (
             <Alert variant="warning">
-              <AlertTitle>The other quotations could not be loaded</AlertTitle>
+              <AlertTitle>Could not load the other quotations</AlertTitle>
               <AlertDescription>
                 {describeError(comparison.error)} You can still record the decision.
               </AlertDescription>

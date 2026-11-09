@@ -341,7 +341,7 @@ export function JobWorkInvoiceDialog({
                 {linesQuery.isLoading && <Skeleton className="h-32 w-full" />}
                 {linesQuery.error && !linesQuery.isLoading && (
                   <Alert variant="destructive">
-                    <AlertTitle>The billable lines could not be read</AlertTitle>
+                    <AlertTitle>Could not read the billable lines</AlertTitle>
                     <AlertDescription>{describeError(linesQuery.error)}</AlertDescription>
                   </Alert>
                 )}
@@ -525,7 +525,7 @@ export function JobWorkInvoiceDialog({
           {refusal && (
             <Alert variant="destructive">
               <AlertTitle>
-                {strandedDraft ? 'The bill was not submitted' : 'The bill was not saved'}
+                {strandedDraft ? 'Could not submit the bill' : 'Could not save the bill'}
               </AlertTitle>
               <AlertDescription>{refusal}</AlertDescription>
             </Alert>

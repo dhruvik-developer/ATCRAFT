@@ -524,7 +524,7 @@ function PreferencesTab() {
 
       {saveError && (
         <Alert variant="destructive" className="mb-3">
-          <AlertTitle>The preferences were not saved</AlertTitle>
+          <AlertTitle>Could not save the preferences</AlertTitle>
           <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}

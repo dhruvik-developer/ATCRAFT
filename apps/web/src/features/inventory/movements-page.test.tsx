@@ -1131,7 +1131,7 @@ describe('physical counts', () => {
     await user.click(await screen.findByRole('button', { name: /confirm/i }))
     const dialog = await screen.findByRole('dialog')
     expect(
-      await within(dialog).findByText(/the line-by-line breakdown could not be read/i),
+      await within(dialog).findByText(/could not read the line-by-line breakdown/i),
     ).toBeInTheDocument()
     // The sheet's own net variance, negative, still on screen.
     expect(within(dialog).getByText('-₹1,250.00')).toBeInTheDocument()

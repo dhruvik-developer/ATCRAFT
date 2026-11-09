@@ -195,7 +195,7 @@ export default function MrpPage() {
 
     setFailedRun(watchedRun)
     toast.error(
-      watchedRun.status === 'CANCELLED' ? 'MRP run cancelled' : 'MRP run failed',
+      watchedRun.status === 'CANCELLED' ? 'MRP run cancelled' : 'Could not complete the MRP run',
       watchedRun.error_message ?? `${watchedRun.code} did not finish. Nothing was created.`,
     )
   }, [watchedRun, navigate, queryClient])

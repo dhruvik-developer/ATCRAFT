@@ -115,7 +115,7 @@ export function RetireCustomerDialog({
       <div className="space-y-3">
         {retire.error && (
           <Alert variant="destructive">
-            <AlertTitle>The account was not retired</AlertTitle>
+            <AlertTitle>Could not retire the account</AlertTitle>
             {/* The API's own sentence. It names the balance or the state that
                 stood in the way, which is more use than "request failed". */}
             <AlertDescription>

@@ -70,6 +70,7 @@ export function PwaInstallCard({ audience }: { audience: 'vendor' | 'dealer' }) 
                     toast.success('ATCRAFT installed on this device')
                   } else if (outcome === 'unavailable') {
                     toast.error(
+                      'Could not install the app',
                       'Install is not available in this browser yet. Use the browser menu to install the app, or open the site in Chrome.',
                     )
                   }

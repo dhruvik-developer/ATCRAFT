@@ -284,7 +284,7 @@ export default function ReportsPage() {
 
       {catalogue.error && !catalogue.isLoading && (
         <Alert variant="destructive">
-          <AlertTitle>The report catalogue could not be loaded</AlertTitle>
+          <AlertTitle>Could not load the report catalogue</AlertTitle>
           <AlertDescription>{describeError(catalogue.error)}</AlertDescription>
         </Alert>
       )}

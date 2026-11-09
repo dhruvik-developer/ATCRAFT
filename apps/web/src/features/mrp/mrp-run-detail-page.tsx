@@ -979,7 +979,7 @@ export default function MrpRunDetailPage() {
         <Alert variant="destructive" className="mb-5">
           <AlertTitle className="flex items-center gap-2">
             <TriangleAlert className="h-4 w-4" aria-hidden />
-            {run.status === 'CANCELLED' ? 'This run was cancelled' : 'This run failed'}
+            {run.status === 'CANCELLED' ? 'This run was cancelled' : 'Could not complete this run'}
           </AlertTitle>
           <AlertDescription>
             {run.error_message ??

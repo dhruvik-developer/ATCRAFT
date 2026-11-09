@@ -168,7 +168,7 @@ export function RetireItemDialog({
       <div className="space-y-3">
         {retire.error && (
           <Alert variant="destructive">
-            <AlertTitle>The item was not retired</AlertTitle>
+            <AlertTitle>Could not retire the item</AlertTitle>
             {/* The API's own sentence. It names the state that stood in the way,
                 which is more use than "request failed". */}
             <AlertDescription>{describeError(retire.error)}</AlertDescription>
@@ -276,7 +276,7 @@ export function RetireVariantDialog({
       <div className="space-y-3">
         {retire.error && (
           <Alert variant="destructive">
-            <AlertTitle>The variant was not retired</AlertTitle>
+            <AlertTitle>Could not retire the variant</AlertTitle>
             <AlertDescription>{describeError(retire.error)}</AlertDescription>
           </Alert>
         )}

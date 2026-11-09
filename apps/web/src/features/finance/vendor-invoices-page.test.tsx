@@ -316,7 +316,7 @@ describe('a command is offered only in the status its state machine permits', ()
     })
 
     const dialog = await openMatchDialog(user)
-    expect(await within(dialog).findByText('The match could not be read')).toBeInTheDocument()
+    expect(await within(dialog).findByText('Could not read the match')).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /approve invoice/i })).toBeDisabled()
   })
 })

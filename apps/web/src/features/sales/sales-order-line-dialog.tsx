@@ -239,7 +239,7 @@ export function SalesOrderLineDialog({
               )}
               {itemId && variantsQuery.isError && (
                 <div className="flex items-center justify-between gap-3 text-sm text-destructive">
-                  <p role="alert">Unable to load item variants. Retry to continue.</p>
+                  <p role="alert">Could not load the item variants. Retry to continue.</p>
                   <Button
                     type="button"
                     variant="outline"

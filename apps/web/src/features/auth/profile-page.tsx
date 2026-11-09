@@ -546,7 +546,7 @@ function MfaCard() {
       <CardContent>
         {errorMessage && (
           <Alert variant="destructive" className="mb-4" role="alert">
-            <AlertTitle>Two-factor request failed</AlertTitle>
+            <AlertTitle>Could not complete the two-factor request</AlertTitle>
             <AlertDescription>{errorMessage}</AlertDescription>
           </Alert>
         )}

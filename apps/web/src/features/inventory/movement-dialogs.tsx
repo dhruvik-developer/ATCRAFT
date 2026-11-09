@@ -1184,7 +1184,7 @@ export function ConfirmPhysicalCountDialog({
 
         {lines.error && (
           <Alert variant="warning">
-            <AlertTitle>The line-by-line breakdown could not be read</AlertTitle>
+            <AlertTitle>Could not read the line-by-line breakdown</AlertTitle>
             <AlertDescription>
               {describeError(lines.error)} The sheet totals above come from the count itself and
               still stand; only the detail behind them is missing.

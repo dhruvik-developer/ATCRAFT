@@ -751,7 +751,7 @@ describe('retiring the item', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Retire item' }))
 
-    expect(await within(dialog).findByText('The item was not retired')).toBeVisible()
+    expect(await within(dialog).findByText('Could not retire the item')).toBeVisible()
     expect(
       within(dialog).getByText(
         'ACTIVE -> ARCHIVED is not permitted while a physical count is open',

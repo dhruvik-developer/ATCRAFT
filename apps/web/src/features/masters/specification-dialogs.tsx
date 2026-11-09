@@ -363,7 +363,7 @@ export function SpecificationRetireDialog({
       inputId="specification-retire-reason"
       loading={mutation.isPending}
       error={mutation.error}
-      errorHeadline="The specification was not retired"
+      errorHeadline="Could not retire the specification"
       onConfirm={(reason) => {
         if (attribute && can(P.ITEM_ATTRIBUTE_MANAGE) && !mutation.isPending)
           mutation.mutate({ id: attribute.id, reason })

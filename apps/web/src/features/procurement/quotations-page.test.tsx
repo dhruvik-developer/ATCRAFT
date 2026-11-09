@@ -514,7 +514,7 @@ describe('the buying decision', () => {
 
     const dialog = await openDetail(user, fetch, 'ACME-Q-8891')
     await user.click(within(dialog).getByRole('button', { name: 'Select this quotation' }))
-    await stable(() => screen.getByText('The other quotations could not be loaded'))
+    await stable(() => screen.getByText('Could not load the other quotations'))
 
     await user.type(
       screen.getByRole('textbox', { name: 'Reason' }),

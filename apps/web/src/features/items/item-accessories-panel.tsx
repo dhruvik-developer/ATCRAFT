@@ -390,7 +390,7 @@ export function ItemAccessoriesPanel({ itemId }: { itemId: string }) {
             inputId="accessory-remove-reason"
             loading={remove.isPending}
             error={remove.error}
-            errorHeadline="The accessory was not removed"
+            errorHeadline="Could not remove the accessory"
             onConfirm={(reason) => {
               if (removing && !remove.isPending) remove.mutate({ id: removing.id, reason })
             }}

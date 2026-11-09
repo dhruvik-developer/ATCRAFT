@@ -321,7 +321,7 @@ describe('the proposal', () => {
       ),
     })
 
-    await screen.findByText('The proposal could not be worked out')
+    await screen.findByText('Could not work out the proposal')
     expect(screen.getByText(/PR-0001 is CLOSED/)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Raise purchase orders' })).toBeDisabled()
   })

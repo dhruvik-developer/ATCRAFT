@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { ReportJobPanel } from './job-panel'
 import type { ReportJob, ReportJobController, ReportJobPhase } from './report-jobs'
 
-function panel(overrides: Partial<ReportJob> = {}, phase: ReportJobPhase = 'ready') {
+function panel(
+  overrides: Partial<ReportJob> = {},
+  phase: ReportJobPhase = 'ready',
+  label = 'Product profitability',
+) {
   const job: ReportJob = {
     id: 'job-profitability',
     report_key: 'PRODUCT_PROFITABILITY',
@@ -31,7 +35,7 @@ function panel(overrides: Partial<ReportJob> = {}, phase: ReportJobPhase = 'read
     download: vi.fn(),
     isDownloading: false,
   }
-  render(<ReportJobPanel controller={controller} label="Product profitability" />)
+  render(<ReportJobPanel controller={controller} label={label} />)
   return controller
 }
 
@@ -75,5 +79,18 @@ describe('profitability export calculation basis', () => {
     expect(screen.getByText('Product profitability is queued')).toBeVisible()
     expect(screen.queryByText('Historical standard-cost calculation')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument()
+  })
+})
+
+describe('a failed export', () => {
+  it.each([
+    ['Packing list', 'Could not generate the packing list'],
+    ['GSTR-1 workbook', 'Could not generate the GSTR-1 workbook'],
+  ])('headlines %s in the catalogue form', (label, headline) => {
+    // It said "<label> could not be generated", unlike every other failure headline.
+    panel({ status: 'FAILED', error_message: 'The export timed out.' }, 'failed', label)
+
+    expect(screen.getByText(headline)).toBeVisible()
+    expect(screen.getByText('The export timed out.')).toBeVisible()
   })
 })

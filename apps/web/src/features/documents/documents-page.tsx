@@ -417,7 +417,7 @@ function UploadDialog({
 
           {upload.error && (
             <Alert variant="destructive">
-              <AlertTitle>The file was not stored</AlertTitle>
+              <AlertTitle>Could not store the file</AlertTitle>
               {/* A model-level 422 belongs to no field, and nothing else would say it. */}
               <AlertDescription>
                 {(upload.error instanceof ApiError &&

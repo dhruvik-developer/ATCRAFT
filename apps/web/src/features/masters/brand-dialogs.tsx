@@ -338,7 +338,7 @@ export function BrandRetireDialog({
       inputId="brand-retire-reason"
       loading={retire.isPending}
       error={retire.error}
-      errorHeadline="The brand was not retired"
+      errorHeadline="Could not retire the brand"
       onConfirm={(reason) => {
         if (brand) retire.mutate({ target: brand, reason })
       }}

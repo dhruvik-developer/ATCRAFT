@@ -363,10 +363,8 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
           body: { serial_ids: created.map((serial) => serial.id) },
         })
       } catch (error) {
-        toast.error(
-          'Serials were registered, but labels could not be downloaded.',
-          describeError(error),
-        )
+        // The success toast above has already said the serials were registered.
+        toast.error('Could not download the serial labels', describeError(error))
       }
       onClose()
     },

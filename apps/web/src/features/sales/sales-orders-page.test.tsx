@@ -1002,7 +1002,7 @@ describe('the line editor', () => {
     await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
 
     expect(
-      await screen.findByText('Unable to load item variants. Retry to continue.'),
+      await screen.findByText('Could not load the item variants. Retry to continue.'),
     ).toBeVisible()
     expect(screen.getByRole('button', { name: 'Add line' })).toBeDisabled()
 

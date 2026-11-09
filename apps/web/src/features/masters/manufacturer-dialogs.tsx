@@ -326,7 +326,7 @@ export function ManufacturerRetireDialog({
       inputId="manufacturer-retire-reason"
       loading={retire.isPending}
       error={retire.error}
-      errorHeadline="The manufacturer was not retired"
+      errorHeadline="Could not retire the manufacturer"
       onConfirm={(reason) => {
         if (manufacturer) retire.mutate({ target: manufacturer, reason })
       }}

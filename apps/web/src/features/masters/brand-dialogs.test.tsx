@@ -237,6 +237,6 @@ describe('retiring a brand', () => {
 
     const dialog = screen.getByRole('dialog')
     expect(await within(dialog).findByText(refusal)).toBeVisible()
-    expect(within(dialog).getByText('The brand was not retired')).toBeVisible()
+    expect(within(dialog).getByText('Could not retire the brand')).toBeVisible()
   })
 })

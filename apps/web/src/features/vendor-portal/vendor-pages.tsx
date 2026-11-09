@@ -487,7 +487,7 @@ function Shipments({ rows, canDeliver = false }: { rows: VendorShipment[]; canDe
         `/vendor-portal/purchase-orders/${row.purchase_order_id}/shipments/${row.id}/delivered`,
         {},
       ),
-    onError: (error) => reportFieldErrors(error, 'Delivery could not be recorded'),
+    onError: (error) => reportFieldErrors(error, 'Could not record the delivery'),
     onSuccess: async (_, row) => {
       await client.invalidateQueries({ queryKey: queryKeys.vendorPortal.all })
       toast.success(success.statusChanged(`Shipment ${row.shipment_number}`, 'delivered'))
@@ -705,7 +705,7 @@ export function VendorOrderPage() {
   const job = useReportJob()
   const pdf = useMutation({
     mutationFn: () => api.post<AcceptedJobData>(`/vendor-portal/purchase-orders/${orderId}/pdf`),
-    onError: (error) => reportFieldErrors(error, 'Purchase order PDF could not be requested'),
+    onError: (error) => reportFieldErrors(error, 'Could not request the purchase order PDF'),
     onSuccess: job.start,
   })
   if (query.error)

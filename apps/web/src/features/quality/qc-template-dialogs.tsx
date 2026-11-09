@@ -1194,8 +1194,8 @@ export function QcTemplateFormDialog({
                     {isFrozenSpecification(mutation.error)
                       ? 'This version is frozen'
                       : mode === 'CREATE'
-                        ? 'The specification was not created'
-                        : 'The change was not saved'}
+                        ? 'Could not create the specification'
+                        : 'Could not save the change'}
                   </AlertTitle>
                   <AlertDescription>{message}</AlertDescription>
                   {isFrozenSpecification(mutation.error) && templateId && (
@@ -1462,7 +1462,7 @@ export function QcTemplateVersionDialog({
             <DialogBody className="space-y-5">
               {message && (
                 <Alert variant="destructive">
-                  <AlertTitle>The version was not created</AlertTitle>
+                  <AlertTitle>Could not create the version</AlertTitle>
                   <AlertDescription>{message}</AlertDescription>
                 </Alert>
               )}

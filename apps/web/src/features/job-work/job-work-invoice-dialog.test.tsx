@@ -231,7 +231,7 @@ describe('recording a job-work invoice', () => {
     await user.click(screen.getByRole('button', { name: /save and submit/i }))
 
     expect(await screen.findByText(refusal)).toBeVisible()
-    expect(screen.getByText('The bill was not saved')).toBeVisible()
+    expect(screen.getByText('Could not save the bill')).toBeVisible()
     expect(fetch.calls.some((call) => call.path.endsWith('/submit'))).toBe(false)
   }, 120_000)
 })

@@ -488,7 +488,7 @@ describe('retiring an account', () => {
     await user.type(await stable(() => screen.getByLabelText(/reason/i)), 'Duplicate account')
     await user.click(screen.getByRole('button', { name: 'Retire customer' }))
 
-    expect(await screen.findByText('The account was not retired')).toBeVisible()
+    expect(await screen.findByText('Could not retire the account')).toBeVisible()
     expect(screen.getByText('C-0001 still has 1,200.00 outstanding')).toBeVisible()
     expect(screen.getByLabelText(/reason/i)).toHaveValue('Duplicate account')
     // Said once, where the reason is - not again in a toast that never dismisses.

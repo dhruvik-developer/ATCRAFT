@@ -187,7 +187,7 @@ export default function CourierIntegrationPage() {
 
       {accounts.error && (
         <Alert variant="destructive" className="mb-5">
-          <AlertTitle>Courier accounts could not be loaded</AlertTitle>
+          <AlertTitle>Could not load the courier accounts</AlertTitle>
           <AlertDescription>{describeError(accounts.error)}</AlertDescription>
         </Alert>
       )}
@@ -362,7 +362,7 @@ export default function CourierIntegrationPage() {
               </p>
               {account.last_error && (
                 <Alert variant="warning">
-                  <AlertTitle>Last poll failed</AlertTitle>
+                  <AlertTitle>Could not complete the last poll</AlertTitle>
                   <AlertDescription>{account.last_error}</AlertDescription>
                 </Alert>
               )}

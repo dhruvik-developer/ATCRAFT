@@ -19,6 +19,14 @@ import { describeError, fileMessages } from '@/lib/messages'
 
 import type { ReportJobController } from './report-jobs'
 
+/**
+ * The label as it reads mid-sentence: "Packing list" becomes "packing list",
+ * while a label that opens with an acronym ("GSTR-1 workbook") keeps it.
+ */
+function midSentence(label: string): string {
+  return /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label
+}
+
 export function ReportJobPanel({
   controller,
   label = 'Report',
@@ -36,7 +44,7 @@ export function ReportJobPanel({
       <Alert variant="destructive" className="flex flex-wrap items-start gap-3">
         <TriangleAlert className="mt-0.5 shrink-0 text-destructive" aria-hidden />
         <div className="min-w-0 flex-1 basis-40">
-          <AlertTitle>{label} could not be generated</AlertTitle>
+          <AlertTitle>Could not generate the {midSentence(label)}</AlertTitle>
           <AlertDescription>
             {job?.error_message ??
               (error ? describeError(error) : undefined) ??

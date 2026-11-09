@@ -242,7 +242,7 @@ export default function MessagingPage() {
 
       {loadError && (
         <Alert variant="warning" className="mb-5">
-          <p className="mb-1 font-medium leading-none">Messaging settings could not be loaded</p>
+          <p className="mb-1 font-medium leading-none">Could not load the messaging settings</p>
           <AlertDescription>{describeError(loadError)}</AlertDescription>
         </Alert>
       )}
@@ -310,7 +310,7 @@ export default function MessagingPage() {
 
       {summary.length > 0 && (
         <Alert variant="destructive" className="mb-5">
-          <p className="mb-1 font-medium leading-none">The templates were not saved</p>
+          <p className="mb-1 font-medium leading-none">Could not save the templates</p>
           <AlertDescription>
             <ul className="list-disc space-y-0.5 pl-4">
               {summary.map((problem) => (

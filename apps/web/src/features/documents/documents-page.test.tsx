@@ -51,7 +51,7 @@ describe('a refused upload', () => {
       fail(415, 'UNSUPPORTED_MEDIA_TYPE', 'The file content does not match its declared type.'),
     )
 
-    expect(await within(dialog).findByText('The file was not stored')).toBeVisible()
+    expect(await within(dialog).findByText('Could not store the file')).toBeVisible()
     expect(
       within(dialog).getByText('The file content does not match its declared type.'),
     ).toBeVisible()
