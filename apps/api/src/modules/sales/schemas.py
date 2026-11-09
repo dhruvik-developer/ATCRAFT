@@ -32,6 +32,7 @@ from src.modules.sales.models import (
     MAX_PRIORITY,
     MIN_PRIORITY,
     SalesOrderLineStatus,
+    SalesOrderSource,
     SalesOrderStatus,
 )
 
@@ -262,7 +263,7 @@ class SalesOrderFilters(BaseModel):
 
     search: str | None = None
     customer_id: uuid.UUID | None = None
-    source: str | None = None
+    source: SalesOrderSource | None = None
     warehouse_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = None
     status: SalesOrderStatus | None = None

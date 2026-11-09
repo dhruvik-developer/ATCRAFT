@@ -90,13 +90,6 @@ class AvailabilityBand(StrEnum):
     MADE_TO_ORDER = "MADE_TO_ORDER"
 
 
-class SalesOrderSource(StrEnum):
-    """Who raised the sales order. Set by the server, never by a payload."""
-
-    ERP = "ERP"
-    DEALER_PORTAL = "DEALER_PORTAL"
-
-
 #: Warehouses whose free stock a dealer may be promised. Scrap, returns, QC
 #: hold, job work and work in progress are not. ASSUMPTION: docs/assumptions.md §C3-2.
 SELLABLE_WAREHOUSE_TYPES: tuple[str, ...] = ("FINISHED_GOODS", "PACKING")
@@ -320,5 +313,4 @@ __all__ = [
     "DealerOffer",
     "DealerWishlistItem",
     "OfferScopeKind",
-    "SalesOrderSource",
 ]

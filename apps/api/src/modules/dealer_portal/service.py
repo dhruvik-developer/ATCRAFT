@@ -126,6 +126,7 @@ from src.modules.sales import service as sales_service
 from src.modules.sales.models import (
     SalesOrder,
     SalesOrderLineStatus,
+    SalesOrderSource,
     SalesOrderStatus,
 )
 from src.modules.sales.repository import (
@@ -1180,7 +1181,7 @@ class DealerPortalService:
                     notes=payload.notes,
                     lines=order_lines,
                 ),
-                source="DEALER_PORTAL",
+                source=SalesOrderSource.DEALER_PORTAL,
             )
             # Plain values from here on: the objects above belong to a
             # transaction that later steps share, and a rolled-back savepoint

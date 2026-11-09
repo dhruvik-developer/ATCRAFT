@@ -36762,6 +36762,15 @@ export interface components {
          */
         SalesOrderLineStatus: "PENDING" | "PARTIALLY_ALLOCATED" | "ALLOCATED" | "PARTIALLY_DISPATCHED" | "DISPATCHED" | "CANCELLED";
         /**
+         * SalesOrderSource
+         * @description Who raised the order. Set by the server, never by a payload.
+         *
+         *     The ``source_known`` CHECK, the list filter and ``create_order`` all read
+         *     this one vocabulary (docs/assumptions.md §C3-6).
+         * @enum {string}
+         */
+        SalesOrderSource: "ERP" | "DEALER_PORTAL";
+        /**
          * SalesOrderStatus
          * @description Lifecycle of a sales order (database.md section 7).
          *
@@ -128041,7 +128050,7 @@ export interface operations {
                 search?: string | null;
                 customer_id?: string | null;
                 /** @description ERP or DEALER_PORTAL */
-                source?: string | null;
+                source?: components["schemas"]["SalesOrderSource"] | null;
                 warehouse_id?: string | null;
                 branch_id?: string | null;
                 status?: components["schemas"]["SalesOrderStatus"] | null;

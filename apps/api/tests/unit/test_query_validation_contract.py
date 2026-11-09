@@ -19,6 +19,9 @@ from src.modules.audit.schemas import MAX_ENTITY_TYPE_LENGTH, MAX_REQUEST_ID_LEN
 from src.modules.documents.router import router as documents_router
 from src.modules.documents.schemas import DocumentUploadRequest
 from src.modules.quality.router import router as quality_router
+from src.modules.sales.models import SalesOrderSource
+from src.modules.sales.router import order_filters
+from src.modules.sales.router import router as sales_router
 from src.modules.users.router import router as users_router
 
 pytestmark = pytest.mark.unit
@@ -43,7 +46,7 @@ def _reader() -> Principal:
 async def client() -> AsyncIterator[httpx.AsyncClient]:
     application = FastAPI()
     register_exception_handlers(application)
-    for router in (audit_router, documents_router, quality_router, users_router):
+    for router in (audit_router, documents_router, quality_router, sales_router, users_router):
         application.include_router(router)
     application.dependency_overrides[get_db] = _no_database
     application.dependency_overrides[get_current_principal] = _reader
@@ -70,6 +73,10 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
             {"inspected_from": "2026-05-02T00:00:00Z", "inspected_to": "2026-05-01T00:00:00Z"},
             "query",
         ),
+        # The two values the source_known CHECK admits, not a free string: a
+        # misspelt filter used to answer an empty 200 page that read as "no orders".
+        ("/sales", {"source": "dealer_portal"}, "query.source"),
+        ("/sales", {"source": "bogus"}, "query.source"),
     ],
 )
 async def test_query_model_failures_are_422_with_field_errors(
@@ -82,6 +89,14 @@ async def test_query_model_failures_are_422_with_field_errors(
     assert body["success"] is False
     assert body["error"]["code"] == "VALIDATION_ERROR"
     assert field in body["error"]["details"]["fields"]
+
+
+@pytest.mark.parametrize("source", list(SalesOrderSource))
+def test_the_sales_source_filter_accepts_each_source_the_database_admits(
+    source: SalesOrderSource,
+) -> None:
+    filters = order_filters(source=source)
+    assert filters.source is source
 
 
 def test_audit_filter_normalization_keeps_accepting_valid_identifiers() -> None:

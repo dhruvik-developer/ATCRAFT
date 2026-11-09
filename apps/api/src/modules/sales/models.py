@@ -114,6 +114,17 @@ class SalesOrderLineStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class SalesOrderSource(StrEnum):
+    """Who raised the order. Set by the server, never by a payload.
+
+    The ``source_known`` CHECK, the list filter and ``create_order`` all read
+    this one vocabulary (docs/assumptions.md §C3-6).
+    """
+
+    ERP = "ERP"
+    DEALER_PORTAL = "DEALER_PORTAL"
+
+
 #: Statuses in which an order still represents unmet demand. MRP, the demand
 #: summary and the dashboards all read exactly this set, and the partial index
 #: on ``sales_orders`` below is built for it - so the tuple and the index have
@@ -149,7 +160,10 @@ class SalesOrder(TenantEntity, OptimisticLockMixin):
     #: portal checkout passes DEALER_PORTAL, everything else stays ERP
     #: (docs/assumptions.md §C3-6).
     source: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="ERP", server_default="ERP"
+        String(16),
+        nullable=False,
+        default=SalesOrderSource.ERP.value,
+        server_default=SalesOrderSource.ERP.value,
     )
 
     # --- dates --------------------------------------------------------------
@@ -265,10 +279,7 @@ class SalesOrder(TenantEntity, OptimisticLockMixin):
             postgresql_where=text(f"status IN ({sql_in_list(OPEN_DEMAND_STATUSES)})"),
         ),
         CheckConstraint(f"status IN ({sql_in_list(SalesOrderStatus)})", name="status_known"),
-        CheckConstraint(
-            "source IN ('ERP', 'DEALER_PORTAL')",
-            name="source_known",
-        ),
+        CheckConstraint(f"source IN ({sql_in_list(SalesOrderSource)})", name="source_known"),
         CheckConstraint(
             f"priority BETWEEN {MIN_PRIORITY} AND {MAX_PRIORITY}", name="priority_in_range"
         ),
@@ -489,6 +500,7 @@ __all__ = [
     "SalesOrder",
     "SalesOrderLine",
     "SalesOrderLineStatus",
+    "SalesOrderSource",
     "SalesOrderStatus",
     "SalesSettings",
 ]

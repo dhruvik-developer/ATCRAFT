@@ -66112,6 +66112,15 @@
         "title": "SalesOrderLineStatus",
         "type": "string"
       },
+      "SalesOrderSource": {
+        "description": "Who raised the order. Set by the server, never by a payload.\n\nThe ``source_known`` CHECK, the list filter and ``create_order`` all read\nthis one vocabulary (docs/assumptions.md §C3-6).",
+        "enum": [
+          "ERP",
+          "DEALER_PORTAL"
+        ],
+        "title": "SalesOrderSource",
+        "type": "string"
+      },
       "SalesOrderStatus": {
         "description": "Lifecycle of a sales order (database.md section 7).\n\n``CANCELLED`` is reachable only before anything has physically shipped;\nafter a dispatch the order is closed off through the dispatch and invoice\npath instead, because cancelling a document that moved stock would leave the\nledger describing a movement against a document claiming never to have\nexisted.",
         "enum": [
@@ -215314,7 +215323,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/SalesOrderSource"
                 },
                 {
                   "type": "null"

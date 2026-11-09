@@ -25,7 +25,7 @@ from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.sales import fulfilment as fulfilment_service
 from src.modules.sales import service
-from src.modules.sales.models import SalesOrderStatus
+from src.modules.sales.models import SalesOrderSource, SalesOrderStatus
 from src.modules.sales.schemas import (
     AllocateOrderRequest,
     ApproveRequest,
@@ -62,7 +62,7 @@ ReasonQuery = Annotated[
 def order_filters(
     search: Annotated[str | None, Query(max_length=120, description="Order or customer PO")] = None,
     customer_id: Annotated[uuid.UUID | None, Query()] = None,
-    source: Annotated[str | None, Query(description="ERP or DEALER_PORTAL")] = None,
+    source: Annotated[SalesOrderSource | None, Query(description="ERP or DEALER_PORTAL")] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     branch_id: Annotated[uuid.UUID | None, Query()] = None,
     order_status: Annotated[SalesOrderStatus | None, Query(alias="status")] = None,

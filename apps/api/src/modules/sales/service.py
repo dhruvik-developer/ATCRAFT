@@ -91,6 +91,7 @@ from src.modules.sales.models import (
     SalesOrder,
     SalesOrderLine,
     SalesOrderLineStatus,
+    SalesOrderSource,
     SalesOrderStatus,
     SalesSettings,
 )
@@ -1930,7 +1931,7 @@ async def create_order(
     principal: Principal,
     payload: SalesOrderCreate,
     *,
-    source: str = "ERP",
+    source: SalesOrderSource = SalesOrderSource.ERP,
 ) -> tuple[SalesOrder, list[SalesOrderLine]]:
     """Create a DRAFT order, priced and taxed.
 
@@ -1942,7 +1943,7 @@ async def create_order(
     a payload: the dealer-portal checkout passes ``DEALER_PORTAL``
     (docs/assumptions.md §C3-6).
     """
-    if source not in ("ERP", "DEALER_PORTAL"):
+    if source not in tuple(SalesOrderSource):
         raise ValidationError(
             f"Unknown sales order source: {source}.",
             details={"source": source},
@@ -2602,7 +2603,7 @@ async def delete_draft_order(
                 cancel_not_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
-        if str(order.source) == "DEALER_PORTAL":
+        if order.source == SalesOrderSource.DEALER_PORTAL:
             raise BusinessRuleError(
                 f"{order.code} was raised through the dealer portal and must be "
                 "cancelled rather than deleted, so the dealer sees what happened "

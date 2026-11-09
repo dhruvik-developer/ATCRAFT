@@ -953,7 +953,7 @@ async def test_a_quantity_beyond_the_stored_scale_is_a_field_error(api_client, s
 
 
 async def test_checkout_places_a_draft_portal_order_and_audits_it(
-    api_client, session, tenant, shop, decimal_equal
+    api_client, session, tenant, principal, shop, decimal_equal
 ):
     address = CustomerAddress(
         company_id=tenant.company_id,
@@ -1014,6 +1014,18 @@ async def test_checkout_places_a_draft_portal_order_and_audits_it(
     assert (audit.created_by_id, audit.entity_code) == (shop.buyer_id, order["code"])
     assert ok(await api_client.get("/dealer-portal/cart"))["lines"] == []
     assert ok(await api_client.get(f"/dealer-portal/orders/{order_id}"))["code"] == order["code"]
+
+    # The desk finds the request by its source, through the same two values the
+    # source_known CHECK admits; anything else is a field error, not an empty page.
+    sign_in(principal)
+    portal = ok(await api_client.get("/sales", params={"source": "DEALER_PORTAL"}))
+    assert order["id"] in [row["id"] for row in portal]
+    assert {row["source"] for row in portal} == {"DEALER_PORTAL"}
+    desk = ok(await api_client.get("/sales", params={"source": "ERP"}))
+    assert order["id"] not in [row["id"] for row in desk]
+    assert "query.source" in field_errors(
+        await api_client.get("/sales", params={"source": "dealer_portal"})
+    )
 
 
 async def test_checkout_refusals_leave_the_cart_as_it_was(api_client, session, shop):
