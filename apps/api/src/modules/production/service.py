@@ -184,6 +184,7 @@ from src.modules.routing.service import (
     roster_mismatch,
     windows_overlap,
 )
+from src.modules.sales.repository import SalesOrderLineRepository, SalesOrderRepository
 
 # =============================================================================
 # Constants
@@ -1404,6 +1405,40 @@ async def _validate_order_references(
     return item
 
 
+async def _assert_source(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    source_type: ProductionSourceType,
+    source_id: uuid.UUID | None,
+    source_line_id: uuid.UUID | None,
+) -> None:
+    """A sales order - and line - the new job says it covers are this company's.
+
+    ``source_id`` and ``source_line_id`` are bare ids with no foreign key (models
+    docstring), and a SALES_ORDER source is read back as a reference: the
+    shortfall planner adopts a draft pegged to its order's line as its own and
+    counts a released one as supply for that line (``mrp.shortfall``), the
+    order's fulfilment trace lists the job, and the job's screen links to the
+    order. Another company's order, or an id naming none, was stored with 201 -
+    a link to a page that does not exist and a peg nothing resolves. Read through
+    the sales module's tenant-scoped repository, as assembly reads its own
+    (``assembly.service._assert_source``); the other source types stay bare
+    provenance, as procurement keeps the sources it does not own.
+    """
+    if source_type is not ProductionSourceType.SALES_ORDER:
+        return
+    if source_id is not None:
+        await SalesOrderRepository(session, tenant).get_or_404(source_id)
+    if source_line_id is not None and not await SalesOrderLineRepository(session, tenant).exists(
+        id=source_line_id, sales_order_id=source_id
+    ):
+        # A line of another order, or one named with no order at all, is not a
+        # line of this one: the same 404 as a line another company holds, as a
+        # nested read answers for a parent that is not the caller's.
+        raise NotFoundError("Sales order line", source_line_id)
+
+
 async def create_order(
     session: AsyncSession, tenant: TenantContext, payload: ProductionOrderCreate
 ) -> ProductionOrder:
@@ -1417,6 +1452,13 @@ async def create_order(
             plant_id=payload.plant_id,
             bom_id=payload.bom_id,
             routing_id=payload.routing_id,
+        )
+        await _assert_source(
+            session,
+            tenant,
+            source_type=payload.source_type,
+            source_id=payload.source_id,
+            source_line_id=payload.source_line_id,
         )
         # ASSUMPTION: the cost centre is explicit or absent - an order raised
         # from a planning suggestion or a sales order carries none, because

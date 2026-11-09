@@ -386,6 +386,40 @@ class TestCreateOrder:
         refused(response, 404, "NOT_FOUND")
         assert await count_orders(session, tenant.company_id) == 0
 
+    @pytest.mark.parametrize("whose", ["another-companys-order", "no-such-order"])
+    async def test_a_sales_order_this_company_does_not_hold_is_not_found(
+        self, api_client: AsyncClient, session, tenant, job, foreign, whose
+    ) -> None:
+        source_id = (
+            (await seed_support.seed_sales_order(session, company_id=foreign.company_id)).id
+            if whose == "another-companys-order"
+            else uuid.uuid4()
+        )
+
+        response = await api_client.post(
+            "/job-work",
+            json=create_body(job, source_type="SALES_ORDER", source_id=str(source_id)),
+        )
+
+        error = refused(response, 404, "NOT_FOUND")
+        assert error["message"].startswith("Sales order not found")
+        assert await count_orders(session, tenant.company_id) == 0
+
+    async def test_this_companys_sales_order_is_kept_as_the_source(
+        self, api_client: AsyncClient, session, tenant, job
+    ) -> None:
+        ours = (await seed_support.seed_sales_order(session, company_id=tenant.company_id)).id
+
+        data = ok(
+            await api_client.post(
+                "/job-work", json=create_body(job, source_type="SALES_ORDER", source_id=str(ours))
+            ),
+            201,
+        )
+
+        assert (data["source_type"], data["source_id"]) == ("SALES_ORDER", str(ours))
+        assert await column(session, JobWorkOrder.source_id, uuid.UUID(data["id"])) == ours
+
     @pytest.mark.parametrize(
         ("shape", "field"),
         [

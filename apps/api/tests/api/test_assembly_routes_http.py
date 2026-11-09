@@ -43,7 +43,6 @@ from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.packing import service as packing_service
 from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
-from src.modules.sales.models import SalesOrder
 from src.workers import celery_app as celery_module
 from tests import seed_support
 from tests.integration.test_assembly_completion import (
@@ -634,21 +633,7 @@ class TestMarkPacked:
 
 async def sales_order(session: AsyncSession, owner: TenantContext) -> uuid.UUID:
     """A draft sales order of ``owner``'s company, built through the ORM."""
-    customer = await seed_support.seed_customer(session, company_id=owner.company_id)
-    store = await seed_support.seed_warehouse(
-        session, company_id=owner.company_id, code=f"SO-{uuid.uuid4().hex[:6].upper()}"
-    )
-    order = SalesOrder(
-        company_id=owner.company_id,
-        code=f"SO-{uuid.uuid4().hex[:8].upper()}",
-        customer_id=customer.id,
-        order_date=today(),
-        required_date=today() + timedelta(days=7),
-        warehouse_id=store.id,
-    )
-    session.add(order)
-    await session.flush()
-    return order.id
+    return (await seed_support.seed_sales_order(session, company_id=owner.company_id)).id
 
 
 def raised_for(kit: Kit, source_id: uuid.UUID) -> dict[str, Any]:

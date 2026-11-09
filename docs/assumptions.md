@@ -1386,7 +1386,8 @@ then none - at approval, so editing the header moves every line that names no
 centre of its own. Production orders and job-work orders take only an explicit
 value: an order raised from an MRP suggestion or a sales order carries none,
 and a job-work order does not inherit the centre of the production order it may
-cover (its `source_id` is a bare polymorphic id this module never reads).
+cover (a `PRODUCTION_ORDER` `source_id` is bare provenance this module never
+resolves).
 Material issues carry no centre; they reach one through `production_order_id`.
 A stock adjustment's movements reach its centre through the movement's
 `reference_type` / `reference_id`.
@@ -4603,12 +4604,20 @@ checked against the caller's company when a write names it, and only when it
   that is not a live document of this company with 404, before any field is
   written. A null clears the logo, and re-sending the logo already set is not
   re-checked, so editing the bank details keeps working after the file expires.
-- **Assembly order source.** `POST /assembly` refuses, with 404 and no order, a
-  `SALES_ORDER` source whose `source_id` is not a sales order of this company:
-  it is the one source a later step reads, as the packing hand-over's customer
-  and sales order (§E4-8). The other source types stay bare provenance that no
-  step resolves, as procurement keeps the sources it does not own. The source is
-  set only at creation; an edit cannot change it.
+- **Assembly, production and job-work order source.** `POST /assembly`,
+  `POST /production` and `POST /job-work` refuse, with 404 and no order, a
+  `SALES_ORDER` source whose `source_id` is not a sales order of this company,
+  and `POST /production` also refuses a `source_line_id` that is not a line of
+  that order (`404 Sales order line`, whether another company holds the line or
+  another order of this company does). It is the one source later steps read:
+  the packing hand-over packs for an assembly's customer and sales order
+  (§E4-8), the shortfall planner adopts a production draft pegged to its order's
+  line as its own and counts a released one as that line's supply, the order's
+  fulfilment trace lists all three, and their screens link to it. The other
+  source types stay bare provenance that no step resolves, as procurement keeps
+  the sources it does not own; job work's `REWORK` source is already held to
+  the receipt line it reworks. The source is set only at creation; an edit
+  cannot change it.
 - **MRP run.** `POST /mrp/runs` refuses, with 404 and no run row, a manual
   demand line whose item is not a live item of this company, and a run scope or
   demand line naming a warehouse that is not this company's or not in the
@@ -4629,8 +4638,12 @@ centre.
 `DocumentService.require_live`; `src/modules/organization/service.py` -
 `CompanyService.update_company`, through the same;
 `src/modules/assembly/service.py` - `_assert_source`, through
-`SalesOrderRepository`; `src/modules/mrp/service.py` -
-`_assert_run_references`, through `WarehouseRepository.ids_in_scope`.
+`SalesOrderRepository`; `src/modules/production/service.py` -
+`_assert_source`, through `SalesOrderRepository` and
+`SalesOrderLineRepository`; `src/modules/job_work/service.py` -
+`_assert_sales_order_source`, through `SalesOrderRepository`;
+`src/modules/mrp/service.py` - `_assert_run_references`, through
+`WarehouseRepository.ids_in_scope`.
 
 **Impact if wrong.** Check every non-null value in the helper instead; the
 cost is that an edit of a record naming a retired transporter must also clear

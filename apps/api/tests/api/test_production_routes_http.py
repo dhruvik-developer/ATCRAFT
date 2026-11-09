@@ -6,7 +6,8 @@ production routes no backend test had reached through HTTP: the status and
 envelope each answers with, the row, stock movement and audit entry it leaves
 behind, the 422 a payload or a document's state earns, the 403 the
 segregation rules own, and the 404 another company's record answers with -
-never a 403, which would confirm that it exists.
+never a 403, which would confirm that it exists. ``POST /production`` is
+driven for the sales order, and line, a new job says it covers.
 
 Permission gates on the routes themselves are covered by
 ``tests/unit/test_route_authorization.py``. The caller is the ``api_client``
@@ -32,7 +33,7 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1585,3 +1586,104 @@ class TestTransitionWorkOrder:
         )
 
         assert "status" in field_errors(response)
+
+
+# -----------------------------------------------------------------------------
+# POST /production - the sales order, and line, a new job says it covers
+# -----------------------------------------------------------------------------
+
+
+def raised_for(plant: SimpleNamespace, **source: uuid.UUID) -> dict[str, Any]:
+    """A job for the kit, sourced from a sales order and whatever ids ``source`` names."""
+    return {
+        "item_id": str(plant.kit),
+        "planned_quantity": "4",
+        "warehouse_id": str(plant.warehouse),
+        "planned_start_date": today().isoformat(),
+        "planned_end_date": (today() + timedelta(days=3)).isoformat(),
+        "source_type": "SALES_ORDER",
+        **{field: str(value) for field, value in source.items()},
+    }
+
+
+async def jobs_for(session: AsyncSession, plant: SimpleNamespace) -> int:
+    raised = select(func.count()).where(ProductionOrder.item_id == plant.kit)
+    return int(await session.scalar(raised) or 0)
+
+
+class TestOrderSource:
+    @pytest.mark.parametrize("whose", ["another-companys-order", "no-such-order"])
+    async def test_a_sales_order_this_company_does_not_hold_is_not_found(
+        self, api_client: AsyncClient, session, plant, foreign, whose
+    ) -> None:
+        source_id = (
+            (await seed_support.seed_sales_order(session, company_id=foreign.company_id)).id
+            if whose == "another-companys-order"
+            else uuid.uuid4()
+        )
+
+        response = await api_client.post("/production", json=raised_for(plant, source_id=source_id))
+
+        error = refused(response, 404, "NOT_FOUND")
+        assert error["message"].startswith("Sales order not found")
+        assert await jobs_for(session, plant) == 0
+
+    @pytest.mark.parametrize(
+        "named", ["another-orders-line", "another-companys-line", "a-line-with-no-order"]
+    )
+    async def test_a_line_that_is_not_on_the_named_order_is_not_found(
+        self, api_client: AsyncClient, session, tenant, plant, foreign, named
+    ) -> None:
+        ours = await seed_support.seed_sales_order(session, company_id=tenant.company_id)
+        ours_id = ours.id
+        holder = {
+            "another-orders-line": tenant,
+            "another-companys-line": foreign,
+            "a-line-with-no-order": None,
+        }[named]
+        if holder is None:
+            line_id = (await seed_support.seed_sales_order_line(session, order=ours)).id
+            source = {"source_line_id": line_id}
+        else:
+            elsewhere = await seed_support.seed_sales_order(session, company_id=holder.company_id)
+            line_id = (await seed_support.seed_sales_order_line(session, order=elsewhere)).id
+            source = {"source_id": ours_id, "source_line_id": line_id}
+
+        response = await api_client.post("/production", json=raised_for(plant, **source))
+
+        error = refused(response, 404, "NOT_FOUND")
+        assert error["message"] == f"Sales order line not found: {line_id}"
+        assert await jobs_for(session, plant) == 0
+
+    async def test_this_companys_order_and_its_line_are_kept_as_the_source(
+        self, api_client: AsyncClient, session, tenant, plant
+    ) -> None:
+        ours = await seed_support.seed_sales_order(session, company_id=tenant.company_id)
+        ours_id = ours.id
+        line_id = (await seed_support.seed_sales_order_line(session, order=ours)).id
+
+        data = ok(
+            await api_client.post(
+                "/production", json=raised_for(plant, source_id=ours_id, source_line_id=line_id)
+            ),
+            201,
+        )
+
+        assert (data["source_type"], data["source_id"], data["source_line_id"]) == (
+            "SALES_ORDER",
+            str(ours_id),
+            str(line_id),
+        )
+        stored = uuid.UUID(data["id"])
+        assert await column(session, ProductionOrder.source_line_id, stored) == line_id
+
+    async def test_another_source_type_stays_bare_provenance(
+        self, api_client: AsyncClient, session, plant
+    ) -> None:
+        """Only a sales order is read back; a planner's suggestion id is not resolved."""
+        suggestion_id = uuid.uuid4()
+        body = {**raised_for(plant, source_id=suggestion_id), "source_type": "MRP_SUGGESTION"}
+
+        data = ok(await api_client.post("/production", json=body), 201)
+
+        assert (data["source_type"], data["source_id"]) == ("MRP_SUGGESTION", str(suggestion_id))

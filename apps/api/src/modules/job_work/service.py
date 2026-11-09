@@ -259,6 +259,7 @@ from src.modules.products.models import Item, UnitOfMeasure
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.repository import ReportSnapshotRepository
+from src.modules.sales.repository import SalesOrderRepository
 from src.modules.vendors.models import Transporter, Vendor
 
 log = get_logger(__name__)
@@ -1239,6 +1240,28 @@ def _persist_lines(
     ]
 
 
+async def _assert_sales_order_source(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    source_type: JobWorkSourceType,
+    source_id: uuid.UUID | None,
+) -> None:
+    """A sales order the new order says it covers is one this company holds.
+
+    ``source_id`` is a bare polymorphic id with no foreign key, and a SALES_ORDER
+    source is read back as a reference: the order's fulfilment trace lists the
+    job-work order and its screen links to the sales order. Another company's
+    order, or an id naming none, was stored with 201 behind a link to a page
+    that does not exist. Read through the sales module's tenant-scoped
+    repository, as assembly and production read theirs; a REWORK source is held
+    to its receipt by :func:`_validate_rework_sources`, and the other source
+    types stay bare provenance.
+    """
+    if source_type is JobWorkSourceType.SALES_ORDER and source_id is not None:
+        await SalesOrderRepository(session, tenant).get_or_404(source_id)
+
+
 async def _validate_rework_sources(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1827,6 +1850,9 @@ async def create_order(
         return_warehouse_id = payload.return_warehouse_id or payload.warehouse_id
         await _assert_warehouses(session, tenant, payload.warehouse_id, return_warehouse_id)
         resolved = await _resolve_lines(session, tenant, payload.lines)
+        await _assert_sales_order_source(
+            session, tenant, source_type=payload.source_type, source_id=payload.source_id
+        )
         await _validate_rework_sources(
             session,
             tenant,
@@ -1838,8 +1864,9 @@ async def create_order(
 
         _assert_return_not_in_past(payload.expected_return_date)
         # ASSUMPTION: explicit or absent. A job-work order does not inherit the
-        # cost centre of the production order it may cover - ``source_id`` is a
-        # bare polymorphic id this module never reads. docs/assumptions.md §42.
+        # cost centre of the production order it may cover - a PRODUCTION_ORDER
+        # ``source_id`` is bare provenance this module never resolves.
+        # docs/assumptions.md §42.
         if payload.cost_centre_id is not None:
             await require_cost_centre(session, tenant, payload.cost_centre_id)
 

@@ -14,12 +14,13 @@ Each builder flushes, so the returned instance has its identity, and takes
 from __future__ import annotations
 
 import uuid
-from datetime import time
+from datetime import time, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import utcnow
+from src.core.clock import today, utcnow
 from src.core.ids import new_id
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.inventory.models import StockSerial
@@ -33,6 +34,7 @@ from src.modules.products.models import (
 )
 from src.modules.products.service import build_category_path
 from src.modules.routing.models import Machine, Shift, WorkCenter, shift_crosses_midnight
+from src.modules.sales.models import SalesOrder, SalesOrderLine
 from src.modules.users.models import User
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
@@ -223,6 +225,78 @@ async def seed_customer(
         code=code,
         name=name or f"Customer {code}",
         customer_type=customer_type,
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_sales_order(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    code: str | None = None,
+    customer_id: uuid.UUID | None = None,
+    warehouse_id: uuid.UUID | None = None,
+    **overrides: Any,
+) -> SalesOrder:
+    """A DRAFT sales order, for its own new customer and store unless named.
+
+    For a test that needs an order to *exist* - the source another document
+    names, say - rather than one priced, reserved and planned through the sales
+    service. Due a week from today unless ``required_date`` says otherwise.
+    """
+    if customer_id is None:
+        customer_id = (await seed_customer(session, company_id=company_id)).id
+    if warehouse_id is None:
+        store = await seed_warehouse(session, company_id=company_id, code=f"SO-{_suffix()}")
+        warehouse_id = store.id
+    overrides.setdefault("order_date", today())
+    overrides.setdefault("required_date", today() + timedelta(days=7))
+    record = SalesOrder(
+        company_id=company_id,
+        code=code or f"SO-{_suffix()}",
+        customer_id=customer_id,
+        warehouse_id=warehouse_id,
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_sales_order_line(
+    session: AsyncSession,
+    *,
+    order: SalesOrder,
+    item_id: uuid.UUID | None = None,
+    uom_id: uuid.UUID | None = None,
+    line_number: int = 1,
+    quantity: Decimal = Decimal("1"),
+    unit_price: Decimal = Decimal("0"),
+    **overrides: Any,
+) -> SalesOrderLine:
+    """One line on ``order``, in ``order``'s company - for a new item unless one is named.
+
+    The unit defaults to the item's base unit. The amounts stay at their zero
+    defaults, which the line's tax-split constraints accept as they stand.
+    """
+    if item_id is None:
+        item = await seed_item(session, company_id=order.company_id, code=f"SOL-{_suffix()}")
+        item_id, uom_id = item.id, uom_id or item.base_uom_id
+    elif uom_id is None:
+        named = await session.get(Item, item_id)
+        assert named is not None, f"item {item_id} does not exist"
+        uom_id = named.base_uom_id
+    record = SalesOrderLine(
+        company_id=order.company_id,
+        sales_order_id=order.id,
+        line_number=line_number,
+        item_id=item_id,
+        uom_id=uom_id,
+        quantity=quantity,
+        unit_price=unit_price,
         **overrides,
     )
     session.add(record)
