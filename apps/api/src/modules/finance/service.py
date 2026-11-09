@@ -78,6 +78,7 @@ from sqlalchemy import Select, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id
 from src.core.clock import today, utcnow
 from src.core.currency import assert_customer_currency
 from src.core.database import advisory_xact_lock, transaction
@@ -225,6 +226,7 @@ from src.modules.finance.schemas import (
     VendorInvoiceSummary,
     VendorInvoiceUpdate,
 )
+from src.modules.job_work.models import JobWorkOrder
 from src.modules.notifications.alerts import AlertCandidate
 from src.modules.organization.service import (
     COST_CENTRE_ENTITY,
@@ -1997,7 +1999,9 @@ async def trial_balance(
 # -----------------------------------------------------------------------------
 
 
-def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
+def invoice_summary(
+    invoice: VendorInvoice, *, job_work_order_code: str | None = None
+) -> VendorInvoiceSummary:
     """Project an invoice, with the outstanding figure derived once.
 
     Derived here rather than in the browser so the payables list, the ageing
@@ -2006,6 +2010,8 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
     invoice (``total - recovered - paid``): the recovery already reduced the
     payable in the ledger, and showing the gross would guide the next payment
     to overpay the vendor by exactly the recovery (docs/assumptions.md §B3-2).
+
+    ``job_work_order_code`` is looked up by the caller, batched over a page.
     """
     return VendorInvoiceSummary(
         id=invoice.id,
@@ -2032,16 +2038,37 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
         goods_receipt_id=invoice.goods_receipt_id,
         invoice_type=VendorInvoiceType(invoice.invoice_type),
         job_work_order_id=invoice.job_work_order_id,
+        job_work_order_code=job_work_order_code,
         cost_centre_id=invoice.cost_centre_id,
         created_at=invoice.created_at,
     )
 
 
-def invoice_detail(
-    invoice: VendorInvoice, lines: Sequence[VendorInvoiceLine]
+async def _job_work_order_codes(
+    session: AsyncSession, tenant: TenantContext, invoices: Sequence[VendorInvoice]
+) -> dict[uuid.UUID, str]:
+    """The billed job-work orders' codes, one statement for a page of bills."""
+    rows = await labels_by_id(
+        session, tenant, (invoice.job_work_order_id for invoice in invoices), JobWorkOrder.code
+    )
+    return {order_id: row.code for order_id, row in rows.items()}
+
+
+async def invoice_detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    invoice: VendorInvoice,
+    lines: Sequence[VendorInvoiceLine],
 ) -> VendorInvoiceDetail:
+    codes = await _job_work_order_codes(session, tenant, [invoice])
+    summary = invoice_summary(
+        invoice,
+        job_work_order_code=codes.get(invoice.job_work_order_id)
+        if invoice.job_work_order_id is not None
+        else None,
+    )
     return VendorInvoiceDetail(
-        **invoice_summary(invoice).model_dump(),
+        **summary.model_dump(),
         round_off_amount=invoice.round_off_amount,
         match_variance_amount=invoice.match_variance_amount,
         matched_at=invoice.matched_at,
@@ -2069,7 +2096,16 @@ async def list_invoices(
     rows, pagination = await repo.list_page(
         params, stmt=repo.filtered(filters, as_of=today()), sort=sort
     )
-    return [invoice_summary(row) for row in rows], pagination
+    codes = await _job_work_order_codes(session, tenant, rows)
+    return [
+        invoice_summary(
+            row,
+            job_work_order_code=codes.get(row.job_work_order_id)
+            if row.job_work_order_id is not None
+            else None,
+        )
+        for row in rows
+    ], pagination
 
 
 async def get_invoice_detail(
@@ -2077,7 +2113,7 @@ async def get_invoice_detail(
 ) -> VendorInvoiceDetail:
     invoice = await VendorInvoiceRepository(session, tenant).get_or_404(invoice_id)
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2527,7 +2563,7 @@ async def create_invoice(
         )
 
     lines = await line_repo.list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 def _resolve_due_date(due_date: date | None, invoice_date: date, vendor: PartyFacts) -> date:
@@ -2736,7 +2772,7 @@ async def update_invoice(
         )
 
     lines = await line_repo.list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 async def delete_draft_invoice(
@@ -2965,7 +3001,7 @@ async def submit_invoice(
         await _run_and_store_match(session, tenant, invoice)
 
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 async def match_invoice(
@@ -3308,7 +3344,7 @@ async def approve_invoice(
         )
 
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 async def _post_invoice_journal(
@@ -3646,7 +3682,7 @@ async def dispute_invoice(
         )
 
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 async def resolve_dispute(
@@ -3705,7 +3741,7 @@ async def resolve_dispute(
         await session.flush()
 
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 async def cancel_invoice(
@@ -3783,7 +3819,7 @@ async def cancel_invoice(
             await _roll_back_job_work_billing(session, tenant, invoice)
 
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    return invoice_detail(invoice, lines)
+    return await invoice_detail(session, tenant, invoice, lines)
 
 
 async def _roll_back_job_work_billing(

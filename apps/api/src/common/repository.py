@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any, Generic, TypeVar
 
 from sqlalchemy import Select, delete, func, select, update
+from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -233,4 +234,47 @@ class BaseRepository(Generic[ModelT]):
         return affected_rows(await self.session.execute(stmt))
 
 
-__all__ = ["BaseRepository", "ModelT"]
+async def labels_by_id(
+    session: AsyncSession,
+    tenant: TenantContext,
+    ids: Iterable[uuid.UUID | None],
+    *columns: InstrumentedAttribute[Any],
+) -> dict[uuid.UUID, Row[Any]]:
+    """id -> the named columns of one table's rows: what a read shows beside an id.
+
+    A read names what it references by id, and a person reads a code and a name.
+    The additive ``*_code`` / ``*_name`` fields that carry them are filled for a
+    whole page or document with one IN-query per referenced table - never one per
+    row (section 32) - so a screen never has to fetch per row, or fetch a whole
+    list and filter, to label one.
+
+    Three rules live here so no caller re-derives them:
+
+    * **Tenant-scoped.** A foreign key to a UUID is not a tenant check: another
+      company's id satisfies the constraint, and must label as nothing rather
+      than as that company's code.
+    * **Archived rows included.** A retired item or a soft-deleted customer is
+      still the one a posted document names, and must keep resolving (section
+      28), so there is deliberately no ``deleted_at`` filter.
+    * **Nothing asked, nothing read.** ``None`` ids are skipped and an empty set
+      answers ``{}`` without a query - never an unrestricted ``IN ()``.
+
+    The columns must all belong to one table; read each row's values by column
+    name (``labels[item_id].code``).
+    """
+    if not columns:
+        raise ValueError("Name at least one column to label a row by.")
+    model: Any = columns[0].class_
+    if any(column.class_ is not model for column in columns):
+        raise ValueError("Every label column must come from the same table.")
+    wanted = list(dict.fromkeys(value for value in ids if value is not None))
+    if not wanted:
+        return {}
+    stmt = select(model.id, *columns).where(
+        model.company_id == tenant.company_id,
+        model.id.in_(wanted),
+    )
+    return {row.id: row for row in (await session.execute(stmt)).all()}
+
+
+__all__ = ["BaseRepository", "ModelT", "labels_by_id"]

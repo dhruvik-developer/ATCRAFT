@@ -40327,6 +40327,8 @@ export interface components {
              */
             invoice_date: string;
             invoice_type: components["schemas"]["VendorInvoiceType"];
+            /** Job Work Order Code */
+            job_work_order_code?: string | null;
             /** Job Work Order Id */
             job_work_order_id: string | null;
             /** Lines */
@@ -40512,6 +40514,8 @@ export interface components {
              */
             invoice_date: string;
             invoice_type: components["schemas"]["VendorInvoiceType"];
+            /** Job Work Order Code */
+            job_work_order_code?: string | null;
             /** Job Work Order Id */
             job_work_order_id: string | null;
             match_status: components["schemas"]["MatchStatus"];
@@ -40897,6 +40901,8 @@ export interface components {
             min_order_quantity: string;
             /** Order Multiple */
             order_multiple: string;
+            /** Vendor Code */
+            vendor_code?: string | null;
             /**
              * Vendor Id
              * Format: uuid
@@ -40906,6 +40912,8 @@ export interface components {
             vendor_item_code: string | null;
             /** Vendor Item Name */
             vendor_item_name: string | null;
+            /** Vendor Name */
+            vendor_name?: string | null;
         };
         /**
          * VendorLinkUpdate

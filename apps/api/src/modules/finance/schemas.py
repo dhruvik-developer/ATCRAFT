@@ -553,6 +553,9 @@ class VendorInvoiceSummary(BaseModel):
     invoice_type: VendorInvoiceType
     #: The job-work order billed, on a JOB_WORK invoice.
     job_work_order_id: uuid.UUID | None
+    #: That order's code, so a bill names its order however old it is, rather
+    #: than a screen labelling it from a lookup of the newest orders.
+    job_work_order_code: str | None = None
     cost_centre_id: uuid.UUID | None
     created_at: datetime
 

@@ -76373,6 +76373,17 @@
           "invoice_type": {
             "$ref": "#/components/schemas/VendorInvoiceType"
           },
+          "job_work_order_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Code"
+          },
           "job_work_order_id": {
             "anyOf": [
               {
@@ -76990,6 +77001,17 @@
           },
           "invoice_type": {
             "$ref": "#/components/schemas/VendorInvoiceType"
+          },
+          "job_work_order_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Code"
           },
           "job_work_order_id": {
             "anyOf": [
@@ -77996,6 +78018,17 @@
             "title": "Order Multiple",
             "type": "string"
           },
+          "vendor_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Code"
+          },
           "vendor_id": {
             "format": "uuid",
             "title": "Vendor Id",
@@ -78022,6 +78055,17 @@
               }
             ],
             "title": "Vendor Item Name"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
           }
         },
         "required": [

@@ -872,6 +872,10 @@ class VendorLinkOut(_Base):
     id: uuid.UUID
     item_id: uuid.UUID
     vendor_id: uuid.UUID
+    #: The vendor's own code and name, so every link names its vendor - not only
+    #: the ones a screen's first page of vendors happened to include.
+    vendor_code: str | None = None
+    vendor_name: str | None = None
     vendor_item_code: str | None
     vendor_item_name: str | None
     manufacturer_id: uuid.UUID | None

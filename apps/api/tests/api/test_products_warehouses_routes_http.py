@@ -34,7 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.deps import Principal, TenantContext, get_current_principal
 from src.core.permissions import Permission
 from src.main import app
@@ -1458,6 +1458,64 @@ class TestUpdateVendorLink:
 
         assert refused(response, 404, "NOT_FOUND")
         assert await column(session, ItemVendorLink.lead_time_days, theirs.id) == 0
+
+
+class TestVendorLinksNameTheirVendor:
+    """Every link carries its vendor's code and name.
+
+    The item screen labelled links from the first 200 vendors, so an item
+    supplied by the 201st showed no name; the read now names each vendor itself.
+    """
+
+    async def test_link_update_and_list_name_the_vendor(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
+    ) -> None:
+        item = await make_item(session, tenant, unique_code("IT"), can_purchase=True)
+        first = await seed_support.seed_vendor(
+            session, company_id=tenant.company_id, code=unique_code("V"), name="Brass Works"
+        )
+        second = await seed_support.seed_vendor(
+            session, company_id=tenant.company_id, code=unique_code("V"), name="Zinc Foundry"
+        )
+        first_code, second_code = first.code, second.code
+
+        linked = ok(
+            await api_client.post(
+                f"/products/items/{item.id}/vendors", json={"vendor_id": str(first.id)}
+            ),
+            201,
+        )
+        assert (linked["vendor_code"], linked["vendor_name"]) == (first_code, "Brass Works")
+
+        other = await make_vendor_link(session, tenant, item.id, second.id)
+        assert (other.vendor_code, other.vendor_name) == (second_code, "Zinc Foundry")
+        updated = ok(
+            await api_client.patch(f"/products/item-vendors/{other.id}", json={"lead_time_days": 9})
+        )
+        assert (updated["vendor_code"], updated["vendor_name"]) == (second_code, "Zinc Foundry")
+
+        listed = ok(await api_client.get(f"/products/items/{item.id}/vendors"))
+        assert {(row["vendor_code"], row["vendor_name"]) for row in listed} == {
+            (first_code, "Brass Works"),
+            (second_code, "Zinc Foundry"),
+        }
+
+    async def test_an_archived_vendor_still_names_its_link(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
+    ) -> None:
+        """A retired vendor is still who supplied the item; the label must not vanish."""
+        item = await make_item(session, tenant, unique_code("IT"), can_purchase=True)
+        vendor = await seed_support.seed_vendor(
+            session, company_id=tenant.company_id, code=unique_code("V"), name="Old Supplier"
+        )
+        vendor_code = vendor.code
+        await make_vendor_link(session, tenant, item.id, vendor.id)
+        vendor.deleted_at = utcnow()
+        await session.flush()
+
+        (row,) = ok(await api_client.get(f"/products/items/{item.id}/vendors"))
+
+        assert (row["vendor_code"], row["vendor_name"]) == (vendor_code, "Old Supplier")
 
 
 # -----------------------------------------------------------------------------

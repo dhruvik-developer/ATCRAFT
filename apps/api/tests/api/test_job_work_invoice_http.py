@@ -124,6 +124,7 @@ async def _shop(session: AsyncSession, company_id: uuid.UUID) -> dict[str, str]:
     return {
         "vendor_id": str(vendor.id),
         "order_id": str(order.id),
+        "order_code": order.code,
         "receipt_line_id": str(receipt_line.id),
     }
 
@@ -219,3 +220,65 @@ class TestTypedCreateOverHttp:
             json=_invoice_body(shop, invoice_type="PURCHASE", job_work_order_id=shop["order_id"]),
         )
         assert refused.status_code == 422
+
+
+class TestTheBillNamesItsOrder:
+    """Each bill carries its order's code, so no screen labels it from a lookup.
+
+    The job-work "Invoices" tab used to name a bill's order from the newest 200
+    orders, so a bill against an older order showed a UUID prefix instead.
+    """
+
+    async def test_create_detail_and_list_name_the_order(
+        self, api_client, principal, session
+    ) -> None:
+        shop = await _shop(session, principal.company_id)
+        _as(principal)
+
+        created = await api_client.post("/finance/vendor-invoices", json=_invoice_body(shop))
+        assert created.status_code == 201, created.text
+        invoice = created.json()["data"]
+        assert invoice["job_work_order_code"] == shop["order_code"]
+
+        detail = await api_client.get(f"/finance/vendor-invoices/{invoice['id']}")
+        assert detail.status_code == 200
+        assert detail.json()["data"]["job_work_order_code"] == shop["order_code"]
+
+        listed = await api_client.get(
+            "/finance/vendor-invoices", params={"invoice_type": "JOB_WORK"}
+        )
+        assert listed.status_code == 200
+        (row,) = [row for row in listed.json()["data"] if row["id"] == invoice["id"]]
+        assert row["job_work_order_code"] == shop["order_code"]
+
+    async def test_a_bill_with_no_order_names_none(self, api_client, principal, session) -> None:
+        shop = await _shop(session, principal.company_id)
+        _as(principal)
+
+        created = await api_client.post(
+            "/finance/vendor-invoices",
+            json={
+                "vendor_id": shop["vendor_id"],
+                "vendor_invoice_number": _code("SUP"),
+                "invoice_date": "2026-05-12",
+                "invoice_type": "PURCHASE",
+                "lines": [
+                    {
+                        "description": "Courier charges",
+                        "quantity": "1",
+                        "unit_price": "250.00",
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 201, created.text
+        invoice = created.json()["data"]
+        assert invoice["job_work_order_id"] is None
+        assert invoice["job_work_order_code"] is None
+
+        listed = await api_client.get(
+            "/finance/vendor-invoices", params={"search": invoice["code"]}
+        )
+        assert listed.status_code == 200
+        (row,) = [row for row in listed.json()["data"] if row["id"] == invoice["id"]]
+        assert row["job_work_order_code"] is None

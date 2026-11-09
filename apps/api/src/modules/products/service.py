@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import normalise_code
 from src.common.document_access import register_document_attach_policy
+from src.common.repository import labels_by_id
 from src.core.cache import CacheNamespace, cache_delete, cache_get, cache_set, make_key
 from src.core.clock import today
 from src.core.database import transaction
@@ -128,6 +129,7 @@ from src.modules.products.schemas import (
     VendorLinkOut,
     VendorLinkUpdate,
 )
+from src.modules.vendors.models import Vendor
 
 # Entity type strings used in the audit log. Stable: reports and the audit
 # search filter on them.
@@ -2782,7 +2784,24 @@ async def link_vendor(
             new_values=snapshot(link, audited),
         )
 
-    return VendorLinkOut.model_validate(link)
+    return (await _vendor_link_reads(session, tenant, [link]))[0]
+
+
+async def _vendor_link_reads(
+    session: AsyncSession, tenant: TenantContext, links: Sequence[ItemVendorLink]
+) -> list[VendorLinkOut]:
+    """Project vendor links, each naming its vendor - one statement for the page."""
+    vendors = await labels_by_id(
+        session, tenant, (link.vendor_id for link in links), Vendor.code, Vendor.name
+    )
+    reads: list[VendorLinkOut] = []
+    for link in links:
+        read = VendorLinkOut.model_validate(link)
+        vendor = vendors.get(link.vendor_id)
+        read.vendor_code = vendor.code if vendor else None
+        read.vendor_name = vendor.name if vendor else None
+        reads.append(read)
+    return reads
 
 
 #: The vendor-link fields an explicit ``null`` clears rather than leaves alone -
@@ -2837,7 +2856,7 @@ async def update_vendor_link(
             new_values=snapshot(link, audited),
         )
 
-    return VendorLinkOut.model_validate(link)
+    return (await _vendor_link_reads(session, tenant, [link]))[0]
 
 
 async def unlink_vendor(session: AsyncSession, tenant: TenantContext, link_id: uuid.UUID) -> None:
@@ -2870,7 +2889,7 @@ async def list_vendor_links(
     rows, pagination = await ItemVendorLinkRepository(session, tenant).list_for_item(
         item_id, params, is_active=is_active
     )
-    return [VendorLinkOut.model_validate(row) for row in rows], pagination
+    return await _vendor_link_reads(session, tenant, rows), pagination
 
 
 __all__ = [
