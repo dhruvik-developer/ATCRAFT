@@ -253,8 +253,13 @@ async def _load_principal(session: AsyncSession, payload: TokenPayload) -> Princ
         raise AuthenticationError("Account not found.", code=ErrorCode.TOKEN_INVALID)
     if not user.is_active:
         raise AuthenticationError("Account is deactivated.", code=ErrorCode.ACCOUNT_INACTIVE)
-    if user.is_locked:
-        raise AuthenticationError("Account is locked.", code=ErrorCode.ACCOUNT_LOCKED)
+    # Deliberately no lockout check. ``locked_until`` is set only by wrong
+    # passwords and wrong MFA codes, and what it stops is guessing: sign-in, the
+    # MFA step and the current-password check all refuse while it runs. This
+    # token's session already proved the password. Refusing it here let anyone
+    # who knew an address sign that person out of every device with five wrong
+    # passwords, and keep them out with one more each time the lock lapsed.
+    # ASSUMPTION: docs/assumptions.md §AUTH-1.
 
     # A password change invalidates tokens issued before it, so a stolen access
     # token stops working the moment the user reacts to the compromise.

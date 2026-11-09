@@ -9,18 +9,26 @@ matters is *which* collaborators it calls and what it hands back.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
+from src.core.clock import utcnow
 from src.core.errors import AccountLockedError, ErrorCode, ValidationError
 from src.core.messages import CURRENT_PASSWORD_INCORRECT
 from src.core.ratelimit import RateLimitPolicy
 from src.modules.auth import service as auth_service
 from src.modules.auth.repository import UserSessionRepository, increment_failed_attempts
-from src.modules.auth.service import FAILURE_BAD_PASSWORD, AuthService, _mfa_code_rejected
+from src.modules.auth.service import (
+    FAILURE_BAD_PASSWORD,
+    FAILURE_LOCKED,
+    AuthService,
+    _mfa_code_rejected,
+)
 from src.modules.users.models import User
 
 pytestmark = pytest.mark.unit
@@ -159,7 +167,12 @@ async def test_a_correct_password_costs_one_token_and_records_nothing(
     account = _account()
 
     refused = await _service(collaborators, monkeypatch)._check_current_password(
-        account, "right", purpose="Password change", ip_address="10.0.0.1", user_agent="ua"
+        account,
+        "right",
+        purpose="Password change",
+        session_id="sid",
+        ip_address="10.0.0.1",
+        user_agent="ua",
     )
 
     assert refused is None
@@ -173,7 +186,12 @@ async def test_a_wrong_password_is_counted_like_a_failed_sign_in(
     account = _account()
 
     refused = await _service(collaborators, monkeypatch)._check_current_password(
-        account, "wrong", purpose="MFA disable", ip_address="10.0.0.1", user_agent="ua"
+        account,
+        "wrong",
+        purpose="MFA disable",
+        session_id="sid",
+        ip_address="10.0.0.1",
+        user_agent="ua",
     )
 
     (failure,) = collaborators["failures"]
@@ -182,6 +200,9 @@ async def test_a_wrong_password_is_counted_like_a_failed_sign_in(
     assert failure["ip_address"] == "10.0.0.1"
     assert failure["user_agent"] == "ua"
     assert failure["summary"].startswith("MFA disable refused for person@example.com")
+    # The session the guess came from is handed over, to be ended only if
+    # this miss is the one that locks the account.
+    assert failure["end_session_id"] == "sid"
 
     # 422 with a field-level detail - a 401 here signs the user out before the
     # form can show the message.
@@ -207,7 +228,12 @@ async def test_the_budget_is_consumed_before_the_password_is_checked(
     monkeypatch.setattr(auth_service, "verify_password_async", verify)
 
     await _service(collaborators, monkeypatch)._check_current_password(
-        _account(), "x", purpose="Password change", ip_address=None, user_agent=None
+        _account(),
+        "x",
+        purpose="Password change",
+        session_id="sid",
+        ip_address=None,
+        user_agent=None,
     )
 
     assert order == ["throttle", "verify"]
@@ -219,12 +245,95 @@ async def test_the_attempt_that_locks_the_account_ends_the_session(
     collaborators["locks"] = True
 
     refused = await _service(collaborators, monkeypatch)._check_current_password(
-        _account(), "wrong", purpose="Password change", ip_address=None, user_agent=None
+        _account(),
+        "wrong",
+        purpose="Password change",
+        session_id="sid",
+        ip_address=None,
+        user_agent=None,
     )
 
-    # A locked account *should* be signed out: 401 is the right answer here.
+    # The miss that locks the account ended the session it came from, so 401 -
+    # "this session is dead" - is the true answer here.
     assert isinstance(refused, AccountLockedError)
     assert refused.status_code == 401
+    (failure,) = collaborators["failures"]
+    assert failure["end_session_id"] == "sid"
+
+
+async def test_a_locked_account_is_refused_without_its_password_being_checked(
+    collaborators: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Someone else's guesses locked it: no password is checked while the lock
+    runs, and the refusal is a field error, because this session is still
+    alive and a 401 would sign it out."""
+    account = _account()
+    account.locked_until = utcnow() + timedelta(minutes=10)
+    collaborators["verify"] = True  # the right password still does not get through
+
+    refused = await _service(collaborators, monkeypatch)._check_current_password(
+        account,
+        "right",
+        purpose="Password change",
+        session_id="sid",
+        ip_address="10.0.0.1",
+        user_agent="ua",
+    )
+
+    assert collaborators["policies"] == [(RateLimitPolicy.LOGIN_PER_EMAIL, account.email)]
+    (failure,) = collaborators["failures"]
+    assert failure["reason"] == FAILURE_LOCKED
+    assert failure["count_against_lockout"] is False
+    assert "end_session_id" not in failure
+    assert isinstance(refused, ValidationError)
+    assert refused.status_code == 422
+    assert refused.code == ErrorCode.ACCOUNT_LOCKED
+    assert refused.details == {"fields": {"current_password": [AccountLockedError.message]}}
+
+
+async def test_a_lapsed_lock_lets_the_password_be_checked_again(
+    collaborators: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    account = _account()
+    account.locked_until = utcnow() - timedelta(seconds=1)
+    collaborators["verify"] = True
+
+    refused = await _service(collaborators, monkeypatch)._check_current_password(
+        account,
+        "right",
+        purpose="Password change",
+        session_id="sid",
+        ip_address=None,
+        user_agent=None,
+    )
+
+    assert refused is None
+    assert collaborators["failures"] == []
+
+
+@pytest.mark.parametrize(
+    ("refused", "dropped"),
+    [
+        (AccountLockedError(), [["sid"]]),
+        (ValidationError(CURRENT_PASSWORD_INCORRECT), []),
+        (ValidationError(AccountLockedError.message, code=ErrorCode.ACCOUNT_LOCKED), []),
+    ],
+)
+async def test_only_the_refusal_that_ended_the_session_drops_its_cached_liveness(
+    monkeypatch: pytest.MonkeyPatch, refused: Exception, dropped: list[list[str]]
+) -> None:
+    calls: list[list[str]] = []
+
+    async def drop(company_id: uuid.UUID, session_ids: list[str]) -> None:
+        calls.append(session_ids)
+
+    monkeypatch.setattr(auth_service, "_drop_session_cache", drop)
+    principal = SimpleNamespace(company_id=uuid.uuid4(), session_id="sid")
+
+    settled = await AuthService(_Session())._settle_refusal(principal, refused)  # type: ignore[arg-type]
+
+    assert settled is refused
+    assert calls == dropped
 
 
 def test_a_wrong_authenticator_code_is_a_field_error_not_a_dead_session() -> None:

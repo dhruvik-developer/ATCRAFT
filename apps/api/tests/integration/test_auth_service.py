@@ -68,6 +68,7 @@ from src.modules.auth.schemas import (
 from src.modules.auth.service import (
     FAILURE_BAD_MFA,
     FAILURE_BAD_PASSWORD,
+    REVOKE_REASON_LOCKED,
     REVOKE_REASON_REPLAY,
     REVOKE_REASON_ROTATED,
     AuthService,
@@ -872,6 +873,80 @@ async def test_repeated_wrong_current_passwords_lock_the_account(
     assert failed == settings.login_max_failed_attempts
     assert locked_until is not None and locked_until > utcnow()
     assert verify_password(PASSWORD, stored_hash)
+    # The session that guessed is over; the lock alone would not have ended it.
+    revoked_at, reason, _ = await session_row(session, issued.session_id)
+    assert revoked_at is not None
+    assert reason == REVOKE_REASON_LOCKED
+
+
+async def test_the_mfa_disable_guess_that_locks_the_account_ends_only_its_session(
+    session: AsyncSession, company
+) -> None:
+    """The one self-service check that runs inside its caller's transaction:
+    the lock, the revocation and the failure record still commit together,
+    and the refusal still reaches the caller."""
+    account = await make_account(session, company)
+    guessing = await sign_in(session, account)
+    principal = principal_for(account, guessing.session_id)
+    secret = await enable_mfa(session, principal)
+    # Opened after enrolment, which retires every other session. Enrolment
+    # consumed the current step; the next one is inside the drift window.
+    challenge = await sign_in(session, account)
+    elsewhere = await AuthService(session).verify_mfa(
+        MfaVerifyRequest(
+            challenge_token=challenge.challenge_token,
+            code=pyotp.TOTP(secret).at(utcnow() + timedelta(seconds=30)),
+        ),
+        ip_address=CLIENT_IP,
+        user_agent=CLIENT_AGENT,
+    )
+    guess = MfaDisableRequest(current_password="not-my-password", code=pyotp.TOTP(secret).now())
+
+    for _ in range(settings.login_max_failed_attempts - 1):
+        with pytest.raises(ValidationError):
+            await AuthService(session).disable_mfa(principal, guess)
+    with pytest.raises(AccountLockedError):
+        await AuthService(session).disable_mfa(principal, guess)
+
+    failed, locked_until, _, _ = await account_state(session, account.id)
+    assert failed == settings.login_max_failed_attempts
+    assert locked_until is not None and locked_until > utcnow()
+    assert await mfa_enabled(session, account.id) is True
+    revoked_at, reason, _ = await session_row(session, guessing.session_id)
+    assert revoked_at is not None
+    assert reason == REVOKE_REASON_LOCKED
+    assert (await session_row(session, elsewhere.session_id))[0] is None
+
+
+async def test_the_first_failure_after_a_lock_lapses_locks_again(
+    session: AsyncSession, company
+) -> None:
+    """The count is cleared by a successful sign-in, a password change or a
+    reset - never by the lock running out. So after a lock lapses the next wrong
+    password locks again at once, and the right one still signs in and clears
+    the count. Restarting the count on expiry would hand a guesser four free
+    attempts per lock period (docs/assumptions.md §AUTH-1)."""
+    account = await make_account(session, company)
+    for _ in range(settings.login_max_failed_attempts - 1):
+        with pytest.raises(InvalidCredentialsError):
+            await sign_in(session, account, "wrong-password")
+    with pytest.raises(AccountLockedError):
+        await sign_in(session, account, "wrong-password")
+
+    account.locked_until = utcnow() - timedelta(seconds=1)  # the lock runs out
+    await session.flush()
+    with pytest.raises(AccountLockedError):
+        await sign_in(session, account, "wrong-password")
+
+    failed, locked_until, _, _ = await account_state(session, account.id)
+    assert failed == settings.login_max_failed_attempts + 1, "counted, not refused as locked"
+    assert locked_until is not None and locked_until > utcnow()
+
+    account.locked_until = utcnow() - timedelta(seconds=1)
+    await session.flush()
+    await sign_in(session, account)
+    failed, locked_until, _, _ = await account_state(session, account.id)
+    assert (failed, locked_until) == (0, None)
 
 
 async def test_mfa_enrolment_and_disable_require_the_current_password(

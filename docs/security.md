@@ -144,6 +144,19 @@ minutes (configurable). Login is additionally rate-limited per email _and_ per I
 — per-IP alone is useless against a credential-stuffing run behind rotating
 proxies, and per-email alone lets one host walk the whole user list.
 
+The lockout stops guessing and nothing else. While it runs no password or MFA
+code is checked anywhere — sign-in, the MFA step, and the current-password check
+on change-password and MFA setup and disable all refuse, the authenticated ones
+with a `422 ACCOUNT_LOCKED` under the field — but a session that signed in before
+the lock keeps working and keeps refreshing. Anyone who knows an address can lock
+it, so a lock that ended sessions let a stranger sign a person out of every device
+with five requests. The one session a lockout ends is the one whose wrong current
+password caused it (`revoked_reason = account_locked`), which is how a stolen
+access token stops being a password oracle. The failure count is cleared only by
+a successful sign-in, a password change, a reset or an administrator's
+intervention, so the first wrong password after a lock lapses locks the account
+again (assumptions §AUTH-1).
+
 **Enumeration resistance.** An unknown email still performs a dummy Argon2
 verify against a constant hash, so response timing does not distinguish "no such
 user" from "wrong password", and both return the identical error. Password reset

@@ -69,6 +69,8 @@ from src.modules.auth.phone_service import PHONE_CODE_LIFETIME
 from src.modules.auth.service import (
     FAILURE_BAD_MFA,
     FAILURE_BAD_PASSWORD,
+    FAILURE_LOCKED,
+    REVOKE_REASON_LOCKED,
     REVOKE_REASON_LOGOUT,
     REVOKE_REASON_LOGOUT_ALL,
     REVOKE_REASON_PASSWORD_CHANGE,
@@ -531,6 +533,37 @@ class TestLogin:
 
         assert error_of(response, 401)["code"] == "ACCOUNT_LOCKED"
         assert await session_count(session, account.id) == 0
+
+    async def test_a_lockout_refuses_every_password_but_keeps_the_devices_already_signed_in(
+        self, client: AsyncClient, session: AsyncSession, company
+    ) -> None:
+        """Anyone who knows an address can lock it. That must stop them guessing
+        and nothing more: the owner's devices already proved the password, and
+        signing them out on a stranger's say-so was a denial of service anyone
+        could run with five requests (docs/assumptions.md §AUTH-1)."""
+        account = await make_account(session, company.id)
+        device = await sign_in(client, account)
+
+        for _ in range(settings.login_max_failed_attempts - 1):
+            guess = await client.post("/auth/login", json=credentials(account, WRONG_PASSWORD))
+            assert error_of(guess, 401)["code"] == "INVALID_CREDENTIALS"
+        locking = await client.post("/auth/login", json=credentials(account, WRONG_PASSWORD))
+        assert error_of(locking, 401)["code"] == "ACCOUNT_LOCKED"
+
+        # The right password does not open it while the lock runs.
+        right = await client.post("/auth/login", json=credentials(account))
+        assert error_of(right, 401)["code"] == "ACCOUNT_LOCKED"
+        assert await session_count(session, account.id) == 1
+
+        # The device that signed in before the lock keeps working, and rotating.
+        me = data_of(await client.get("/auth/me", headers=device.bearer))
+        assert me["session_id"] == device.session_id
+        rotated = data_of(await client.post("/auth/refresh", headers=device.browser()))
+        assert (await session_row(session, device.session_id)).revoked_reason == (
+            REVOKE_REASON_ROTATED
+        )
+        again = data_of(await client.get("/auth/me", headers=bearer(rotated["access_token"])))
+        assert again["session_id"] == rotated["session_id"]
 
     async def test_a_malformed_sign_in_names_each_field(self, client: AsyncClient) -> None:
         response = await client.post(
@@ -1438,6 +1471,73 @@ class TestChangePassword:
         state = await account_row(session, account.id)
         assert verify_password(PASSWORD, state.password_hash)
         assert state.failed_login_attempts == 1
+
+    async def test_the_wrong_password_that_locks_the_account_ends_only_the_session_it_came_from(
+        self, client: AsyncClient, session: AsyncSession, company
+    ) -> None:
+        """A stolen access token guessing the password locks the account and
+        loses its own session; the owner's other device has guessed nothing
+        and keeps working."""
+        account = await make_account(session, company.id)
+        guessing = await sign_in(client, account)
+        elsewhere = await sign_in(client, account)
+        guess = {"current_password": WRONG_PASSWORD, "new_password": NEW_PASSWORD}
+
+        for _ in range(settings.login_max_failed_attempts - 1):
+            miss = await client.post("/auth/change-password", json=guess, headers=guessing.bearer)
+            assert error_of(miss, 422)["code"] == "INVALID_CREDENTIALS"
+        locking = await client.post("/auth/change-password", json=guess, headers=guessing.bearer)
+
+        assert error_of(locking, 401)["code"] == "ACCOUNT_LOCKED"
+        ended = await session_row(session, guessing.session_id)
+        assert ended.revoked_at is not None
+        assert ended.revoked_reason == REVOKE_REASON_LOCKED
+        dead = await client.get("/auth/me", headers=guessing.bearer)
+        assert error_of(dead, 401)["code"] == "TOKEN_REVOKED"
+        assert error_of(await client.post("/auth/refresh", headers=guessing.browser()), 401)[
+            "code"
+        ] == ("TOKEN_REVOKED")
+
+        assert (await session_row(session, elsewhere.session_id)).revoked_at is None
+        me = data_of(await client.get("/auth/me", headers=elsewhere.bearer))
+        assert me["session_id"] == elsewhere.session_id
+        state = await account_row(session, account.id)
+        assert verify_password(PASSWORD, state.password_hash)
+        assert state.failed_login_attempts == settings.login_max_failed_attempts
+        last = (
+            await audit_rows(session, account.company_id, account.id, AuditAction.LOGIN_FAILED)
+        )[-1]
+        assert last.context["locked"] is True
+        assert last.context["ended_session_id"] == guessing.session_id
+
+    async def test_a_locked_account_keeps_its_session_but_has_no_password_checked(
+        self, client: AsyncClient, session: AsyncSession, company
+    ) -> None:
+        """Locked by somebody else's guesses at sign-in: even the right current
+        password is refused until the lock runs out - and refused under the
+        field, because a 401 would sign out a session that is still alive."""
+        account = await make_account(session, company.id)
+        device = await sign_in(client, account)
+        for _ in range(settings.login_max_failed_attempts):
+            await client.post("/auth/login", json=credentials(account, WRONG_PASSWORD))
+
+        response = await client.post(
+            "/auth/change-password",
+            json={"current_password": PASSWORD, "new_password": NEW_PASSWORD},
+            headers=device.bearer,
+        )
+
+        error = error_of(response, 422)
+        assert error["code"] == "ACCOUNT_LOCKED"
+        assert error["details"]["fields"]["current_password"] == [error["message"]]
+        state = await account_row(session, account.id)
+        assert verify_password(PASSWORD, state.password_hash)
+        assert state.failed_login_attempts == settings.login_max_failed_attempts
+        assert (await session_row(session, device.session_id)).revoked_at is None
+        assert data_of(await client.get("/auth/me", headers=device.bearer))["session_id"] == (
+            device.session_id
+        )
+        assert (await attempts(session, account.id))[-1] == (False, FAILURE_LOCKED)
 
     async def test_a_new_password_below_the_policy_names_the_field(
         self, client: AsyncClient, session: AsyncSession, company

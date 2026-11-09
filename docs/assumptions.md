@@ -4616,3 +4616,39 @@ centre.
 **Impact if wrong.** Check every non-null value in the helper instead; the
 cost is that an edit of a record naming a retired transporter must also clear
 or replace it.
+
+## §AUTH-1. A lockout stops password checks, not sessions
+
+**Assumed.** `users.locked_until`, set by `login_max_failed_attempts` wrong
+passwords or MFA codes, refuses every check of a password or MFA code while it
+runs: sign-in and the MFA step answer `401 ACCOUNT_LOCKED`, and the
+current-password check on `/auth/change-password`, `/auth/mfa/setup` and
+`/auth/mfa/disable` answers `422 ACCOUNT_LOCKED` under `current_password`
+without looking at the password. It does not refuse an access token or a
+refresh: a session opened before the lock keeps working. The one exception is
+the session whose wrong current password is the attempt that locks the account,
+which is revoked in the same transaction (`revoked_reason = account_locked`).
+The failure count is cleared by a successful sign-in, a password change, a
+reset, or an administrator setting a password or reactivating the account -
+never by the lock running out, so the first failure after a lock lapses locks
+the account again.
+
+**Why.** A lockout exists to stop guessing, and anyone who knows an address can
+trigger one. Refusing live sessions turned it into a remote sign-out: five wrong
+passwords signed the owner out of every device, and one more each time the lock
+lapsed kept them out. A session that already proved the password is not a guess.
+Ending the guessing session keeps a stolen access token from being a password
+oracle, which is what refusing every session used to do. Restarting the count
+when a lock lapses would give a guesser four extra attempts every lock period
+and would still not stop someone re-locking the account, because the per-account
+sign-in budget allows five attempts every five minutes.
+
+**Where.** `src/core/deps.py` - `_load_principal` (no lock check);
+`src/modules/auth/service.py` - `refresh`, `_check_current_password`,
+`_register_failure`, `_end_session_for_lockout`, `lockout_deadline`.
+
+**Impact if wrong.** If a lock must also end every session, add the check back
+to `_load_principal` and `refresh`. The remote sign-out comes back with it, so
+pair it with a CAPTCHA or a per-account notification. To restart the count after
+a lapse, reset `failed_login_attempts` in `_register_failure` when
+`locked_until` is in the past.

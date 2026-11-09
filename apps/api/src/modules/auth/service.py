@@ -12,6 +12,12 @@ What this file is responsible for, and why each rule is written the way it is:
   the counter, writes a ``login_attempts`` row and an audit entry, and commits -
   then the error is raised. Raising first would roll the evidence back, and an
   attacker's attempts would leave no trace at all.
+* **A lockout stops guessing, not sessions.** While ``locked_until`` runs, no
+  password or MFA code is checked anywhere, but a session that signed in
+  before the lock keeps working and keeps refreshing - otherwise five wrong
+  passwords from anyone who knows an address sign its owner out everywhere.
+  The one session a lockout ends is the one whose wrong current password
+  caused it.
 * **Refresh tokens rotate, and a replay burns the family.** Every refresh
   revokes the presented session and issues a new one linked through
   ``replaced_by_id``. Presenting a token that has already been replaced can only
@@ -164,6 +170,9 @@ REVOKE_REASON_REPLAY = "refresh_replay"
 REVOKE_REASON_PASSWORD_CHANGE = "password_changed"  # noqa: S105 - a reason code
 REVOKE_REASON_PASSWORD_RESET = "password_reset"  # noqa: S105 - a reason code
 REVOKE_REASON_MANUAL = "revoked_by_user"
+#: The session whose wrong current password locked the account - the only
+#: session a lockout ends (docs/assumptions.md §AUTH-1).
+REVOKE_REASON_LOCKED = "account_locked"
 
 
 # -----------------------------------------------------------------------------
@@ -606,8 +615,9 @@ class AuthService:
                     raise AuthenticationError(
                         "Account is not available.", code=ErrorCode.ACCOUNT_INACTIVE
                     )
-                if account.locked_until is not None and account.locked_until > utcnow():
-                    raise AccountLockedError()
+                # No lockout check: a lockout stops password guessing, and this
+                # session proved the password before the lock (see
+                # deps._load_principal; ASSUMPTION: docs/assumptions.md §AUTH-1).
 
                 SESSION_STATE_MACHINE.assert_transition(state, SessionState.ROTATED)
                 successor, tokens = await self._open_session(
@@ -819,11 +829,12 @@ class AuthService:
             account,
             payload.current_password,
             purpose="MFA enrolment",
+            session_id=principal.session_id,
             ip_address=ip_address,
             user_agent=user_agent,
         )
         if refused is not None:
-            raise refused
+            raise await self._settle_refusal(principal, refused)
 
         secret = generate_totp_secret()
         async with transaction(self.session):
@@ -933,6 +944,7 @@ class AuthService:
                 account,
                 payload.current_password,
                 purpose="MFA disable",
+                session_id=principal.session_id,
                 ip_address=ip_address,
                 user_agent=user_agent,
             )
@@ -949,7 +961,7 @@ class AuthService:
                 revoked = await self._disable_mfa_locked(account, principal)
 
         if refused is not None:
-            raise refused
+            raise await self._settle_refusal(principal, refused)
         await _drop_session_cache(principal.company_id, revoked)
         return MfaChangeResult(mfa_enabled=False, revoked_sessions=len(revoked))
 
@@ -1002,11 +1014,12 @@ class AuthService:
             account,
             payload.current_password,
             purpose="Password change",
+            session_id=principal.session_id,
             ip_address=ip_address,
             user_agent=user_agent,
         )
         if refused is not None:
-            raise refused
+            raise await self._settle_refusal(principal, refused)
 
         validate_password_policy(payload.new_password, email=account.email)
         if await verify_password_async(payload.new_password, account.password_hash):
@@ -1284,6 +1297,7 @@ class AuthService:
         current_password: str,
         *,
         purpose: str,
+        session_id: str | None,
         ip_address: str | None,
         user_agent: str | None,
     ) -> AppError | None:
@@ -1291,22 +1305,47 @@ class AuthService:
 
         These routes are how a leaked access token becomes a leaked password
         or an MFA-free account, so a wrong guess costs exactly what it costs at
-        sign-in: the per-account budget is consumed before the check, and a
-        miss goes through :meth:`_register_failure`, which bumps the lockout
-        counter and commits the attempt and audit rows. Without this the only
-        budget was the coarse per-client API limit - about 1 800 guesses per
+        sign-in: the per-account budget is consumed before the check, a locked
+        account is refused without the password being looked at, and a miss
+        goes through :meth:`_register_failure`, which bumps the lockout counter
+        and commits the attempt and audit rows. Without this the only budget
+        was the coarse per-client API limit - about 1 800 guesses per
         access-token lifetime, with no lockout.
+
+        The miss that locks the account also ends ``session_id``, the session
+        the guesses came from. A lockout does not end sessions by itself
+        (ASSUMPTION: docs/assumptions.md §AUTH-1), so without this a stolen
+        access token would keep its access after locking the account. The
+        person's other devices keep working: they guessed nothing.
 
         Returned rather than raised, because one caller is already inside the
         transaction the failure record must commit in: raising there would
-        roll the record back. A miss answers 422, not 401. The web client has
-        exactly one meaning for a 401 on an authenticated route - the session
-        is dead - and signs the user out, so a typo in "current password"
-        bounced them to the login page before the form could show the message.
-        A field-level 422 lands under the field. The unauthenticated routes
-        (sign-in, MFA challenge, refresh) stay on 401.
+        roll the record back. The caller raises it through
+        :meth:`_settle_refusal` once that has committed. A miss answers 422,
+        not 401. The web client has exactly one meaning for a 401 on an
+        authenticated route - the session is dead - and signs the user out, so
+        a typo in "current password" bounced them to the login page before the
+        form could show the message. A field-level 422 lands under the field,
+        and so does the refusal of an account someone else's guesses locked,
+        whose session is still alive. Only the miss that ends the session
+        answers 401. The unauthenticated routes (sign-in, MFA challenge,
+        refresh) stay on 401.
         """
         await enforce_policy(RateLimitPolicy.LOGIN_PER_EMAIL, account.email)
+        if account.is_locked:
+            await self._register_failure(
+                account,
+                reason=FAILURE_LOCKED,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                count_against_lockout=False,
+                summary=f"{purpose} refused for {account.email}: the account is locked",
+            )
+            return ValidationError(
+                AccountLockedError.message,
+                code=ErrorCode.ACCOUNT_LOCKED,
+                details={"fields": {"current_password": [AccountLockedError.message]}},
+            )
         if await verify_password_async(current_password, account.password_hash):
             return None
         locked = await self._register_failure(
@@ -1316,6 +1355,7 @@ class AuthService:
             user_agent=user_agent,
             count_against_lockout=True,
             summary=f"{purpose} refused for {account.email}: current password did not match",
+            end_session_id=session_id,
         )
         if locked:
             return AccountLockedError()
@@ -1324,6 +1364,19 @@ class AuthService:
             code=ErrorCode.INVALID_CREDENTIALS,
             details={"fields": {"current_password": [CURRENT_PASSWORD_INCORRECT]}},
         )
+
+    async def _settle_refusal(self, principal: Principal, refused: AppError) -> AppError:
+        """The current-password refusal to raise, once its records committed.
+
+        The refusal that locked the account also ended the caller's session
+        (:meth:`_check_current_password`), and that session's cached "still
+        live" answer goes here - after the commit. Dropped before it, a request
+        arriving in between would read the uncommitted revocation as live and
+        cache that for the whole TTL.
+        """
+        if isinstance(refused, AccountLockedError) and principal.session_id:
+            await _drop_session_cache(principal.company_id, [principal.session_id])
+        return refused
 
     async def _register_failure(
         self,
@@ -1334,14 +1387,19 @@ class AuthService:
         user_agent: str | None,
         count_against_lockout: bool,
         summary: str | None = None,
+        end_session_id: str | None = None,
     ) -> bool:
         """Persist a failed sign-in. Returns True when this attempt locked the
         account.
 
         Committed on its own so the counter, the attempt row and the audit entry
-        survive the exception the caller is about to raise.
+        survive the exception the caller is about to raise. ``end_session_id``
+        is revoked in the same transaction when, and only when, this attempt
+        locked the account; dropping its cache entry is the caller's, after the
+        commit.
         """
         locked_now = False
+        ended_session: str | None = None
         async with transaction(self.session):
             if count_against_lockout:
                 # Incremented in the database, not in Python - see
@@ -1352,6 +1410,9 @@ class AuthService:
                 if deadline is not None:
                     account.locked_until = deadline
                     locked_now = True
+
+            if locked_now and end_session_id:
+                ended_session = await self._end_session_for_lockout(account, end_session_id)
 
             record_login_attempt(
                 self.session,
@@ -1377,6 +1438,7 @@ class AuthService:
                     "reason": reason,
                     "failed_attempts": account.failed_login_attempts,
                     "locked": locked_now,
+                    **({"ended_session_id": ended_session} if ended_session else {}),
                 },
             )
 
@@ -1386,8 +1448,28 @@ class AuthService:
                 user_id=str(account.id),
                 company_id=str(account.company_id),
                 attempts=account.failed_login_attempts,
+                ended_session=ended_session is not None,
             )
         return locked_now
+
+    async def _end_session_for_lockout(self, account: User, session_id: str) -> str | None:
+        """Revoke the session whose wrong password just locked the account.
+
+        Returns the session id when a live session of this account was closed,
+        ``None`` when there was nothing live to close. Runs inside
+        :meth:`_register_failure`'s transaction, so the lock and the revocation
+        commit together or not at all.
+        """
+        sessions = UserSessionRepository(self.session, _tenant_for(account.company_id, account.id))
+        record = await sessions.get_by_session_id(session_id, for_update=True)
+        if record is None or record.user_id != account.id:
+            return None
+        state = session_state(record)
+        if state is not SessionState.ACTIVE:
+            return None
+        SESSION_STATE_MACHINE.assert_transition(state, SessionState.REVOKED)
+        await sessions.revoke(record, reason=REVOKE_REASON_LOCKED)
+        return record.session_id
 
     async def _record_unresolved_attempt(
         self,
