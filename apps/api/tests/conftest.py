@@ -21,10 +21,12 @@ Start the infrastructure first:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import pathlib
+import sys
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from decimal import Decimal
 from typing import Any
 
@@ -118,6 +120,56 @@ BEGIN
     END LOOP;
 END $$
 """
+
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+
+
+class _CurrentStdout:
+    """``sys.stdout`` as it is when a line is written, not when logging was set up.
+
+    pytest swaps ``sys.stdout`` - for the session, and again for a test that
+    asks for ``capsys`` - and closes its own streams when it finishes. A handler
+    bound to whichever stream was current at configuration would put a test's
+    log lines where ``capsys`` cannot read them, and write into a closed file at
+    exit. structlog's default logger also resolved ``sys.stdout`` per call.
+    """
+
+    def write(self, text: str) -> int:
+        return sys.stdout.write(text)
+
+    def flush(self) -> None:
+        sys.stdout.flush()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _application_logging() -> Iterator[None]:
+    """Log through the application's own pipeline for the whole session.
+
+    The application installs it from its lifespan, which no test runs - httpx's
+    ASGI transport never executes one - so every test used to log under
+    structlog's defaults. Their ``ConsoleRenderer`` draws an exception as a rich
+    traceback with every frame's locals, the whole FastAPI application among
+    them: 6-7 s for each unhandled error through a one-line route, and far more
+    under pytest's deeper frames, where ``configure_logging`` - whose
+    ``format_exc_info`` renders the traceback as plain text first - takes
+    0.01 s. With ``LOG_JSON`` false, its default and what ``.env`` sets, this is
+    the console path development uses. The root logger's handlers and level are
+    put back afterwards; ``tests/unit/test_session_logging.py`` pins all of it.
+    """
+    from src.core.logging import configure_logging
+
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    configure_logging()
+    for handler in root.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setStream(_CurrentStdout())
+    yield
+    root.handlers = handlers
+    root.setLevel(level)
 
 
 # -----------------------------------------------------------------------------

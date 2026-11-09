@@ -141,30 +141,20 @@ async def foreign(session: AsyncSession, other_company) -> TenantContext:
     return TenantContext(company_id=other_company.id, user_id=owner.id)
 
 
-class _Silent:
-    """A logger that renders nothing."""
-
-    def __getattr__(self, _name: str) -> Any:
-        return lambda *_args, **_kwargs: None
-
-
 @pytest.fixture
-async def lenient_client(api_client: AsyncClient, monkeypatch):
+async def lenient_client(api_client: AsyncClient):
     """The same app and overrides, answering an unhandled error as the 500 a
     browser would see instead of re-raising it into the test.
 
-    The two loggers an unhandled error passes through are silenced. The test
-    app never runs its lifespan, so structlog keeps its default console
-    renderer, which draws a rich traceback with every frame's locals - the
-    whole FastAPI application among them - at minutes of CPU per error.
+    The traceback is logged through the application's own pipeline, which
+    ``tests/conftest.py`` installs for the session, so it is plain text - not
+    structlog's default rich rendering of every frame's locals, which took
+    minutes of CPU per error.
     """
     from httpx import ASGITransport
 
-    from src.core import exception_handlers, middleware
     from src.main import app
 
-    monkeypatch.setattr(middleware, "log", _Silent())
-    monkeypatch.setattr(exception_handlers, "log", _Silent())
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test/api/v1") as client:
         yield client
