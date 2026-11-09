@@ -21,7 +21,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { authenticationRetryAfter } from '@/features/auth/auth-retry'
 import { SessionRecovery } from '@/features/auth/session-recovery'
-import { ApiError, isAbortError } from '@/lib/api-client'
+import { isAbortError } from '@/lib/api-client'
 import { describeError, validation } from '@/lib/messages'
 
 /**
@@ -114,14 +114,14 @@ export function LoginPage() {
     // Superseded by another sign-in or by a session change in another tab:
     // nothing failed that this person should act on.
     if (isAbortError(error)) return
-    if (error instanceof ApiError && error.status === 429) {
-      setRetryAfter(authenticationRetryAfter(error))
-      setFormError(describeError(error) || 'Too many attempts. Wait before trying again.')
-    } else {
-      // A dropped connection is already an ApiError (NETWORK_ERROR) here, worded
-      // by the API client; anything else is a fault in the page, not the network.
-      setFormError(describeError(error))
-    }
+    // A 429 holds the form for the wait the limiter asked for, counted down on
+    // the button; anything else leaves it usable (null).
+    setRetryAfter(authenticationRetryAfter(error))
+    // The API's sentence, verbatim: it is what tells bad credentials from a
+    // locked, disabled or rate-limited account. A dropped connection or a 429
+    // from the edge arrives as an ApiError the API client has already worded;
+    // anything else is a fault in the page, not the network.
+    setFormError(describeError(error))
   }
 
   const finishLogin = (user: Awaited<ReturnType<typeof verifyMfa>>) => {

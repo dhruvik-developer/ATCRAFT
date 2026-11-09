@@ -895,6 +895,45 @@ describe('ApiError', () => {
     expect(error.code).toBe('SERVICE_UNAVAILABLE')
     expect(error.message).toMatch(/temporarily unavailable/i)
   })
+
+  it('words a 429 that arrives without an envelope as a rate limit', async () => {
+    // nginx's flood guard answers with its own page, and an HTTP/2 response has
+    // no reason phrase, so this used to read "Request failed".
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      statusText: '',
+      headers: new Headers(),
+      json: async () => {
+        throw new SyntaxError('Unexpected token <')
+      },
+    } as unknown as Response)
+    const error = await rejection(api.get('/x'))
+    expect(error.code).toBe('RATE_LIMITED')
+    expect(error.message).toBe(errors.rateLimitedDetail)
+    expect(error.isRetryable).toBe(true)
+  })
+
+  it.each([
+    ['Payload Too Large', 'Payload Too Large'],
+    ['', errors.requestFailed],
+  ])(
+    'keeps any other unenveloped 4xx as the reason phrase it came with (%j)',
+    async (statusText, message) => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 413,
+        statusText,
+        headers: new Headers(),
+        json: async () => {
+          throw new SyntaxError('Unexpected token <')
+        },
+      } as unknown as Response)
+      const error = await rejection(api.get('/x'))
+      expect(error.code).toBe('UNKNOWN')
+      expect(error.message).toBe(message)
+    },
+  )
 })
 
 describe('token storage', () => {

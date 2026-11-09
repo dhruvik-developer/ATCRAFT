@@ -304,16 +304,25 @@ async function toApiError(response: Response): Promise<ApiError> {
     assertResponseGeneration(response)
     if (isAbortError(error)) throw error
     // A proxy or gateway can fail before the app supplies a valid envelope.
-    return new ApiError(
-      response.status,
-      response.status >= 500 ? 'SERVICE_UNAVAILABLE' : 'UNKNOWN',
-      response.status >= 500
-        ? errors.serviceUnavailable
-        : response.statusText || errors.requestFailed,
-      undefined,
-      requestId,
-    )
+    const { code, message } = unenvelopedFailure(response)
+    return new ApiError(response.status, code, message, undefined, requestId)
   }
+}
+
+/**
+ * The code and sentence for a failure that carries no API envelope.
+ *
+ * nginx's flood guard answers 429 with its own page, and an HTTP/2 response has
+ * no reason phrase, so a request the edge refused used to read "Request failed"
+ * under the generic headline - and the sign-in form, which counts a 429 down on
+ * its button, said nothing about why it was waiting.
+ */
+function unenvelopedFailure(response: Response): { code: string; message: string } {
+  if (response.status >= 500) {
+    return { code: 'SERVICE_UNAVAILABLE', message: errors.serviceUnavailable }
+  }
+  if (response.status === 429) return { code: 'RATE_LIMITED', message: errors.rateLimitedDetail }
+  return { code: 'UNKNOWN', message: response.statusText || errors.requestFailed }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -104,6 +104,12 @@ export const errors = {
   approvalRequired: 'Approval required',
   conflict: 'Changed by someone else',
   rateLimited: 'Too many requests',
+  /**
+   * A 429 that arrived without the API's own sentence: nginx's flood guard,
+   * which counts per address - for an office, the whole site behind its NAT.
+   */
+  rateLimitedDetail:
+    'The service is receiving too many requests from this network. Wait a moment, then try again.',
   /** Shown by a form when a 422 arrived without field detail. */
   checkTheForm: 'Check the entered information',
   /** A lifecycle reason shorter than `REASON_MIN_LENGTH`, held back before the round trip. */

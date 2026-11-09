@@ -458,4 +458,16 @@ describe('the rate limit', () => {
     expect(seconds).toBeGreaterThan(0)
     expect(seconds).toBeLessThanOrEqual(30)
   })
+
+  it('says why it is waiting when the edge refuses the sign-in without the API envelope', async () => {
+    // nginx's flood guard answers 429 with its own page: no code, no sentence,
+    // and over HTTP/2 no reason phrase either.
+    const { user } = renderLogin({ 'POST /auth/login': { __status: 429 } })
+
+    await signIn(user, 'ops@atcraft.example', 'correct horse battery')
+
+    const waiting = await screen.findByRole('button', { name: /try again in \d+s/i })
+    expect(countdownSeconds(waiting)).toBeGreaterThan(0)
+    expect(screen.getByText(errors.rateLimitedDetail)).toBeVisible()
+  })
 })
