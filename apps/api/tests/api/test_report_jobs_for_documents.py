@@ -676,6 +676,7 @@ async def test_purchase_return_debit_note_worker_files_audited_pdf_and_scoped_do
             session, tenant, principal, purchase_return.id
         )
         purchase_return_id = purchase_return.id
+        return_code = purchase_return.code
 
     accepted = await client.post(
         f"{_prefix()}/procurement/purchase-returns/{purchase_return_id}/debit-note-pdf"
@@ -703,6 +704,10 @@ async def test_purchase_return_debit_note_worker_files_audited_pdf_and_scoped_do
     assert document.company_id == tenant.company_id
     assert document.entity_type == report_tasks.PURCHASE_RETURN_ENTITY
     assert document.entity_id == purchase_return_id
+    # The return's number keeps no separator: "PR/2026-27/00001" is stored as
+    # "vendor-debit-note-PR-2026-27-00001.pdf", through the shared helper.
+    assert "/" in return_code
+    assert document.file_name == f"vendor-debit-note-{return_code.replace('/', '-')}.pdf"
     assert document.is_public is False
     assert document.expires_at is None
     assert document.size_bytes > 0

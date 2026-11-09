@@ -483,6 +483,11 @@ def _safe_file_name(code: str, *, prefix: str) -> str:
     lands. Separators are still replaced, because this string ends up in a
     ``Content-Disposition`` header. The prefix is the caller's to state: a
     challan once borrowed the packing list's and was downloaded as one.
+
+    Every PDF a task here files against a document is named through this, so a
+    number such as ``CN/2026-27/00001`` is stored as ``CN-2026-27-00001`` -
+    a credit note and a debit note once kept the slashes, and a purchase order
+    replaced only those, each built its own way.
     """
     cleaned = "".join(ch if ch.isalnum() else "-" for ch in code).strip("-")
     return f"{prefix}-{cleaned or 'document'}.pdf"
@@ -1163,7 +1168,7 @@ async def generate_credit_note(
             await anyio.to_thread.run_sync(_write_bytes, destination, payload)
             try:
                 document = Document(
-                    file_name=f"credit-note-{detail.code}.pdf",
+                    file_name=_safe_file_name(detail.code, prefix="credit-note"),
                     storage_key=storage_key,
                     mime_type=PDF_MIME_TYPE,
                     size_bytes=len(payload),
@@ -1283,7 +1288,9 @@ async def generate_purchase_return_debit_note(
             await anyio.to_thread.run_sync(_write_bytes, destination, payload)
             try:
                 document = Document(
-                    file_name=f"vendor-debit-note-{data['code']}.pdf",
+                    file_name=_safe_file_name(
+                        str(data.get("code", "")), prefix="vendor-debit-note"
+                    ),
                     storage_key=storage_key,
                     mime_type=PDF_MIME_TYPE,
                     size_bytes=len(payload),
@@ -2803,7 +2810,7 @@ async def generate_purchase_order(
 
             try:
                 document = Document(
-                    file_name=f"purchase-order-{str(data.get('code', '')).replace('/', '-')}.pdf",
+                    file_name=_safe_file_name(str(data.get("code", "")), prefix="purchase-order"),
                     storage_key=storage_key,
                     mime_type=PDF_MIME_TYPE,
                     size_bytes=len(payload),
