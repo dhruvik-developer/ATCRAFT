@@ -15080,22 +15080,6 @@ export interface components {
              */
             success: true;
         };
-        /** ApiResponse[list[DealerWishlistRead]] */
-        ApiResponse_list_DealerWishlistRead__: {
-            /** Data */
-            data?: components["schemas"]["DealerWishlistRead"][] | null;
-            /**
-             * Message
-             * @default Operation completed successfully
-             */
-            message: string;
-            /**
-             * Success
-             * @default true
-             * @constant
-             */
-            success: true;
-        };
         /** ApiResponse[list[NotificationAlertRuleRead]] */
         ApiResponse_list_NotificationAlertRuleRead__: {
             /** Data */
@@ -28211,6 +28195,23 @@ export interface components {
         PaginatedResponse_DealerSpecificationFilterRead_: {
             /** Data */
             data?: components["schemas"]["DealerSpecificationFilterRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             * @constant
+             */
+            success: true;
+        };
+        /** PaginatedResponse[DealerWishlistRead] */
+        PaginatedResponse_DealerWishlistRead_: {
+            /** Data */
+            data?: components["schemas"]["DealerWishlistRead"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -60461,7 +60462,14 @@ export interface operations {
     };
     list_wishlist_api_v1_dealer_portal_wishlist_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -60474,7 +60482,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_list_DealerWishlistRead__"];
+                    "application/json": components["schemas"]["PaginatedResponse_DealerWishlistRead_"];
                 };
             };
             /** @description Malformed request */

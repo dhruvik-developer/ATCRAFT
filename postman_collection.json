@@ -6024,7 +6024,27 @@
                 "dealer-portal",
                 "wishlist"
               ],
-              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist?"
             }
           }
         },

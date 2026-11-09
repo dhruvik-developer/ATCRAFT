@@ -344,9 +344,12 @@ async def _seed_cart(ctx: DemoContext, portal: DealerPortalService) -> None:
 
 
 async def _seed_wishlist(ctx: DemoContext, portal: DealerPortalService) -> None:
-    present = {(row.item_id, row.item_variant_id) for row in await portal.wishlist()}
-    for item_parts in WISHLIST_ITEMS:
-        item_id = ctx.maybe_id("item", ctx.code(*item_parts))
+    wanted = [(parts, ctx.maybe_id("item", ctx.code(*parts))) for parts in WISHLIST_ITEMS]
+    # Keyed on the rows this loader writes, in one read - not on a page of the list.
+    present = await portal.wishlist_repo.ids_for_items(
+        [item_id for _, item_id in wanted if item_id is not None]
+    )
+    for item_parts, item_id in wanted:
         if item_id is None:
             ctx.skipped.append(
                 (STAGE, f"Dealer demo wishlist skipped: item {ctx.code(*item_parts)} missing")

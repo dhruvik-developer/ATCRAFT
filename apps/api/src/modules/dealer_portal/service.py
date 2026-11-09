@@ -427,7 +427,7 @@ class DealerPortalService:
             item_ids, price_type=context.price_type, variant_ids=[], on_date=today()
         )
         available = await self.catalog.available_by_item(item_ids)
-        wishlist = await self.wishlist_repo.ids_for_user()
+        wishlist = await self.wishlist_repo.ids_for_items(item_ids)
         wishlist_items = {item_id for item_id, _ in wishlist}
         cart = await self.cart_line_repo.quantities_for_user()
         images = await self.catalog.primary_images(item_ids, limit_per_item=1, now=utcnow())
@@ -481,7 +481,7 @@ class DealerPortalService:
         )
         rows = prices.get(item.id, [])
         available = await self.catalog.available_by_item([item.id])
-        wishlist = await self.wishlist_repo.ids_for_user()
+        wishlist = await self.wishlist_repo.ids_for_items([item.id])
         cart = await self.cart_line_repo.quantities_for_user()
         images = await self.catalog.primary_images(
             [item.id], limit_per_item=CATALOGUE_MAX_IMAGES, now=utcnow()
@@ -981,27 +981,45 @@ class DealerPortalService:
 
     # --- wishlist -----------------------------------------------------------
 
-    async def wishlist(self) -> list[DealerWishlistRead]:
+    async def wishlist(
+        self, params: PageParams
+    ) -> tuple[list[DealerWishlistRead], OffsetPagination]:
+        """One page of the saved items, priced for the dealer's channel.
+
+        Paged in SQL over the sellable rows only, so no read grows with how much
+        a dealer has saved: one query each for the page, its items, their
+        prices and their availability (docs/assumptions.md §C3-4).
+        """
         customer = await self._customer()
-        context = await self._pricing(customer, today())
-        rows = await self.wishlist_repo.for_user()
+        rows, pagination = await self.wishlist_repo.page_for_user(params)
         if not rows:
-            return []
+            return [], pagination
         items = await self.catalog.items_by_ids([row.item_id for row in rows])
+        return await self._wishlist_reads(customer, rows, items), pagination
+
+    async def _wishlist_reads(
+        self,
+        customer: Customer,
+        rows: list[DealerWishlistItem],
+        items: dict[uuid.UUID, Item],
+    ) -> list[DealerWishlistRead]:
+        """Price and indicate saved rows: one prices and one availability query for all."""
+        price_type = PriceType(customer.price_list_type)
+        item_ids = [row.item_id for row in rows]
         prices = await PriceListRepository(self.session, self.tenant).candidates_for_items(
-            [row.item_id for row in rows],
-            price_type=context.price_type,
+            item_ids,
+            price_type=price_type,
             variant_ids=[row.item_variant_id for row in rows if row.item_variant_id is not None],
             on_date=today(),
         )
-        available = await self.catalog.available_by_item([row.item_id for row in rows])
+        available = await self.catalog.available_by_item(item_ids)
         read: list[DealerWishlistRead] = []
         for row in rows:
             item = items.get(row.item_id)
-            if item is None or not item.is_active or not item.can_sell:
+            if item is None:  # pragma: no cover - every caller passes each row's live item
                 continue
             price = self._channel_price(
-                item, prices.get(item.id, []), CATALOGUE_PRICE_QUANTITY, context.price_type
+                item, prices.get(item.id, []), CATALOGUE_PRICE_QUANTITY, price_type
             )
             read.append(
                 DealerWishlistRead(
@@ -1021,7 +1039,7 @@ class DealerPortalService:
         self, item_id: uuid.UUID, variant_id: uuid.UUID | None
     ) -> DealerWishlistRead:
         customer = await self._customer()
-        await self._validate_grain(item_id, variant_id)
+        item, _ = await self._validate_grain(item_id, variant_id)
         async with transaction(self.session):
             if await self.wishlist_repo.find_grain(item_id, variant_id) is not None:
                 raise DuplicateError(
@@ -1037,14 +1055,10 @@ class DealerPortalService:
             )
             self.wishlist_repo.add(row)
             await self.session.flush()
-            entry_id = row.id
-        return await self.wishlist_list_after(entry_id)
-
-    async def wishlist_list_after(self, entry_id: uuid.UUID) -> DealerWishlistRead:
-        for row in await self.wishlist():
-            if row.id == entry_id:
-                return row
-        raise NotFoundError("Dealer wishlist item", entry_id)  # pragma: no cover
+        # The saved row alone, priced from the item the grain check already
+        # read - never the whole list re-read to find it.
+        (saved,) = await self._wishlist_reads(customer, [row], {item.id: item})
+        return saved
 
     async def remove_wishlist_item(self, entry_id: uuid.UUID) -> None:
         await self._customer()

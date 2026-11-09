@@ -73,7 +73,7 @@ from src.modules.inventory import service as inventory_service
 from src.modules.inventory.models import TransactionType
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.products import service as products_service
-from src.modules.products.models import ItemAttributeType, ItemGroup, PriceType
+from src.modules.products.models import Item, ItemAttributeType, ItemGroup, PriceType
 from src.modules.products.schemas import ItemAttributeCreate, PriceCreate, VariantCreate
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportSnapshot
@@ -89,6 +89,7 @@ from tests.api.dealer_portal_support import (
     sign_in,
 )
 from tests.integration.test_sales_invoice_service import bench as bench
+from tests.statement_support import counted
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -857,6 +858,79 @@ async def test_the_wishlist_saves_moves_and_removes_items(api_client, session, s
         )
         == 0
     )
+
+
+def wishlist_reads(statements: list[str]) -> list[str]:
+    """The statements that read the wishlist table."""
+    return [
+        text
+        for text in statements
+        if text.lstrip().upper().startswith("SELECT") and "dealer_wishlist_items" in text
+    ]
+
+
+async def test_the_wishlist_is_read_a_page_at_a_time(api_client, session, engine, shop):
+    """GET /wishlist pages in SQL, and an add answers with its own row only.
+
+    The list used to be one unbounded read, re-run in full by every add to find
+    the row it had just saved.
+    """
+    sign_in(shop.dealer)
+    first = ok(
+        await api_client.post("/dealer-portal/wishlist", json={"item_id": str(shop.item_id)}),
+        201,
+    )
+    with counted(engine) as adding:
+        second = ok(
+            await api_client.post(
+                "/dealer-portal/wishlist",
+                json={"item_id": str(shop.item_id), "item_variant_id": str(shop.variant_id)},
+            ),
+            201,
+        )
+    # One read of the table: the duplicate-grain check. The answer is the saved row.
+    assert len(wishlist_reads(adding)) == 1, wishlist_reads(adding)
+    assert (second["item_variant_id"], second["item_code"]) == (
+        str(shop.variant_id),
+        shop.item_code,
+    )
+
+    response = await api_client.get("/dealer-portal/wishlist", params={"limit": 1})
+    assert [row["id"] for row in ok(response)] == [first["id"]]
+    paging = response.json()["pagination"]
+    assert (paging["total"], paging["has_next"], paging["has_previous"]) == (2, True, False)
+
+    response = await api_client.get("/dealer-portal/wishlist", params={"limit": 1, "page": 2})
+    assert [row["id"] for row in ok(response)] == [second["id"]]
+    paging = response.json()["pagination"]
+    assert (paging["total"], paging["has_next"], paging["has_previous"]) == (2, False, True)
+    assert "query.limit" in field_errors(
+        await api_client.get("/dealer-portal/wishlist", params={"limit": 0})
+    )
+
+    # A saved item that stops being sellable leaves the page and the count
+    # together: the filter is in the page statement, never applied to a page
+    # already cut (which would answer a short page under a total of two).
+    await session.execute(update(Item).where(Item.id == shop.item_id).values(can_sell=False))
+    response = await api_client.get("/dealer-portal/wishlist", params={"limit": 1})
+    assert ok(response) == []
+    paging = response.json()["pagination"]
+    assert (paging["total"], paging["has_next"]) == (0, False)
+
+
+async def test_a_catalogue_page_asks_only_about_its_own_items(api_client, engine, shop):
+    """The ``in_wishlist`` flags come from the page's ids, not the whole wishlist."""
+    sign_in(shop.dealer)
+    ok(await api_client.post("/dealer-portal/wishlist", json={"item_id": str(shop.item_id)}), 201)
+
+    with counted(engine) as browsing:
+        page = ok(
+            await api_client.get("/dealer-portal/catalog/items", params={"search": shop.item_code})
+        )
+
+    assert [row["in_wishlist"] for row in page if row["id"] == str(shop.item_id)] == [True]
+    (read,) = wishlist_reads(browsing)
+    assert "dealer_wishlist_items.item_id IN (" in read, read
 
 
 async def test_wishlist_changes_the_dealer_may_not_make_are_refused(

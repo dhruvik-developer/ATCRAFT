@@ -146,15 +146,31 @@ class DealerWishlistRepository(BaseRepository[DealerWishlistItem]):
     model = DealerWishlistItem
     entity_label = "Dealer wishlist item"
 
-    def _user_stmt(self) -> Select[tuple[DealerWishlistItem]]:
-        return (
+    async def page_for_user(
+        self, params: PageParams
+    ) -> tuple[list[DealerWishlistItem], OffsetPagination]:
+        """One page of this user's saved rows whose item is still sellable.
+
+        The sellable test is part of the statement rather than applied to the
+        page after it is cut, so a page is never short and the total counts the
+        rows the dealer is shown. Oldest first, as they were saved.
+        """
+        stmt = (
             self._scoped()
-            .where(DealerWishlistItem.user_id == self.tenant.user_id)
+            .join(
+                Item,
+                (Item.id == DealerWishlistItem.item_id)
+                & (Item.company_id == DealerWishlistItem.company_id),
+            )
+            .where(
+                DealerWishlistItem.user_id == self.tenant.user_id,
+                Item.deleted_at.is_(None),
+                Item.is_active.is_(True),
+                Item.can_sell.is_(True),
+            )
             .order_by(DealerWishlistItem.created_at, DealerWishlistItem.id)
         )
-
-    async def for_user(self) -> list[DealerWishlistItem]:
-        return list((await self.session.execute(self._user_stmt())).scalars().all())
+        return await paginate(self.session, stmt, params)
 
     async def get_for_user(self, entry_id: uuid.UUID) -> DealerWishlistItem | None:
         """One of this user's saved rows. Another user's row is "not found"."""
@@ -176,10 +192,16 @@ class DealerWishlistRepository(BaseRepository[DealerWishlistItem]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def ids_for_user(self) -> set[tuple[uuid.UUID, uuid.UUID | None]]:
+    async def ids_for_items(
+        self, item_ids: Sequence[uuid.UUID]
+    ) -> set[tuple[uuid.UUID, uuid.UUID | None]]:
+        """This user's saved grains among ``item_ids`` - a page's items, never the whole list."""
+        if not item_ids:
+            return set()
         stmt = select(DealerWishlistItem.item_id, DealerWishlistItem.item_variant_id).where(
             DealerWishlistItem.company_id == self.tenant.company_id,
             DealerWishlistItem.user_id == self.tenant.user_id,
+            DealerWishlistItem.item_id.in_(list(dict.fromkeys(item_ids))),
         )
         return {(row.item_id, row.item_variant_id) for row in (await self.session.execute(stmt))}
 

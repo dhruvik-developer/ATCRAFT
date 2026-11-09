@@ -3074,17 +3074,25 @@ matcher and the offer table together; the ERP default follows automatically.
 user) carrying that user's dealer; lines carry item, variant and quantity only
 - no stored price. A duplicate grain is refused (change the quantity
 instead); a cart holds at most `MAX_CART_LINES` = 50 grains. The wishlist is
-one row per user, item and variant.
+one row per user, item and variant, with no ceiling, and nothing reads all of
+it: `GET /wishlist` is offset-paginated over the rows whose item is still
+sellable (filtered in the page statement, so the total counts what is shown),
+an add answers with the saved row alone, and a catalogue page asks only which
+of its own items are saved.
 
 **Why.** The cart is a working draft, not a bulk import: 50 lines always fit
 the checkout payload (sales allows 200), and a price stored on the line would
-go stale the moment the price list moved.
+go stale the moment the price list moved. The wishlist is never checked out
+as a whole, so it needs no ceiling as long as no read grows with it.
 
 **Where.** `src/modules/dealer_portal/models.py`; `src/modules/dealer_portal/service.py`
-- cart and wishlist methods.
+- cart and wishlist methods; `src/modules/dealer_portal/repository.py` -
+`DealerWishlistRepository.page_for_user`, `ids_for_items`.
 
 **Impact if wrong.** Raise `MAX_CART_LINES`, or key carts per dealer instead of
-per user - and decide what two users' conflicting drafts merge into.
+per user - and decide what two users' conflicting drafts merge into. A wishlist
+ceiling, if one is wanted, belongs beside `MAX_CART_LINES` and is checked in
+`add_wishlist_item` the way the cart checks its own.
 
 ---
 

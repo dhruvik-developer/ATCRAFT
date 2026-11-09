@@ -491,14 +491,19 @@ async def test_the_preview_warns_on_a_price_on_request_line(
     assert cart.total_amount == Decimal("0")
 
 
+async def saved_rows(portal: DealerPortalService) -> list[Any]:
+    rows, _ = await portal.wishlist(PageParams())
+    return rows
+
+
 async def test_wishlist_crud(portal, item) -> None:
     saved = await portal.add_wishlist_item(item.id, None)
     assert saved.item_code == item.code
     with pytest.raises(DuplicateError):
         await portal.add_wishlist_item(item.id, None)
-    assert [row.id for row in await portal.wishlist()] == [saved.id]
+    assert [row.id for row in await saved_rows(portal)] == [saved.id]
     await portal.remove_wishlist_item(saved.id)
-    assert await portal.wishlist() == []
+    assert await saved_rows(portal) == []
 
 
 async def test_move_to_cart_merges_quantities(portal, item) -> None:
@@ -506,7 +511,7 @@ async def test_move_to_cart_merges_quantities(portal, item) -> None:
     saved = await portal.add_wishlist_item(item.id, None)
     cart = await portal.move_wishlist_to_cart(saved.id, Decimal("3"))
     assert cart.lines[0].quantity == Decimal("5.0000")
-    assert await portal.wishlist() == []
+    assert await saved_rows(portal) == []
 
 
 # -----------------------------------------------------------------------------

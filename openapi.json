@@ -7237,37 +7237,6 @@
         "title": "ApiResponse[list[DealerDispatchSummary]]",
         "type": "object"
       },
-      "ApiResponse_list_DealerWishlistRead__": {
-        "properties": {
-          "data": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/DealerWishlistRead"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data"
-          },
-          "message": {
-            "default": "Operation completed successfully",
-            "title": "Message",
-            "type": "string"
-          },
-          "success": {
-            "const": true,
-            "default": true,
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "title": "ApiResponse[list[DealerWishlistRead]]",
-        "type": "object"
-      },
       "ApiResponse_list_NotificationAlertRuleRead__": {
         "properties": {
           "data": {
@@ -43801,6 +43770,33 @@
           }
         },
         "title": "PaginatedResponse[DealerSpecificationFilterRead]",
+        "type": "object"
+      },
+      "PaginatedResponse_DealerWishlistRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DealerWishlistRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "const": true,
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[DealerWishlistRead]",
         "type": "object"
       },
       "PaginatedResponse_DelayedDispatchRow_": {
@@ -108611,12 +108607,54 @@
     "/api/v1/dealer-portal/wishlist": {
       "get": {
         "operationId": "list_wishlist_api_v1_dealer_portal_wishlist_get",
+        "parameters": [
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_list_DealerWishlistRead__"
+                  "$ref": "#/components/schemas/PaginatedResponse_DealerWishlistRead_"
                 }
               }
             },

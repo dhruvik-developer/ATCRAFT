@@ -283,16 +283,15 @@ async def clear_cart(session: DbSession, tenant: Tenant) -> ApiResponse[DealerCa
 
 @router.get(
     "/wishlist",
-    response_model=ApiResponse[list[DealerWishlistRead]],
+    response_model=PaginatedResponse[DealerWishlistRead],
     summary="The dealer's saved items",
     dependencies=[require_permission(Permission.DEALER_PORTAL_BROWSE)],
 )
 async def list_wishlist(
-    session: DbSession, tenant: Tenant
-) -> ApiResponse[list[DealerWishlistRead]]:
-    return ApiResponse[list[DealerWishlistRead]].ok(
-        await DealerPortalService(session, tenant).wishlist()
-    )
+    session: DbSession, tenant: Tenant, params: PageDep
+) -> PaginatedResponse[DealerWishlistRead]:
+    rows, pagination = await DealerPortalService(session, tenant).wishlist(params)
+    return PaginatedResponse(data=rows, pagination=pagination)
 
 
 @router.post(

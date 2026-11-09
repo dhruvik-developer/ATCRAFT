@@ -53,7 +53,7 @@ import type { SchemaOf } from '@/types/api'
 
 import { DEALER_API, dealerError, useDealerAction, useDealerRead } from './dealer-hooks'
 import { dealerCheckoutPayload, dealerQuantity } from './dealer-payloads'
-import { DealerCredit, DealerResult } from './dealer-shared'
+import { DealerCredit, DealerPagination, DealerResult } from './dealer-shared'
 
 function CartQuantity({ line }: { line: SchemaOf<'DealerCartLineRead'> }) {
   const [quantity, setQuantity] = useState(line.quantity)
@@ -327,7 +327,12 @@ export function DealerCartPage() {
 
 export function DealerWishlistPage() {
   const { can } = useAuth()
-  const list = useDealerRead<SchemaOf<'DealerWishlistRead'>[]>('wishlist')
+  const list = useListQuery<SchemaOf<'DealerWishlistRead'>>({
+    path: `${DEALER_API}/wishlist`,
+    queryKey: (params) => queryKeys.dealerPortal.list('wishlist', params),
+    defaultLimit: 12,
+    staleTime: staleTimes.transactional,
+  })
   // Both refusals are said once, above the list - so each action clears the
   // other's, or a stale one would stand in front of the failure just made.
   const remove = useDealerAction(
@@ -353,7 +358,7 @@ export function DealerWishlistPage() {
         }
       />
       <DealerResult loading={list.isLoading} error={list.error} onRetry={() => void list.refetch()}>
-        {list.data?.length ? (
+        {list.data.length ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {list.data.map((item) => (
               <Card key={item.id}>
@@ -398,6 +403,9 @@ export function DealerWishlistPage() {
             title="Your wishlist is empty"
             description="Save products from the catalog to find them here."
           />
+        )}
+        {(list.page > 1 || list.pagination?.has_next) && (
+          <DealerPagination pagination={list.pagination} page={list.page} onPage={list.setPage} />
         )}
       </DealerResult>
     </>
