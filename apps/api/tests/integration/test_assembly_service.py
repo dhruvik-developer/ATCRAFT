@@ -966,6 +966,21 @@ async def test_a_serialised_component_stays_traceable_to_the_units_consumed(ctx)
     )
     assert sorted(str(s) for s in posted_serials) == sorted(str(s) for s in serials)
 
+    # The reads name each consumed unit by its label, in consumed order, so the
+    # kitting list never has to show a unit by a fragment of its id.
+    numbers = dict(
+        (
+            await session.execute(
+                select(StockSerial.id, StockSerial.serial_number).where(StockSerial.id.in_(serials))
+            )
+        ).all()
+    )
+    expected = [numbers[serial_id] for serial_id in serials]
+    (completed,) = result.order.components
+    assert completed.consumed_serial_numbers == expected
+    (listed,) = await service.list_components(session, tenant, order.id)
+    assert listed.consumed_serial_numbers == expected
+
 
 async def test_a_serial_another_assembly_already_ate_cannot_be_consumed_twice(ctx) -> None:
     session, tenant = ctx

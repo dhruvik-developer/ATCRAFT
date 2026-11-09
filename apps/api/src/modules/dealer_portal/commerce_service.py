@@ -107,14 +107,12 @@ class DealerCommerceService:
         await self.portal._customer()
         rows, page = await self.repo.returns(params)
         amounts = await self.repo.return_credits([row.id for row in rows])
+        summaries = await returns.describe_returns(self.session, self.tenant, rows)
         return [
             DealerReturnSummary.model_validate(
-                {
-                    **DealerReturnSummary.model_validate(row).model_dump(),
-                    "credited_amount": amounts.get(row.id, ZERO),
-                }
+                {**summary.model_dump(), "credited_amount": amounts.get(summary.id, ZERO)}
             )
-            for row in rows
+            for summary in summaries
         ], page
 
     async def sales_return(self, identity: uuid.UUID) -> DealerReturnDetail:

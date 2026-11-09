@@ -62,6 +62,8 @@ class CreditNoteLineRead(BaseModel):
     id: uuid.UUID
     sales_invoice_line_id: uuid.UUID
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     hsn_code: str | None
     quantity: Decimal | None
     taxable_amount: Decimal
@@ -79,7 +81,9 @@ class CreditNoteSummary(BaseModel):
     id: uuid.UUID
     code: str
     sales_invoice_id: uuid.UUID
+    sales_invoice_code: str | None = None
     sales_return_id: uuid.UUID | None
+    sales_return_code: str | None = None
     customer_id: uuid.UUID
     note_date: date
     reason_type: CreditNoteReason

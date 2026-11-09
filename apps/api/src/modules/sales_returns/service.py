@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Protocol
 
@@ -8,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id, labels_in_order
 from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -18,6 +20,7 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
+from src.modules.customers.models import Customer
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
 from src.modules.inventory.models import (
     SerialStatus,
@@ -91,18 +94,64 @@ SALES_RETURN_LIFECYCLE: StateMachine[SalesReturnStatus] = StateMachine(
 )
 
 
-def _detail(row: SalesReturn, lines: list[SalesReturnLine]) -> SalesReturnDetail:
-    return SalesReturnDetail(
-        **SalesReturnSummary.model_validate(row).model_dump(),
-        lines=[SalesReturnLineRead.model_validate(line) for line in lines],
+async def describe_returns(
+    session: AsyncSession, tenant: TenantContext, rows: Sequence[SalesReturn]
+) -> list[SalesReturnSummary]:
+    """Project returns, each naming its dispatch and its customer.
+
+    One statement per referenced table for the whole page, never one per row.
+    """
+    dispatches = await labels_by_id(
+        session, tenant, (row.dispatch_id for row in rows), Dispatch.code
     )
+    customers = await labels_by_id(
+        session, tenant, (row.customer_id for row in rows), Customer.code, Customer.name
+    )
+    summaries: list[SalesReturnSummary] = []
+    for row in rows:
+        summary = SalesReturnSummary.model_validate(row)
+        dispatch = dispatches.get(row.dispatch_id)
+        summary.dispatch_code = dispatch.code if dispatch else None
+        customer = customers.get(row.customer_id)
+        summary.customer_code = customer.code if customer else None
+        summary.customer_name = customer.name if customer else None
+        summaries.append(summary)
+    return summaries
+
+
+async def _detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    row: SalesReturn,
+    lines: Sequence[SalesReturnLine],
+) -> SalesReturnDetail:
+    """The return with every line naming its item and its returned units."""
+    (summary,) = await describe_returns(session, tenant, [row])
+    items = await labels_by_id(
+        session, tenant, (line.item_id for line in lines), Item.code, Item.name
+    )
+    serials = await labels_by_id(
+        session,
+        tenant,
+        (serial_id for line in lines for serial_id in line.serial_ids),
+        StockSerial.serial_number,
+    )
+    reads: list[SalesReturnLineRead] = []
+    for line in lines:
+        read = SalesReturnLineRead.model_validate(line)
+        item = items.get(line.item_id)
+        read.item_code = item.code if item else None
+        read.item_name = item.name if item else None
+        read.serial_numbers = labels_in_order(line.serial_ids, serials, "serial_number")
+        reads.append(read)
+    return SalesReturnDetail(**summary.model_dump(), lines=reads)
 
 
 async def list_returns(
     session: AsyncSession, tenant: TenantContext, params: PageParams
 ) -> tuple[list[SalesReturnSummary], object]:
     rows, page = await SalesReturnRepository(session, tenant).list_page_for_tenant(params)
-    return [SalesReturnSummary.model_validate(row) for row in rows], page
+    return await describe_returns(session, tenant, rows), page
 
 
 async def get_return(
@@ -110,7 +159,7 @@ async def get_return(
 ) -> SalesReturnDetail:
     repo = SalesReturnRepository(session, tenant)
     row = await repo.get_or_404(return_id)
-    return _detail(row, await repo.lines(row.id))
+    return await _detail(session, tenant, row, await repo.lines(row.id))
 
 
 async def create_return(

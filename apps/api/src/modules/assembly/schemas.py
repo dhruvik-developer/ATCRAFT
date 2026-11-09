@@ -129,6 +129,8 @@ class AssemblyComponentRead(BaseModel):
     assembly_order_id: uuid.UUID
     line_number: int
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     uom_id: uuid.UUID
     required_quantity: Decimal
     issued_quantity: Decimal
@@ -138,6 +140,8 @@ class AssemblyComponentRead(BaseModel):
     issued_batch_id: uuid.UUID | None = None
     consumed_batch_id: uuid.UUID | None = None
     consumed_serial_ids: list[uuid.UUID]
+    #: The consumed units' labels, in ``consumed_serial_ids`` order.
+    consumed_serial_numbers: list[str] = Field(default_factory=list)
     reservation_id: uuid.UUID | None
     notes: str | None
 
@@ -148,6 +152,8 @@ class AssemblyOrderSummary(BaseModel):
     id: uuid.UUID
     code: str
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     bom_id: uuid.UUID
     planned_quantity: Decimal
     assembled_quantity: Decimal

@@ -224,7 +224,7 @@ async def list_orders(
 ) -> PaginatedResponse[AssemblyOrderSummary]:
     rows, pagination = await service.list_orders(session, tenant, filters, params, sort)
     return PaginatedResponse[AssemblyOrderSummary](
-        data=[AssemblyOrderSummary.model_validate(row) for row in rows], pagination=pagination
+        data=await service.order_summaries(session, tenant, rows), pagination=pagination
     )
 
 
@@ -245,7 +245,7 @@ async def create_order(
 ) -> ApiResponse[AssemblyOrderDetail]:
     order, components = await service.create_order(session, tenant, payload)
     return ApiResponse[AssemblyOrderDetail].ok(
-        service.order_detail(order, components),
+        await service.order_detail(session, tenant, order, components),
         success_message(f"Assembly order {order.code}", "created"),
     )
 
@@ -282,7 +282,7 @@ async def update_order(
 ) -> ApiResponse[AssemblyOrderDetail]:
     order, components = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[AssemblyOrderDetail].ok(
-        service.order_detail(order, components),
+        await service.order_detail(session, tenant, order, components),
         success_message(f"Assembly order {order.code}", "updated"),
     )
 
@@ -355,7 +355,7 @@ async def approve_order(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.approve_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order),
+        await service.order_summary(session, tenant, order),
         success_message(f"Assembly order {order.code}", "approved"),
     )
 
@@ -378,7 +378,7 @@ async def release_order(
         session, tenant, order_id, reason=payload.reason
     )
     return ApiResponse[AssemblyOrderDetail].ok(
-        service.order_detail(order, components),
+        await service.order_detail(session, tenant, order, components),
         success_message(f"Assembly order {order.code} released and components", "reserved"),
     )
 
@@ -405,7 +405,7 @@ async def issue_components(
 ) -> ApiResponse[AssemblyOrderDetail]:
     order, components = await service.issue_components(session, tenant, order_id, payload)
     return ApiResponse[AssemblyOrderDetail].ok(
-        service.order_detail(order, components),
+        await service.order_detail(session, tenant, order, components),
         f"Components issued to assembly order {order.code}",
     )
 
@@ -425,7 +425,7 @@ async def start_assembly(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.start_assembly(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order),
+        await service.order_summary(session, tenant, order),
         success_message(f"Assembly order {order.code}", "started"),
     )
 
@@ -479,7 +479,7 @@ async def record_qc_result(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.record_qc_result(session, tenant, order_id, payload)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order),
+        await service.order_summary(session, tenant, order),
         f"Inspection recorded for assembly order {order.code}",
     )
 
@@ -495,7 +495,7 @@ async def close_order(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.close_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order),
+        await service.order_summary(session, tenant, order),
         success_message(f"Assembly order {order.code}", "closed"),
     )
 
@@ -515,7 +515,7 @@ async def cancel_order(
 ) -> ApiResponse[AssemblyOrderSummary]:
     order = await service.cancel_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order),
+        await service.order_summary(session, tenant, order),
         success_message(f"Assembly order {order.code}", "cancelled"),
     )
 
@@ -544,7 +544,7 @@ async def mark_packed(
         reason=payload.reason,
     )
     return ApiResponse[AssemblyOrderSummary].ok(
-        AssemblyOrderSummary.model_validate(order),
+        await service.order_summary(session, tenant, order),
         f"Assembly order {order.code} handed to packing",
     )
 

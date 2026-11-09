@@ -1405,7 +1405,10 @@ async def test_the_dealer_requests_a_return_from_an_eligible_consignment(
         str(account.customer_id),
     )
     assert created["received_at"] is None
+    # The request names the consignment and the item it returns, not their ids.
+    assert created["dispatch_code"] == consignment["code"]
     (returned,) = created["lines"]
+    assert (returned["item_code"], returned["item_name"]) == (line["item_code"], line["item_name"])
     assert returned["requires_qc"] is True and returned["reason_code"] == "DAMAGED"
     decimal_equal(returned["quantity"], "5")
     decimal_equal(created["credited_amount"], "0")
@@ -1422,10 +1425,13 @@ async def test_the_dealer_requests_a_return_from_an_eligible_consignment(
     assert set(notified.all()) == {user.id}
 
     listed = await api_client.get("/dealer-portal/returns")
-    assert [match["id"] for match in ok(listed)] == [created["id"]]
+    assert [(match["id"], match["dispatch_code"]) for match in ok(listed)] == [
+        (created["id"], consignment["code"])
+    ]
     assert listed.json()["pagination"]["total"] == 1
     detail = ok(await api_client.get(f"/dealer-portal/returns/{return_id}"))
     assert detail["code"] == created["code"] and len(detail["lines"]) == 1
+    assert detail["dispatch_code"] == consignment["code"]
     (after,) = ok(await api_client.get("/dealer-portal/returns/eligible-dispatches"))
     decimal_equal(after["lines"][0]["returnable_quantity"], "195")
 

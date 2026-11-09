@@ -38,6 +38,7 @@ from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.courier_tracking import service as courier_service
 from src.modules.courier_tracking.models import CourierAccount, CourierProvider
 from src.modules.courier_tracking.schemas import CourierAccountCreate
+from src.modules.customers.models import Customer
 from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.models import Dispatch, DispatchStatus
 from src.modules.dispatch.schemas import (
@@ -46,7 +47,7 @@ from src.modules.dispatch.schemas import (
     DispatchRequest,
 )
 from src.modules.inventory import service as inventory
-from src.modules.inventory.models import TransactionType
+from src.modules.inventory.models import StockSerial, TransactionType
 from src.modules.packing import service as packing_service
 from src.modules.packing.models import Carton, ItemPackingSpec, PackingOrder, PackingOrderStatus
 from src.modules.packing.schemas import (
@@ -67,6 +68,7 @@ from tests import seed_support
 from tests.dispatch_support import consignment_line, raise_consignment
 from tests.integration.test_customer_return_costing import receive_goods, shipped_stock
 from tests.integration.test_packing_final_serials import decide, make_packing_kit, start
+from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -1513,6 +1515,126 @@ class TestCancelSalesReturn:
             404,
             "NOT_FOUND",
         )
+
+
+# -----------------------------------------------------------------------------
+# Returns and consignments name what they reference
+# -----------------------------------------------------------------------------
+
+
+async def customer_label(session: AsyncSession, customer_id: uuid.UUID) -> tuple[str, str]:
+    row = (
+        await session.execute(
+            select(Customer.code, Customer.name).where(Customer.id == customer_id)
+        )
+    ).one()
+    return row.code, row.name
+
+
+class TestReturnsAndConsignmentsNameWhatTheyReference:
+    """A return names its dispatch, customer, items and units; a consignment its lines'.
+
+    The return screens drew dispatch, customer, item and serial UUIDs, because the
+    reads carried nothing else and resolving them in the browser would have been a
+    fetch per row.
+    """
+
+    async def test_a_return_names_its_dispatch_customer_and_items(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        dispatch, item, _warehouse = await shipped_stock(session, tenant, [("5", "10")])
+        item_label = (item.code, item.name)
+        customer = await customer_label(session, dispatch.customer_id)
+
+        created = ok(
+            await api_client.post(
+                "/sales-returns",
+                json={
+                    "dispatch_id": str(dispatch.id),
+                    "lines": [
+                        {
+                            "dispatch_line_id": str(dispatch.lines[0].id),
+                            "quantity": "2",
+                            "reason_code": "SURPLUS",
+                            "requires_qc": False,
+                        }
+                    ],
+                },
+            ),
+            201,
+        )
+
+        assert created["dispatch_code"] == dispatch.code
+        assert (created["customer_code"], created["customer_name"]) == customer
+        (line,) = created["lines"]
+        assert (line["item_code"], line["item_name"]) == item_label
+        assert line["serial_numbers"] == []
+        (row,) = [
+            row for row in ok(await api_client.get("/sales-returns")) if row["id"] == created["id"]
+        ]
+        assert row["dispatch_code"] == dispatch.code
+        assert (row["customer_code"], row["customer_name"]) == customer
+
+    async def test_dispatched_and_returned_units_are_named_in_serial_order(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        dispatch, item, _warehouse = await shipped_stock(
+            session, tenant, [("1", "10"), ("1", "10")], serialized=True
+        )
+        item_label = (item.code, item.name)
+        serial_ids = list(dispatch.lines[0].serial_ids)
+        numbers = dict(
+            (
+                await session.execute(
+                    select(StockSerial.id, StockSerial.serial_number).where(
+                        StockSerial.id.in_(serial_ids)
+                    )
+                )
+            ).all()
+        )
+        expected = [numbers[serial_id] for serial_id in serial_ids]
+
+        (shipped,) = ok(await api_client.get(f"/dispatch/{dispatch.id}"))["lines"]
+        assert (shipped["item_code"], shipped["item_name"]) == item_label
+        assert shipped["serial_numbers"] == expected
+
+        returned = await receive_goods(session, tenant, dispatch, "2", serial_ids=serial_ids)
+        (line,) = ok(await api_client.get(f"/sales-returns/{returned.id}"))["lines"]
+        assert line["serial_ids"] == [str(serial_id) for serial_id in serial_ids]
+        assert line["serial_numbers"] == expected
+
+    async def test_the_list_labels_a_page_in_a_fixed_number_of_statements(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, engine
+    ) -> None:
+        """Three rows cost what one does: the labels are batched, not read per row."""
+        dispatch, _item, _warehouse = await shipped_stock(session, tenant, [("10", "10")])
+
+        async def raise_return() -> None:
+            await returns_service.create_return(
+                session,
+                tenant,
+                SalesReturnCreate(
+                    dispatch_id=dispatch.id,
+                    lines=[
+                        SalesReturnLineIn(
+                            dispatch_line_id=dispatch.lines[0].id,
+                            quantity=Decimal("1"),
+                            reason_code="SURPLUS",
+                            requires_qc=False,
+                        )
+                    ],
+                ),
+            )
+
+        await raise_return()
+        with counted(engine) as one_row:
+            assert len(ok(await api_client.get("/sales-returns"))) == 1
+        await raise_return()
+        await raise_return()
+        with counted(engine) as three_rows:
+            assert len(ok(await api_client.get("/sales-returns"))) == 3
+
+        assert selects(three_rows) == selects(one_row)
 
 
 # -----------------------------------------------------------------------------

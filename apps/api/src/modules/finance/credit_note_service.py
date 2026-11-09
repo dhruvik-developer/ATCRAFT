@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id
 from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -57,6 +59,7 @@ from src.modules.finance.service import (
     post_journal,
     reverse_journal,
 )
+from src.modules.products.models import Item
 from src.modules.quality.models import QcInspection
 from src.modules.sales_returns.crediting import accepted_return_quantity
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
@@ -77,11 +80,42 @@ CREDIT_NOTE_LIFECYCLE: StateMachine[CreditNoteStatus] = StateMachine(
 )
 
 
-def _detail(row: CreditNote, lines: list[CreditNoteLine]) -> CreditNoteDetail:
-    return CreditNoteDetail(
-        **CreditNoteSummary.model_validate(row).model_dump(),
-        lines=[CreditNoteLineRead.model_validate(line) for line in lines],
+async def _summaries(
+    session: AsyncSession, tenant: TenantContext, rows: Sequence[CreditNote]
+) -> list[CreditNoteSummary]:
+    """Project notes, each naming its invoice and its return - batched per page."""
+    invoices = await labels_by_id(
+        session, tenant, (row.sales_invoice_id for row in rows), SalesInvoice.code
     )
+    returns = await labels_by_id(
+        session, tenant, (row.sales_return_id for row in rows), SalesReturn.code
+    )
+    summaries: list[CreditNoteSummary] = []
+    for row in rows:
+        summary = CreditNoteSummary.model_validate(row)
+        invoice = invoices.get(row.sales_invoice_id)
+        summary.sales_invoice_code = invoice.code if invoice else None
+        sales_return = returns.get(row.sales_return_id) if row.sales_return_id else None
+        summary.sales_return_code = sales_return.code if sales_return else None
+        summaries.append(summary)
+    return summaries
+
+
+async def _detail(
+    session: AsyncSession, tenant: TenantContext, row: CreditNote, lines: list[CreditNoteLine]
+) -> CreditNoteDetail:
+    (summary,) = await _summaries(session, tenant, [row])
+    items = await labels_by_id(
+        session, tenant, (line.item_id for line in lines), Item.code, Item.name
+    )
+    reads: list[CreditNoteLineRead] = []
+    for line in lines:
+        read = CreditNoteLineRead.model_validate(line)
+        item = items.get(line.item_id)
+        read.item_code = item.code if item else None
+        read.item_name = item.name if item else None
+        reads.append(read)
+    return CreditNoteDetail(**summary.model_dump(), lines=reads)
 
 
 async def _lines(
@@ -111,7 +145,7 @@ async def get_credit_note(
     ).scalar_one_or_none()
     if row is None:
         raise NotFoundError("Credit note", note_id)
-    return _detail(row, await _lines(session, tenant, row.id))
+    return await _detail(session, tenant, row, await _lines(session, tenant, row.id))
 
 
 async def queue_credit_note_pdf(
@@ -168,7 +202,7 @@ async def list_credit_notes(
         stmt=repo._scoped(),
         order_by=sort.resolve(repo.sortable_fields, CreditNote.note_date.desc()),
     )
-    return [CreditNoteSummary.model_validate(row) for row in rows], page
+    return await _summaries(session, tenant, rows), page
 
 
 def sales_invoice_status_after_credit(

@@ -60,7 +60,12 @@ class SalesReturnLineRead(BaseModel):
     id: uuid.UUID
     dispatch_line_id: uuid.UUID
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     serial_ids: list[uuid.UUID]
+    #: The returned units' labels, in ``serial_ids`` order; the disposition
+    #: lists name their units by id from the same set.
+    serial_numbers: list[str] = Field(default_factory=list)
     accepted_serial_ids: list[uuid.UUID]
     damaged_serial_ids: list[uuid.UUID]
     scrapped_serial_ids: list[uuid.UUID]
@@ -78,7 +83,10 @@ class SalesReturnSummary(BaseModel):
     id: uuid.UUID
     code: str
     dispatch_id: uuid.UUID
+    dispatch_code: str | None = None
     customer_id: uuid.UUID
+    customer_code: str | None = None
+    customer_name: str | None = None
     return_warehouse_id: uuid.UUID | None
     status: SalesReturnStatus
     source: SalesReturnSource

@@ -15518,6 +15518,8 @@ export interface components {
             consumed_quantity: string;
             /** Consumed Serial Ids */
             consumed_serial_ids: string[];
+            /** Consumed Serial Numbers */
+            consumed_serial_numbers?: string[];
             /**
              * Id
              * Format: uuid
@@ -15534,11 +15536,15 @@ export interface components {
             issued_batch_id?: string | null;
             /** Issued Quantity */
             issued_quantity: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Line Number */
             line_number: number;
             /** Notes */
@@ -15656,11 +15662,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Notes */
             notes: string | null;
             /** Output Batch Id */
@@ -15743,11 +15753,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Notes */
             notes: string | null;
             /** Output Batch Id */
@@ -18695,11 +18709,15 @@ export interface components {
              * @default 0
              */
             round_off_amount: string;
+            /** Sales Invoice Code */
+            sales_invoice_code?: string | null;
             /**
              * Sales Invoice Id
              * Format: uuid
              */
             sales_invoice_id: string;
+            /** Sales Return Code */
+            sales_return_code?: string | null;
             /** Sales Return Id */
             sales_return_id: string | null;
             status: components["schemas"]["CreditNoteStatus"];
@@ -18735,11 +18753,15 @@ export interface components {
             id: string;
             /** Igst Amount */
             igst_amount: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Line Total */
             line_total: string;
             /** Quantity */
@@ -18808,11 +18830,15 @@ export interface components {
              * @default 0
              */
             round_off_amount: string;
+            /** Sales Invoice Code */
+            sales_invoice_code?: string | null;
             /**
              * Sales Invoice Id
              * Format: uuid
              */
             sales_invoice_id: string;
+            /** Sales Return Code */
+            sales_return_code?: string | null;
             /** Sales Return Id */
             sales_return_id: string | null;
             status: components["schemas"]["CreditNoteStatus"];
@@ -20578,11 +20604,17 @@ export interface components {
              * @default 0
              */
             credited_amount: string;
+            /** Customer Code */
+            customer_code?: string | null;
             /**
              * Customer Id
              * Format: uuid
              */
             customer_id: string;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Dispatch Code */
+            dispatch_code?: string | null;
             /**
              * Dispatch Id
              * Format: uuid
@@ -20631,11 +20663,17 @@ export interface components {
              * @default 0
              */
             credited_amount: string;
+            /** Customer Code */
+            customer_code?: string | null;
             /**
              * Customer Id
              * Format: uuid
              */
             customer_id: string;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Dispatch Code */
+            dispatch_code?: string | null;
             /**
              * Dispatch Id
              * Format: uuid
@@ -21341,11 +21379,15 @@ export interface components {
             id: string;
             /** Inventory Transaction Id */
             inventory_transaction_id: string | null;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Line Number */
             line_number: number;
             /** Notes */
@@ -21358,6 +21400,8 @@ export interface components {
             sales_order_line_id: string | null;
             /** Serial Ids */
             serial_ids: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
         };
         /**
          * DispatchRequest
@@ -36962,11 +37006,17 @@ export interface components {
             cancelled_at: string | null;
             /** Code */
             code: string;
+            /** Customer Code */
+            customer_code?: string | null;
             /**
              * Customer Id
              * Format: uuid
              */
             customer_id: string;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Dispatch Code */
+            dispatch_code?: string | null;
             /**
              * Dispatch Id
              * Format: uuid
@@ -37029,11 +37079,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Note */
             note: string | null;
             /** Qc Inspection Id */
@@ -37048,6 +37102,8 @@ export interface components {
             scrapped_serial_ids: string[];
             /** Serial Ids */
             serial_ids: string[];
+            /** Serial Numbers */
+            serial_numbers?: string[];
         };
         /**
          * SalesReturnSource
@@ -37067,11 +37123,17 @@ export interface components {
             cancelled_at: string | null;
             /** Code */
             code: string;
+            /** Customer Code */
+            customer_code?: string | null;
             /**
              * Customer Id
              * Format: uuid
              */
             customer_id: string;
+            /** Customer Name */
+            customer_name?: string | null;
+            /** Dispatch Code */
+            dispatch_code?: string | null;
             /**
              * Dispatch Id
              * Format: uuid

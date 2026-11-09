@@ -95,6 +95,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id, labels_in_order
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -148,6 +149,7 @@ from src.modules.assembly.schemas import (
     AssemblyOrderCreate,
     AssemblyOrderDetail,
     AssemblyOrderFilters,
+    AssemblyOrderSummary,
     AssemblyOrderUpdate,
     CompleteRequest,
     CompletionResult,
@@ -160,13 +162,14 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.bom.engine import apply_scrap, is_explodable, line_requirement
 from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.bom.repository import BomLineRepository, BomRepository
-from src.modules.inventory.models import StockState, TransactionType
+from src.modules.inventory.models import StockSerial, StockState, TransactionType
 from src.modules.inventory.service import (
     MovementRequest,
     TraceabilityService,
     change_stock_state,
     post_movements,
 )
+from src.modules.products.models import Item
 from src.modules.sales.repository import SalesOrderRepository
 
 log = get_logger(__name__)
@@ -921,11 +924,96 @@ def resolve_packing_order_reader_port() -> PackingOrderReaderPort | None:
 # -----------------------------------------------------------------------------
 
 
-def order_detail(
-    order: AssemblyOrder, components: Sequence[AssemblyOrderComponent]
+async def order_summaries(
+    session: AsyncSession, tenant: TenantContext, orders: Sequence[AssemblyOrder]
+) -> list[AssemblyOrderSummary]:
+    """Project orders, each naming the item it assembles - one statement per page."""
+    items = await labels_by_id(
+        session, tenant, (order.item_id for order in orders), Item.code, Item.name
+    )
+    summaries: list[AssemblyOrderSummary] = []
+    for order in orders:
+        summary = AssemblyOrderSummary.model_validate(order)
+        item = items.get(order.item_id)
+        summary.item_code = item.code if item else None
+        summary.item_name = item.name if item else None
+        summaries.append(summary)
+    return summaries
+
+
+async def order_summary(
+    session: AsyncSession, tenant: TenantContext, order: AssemblyOrder
+) -> AssemblyOrderSummary:
+    (summary,) = await order_summaries(session, tenant, [order])
+    return summary
+
+
+async def _consumed_serials(
+    session: AsyncSession, tenant: TenantContext, rows: Sequence[AssemblyOrderComponent]
+) -> dict[uuid.UUID, Any]:
+    """Every consumed unit's label across a kit, in one statement."""
+    return await labels_by_id(
+        session,
+        tenant,
+        (serial_id for row in rows for serial_id in row.consumed_serial_ids),
+        StockSerial.serial_number,
+    )
+
+
+def _label_components(
+    rows: Sequence[AssemblyOrderComponent],
+    items: Mapping[uuid.UUID, Any],
+    serials: Mapping[uuid.UUID, Any],
+) -> list[AssemblyComponentRead]:
+    reads: list[AssemblyComponentRead] = []
+    for row in rows:
+        read = AssemblyComponentRead.model_validate(row)
+        item = items.get(row.item_id)
+        read.item_code = item.code if item else None
+        read.item_name = item.name if item else None
+        read.consumed_serial_numbers = labels_in_order(
+            row.consumed_serial_ids, serials, "serial_number"
+        )
+        reads.append(read)
+    return reads
+
+
+async def _component_reads(
+    session: AsyncSession, tenant: TenantContext, rows: Sequence[AssemblyOrderComponent]
+) -> list[AssemblyComponentRead]:
+    """The kitting list, each line naming its item and its consumed units.
+
+    One statement each for the items and the serials, never one per line.
+    """
+    items = await labels_by_id(session, tenant, (row.item_id for row in rows), Item.code, Item.name)
+    return _label_components(rows, items, await _consumed_serials(session, tenant, rows))
+
+
+async def order_detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: AssemblyOrder,
+    components: Sequence[AssemblyOrderComponent],
 ) -> AssemblyOrderDetail:
+    """The order with its component set, every item and unit named.
+
+    The order's own item is looked up with the components', so a detail costs
+    two statements whatever the size of the kit.
+    """
+    items = await labels_by_id(
+        session,
+        tenant,
+        (order.item_id, *(row.item_id for row in components)),
+        Item.code,
+        Item.name,
+    )
     detail = AssemblyOrderDetail.model_validate(order)
-    detail.components = [AssemblyComponentRead.model_validate(row) for row in components]
+    item = items.get(order.item_id)
+    detail.item_code = item.code if item else None
+    detail.item_name = item.name if item else None
+    detail.components = _label_components(
+        components, items, await _consumed_serials(session, tenant, components)
+    )
     return detail
 
 
@@ -1240,7 +1328,7 @@ async def get_order_detail(
 ) -> AssemblyOrderDetail:
     order = await AssemblyOrderRepository(session, tenant).get_or_404(order_id)
     components = await AssemblyComponentRepository(session, tenant).list_for_order(order.id)
-    return order_detail(order, components)
+    return await order_detail(session, tenant, order, components)
 
 
 async def list_components(
@@ -1250,7 +1338,7 @@ async def list_components(
     rather than returning an empty component set that looks like a built order."""
     await AssemblyOrderRepository(session, tenant).get_or_404(order_id)
     rows = await AssemblyComponentRepository(session, tenant).list_for_order(order_id)
-    return [AssemblyComponentRead.model_validate(row) for row in rows]
+    return await _component_reads(session, tenant, rows)
 
 
 async def ready_for_packing(
@@ -2289,7 +2377,7 @@ async def complete_assembly(
                 quantity=str(assembled),
             )
 
-        detail = order_detail(order, components)
+        detail = await order_detail(session, tenant, order, components)
 
     return CompletionResult(
         order=detail,

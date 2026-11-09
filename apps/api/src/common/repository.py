@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Generic, TypeVar
 
 from sqlalchemy import Select, delete, func, select, update
@@ -277,4 +277,17 @@ async def labels_by_id(
     return {row.id: row for row in (await session.execute(stmt)).all()}
 
 
-__all__ = ["BaseRepository", "ModelT", "labels_by_id"]
+def labels_in_order(
+    ids: Iterable[uuid.UUID], labels: Mapping[uuid.UUID, Row[Any]], column: str
+) -> list[str]:
+    """``column`` of each id's label row, in ``ids`` order: a list aligned with the ids.
+
+    How a read labels a list of ids, such as ``serial_numbers`` beside
+    ``serial_ids``. An id that resolved to no row - possible only for a
+    reference stored before its tenant was checked - is labelled by the id
+    itself, so the list stays aligned and the document stays readable.
+    """
+    return [str(getattr(labels[value], column)) if value in labels else str(value) for value in ids]
+
+
+__all__ = ["BaseRepository", "ModelT", "labels_by_id", "labels_in_order"]

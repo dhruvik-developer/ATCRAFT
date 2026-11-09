@@ -89,8 +89,13 @@ from tests.integration.test_finance_service import (
     posted_purchase_return,
     seed,
 )
+from tests.integration.test_sales_invoice_service import (
+    _return_for_invoice,
+    issue,
+    make_dispatch,
+)
 from tests.integration.test_sales_invoice_service import bench as bench
-from tests.integration.test_sales_invoice_service import issue, make_dispatch
+from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -1909,6 +1914,96 @@ async def notes_against(session: AsyncSession, invoice_id: uuid.UUID) -> int:
     return await session.scalar(
         select(func.count()).where(CreditNote.sales_invoice_id == invoice_id)
     )
+
+
+class TestCreditNotesNameWhatTheyCredit:
+    """A note names its invoice and return, and each line its item.
+
+    The credit-note screen drew the invoice and every line's item as UUIDs,
+    because the read carried nothing else.
+    """
+
+    async def test_a_note_names_its_invoice_and_each_lines_item(self, api_client, session, bench):
+        item_label = (bench.item.code, bench.item.name)
+        invoice = await issued(bench)
+        invoice_code = await value(session, SalesInvoice.code, invoice.id)
+
+        created = ok(
+            await api_client.post(
+                "/finance/credit-notes",
+                json=credit_json(
+                    invoice.id,
+                    {"sales_invoice_line_id": str(invoice.line_id), "taxable_amount": "100"},
+                ),
+            ),
+            201,
+        )
+        assert created["sales_invoice_code"] == invoice_code
+        assert (created["sales_return_id"], created["sales_return_code"]) == (None, None)
+        assert [(line["item_code"], line["item_name"]) for line in created["lines"]] == [item_label]
+
+        read = ok(await api_client.get(f"/finance/credit-notes/{created['id']}"))
+        assert read["sales_invoice_code"] == invoice_code
+        assert [(line["item_code"], line["item_name"]) for line in read["lines"]] == [item_label]
+        (row,) = [
+            row
+            for row in ok(await api_client.get("/finance/credit-notes"))
+            if row["id"] == created["id"]
+        ]
+        assert row["sales_invoice_code"] == invoice_code
+
+    async def test_a_return_credit_names_its_return(self, api_client, session, bench):
+        dispatch = await make_dispatch(bench)
+        invoice = await issue(bench, dispatch)
+        invoice_id, invoice_code = invoice.id, invoice.code
+        returned = await _return_for_invoice(bench, dispatch, requires_qc=False, receive=True)
+        note_id = await session.scalar(
+            select(CreditNote.id).where(CreditNote.sales_return_id == returned.id)
+        )
+        assert note_id is not None
+
+        read = ok(await api_client.get(f"/finance/credit-notes/{note_id}"))
+
+        assert read["sales_invoice_id"] == str(invoice_id)
+        assert read["sales_invoice_code"] == invoice_code
+        assert (read["sales_return_id"], read["sales_return_code"]) == (
+            str(returned.id),
+            returned.code,
+        )
+
+    async def test_the_list_names_a_page_in_a_fixed_number_of_statements(
+        self, api_client, bench, engine
+    ):
+        """Three notes cost what one does: their invoices are named in one statement."""
+        invoice = await issued(bench)
+        created: list[str] = []
+
+        async def credit() -> None:
+            note = ok(
+                await api_client.post(
+                    "/finance/credit-notes",
+                    json=credit_json(
+                        invoice.id,
+                        {"sales_invoice_line_id": str(invoice.line_id), "taxable_amount": "10"},
+                    ),
+                ),
+                201,
+            )
+            created.append(note["id"])
+
+        def mine(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [row for row in rows if row["id"] in created]
+
+        await credit()
+        with counted(engine) as one_row:
+            assert len(mine(ok(await api_client.get("/finance/credit-notes")))) == 1
+        await credit()
+        await credit()
+        with counted(engine) as three_rows:
+            rows = mine(ok(await api_client.get("/finance/credit-notes")))
+
+        assert len(rows) == 3 and all(row["sales_invoice_code"] for row in rows)
+        assert selects(three_rows) == selects(one_row)
 
 
 class TestCreditNotes:

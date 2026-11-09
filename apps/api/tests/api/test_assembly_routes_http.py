@@ -44,6 +44,7 @@ from src.modules.inventory.models import InventoryBalance
 from src.modules.packing import service as packing_service
 from src.modules.packing.models import PackingOrder
 from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
+from src.modules.products.models import Item
 from src.workers import celery_app as celery_module
 from tests import seed_support
 from tests.integration.test_assembly_completion import (
@@ -53,6 +54,7 @@ from tests.integration.test_assembly_completion import (
     raise_order,
     to_in_progress,
 )
+from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -225,6 +227,98 @@ async def ready_for_packing(api_client: AsyncClient, kit: Kit) -> list[str]:
         )
     )
     return [row["assembly_order_id"] for row in rows]
+
+
+# -----------------------------------------------------------------------------
+# Orders name the items they assemble and consume
+# -----------------------------------------------------------------------------
+
+
+async def item_labels(session: AsyncSession, kit: Kit) -> dict[str, tuple[str, str]]:
+    ids = [kit.output_item_id, *kit.components]
+    rows = await session.execute(select(Item.id, Item.code, Item.name).where(Item.id.in_(ids)))
+    return {str(row.id): (row.code, row.name) for row in rows.all()}
+
+
+class TestOrdersNameTheirItems:
+    """An order names the item it assembles and every component's item.
+
+    The assembly screens showed ``item_id.slice(0, 8)`` for the output and each
+    component, because the reads carried no code or name.
+    """
+
+    async def test_every_order_read_names_its_items(
+        self, api_client: AsyncClient, session: AsyncSession, kit: Kit
+    ) -> None:
+        labels = await item_labels(session, kit)
+        output = labels[str(kit.output_item_id)]
+
+        def components_named(rows: list[dict[str, Any]]) -> None:
+            assert len(rows) == len(kit.components)
+            for row in rows:
+                assert (row["item_code"], row["item_name"]) == labels[row["item_id"]]
+
+        created = ok(
+            await api_client.post(
+                "/assembly",
+                json={
+                    "item_id": str(kit.output_item_id),
+                    "planned_quantity": "4",
+                    "warehouse_id": str(kit.warehouse_id),
+                    "output_warehouse_id": str(kit.output_warehouse_id),
+                },
+            ),
+            201,
+        )
+        assert (created["item_code"], created["item_name"]) == output
+        components_named(created["components"])
+        order_id = created["id"]
+
+        read = ok(await api_client.get(f"/assembly/{order_id}"))
+        assert (read["item_code"], read["item_name"]) == output
+        components_named(read["components"])
+        components_named(ok(await api_client.get(f"/assembly/{order_id}/components")))
+        edited = ok(await api_client.patch(f"/assembly/{order_id}", json={"planned_quantity": "5"}))
+        assert (edited["item_code"], edited["item_name"]) == output
+        components_named(edited["components"])
+
+        approved = ok(
+            await api_client.post(f"/assembly/{order_id}/approve", json={"reason": REASON})
+        )
+        assert (approved["item_code"], approved["item_name"]) == output
+        (row,) = [row for row in ok(await api_client.get("/assembly")) if row["id"] == order_id]
+        assert (row["item_code"], row["item_name"]) == output
+
+    async def test_the_list_names_a_page_in_a_fixed_number_of_statements(
+        self, api_client: AsyncClient, kit: Kit, engine: Any
+    ) -> None:
+        """Three orders cost what one does: their items are named in one statement."""
+        mine = {"item_id": str(kit.output_item_id)}
+
+        async def raise_one() -> None:
+            ok(
+                await api_client.post(
+                    "/assembly",
+                    json={
+                        **mine,
+                        "planned_quantity": "1",
+                        "warehouse_id": str(kit.warehouse_id),
+                        "output_warehouse_id": str(kit.output_warehouse_id),
+                    },
+                ),
+                201,
+            )
+
+        await raise_one()
+        with counted(engine) as one_row:
+            assert len(ok(await api_client.get("/assembly", params=mine))) == 1
+        await raise_one()
+        await raise_one()
+        with counted(engine) as three_rows:
+            rows = ok(await api_client.get("/assembly", params=mine))
+
+        assert len(rows) == 3 and all(row["item_code"] for row in rows)
+        assert selects(three_rows) == selects(one_row)
 
 
 # -----------------------------------------------------------------------------

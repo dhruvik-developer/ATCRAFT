@@ -74,6 +74,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.repository import labels_by_id, labels_in_order
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -145,13 +146,14 @@ from src.modules.dispatch.schemas import (
     TrackingEventRead,
     duplicate_sales_order_line_ids,
 )
-from src.modules.inventory.models import SerialStatus, StockState, TransactionType
+from src.modules.inventory.models import SerialStatus, StockSerial, StockState, TransactionType
 from src.modules.inventory.service import MovementRequest, post_movements
 from src.modules.notifications.alerts import AlertCandidate
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify_customer, notify_role
 from src.modules.packing import service as packing
 from src.modules.packing.models import PackingOrder, PackingOrderStatus
+from src.modules.products.models import Item
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
 from src.modules.sales.service import (
     SALES_ORDER_LIFECYCLE,
@@ -704,9 +706,34 @@ def build_line_movements(
 # -----------------------------------------------------------------------------
 
 
-def dispatch_detail(dispatch: Dispatch, lines: Sequence[DispatchLine]) -> DispatchDetail:
+async def dispatch_detail(
+    session: AsyncSession,
+    tenant: TenantContext,
+    dispatch: Dispatch,
+    lines: Sequence[DispatchLine],
+) -> DispatchDetail:
+    """The consignment with every line naming its item and its units.
+
+    One statement each for the items and the serials, never one per line.
+    """
     detail = DispatchDetail.model_validate(dispatch)
-    detail.lines = [DispatchLineRead.model_validate(line) for line in lines]
+    items = await labels_by_id(
+        session, tenant, (line.item_id for line in lines), Item.code, Item.name
+    )
+    serials = await labels_by_id(
+        session,
+        tenant,
+        (serial_id for line in lines for serial_id in line.serial_ids),
+        StockSerial.serial_number,
+    )
+    detail.lines = []
+    for line in lines:
+        read = DispatchLineRead.model_validate(line)
+        item = items.get(line.item_id)
+        read.item_code = item.code if item else None
+        read.item_name = item.name if item else None
+        read.serial_numbers = labels_in_order(line.serial_ids, serials, "serial_number")
+        detail.lines.append(read)
     return detail
 
 
@@ -1460,7 +1487,7 @@ async def get_dispatch_detail(
     repo = DispatchRepository(session, tenant)
     dispatch = await repo.get_or_404(dispatch_id)
     lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def tracking_board(
@@ -1603,7 +1630,7 @@ async def create_dispatch(
             context={"line_count": len(lines)},
         )
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def update_dispatch(
@@ -1719,7 +1746,7 @@ async def update_dispatch(
             context={"lines_replaced": line_payload is not None},
         )
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def load_packing_order(
@@ -1818,7 +1845,7 @@ async def load_packing_order(
             },
         )
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def delete_draft_dispatch(
@@ -1895,7 +1922,7 @@ async def mark_ready(
             source=TrackingEventSource.MANUAL,
         )
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def cancel_dispatch(
@@ -1948,7 +1975,7 @@ async def cancel_dispatch(
         )
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def dispatch_consignment(
@@ -2267,7 +2294,7 @@ async def dispatch_consignment(
             )
 
     return DispatchResult(
-        dispatch=dispatch_detail(dispatch, lines),
+        dispatch=await dispatch_detail(session, tenant, dispatch, lines),
         inventory_transaction_ids=posted_ids,
         consumed_reservation_ids=consumed,
         sales_order_id=dispatch.sales_order_id,
@@ -2358,7 +2385,7 @@ async def mark_in_transit(
         )
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def confirm_delivery(
@@ -2458,7 +2485,7 @@ async def confirm_delivery(
             )
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
 
-    return dispatch_detail(dispatch, lines)
+    return await dispatch_detail(session, tenant, dispatch, lines)
 
 
 async def add_tracking_event(

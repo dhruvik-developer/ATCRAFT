@@ -314,9 +314,13 @@ class DispatchLineRead(BaseModel):
     line_number: int
     sales_order_line_id: uuid.UUID | None
     item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
     quantity: Decimal
     batch_id: uuid.UUID | None
     serial_ids: list[uuid.UUID]
+    #: The dispatched units' labels, in ``serial_ids`` order.
+    serial_numbers: list[str] = Field(default_factory=list)
     carton_ids: list[uuid.UUID]
     reservation_id: uuid.UUID | None
     inventory_transaction_id: uuid.UUID | None

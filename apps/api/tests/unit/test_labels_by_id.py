@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from src.common.repository import labels_by_id
+from src.common.repository import labels_by_id, labels_in_order
 from src.core.deps import TenantContext
 from src.modules.customers.models import Customer
 from src.modules.products.models import Item
@@ -118,3 +118,34 @@ class TestMisuseIsRefused:
                 Customer.name,
             )
         assert session.statements == []
+
+
+class TestLabelsInOrder:
+    """``serial_numbers`` beside ``serial_ids``: one label per id, in id order."""
+
+    def test_labels_follow_the_ids_order_not_the_lookups(self) -> None:
+        first, second = uuid.uuid4(), uuid.uuid4()
+        labels: dict[uuid.UUID, Any] = {
+            second: SimpleNamespace(serial_number="SN-2"),
+            first: SimpleNamespace(serial_number="SN-1"),
+        }
+
+        assert labels_in_order([first, second, first], labels, "serial_number") == [
+            "SN-1",
+            "SN-2",
+            "SN-1",
+        ]
+
+    def test_an_id_with_no_row_keeps_its_place_labelled_by_itself(self) -> None:
+        """A unit stored before its tenant was checked must not break the read or shift
+        every later label onto the wrong unit."""
+        known, unknown = uuid.uuid4(), uuid.uuid4()
+        labels: dict[uuid.UUID, Any] = {known: SimpleNamespace(serial_number="SN-1")}
+
+        assert labels_in_order([unknown, known], labels, "serial_number") == [
+            str(unknown),
+            "SN-1",
+        ]
+
+    def test_no_ids_label_nothing(self) -> None:
+        assert labels_in_order([], {}, "serial_number") == []

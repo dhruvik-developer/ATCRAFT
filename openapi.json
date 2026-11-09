@@ -8199,6 +8199,13 @@
             "title": "Consumed Serial Ids",
             "type": "array"
           },
+          "consumed_serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Consumed Serial Numbers",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8230,10 +8237,32 @@
             "title": "Issued Quantity",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "line_number": {
             "title": "Line Number",
@@ -8580,10 +8609,32 @@
             "title": "Id",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "notes": {
             "anyOf": [
@@ -8860,10 +8911,32 @@
             "title": "Id",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "notes": {
             "anyOf": [
@@ -17240,10 +17313,32 @@
             "title": "Round Off Amount",
             "type": "string"
           },
+          "sales_invoice_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Invoice Code"
+          },
           "sales_invoice_id": {
             "format": "uuid",
             "title": "Sales Invoice Id",
             "type": "string"
+          },
+          "sales_return_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Return Code"
           },
           "sales_return_id": {
             "anyOf": [
@@ -17374,10 +17469,32 @@
             "title": "Igst Amount",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "line_total": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -17535,10 +17652,32 @@
             "title": "Round Off Amount",
             "type": "string"
           },
+          "sales_invoice_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Invoice Code"
+          },
           "sales_invoice_id": {
             "format": "uuid",
             "title": "Sales Invoice Id",
             "type": "string"
+          },
+          "sales_return_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Return Code"
           },
           "sales_return_id": {
             "anyOf": [
@@ -22685,10 +22824,43 @@
             "title": "Credited Amount",
             "type": "string"
           },
+          "customer_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Code"
+          },
           "customer_id": {
             "format": "uuid",
             "title": "Customer Id",
             "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "dispatch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Code"
           },
           "dispatch_id": {
             "format": "uuid",
@@ -22849,10 +23021,43 @@
             "title": "Credited Amount",
             "type": "string"
           },
+          "customer_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Code"
+          },
           "customer_id": {
             "format": "uuid",
             "title": "Customer Id",
             "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "dispatch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Code"
           },
           "dispatch_id": {
             "format": "uuid",
@@ -25101,10 +25306,32 @@
             ],
             "title": "Inventory Transaction Id"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "line_number": {
             "title": "Line Number",
@@ -25156,6 +25383,13 @@
               "type": "string"
             },
             "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serial Numbers",
             "type": "array"
           }
         },
@@ -66556,10 +66790,43 @@
             "title": "Code",
             "type": "string"
           },
+          "customer_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Code"
+          },
           "customer_id": {
             "format": "uuid",
             "title": "Customer Id",
             "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "dispatch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Code"
           },
           "dispatch_id": {
             "format": "uuid",
@@ -66744,10 +67011,32 @@
             "title": "Id",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "note": {
             "anyOf": [
@@ -66799,6 +67088,13 @@
               "type": "string"
             },
             "title": "Serial Ids",
+            "type": "array"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serial Numbers",
             "type": "array"
           }
         },
@@ -66867,10 +67163,43 @@
             "title": "Code",
             "type": "string"
           },
+          "customer_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Code"
+          },
           "customer_id": {
             "format": "uuid",
             "title": "Customer Id",
             "type": "string"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "dispatch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Code"
           },
           "dispatch_id": {
             "format": "uuid",
