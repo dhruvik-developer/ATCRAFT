@@ -51,7 +51,6 @@ class CacheNamespace:
     """
 
     REFERENCE = ("ref", 3600)  # UoM, categories, warehouse types
-    PERMISSIONS = ("perm", 300)  # user permission set - invalidated on role change
     DASHBOARD = ("dash", 60)  # summary tiles
     REPORT = ("report", 300)  # completed report payloads
 
@@ -195,21 +194,6 @@ async def cache_delete(*keys: str) -> None:
 
 
 # -----------------------------------------------------------------------------
-# Targeted invalidation
-# -----------------------------------------------------------------------------
-
-
-async def invalidate_user_permissions(user_id: uuid.UUID, company_id: uuid.UUID) -> None:
-    """Called whenever a role or permission assignment changes (section 34).
-
-    Without this a revoked approval right would linger for the cache TTL, which
-    is exactly the kind of stale authority section 39 forbids.
-    """
-    ns, _ = CacheNamespace.PERMISSIONS
-    await cache_delete(make_key(ns, company_id, str(user_id)))
-
-
-# -----------------------------------------------------------------------------
 # Distributed lock - for work that must not run twice concurrently
 # -----------------------------------------------------------------------------
 
@@ -261,7 +245,6 @@ __all__ = [
     "check_redis_ready",
     "close_redis",
     "get_redis",
-    "invalidate_user_permissions",
     "make_key",
     "release_lock",
 ]

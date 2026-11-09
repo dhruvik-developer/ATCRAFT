@@ -15,8 +15,10 @@ email requires `user.update` and `user.reset_password`; changing a protected
 SUPER_ADMIN or superuser account additionally requires super-administrator
 authority. An unchanged normalized email remains a profile edit. Authorized
 changes preserve MFA enrollment, invalidate outstanding reset links and their
-queued delivery copies, revoke sessions in the same transaction, and update
-session-liveness/permission caches after commit. Recovery email is treated as a
+queued delivery copies, revoke sessions in the same transaction, and update the
+session-liveness cache after commit. There is no permission cache: the account
+and its roles are read from the database on every request, so a revoked right
+stops working on the account's next request. Recovery email is treated as a
 credential rather than an ordinary contact field.
 
 **Password storage — Argon2id.** `src/core/security.py`, parameters following

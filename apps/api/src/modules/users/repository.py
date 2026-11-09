@@ -343,24 +343,6 @@ class UserRepository(BaseRepository[User]):
             stmt = stmt.where(User.id != exclude_user_id)
         return int((await self.session.execute(stmt)).scalar_one())
 
-    async def user_ids_with_role(self, role_id: uuid.UUID) -> list[uuid.UUID]:
-        """Every account holding this role, live ones only.
-
-        Used to invalidate the cached permission set of each affected user after
-        a role's permissions change. Retired accounts are skipped: they cannot
-        authenticate, so they have no cache entry to drop.
-        """
-        stmt = (
-            select(user_roles.c.user_id)
-            .join(User, User.id == user_roles.c.user_id)
-            .where(
-                user_roles.c.role_id == role_id,
-                User.company_id == self.tenant.company_id,
-                User.deleted_at.is_(None),
-            )
-        )
-        return [row[0] for row in (await self.session.execute(stmt)).all()]
-
     async def count_users_with_role(self, role_id: uuid.UUID) -> int:
         """Live holders of a role - the "12 users will be affected" figure."""
         stmt = (

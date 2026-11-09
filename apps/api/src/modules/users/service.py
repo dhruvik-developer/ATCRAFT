@@ -34,10 +34,11 @@ What this module is responsible for, and why each rule exists:
 * **Nobody can lock the tenant out of itself.** The last active holder of
   super-administrator authority cannot be retired, deactivated, or have that
   authority removed by a role reassignment.
-* **Every authority change invalidates the affected users' cached permission
-  sets - after the transaction commits.** Dropping the cache entry *inside* the
-  transaction would let a concurrent request repopulate it from the pre-commit
-  state, leaving stale authority behind exactly where section 39 forbids it.
+* **Authority is read fresh on every request.** ``src.core.deps`` loads the
+  account and its roles from the database for each request, so a revoked right
+  stops working on the account's next request and there is no permission cache
+  to invalidate. Only session liveness is cached, for 30 seconds; an
+  administrator's email change overwrites those entries after the commit.
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.cache import cache_set, invalidate_user_permissions, make_key
+from src.core.cache import cache_set, make_key
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
@@ -1002,8 +1003,6 @@ class UserService:
                     user, before=[], after=roles, reason="Initial role set on account creation"
                 )
 
-        # After the commit - see the module docstring.
-        await self._invalidate([user.id])
         return await self.get_user(user.id)
 
     async def update_user(
@@ -1216,8 +1215,6 @@ class UserService:
                     context={"sessions_revoked": revoked, "initiated_by": "administrator"},
                 )
 
-        if grants_changed or password is not None or email_changed:
-            await self._invalidate([user_id])
         # After commit, replace cached liveness with the authoritative revoked
         # state. MFA enrollment itself is preserved by this profile operation.
         await asyncio.gather(
@@ -1272,7 +1269,6 @@ class UserService:
                 user, before=current, after=target, reason=payload.reason
             )
 
-        await self._invalidate([user_id])
         return await self.get_user(user_id)
 
     async def set_active(
@@ -1325,9 +1321,6 @@ class UserService:
                 reason=f"{reason} (sessions revoked: {revoked})" if revoked else reason,
             )
 
-        # The account's authority has effectively changed even though no role
-        # did, so the cached permission set must not survive the change.
-        await self._invalidate([user_id])
         return await self.get_user(user_id)
 
     async def reset_password(
@@ -1385,7 +1378,6 @@ class UserService:
                 },
             )
 
-        await self._invalidate([user_id])
         return PasswordResetResult(
             user_id=user_id,
             must_change_password=True,
@@ -1425,8 +1417,6 @@ class UserService:
                 action=AuditAction.DELETE,
                 reason=f"{reason} (sessions revoked: {revoked})",
             )
-
-        await self._invalidate([user_id])
 
     # --- internals ----------------------------------------------------------
 
@@ -1683,17 +1673,6 @@ class UserService:
             context={"reason": reason},
         )
 
-    async def _invalidate(self, user_ids: Iterable[uuid.UUID]) -> None:
-        """Drop the cached permission set of every affected user.
-
-        Called after the surrounding transaction has committed. Dropping the key
-        while the change is still uncommitted would let a concurrent
-        authenticated request repopulate it from the old state, which is the
-        stale-authority failure section 39 exists to prevent.
-        """
-        for user_id in dict.fromkeys(user_ids):
-            await invalidate_user_permissions(user_id, self.tenant.company_id)
-
 
 # -----------------------------------------------------------------------------
 # Role service
@@ -1787,7 +1766,7 @@ class RoleService:
         if not changes:
             raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
-        affected: list[uuid.UUID] = []
+        affected = 0
 
         async with transaction(self.session):
             role = await self.repo.get_or_404(role_id)
@@ -1833,9 +1812,10 @@ class RoleService:
             )
 
             if permissions_changed or state_to is not None:
-                # Read once and reused for both the audit context and the cache
-                # invalidation - the same set, by construction.
-                affected = await self.users.user_ids_with_role(role.id)
+                # The live holders the change reaches, for the audit trail. Each
+                # of them sees it on their next request: authority is read
+                # fresh every time, never cached.
+                affected = await self.users.count_users_with_role(role.id)
 
             if permissions_changed:
                 await record_audit(
@@ -1847,12 +1827,12 @@ class RoleService:
                     entity_code=role.code,
                     summary=(
                         f"Permission set of role {role.code} changed; "
-                        f"{len(affected)} account(s) affected"
+                        f"{affected} account(s) affected"
                     ),
                     user_id=self.tenant.user_id,
                     old_values={"permissions": before.get("permissions")},
                     new_values={"permissions": role.permissions},
-                    context={"affected_user_count": len(affected)},
+                    context={"affected_user_count": affected},
                 )
 
             if state_to is not None:
@@ -1866,10 +1846,9 @@ class RoleService:
                     to_status=str(state_to),
                     user_id=self.tenant.user_id,
                     action=AuditAction.ROLE_CHANGE,
-                    reason=f"{len(affected)} account(s) affected",
+                    reason=f"{affected} account(s) affected",
                 )
 
-        await self._invalidate(affected)
         return await self.get_role(role_id)
 
     async def delete_role(self, role_id: uuid.UUID, *, reason: str) -> None:
@@ -1943,11 +1922,6 @@ class RoleService:
             user_count=user_count,
             updated_at=role.updated_at,
         )
-
-    async def _invalidate(self, user_ids: Iterable[uuid.UUID]) -> None:
-        """Drop each affected user's cached permission set, after the commit."""
-        for user_id in dict.fromkeys(user_ids):
-            await invalidate_user_permissions(user_id, self.tenant.company_id)
 
 
 __all__ = [
