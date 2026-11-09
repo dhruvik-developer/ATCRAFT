@@ -1033,7 +1033,9 @@ Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
 
 Vendor invoice    DRAFT -> PENDING_APPROVAL -> APPROVED <-> PARTIALLY_PAID <-> PAID
-                        (DISPUTED from PENDING_APPROVAL/APPROVED/PARTIALLY_PAID;
+                        (DISPUTED from PENDING_APPROVAL/APPROVED/PARTIALLY_PAID, and
+                        resolved back to PENDING_APPROVAL if it was never approved,
+                        else to APPROVED or PARTIALLY_PAID;
                         CANCELLED from DRAFT, PENDING_APPROVAL, APPROVED, DISPUTED -
                         cancelling a posted bill reverses its journals)
 

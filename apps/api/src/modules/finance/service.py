@@ -450,6 +450,15 @@ VENDOR_INVOICE_LIFECYCLE: StateMachine[VendorInvoiceStatus] = StateMachine(
             permission=Permission.VENDOR_INVOICE_APPROVE,
             label="Resolve dispute",
         ),
+        # A dispute raised before approval resolves back into the approval queue:
+        # nothing was approved or posted, so DISPUTED -> APPROVED would make the
+        # bill payable with no payable on the ledger (docs/assumptions.md §DISPUTE-1).
+        Transition(
+            VendorInvoiceStatus.DISPUTED,
+            VendorInvoiceStatus.PENDING_APPROVAL,
+            permission=Permission.VENDOR_INVOICE_APPROVE,
+            label="Resolve dispute",
+        ),
         Transition(
             VendorInvoiceStatus.DRAFT,
             VendorInvoiceStatus.CANCELLED,
@@ -3584,11 +3593,28 @@ async def dispute_invoice(
 
     The money stays owed - a dispute is not a write-off - so the invoice keeps
     its outstanding amount and stays on the ageing report.
+
+    Disputing a bill that is already disputed is refused rather than treated as
+    a no-op: :func:`_transition_invoice` accepts a move to the current status
+    silently, so the reason would be replaced with no audit row and no word to
+    the vendor (docs/assumptions.md §DISPUTE-1).
     """
     repo = VendorInvoiceRepository(session, tenant)
 
     async with transaction(session):
-        invoice = await repo.get_or_404(invoice_id)
+        invoice = await repo.lock_for_update(invoice_id)
+        if invoice is None:
+            raise NotFoundError("Vendor invoice", invoice_id)
+        current = VendorInvoiceStatus(invoice.status)
+        if current is VendorInvoiceStatus.DISPUTED:
+            raise BusinessRuleError(
+                f"{invoice.code} is already disputed.",
+                details={
+                    "invoice_id": str(invoice.id),
+                    "status": str(current),
+                    "dispute_reason": invoice.dispute_reason,
+                },
+            )
         invoice.dispute_reason = reason
         repo.touch(invoice)
         await _transition_invoice(
@@ -3602,23 +3628,54 @@ async def dispute_invoice(
 async def resolve_dispute(
     session: AsyncSession, tenant: TenantContext, invoice_id: uuid.UUID, *, reason: str
 ) -> VendorInvoiceDetail:
-    """Settle a dispute and return the invoice to the payment run."""
+    """Settle a dispute and return the invoice to where it was disputed from.
+
+    A bill disputed after approval has its payable posted and its approver
+    recorded, so it returns to the payment run. A bill disputed while it was
+    still awaiting approval has neither, so it returns to the approval queue
+    with a fresh match, and :func:`approve_invoice` posts the payable and names
+    the approver as it does for any other bill.
+
+    Only a disputed bill can be resolved. The state machine alone cannot say
+    so: PENDING_APPROVAL -> APPROVED is a real edge, and walking it here would
+    approve a bill with no match, no approver and nothing posted.
+    """
     repo = VendorInvoiceRepository(session, tenant)
 
     async with transaction(session):
-        invoice = await repo.get_or_404(invoice_id)
-        await _transition_invoice(
-            session, tenant, invoice, VendorInvoiceStatus.APPROVED, reason=reason
-        )
-        # The status the money implies wins: a partly-paid invoice returning
-        # from dispute is PARTIALLY_PAID, not APPROVED.
-        settled = invoice_status_after_payment(
-            VendorInvoiceStatus.APPROVED,
-            total_amount=invoice.total_amount,
-            paid_amount=invoice.paid_amount,
-            recovered_amount=invoice.recovered_amount,
-        )
-        await _transition_invoice(session, tenant, invoice, settled, reason=reason)
+        invoice = await repo.lock_for_update(invoice_id)
+        if invoice is None:
+            raise NotFoundError("Vendor invoice", invoice_id)
+        current = VendorInvoiceStatus(invoice.status)
+        if current is not VendorInvoiceStatus.DISPUTED:
+            raise BusinessRuleError(
+                f"{invoice.code} is {current}; only a disputed invoice can have its "
+                "dispute resolved.",
+                code=ErrorCode.INVALID_STATE_TRANSITION,
+                details={"invoice_id": str(invoice.id), "status": str(current)},
+            )
+
+        # ASSUMPTION: approval evidence marks a dispute raised after approval -
+        # approve_invoice records it in the transaction that posts the payable,
+        # and nothing else does (docs/assumptions.md §DISPUTE-1).
+        if invoice.approved_at is None:
+            await _transition_invoice(
+                session, tenant, invoice, VendorInvoiceStatus.PENDING_APPROVAL, reason=reason
+            )
+            await _run_and_store_match(session, tenant, invoice)
+        else:
+            await _transition_invoice(
+                session, tenant, invoice, VendorInvoiceStatus.APPROVED, reason=reason
+            )
+            # The status the money implies wins: a partly-paid invoice returning
+            # from dispute is PARTIALLY_PAID, not APPROVED.
+            settled = invoice_status_after_payment(
+                VendorInvoiceStatus.APPROVED,
+                total_amount=invoice.total_amount,
+                paid_amount=invoice.paid_amount,
+                recovered_amount=invoice.recovered_amount,
+            )
+            await _transition_invoice(session, tenant, invoice, settled, reason=reason)
         invoice.dispute_reason = None
         repo.touch(invoice)
         await session.flush()
@@ -3641,6 +3698,10 @@ async def cancel_invoice(
     without reversing is the defect that left the payable and the input GST on
     the ledger while the invoice vanished from ageing and the GST summary
     (docs/assumptions.md §B3-5).
+
+    Cancelling an already-cancelled invoice is refused, as :func:`cancel_payment`
+    refuses it: :func:`_transition_invoice` accepts a move to the current status
+    silently, so the recorded reason would be replaced with no audit row.
     """
     repo = VendorInvoiceRepository(session, tenant)
     entry_repo = LedgerEntryRepository(session, tenant)
@@ -3649,6 +3710,12 @@ async def cancel_invoice(
         invoice = await repo.lock_for_update(invoice_id)
         if invoice is None:
             raise NotFoundError("Vendor invoice", invoice_id)
+        current = VendorInvoiceStatus(invoice.status)
+        if current is VendorInvoiceStatus.CANCELLED:
+            raise BusinessRuleError(
+                f"{invoice.code} is already cancelled.",
+                details={"invoice_id": str(invoice.id), "status": str(current)},
+            )
         if to_money(invoice.paid_amount) > ZERO or to_money(invoice.debit_allocated_amount) > ZERO:
             raise BusinessRuleError(
                 f"{invoice.code} has payment or vendor debit allocations and cannot be "

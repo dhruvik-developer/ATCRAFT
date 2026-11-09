@@ -11,6 +11,7 @@ from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError
+from src.core.ids import new_id
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -430,20 +431,27 @@ async def issue_credit_note(
                     credit=-round_off if round_off < ZERO else ZERO,
                 )
             )
+        # The note's id and number exist before its journal does, so every leg
+        # names the note it belongs to - the customer's statement shows the
+        # number, and a reversal on cancel copies both from the original legs.
+        note_id = new_id()
+        note_code = await next_document_number(session, tenant.company_id, DocTypes.CREDIT_NOTE)
         journal = await post_journal(
             session,
             tenant,
             [line for line in journal_lines if line.debit or line.credit],
             entry_date=payload.note_date,
             reference_type="CREDIT_NOTE",
-            reference_code=None,
+            reference_id=note_id,
+            reference_code=note_code,
             narration=f"Credit note against {invoice.code}",
             currency=invoice.currency,
         )
         row = CreditNote(
+            id=note_id,
             company_id=tenant.company_id,
             created_by_id=tenant.user_id,
-            code=await next_document_number(session, tenant.company_id, DocTypes.CREDIT_NOTE),
+            code=note_code,
             sales_invoice_id=invoice.id,
             sales_return_id=payload.sales_return_id,
             customer_id=invoice.customer_id,

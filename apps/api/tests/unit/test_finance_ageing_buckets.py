@@ -338,6 +338,16 @@ class TestLifecycles:
             VendorInvoiceStatus.PAID, VendorInvoiceStatus.APPROVED
         )
 
+    def test_a_dispute_can_resolve_to_either_stage_it_was_raised_at(self) -> None:
+        # Raised before approval it returns to the queue; after, to the payment
+        # run. finance.service.resolve_dispute picks one (assumptions §DISPUTE-1).
+        assert VENDOR_INVOICE_LIFECYCLE.can_transition(
+            VendorInvoiceStatus.DISPUTED, VendorInvoiceStatus.PENDING_APPROVAL
+        )
+        assert VENDOR_INVOICE_LIFECYCLE.can_transition(
+            VendorInvoiceStatus.DISPUTED, VendorInvoiceStatus.APPROVED
+        )
+
     def test_a_cancelled_invoice_is_terminal(self) -> None:
         assert VENDOR_INVOICE_LIFECYCLE.is_terminal(VendorInvoiceStatus.CANCELLED)
         assert VENDOR_INVOICE_LIFECYCLE.allowed_targets(VendorInvoiceStatus.CANCELLED) == []

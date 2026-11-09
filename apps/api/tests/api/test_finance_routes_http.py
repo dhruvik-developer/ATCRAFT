@@ -39,7 +39,7 @@ from httpx import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import today, utcnow
+from src.core.clock import frozen_time, today, utcnow
 from src.core.deps import Principal, TenantContext
 from src.core.permissions import Permission
 from src.modules.audit.models import ApprovalRequest, AuditAction, AuditLog
@@ -985,14 +985,6 @@ class TestVendorInvoiceDispute:
         refused(response, 422, "INVALID_STATE_TRANSITION")
         assert await value(session, VendorInvoice.status, invoice_id) == VendorInvoiceStatus.DRAFT
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: resolve-dispute never checks the bill is DISPUTED, so it walks the "
-            "PENDING_APPROVAL -> APPROVED edge and approves a bill with no match, no approver "
-            "and no payable posted (finance/service.py resolve_dispute)"
-        ),
-    )
     async def test_a_bill_awaiting_approval_cannot_be_approved_by_resolving_a_dispute(
         self, api_client, session, tenant, purchase
     ):
@@ -1011,14 +1003,6 @@ class TestVendorInvoiceDispute:
             VendorInvoiceStatus.PENDING_APPROVAL
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: a bill disputed while PENDING_APPROVAL resolves along DISPUTED -> APPROVED "
-            "and becomes payable with no payable journal and no approver "
-            "(finance/service.py resolve_dispute)"
-        ),
-    )
     async def test_a_bill_disputed_before_approval_does_not_resolve_into_an_unposted_approval(
         self, api_client, session, tenant, purchase
     ):
@@ -1037,14 +1021,6 @@ class TestVendorInvoiceDispute:
             posted == BILL_TOTAL and approver is not None
         ), f"{status} with {posted} payable posted and approver {approver}"
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: disputing a DISPUTED vendor invoice answers 200 and replaces the dispute "
-            "reason with no audit row and no vendor notice - _transition_invoice treats the "
-            "move to the current status as a no-op (finance/service.py dispute_invoice)"
-        ),
-    )
     async def test_a_second_dispute_is_refused_or_recorded(
         self, api_client, session, tenant, principal, purchase
     ):
@@ -1066,6 +1042,80 @@ class TestVendorInvoiceDispute:
             f"answered {response.status_code}; dispute reason is now "
             f"{await value(session, VendorInvoice.dispute_reason, invoice_id)!r} with no audit row"
         )
+
+    async def test_resolving_a_bill_nobody_disputed_leaves_its_approval_open(
+        self, api_client, session, tenant, purchase
+    ):
+        invoice_id = await submitted_bill(session, tenant, purchase)
+
+        response = await api_client.post(
+            f"/finance/vendor-invoices/{invoice_id}/resolve-dispute", json={"reason": REASON}
+        )
+
+        error = refused(response, 422, "INVALID_STATE_TRANSITION")
+        assert error["details"]["status"] == "PENDING_APPROVAL"
+        assert await value(session, VendorInvoice.approved_by_id, invoice_id) is None
+        assert await ledger_legs(session, invoice_id) == []
+        request = select(ApprovalRequest.status).where(ApprovalRequest.entity_id == invoice_id)
+        assert await session.scalar(request) == ApprovalStatus.PENDING.value
+
+    async def test_a_bill_disputed_before_approval_returns_to_the_approval_queue(
+        self, api_client, session, tenant, principal, purchase
+    ):
+        invoice_id = await submitted_bill(session, tenant, purchase)
+        matched_at = await value(session, VendorInvoice.matched_at, invoice_id)
+        await finance_service.dispute_invoice(session, tenant, invoice_id, reason="Price query")
+        reason = "Vendor confirmed the ordered price"
+
+        # Frozen past the submission's match: the Windows clock ticks every 15.6 ms.
+        with frozen_time(matched_at + timedelta(seconds=1)) as resolved_at:
+            data = ok(
+                await api_client.post(
+                    f"/finance/vendor-invoices/{invoice_id}/resolve-dispute",
+                    json={"reason": reason},
+                )
+            )
+
+        assert data["status"] == "PENDING_APPROVAL"
+        assert data["dispute_reason"] is None
+        assert data["approved_by_id"] is None
+        assert await ledger_legs(session, invoice_id) == []
+        # The approver sees a match run on resolution, not the one from before the dispute.
+        assert await value(session, VendorInvoice.matched_at, invoice_id) == resolved_at
+        moves = await audit_trail(session, invoice_id, action=AuditAction.STATUS_CHANGE)
+        [entry] = [e for e in moves if (e.old_values or {}).get("status") == "DISPUTED"]
+        assert entry.new_values == {"status": "PENDING_APPROVAL"}
+        assert entry.context["reason"] == reason
+        requests = select(ApprovalRequest.status).where(ApprovalRequest.entity_id == invoice_id)
+        assert list(
+            await session.scalars(requests.order_by(ApprovalRequest.created_at, ApprovalRequest.id))
+        ) == [ApprovalStatus.REJECTED.value, ApprovalStatus.PENDING.value]
+
+        # One step further: the queue's own approval posts the payable and names the approver.
+        approved = ok(
+            await api_client.post(f"/finance/vendor-invoices/{invoice_id}/approve", json={})
+        )
+        assert approved["status"] == "APPROVED"
+        assert approved["approved_by_id"] == str(principal.user_id)
+        assert party_net(await ledger_legs(session, invoice_id), PartyType.VENDOR) == BILL_TOTAL
+
+    async def test_a_second_dispute_keeps_the_first_reason(
+        self, api_client, session, tenant, principal, purchase
+    ):
+        invoice_id = await approved_bill(session, tenant, principal, purchase)
+        first = "Short supply"
+        await finance_service.dispute_invoice(session, tenant, invoice_id, reason=first)
+
+        response = await api_client.post(
+            f"/finance/vendor-invoices/{invoice_id}/dispute",
+            json={"reason": "The price disagrees with the order as well"},
+        )
+
+        error = refused(response, 422, "BUSINESS_RULE_VIOLATION")
+        assert error["details"]["dispute_reason"] == first
+        assert await value(session, VendorInvoice.dispute_reason, invoice_id) == first
+        moves = status_moves(await audit_trail(session, invoice_id))
+        assert [move for move in moves if move[1] == "DISPUTED"] == [("APPROVED", "DISPUTED")]
 
 
 # -----------------------------------------------------------------------------
@@ -1143,14 +1193,6 @@ class TestVendorInvoiceCancel:
         assert "reason" in field_errors(response)
         assert await value(session, VendorInvoice.status, invoice_id) == VendorInvoiceStatus.DRAFT
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: cancelling a CANCELLED vendor invoice answers 200 and overwrites the "
-            "recorded cancellation reason with no audit row - _transition_invoice treats the "
-            "move to the current status as a no-op (finance/service.py cancel_invoice)"
-        ),
-    )
     async def test_a_cancelled_bill_cannot_be_cancelled_again(
         self, api_client, session, tenant, purchase
     ):
@@ -1167,6 +1209,25 @@ class TestVendorInvoiceCancel:
             f"{await value(session, VendorInvoice.cancellation_reason, invoice_id)!r}"
         )
         assert await value(session, VendorInvoice.cancellation_reason, invoice_id) == first
+
+    async def test_a_second_cancellation_leaves_the_first_on_record(
+        self, api_client, session, tenant, principal, purchase
+    ):
+        invoice_id = await approved_bill(session, tenant, principal, purchase)
+        first = "Billed against the wrong order"
+        await finance_service.cancel_invoice(session, tenant, invoice_id, reason=first)
+        legs = len(await ledger_legs(session, invoice_id))
+
+        response = await api_client.post(
+            f"/finance/vendor-invoices/{invoice_id}/cancel", json={"reason": REASON}
+        )
+
+        assert refused(response, 422, "BUSINESS_RULE_VIOLATION")["details"]["status"] == (
+            "CANCELLED"
+        )
+        [entry] = await audit_trail(session, invoice_id, action=AuditAction.CANCEL)
+        assert entry.context["reason"] == first
+        assert len(await ledger_legs(session, invoice_id)) == legs
 
 
 # -----------------------------------------------------------------------------
@@ -1820,14 +1881,6 @@ class TestCreditNotes:
         assert entry.entity_type == "credit_note"
         assert entry.created_by_id == tenant.user_id
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "DEFECT: the credit-note journal is posted with reference_code=None and no "
-            "reference_id, so the customer's ledger statement cannot name the credit note "
-            "(finance/credit_note_service.py issue_credit_note)"
-        ),
-    )
     async def test_the_customer_statement_names_the_credit_note(self, api_client, bench):
         invoice = await issued(bench)
         note = ok(
@@ -1845,6 +1898,30 @@ class TestCreditNotes:
 
         credits = [row for row in statement["rows"] if money(row["credit_amount"]) > 0]
         assert [row["reference_code"] for row in credits] == [note["code"]], credits
+
+    async def test_the_note_and_its_reversal_are_traced_to_the_note(
+        self, api_client, session, bench
+    ):
+        invoice = await issued(bench)
+        note_id = await credit_note(bench, invoice.id, invoice.line_id)
+        code = await value(session, CreditNote.code, note_id)
+        posted = await ledger_legs(session, note_id)
+        assert {leg.journal_id for leg in posted} == {
+            await value(session, CreditNote.journal_id, note_id)
+        }
+        assert {leg.reference_code for leg in posted} == {code}
+
+        ok(
+            await api_client.post(
+                f"/finance/credit-notes/{note_id}/cancel", json={"reason": REASON}
+            )
+        )
+
+        legs = await ledger_legs(session, note_id)
+        assert len([leg for leg in legs if leg.is_reversal]) == len(posted)
+        assert {leg.reference_code for leg in legs} == {code}
+        balanced(legs)
+        assert party_net(legs, PartyType.CUSTOMER) == Decimal("0")
 
     @pytest.mark.parametrize(
         "line",
