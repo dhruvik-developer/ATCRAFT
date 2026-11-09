@@ -4,9 +4,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
-import { fail, ok, page, renderScreen, type RouteBody, type RouteTable } from '@/test/harness'
+import {
+  fail,
+  ok,
+  page,
+  renderScreen,
+  type RenderScreenOptions,
+  type RouteBody,
+  type RouteTable,
+} from '@/test/harness'
 
 import CreditNotesPage from './credit-notes-page'
+import { salesInvoiceKeys } from './sales-invoice-types'
 
 function creditNote(overrides: Record<string, unknown> = {}) {
   return {
@@ -33,9 +42,11 @@ async function openCreditNote(
     permissions?: string[]
     detail?: ReturnType<typeof creditNote>
     routes?: RouteTable
+    cachePolicy?: RenderScreenOptions['cachePolicy']
   } = {},
 ) {
   const result = renderScreen(<CreditNotesPage />, {
+    cachePolicy: options.cachePolicy,
     permissions: options.permissions ?? [P.CREDIT_NOTE_VIEW, P.CREDIT_NOTE_CANCEL],
     routes: {
       'GET /finance/credit-notes': page([creditNote()]),
@@ -107,6 +118,9 @@ describe('credit note cancellation', () => {
     let cancelled = false
     const successToast = vi.spyOn(toast, 'success')
     const { user, fetch, queryClient } = await openCreditNote({
+      // The cache a person's browser keeps, so the entries below outlive the
+      // screens that read them, as they do between visits.
+      cachePolicy: 'production',
       routes: {
         'GET /finance/credit-notes': () =>
           page([creditNote({ status: cancelled ? 'CANCELLED' : 'ISSUED' })]),
@@ -114,15 +128,15 @@ describe('credit note cancellation', () => {
       },
     })
     // These screens may be unmounted when the note is reversed; their cached
-    // balances still need to be stale when the user returns to them.
+    // balances still need to be stale when the user returns to them. Each key
+    // is the one its screen reads, from that screen's own factory.
     const cachedKeys = [
-      ['finance', 'invoices', 'invoice-1'],
+      salesInvoiceKeys.detail('invoice-1'),
       queryKeys.customers.detail('customer'),
       queryKeys.dealerPortal.outstanding,
       queryKeys.salesReturns.detail('return-1'),
     ]
     for (const queryKey of cachedKeys) {
-      queryClient.setQueryDefaults(queryKey, { gcTime: Infinity })
       queryClient.setQueryData(queryKey, { balance: '1.16' })
     }
 
