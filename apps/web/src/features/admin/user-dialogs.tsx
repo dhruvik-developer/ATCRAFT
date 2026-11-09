@@ -16,13 +16,17 @@
  * hands each order to. The API refuses a scope outside the vendor's own
  * qualifications, so the choices are exactly those; an empty scope is every
  * category the vendor supplies.
+ *
+ * Every account may be limited to some warehouses, and that assignment is
+ * authority too: an administrator limited to some warehouses may hand out only
+ * their own (`user-warehouses.ts`), so for them the field is not optional.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, type RefCallBack } from 'react-hook-form'
 import { z } from 'zod'
 
 import { FieldError, LoadError } from '@/components/shared'
@@ -61,11 +65,12 @@ import {
 } from '@/features/auth/password-policy'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorCategoryOptions } from '@/features/vendors/vendor-types'
-import { api } from '@/lib/api-client'
+import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { plural } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { describeError, empty, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -80,6 +85,14 @@ import {
   type UserDetail,
   type UserRow,
 } from './admin-types'
+import {
+  mayMoveWarehouse,
+  mustChooseWarehouse,
+  sameIds,
+  warehouseAssignmentChange,
+  warehouseReach,
+  type WarehouseReach,
+} from './user-warehouses'
 
 // -------------------------------------------------------- create / edit -----
 
@@ -114,6 +127,8 @@ function userSchema(isEdit: boolean) {
     // Item categories a vendor account is limited to; empty is every one the
     // vendor supplies. Meaningless, and never sent, without a vendor.
     allowed_category_ids: z.array(z.string()),
+    // Warehouses the account is limited to; empty is every warehouse.
+    allowed_warehouse_ids: z.array(z.string()),
     must_change_password: z.boolean(),
     role_ids: z.array(z.string()),
   })
@@ -134,6 +149,7 @@ function emptyUser(): UserFormValues {
     vendor_id: null,
     customer_id: null,
     allowed_category_ids: [],
+    allowed_warehouse_ids: [],
     must_change_password: true,
     role_ids: [],
   }
@@ -152,16 +168,10 @@ function userValues(user: UserDetail): UserFormValues {
     vendor_id: user.vendor_id,
     customer_id: user.customer_id ?? null,
     allowed_category_ids: user.allowed_category_ids ?? [],
+    allowed_warehouse_ids: user.allowed_warehouse_ids ?? [],
     must_change_password: user.must_change_password,
     role_ids: (user.roles ?? []).map((role) => role.id),
   }
-}
-
-/** The same set of ids, whatever the order. */
-function sameIds(left: readonly string[], right: readonly string[]): boolean {
-  if (left.length !== right.length) return false
-  const set = new Set(left)
-  return right.every((id) => set.has(id))
 }
 
 /**
@@ -182,8 +192,9 @@ export function UserFormDialog({
   userId: string | null
 }) {
   const queryClient = useQueryClient()
-  const { can } = useAuth()
+  const { can, user: signedIn } = useAuth()
   const isEdit = Boolean(userId)
+  const reach = useMemo(() => warehouseReach(signedIn), [signedIn])
 
   const detail = useQuery({
     queryKey: queryKeys.users.detail(userId ?? ''),
@@ -192,6 +203,8 @@ export function UserFormDialog({
     staleTime: staleTimes.master,
   })
   const user = detail.data ?? null
+  // What the account held when the form opened; null while it does not exist.
+  const storedWarehouses = isEdit ? (user?.allowed_warehouse_ids ?? []) : null
 
   const branches = useBranchOptions(open)
   const plants = usePlantOptions(open)
@@ -274,6 +287,7 @@ export function UserFormDialog({
           ...(values.vendor_id ? { vendor_id: values.vendor_id } : { clear_vendor: true }),
           ...(values.customer_id ? { customer_id: values.customer_id } : { clear_customer: true }),
           ...scope,
+          ...warehouseAssignmentChange(storedWarehouses, values.allowed_warehouse_ids),
           ...(values.password ? { password: values.password } : {}),
           must_change_password: values.must_change_password,
         })
@@ -288,6 +302,7 @@ export function UserFormDialog({
         vendor_id: values.vendor_id,
         customer_id: values.customer_id,
         allowed_category_ids: values.vendor_id ? values.allowed_category_ids : [],
+        ...warehouseAssignmentChange(storedWarehouses, values.allowed_warehouse_ids),
         role_ids: values.role_ids,
         is_active: true,
         must_change_password: values.must_change_password,
@@ -301,7 +316,26 @@ export function UserFormDialog({
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError),
+    onError: (error) => {
+      // The form says every refusal itself, once (hence the meta below): a
+      // 422's field detail on its controls, a warehouse this administrator may
+      // not hand out or take away (403 SCOPE_DENIED, docs/assumptions.md
+      // §WH-1) on the warehouse list, and anything else above the buttons.
+      if (error instanceof ApiError && Object.keys(error.fieldErrors).length > 0) {
+        applyFieldErrors(error, setError)
+        return
+      }
+      if (error instanceof ApiError && error.code === 'SCOPE_DENIED') {
+        setError(
+          'allowed_warehouse_ids',
+          { type: 'server', message: describeError(error) },
+          { shouldFocus: true },
+        )
+        return
+      }
+      setError('root', { type: 'server', message: describeError(error) })
+    },
+    meta: { suppressErrorToast: true },
   })
 
   const roleList = roles.data ?? []
@@ -342,6 +376,14 @@ export function UserFormDialog({
             }
             if (accountKind === 'dealer' && !values.customer_id) {
               setError('customer_id', { message: 'Choose a dealer or distributor.' })
+              return
+            }
+            if (mustChooseWarehouse(reach, storedWarehouses, values.allowed_warehouse_ids)) {
+              setError(
+                'allowed_warehouse_ids',
+                { message: validation.choose('at least one warehouse') },
+                { shouldFocus: true },
+              )
               return
             }
             mutation.mutate(values)
@@ -619,6 +661,22 @@ export function UserFormDialog({
                   />
                 )}
 
+                <Controller
+                  control={control}
+                  name="allowed_warehouse_ids"
+                  render={({ field }) => (
+                    <WarehouseAssignment
+                      readable={can(P.WAREHOUSE_VIEW)}
+                      reach={reach}
+                      stored={storedWarehouses}
+                      value={field.value}
+                      onChange={field.onChange}
+                      error={errors.allowed_warehouse_ids?.message}
+                      focusRef={field.ref}
+                    />
+                  )}
+                />
+
                 {!isEdit && (
                   <fieldset className="rounded-lg border p-4">
                     <legend className="px-1.5 text-sm font-medium">Roles</legend>
@@ -687,6 +745,8 @@ export function UserFormDialog({
                     </span>
                   </span>
                 </label>
+
+                <FieldError message={errors.root?.message} />
               </>
             )}
           </DialogBody>
@@ -805,6 +865,141 @@ function VendorCategoryScope({
           ))}
         </div>
       )}
+    </fieldset>
+  )
+}
+
+// ------------------------------------------------- warehouse assignment -----
+
+/**
+ * The warehouses an account may use; none ticked is every warehouse.
+ *
+ * `GET /warehouses/options` answers with the active warehouses its caller is
+ * assigned to - every one for an unrestricted administrator or a superuser -
+ * so its rows are exactly the warehouses this administrator may hand out. What
+ * the account already holds is never dropped from the list sent, because
+ * leaving it out would take it away:
+ *
+ * * one no longer in the active list stays ticked, and can be unticked;
+ * * one outside the administrator's own assignment stays ticked and locked,
+ *   because only an administrator assigned to it may take it away. For the same
+ *   reason a limited administrator cannot limit an account that may use every
+ *   warehouse, so that assignment is stated rather than offered.
+ */
+function WarehouseAssignment({
+  readable,
+  reach,
+  stored,
+  value,
+  onChange,
+  error,
+  focusRef,
+}: {
+  /** The warehouse list needs the warehouse view right. */
+  readable: boolean
+  reach: WarehouseReach
+  /** The account's assignment when the form opened; null for a new account. */
+  stored: readonly string[] | null
+  value: string[]
+  onChange: (ids: string[]) => void
+  error?: string
+  /** Where a refusal moves the focus: the first warehouse that can be ticked. */
+  focusRef: RefCallBack
+}) {
+  const warehouses = useWarehouseOptions(readable)
+  const rows = warehouses.data ?? []
+  const listed = new Set(rows.map((row) => row.id))
+  // Held but not offered. Read from what the account held, not from the
+  // value, so one unticked by mistake stays on screen to be ticked again.
+  const unlisted = warehouses.data ? (stored ?? []).filter((id) => !listed.has(id)) : []
+  const limited = reach !== null
+  const everyWarehouseKept = limited && stored !== null && stored.length === 0
+  const focusTarget = rows[0]?.id ?? unlisted.find((id) => mayMoveWarehouse(reach, id))
+
+  const toggle = (id: string, on: boolean) =>
+    onChange(on ? [...value, id] : value.filter((existing) => existing !== id))
+
+  return (
+    <fieldset className="rounded-lg border p-4">
+      <legend className="px-1.5 text-sm font-medium">Warehouses</legend>
+
+      {everyWarehouseKept ? (
+        <p className="text-sm text-muted-foreground">
+          This account may use every warehouse. You are assigned to some warehouses only, so you
+          cannot limit it; ask an administrator who is not limited to some warehouses.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            {limited
+              ? 'You are assigned to some warehouses only, so you can give an account only those - at least one of them.'
+              : 'Tick none and the account may use every warehouse.'}
+          </p>
+
+          {!readable ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Reading the warehouse list needs the warehouse view right, so the assignment cannot be
+              changed from this account.
+              {stored !== null &&
+                (stored.length === 0
+                  ? ' This account may use every warehouse.'
+                  : ` This account is limited to ${plural(stored.length, 'warehouse')}.`)}
+            </p>
+          ) : warehouses.isLoading ? (
+            <p className="mt-3 text-sm text-muted-foreground">Loading warehouses...</p>
+          ) : warehouses.error ? (
+            <LoadError
+              className="mt-3"
+              error={warehouses.error}
+              onRetry={() => void warehouses.refetch()}
+            />
+          ) : rows.length === 0 && unlisted.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              There is no active warehouse to choose from.
+            </p>
+          ) : (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {rows.map((row) => (
+                <label key={row.id} className="flex cursor-pointer items-start gap-2.5 text-sm">
+                  <Checkbox
+                    ref={row.id === focusTarget ? focusRef : undefined}
+                    checked={value.includes(row.id)}
+                    onCheckedChange={(next) => toggle(row.id, next === true)}
+                  />
+                  <span className="min-w-0">
+                    <span className="font-medium">{row.code}</span>
+                    <span className="block text-xs text-muted-foreground">{row.name}</span>
+                  </span>
+                </label>
+              ))}
+              {unlisted.map((id) =>
+                mayMoveWarehouse(reach, id) ? (
+                  <label key={id} className="flex cursor-pointer items-start gap-2.5 text-sm">
+                    <Checkbox
+                      ref={id === focusTarget ? focusRef : undefined}
+                      checked={value.includes(id)}
+                      onCheckedChange={(next) => toggle(id, next === true)}
+                    />
+                    <span className="min-w-0 text-warning">
+                      {empty.unlistedReference} - untick it to take this warehouse away
+                    </span>
+                  </label>
+                ) : (
+                  <label key={id} className="flex items-start gap-2.5 text-sm">
+                    <Checkbox checked={value.includes(id)} disabled />
+                    <span className="min-w-0 text-muted-foreground">
+                      A warehouse outside your own assignment - only an administrator assigned to it
+                      can take it away
+                    </span>
+                  </label>
+                ),
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      <FieldError message={error} />
     </fieldset>
   )
 }

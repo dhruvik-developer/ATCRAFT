@@ -22,6 +22,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { Toaster } from '@/components/ui/toaster'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
@@ -448,6 +449,235 @@ describe('a vendor manager’s item categories', () => {
     expect(within(scope).getByText(/needs the vendor view right/i)).toBeVisible()
     expect(within(scope).queryByRole('checkbox')).toBeNull()
     expect(fetch.calls.some((call) => call.path.endsWith('/categories'))).toBe(false)
+  })
+})
+
+describe('the warehouses an account may use', () => {
+  // `allowed_warehouse_ids` is authority (docs/assumptions.md §WH-1): an
+  // administrator limited to some warehouses may hand out, or take away, only
+  // their own - and an empty list is every warehouse. The form sent no list at
+  // all, so every account such an administrator created asked for every
+  // warehouse and was refused with 403 SCOPE_DENIED: they could not create a
+  // user from the screen. `GET /warehouses/options` answers with the caller's
+  // own warehouses, which is what the fixtures below stand for.
+  const MAIN = '01a00000-0000-7000-8000-00000000wh01'
+  const NORTH = '01a00000-0000-7000-8000-00000000wh02'
+  const FAR = '01a00000-0000-7000-8000-00000000wh09'
+
+  function warehouse(id: string, code: string, name: string): Record<string, unknown> {
+    return { id, code, name, warehouse_type: 'FINISHED_GOODS', is_default: false }
+  }
+
+  const OWN_WAREHOUSES = [
+    warehouse(MAIN, 'WH-MAIN', 'Main Store'),
+    warehouse(NORTH, 'WH-NORTH', 'North Depot'),
+  ]
+  const LIMITED_ADMIN = { allowed_warehouse_ids: [MAIN, NORTH] }
+  const ADMIN_RIGHTS = [...READ_ONLY, P.USER_CREATE, P.USER_UPDATE, P.WAREHOUSE_VIEW]
+
+  const SAVED = {
+    ...userRow({ id: 'u-ravi', full_name: 'Ravi Kumar', email: 'ravi@atcraft.example' }),
+    phone: null,
+    mfa_enabled: false,
+    failed_login_attempts: 0,
+    password_changed_at: null,
+    updated_at: '2026-11-09T09:00:00Z',
+    allowed_warehouse_ids: [NORTH],
+    roles: [],
+  }
+
+  function renderAssignment(me: Record<string, unknown>, routes: RouteTable = {}) {
+    return renderScreen(
+      <>
+        <UsersPage />
+        <Toaster />
+      </>,
+      {
+        permissions: ADMIN_RIGHTS,
+        user: me,
+        errorNets: true,
+        routes: {
+          ...baseRoutes(),
+          'GET /organization/departments': page([]),
+          'GET /warehouses/options': ok(OWN_WAREHOUSES),
+          ...routes,
+        },
+      },
+    )
+  }
+
+  function toastAlerts() {
+    return within(screen.getByRole('region', { name: 'Notifications' })).queryAllByRole('alert')
+  }
+
+  /** The create dialog with every required field filled, open on the warehouses. */
+  async function fillNewUser(user: ReturnType<typeof renderAssignment>['user']) {
+    await settled()
+    await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/full name/i), 'Ravi Kumar')
+    await user.type(within(dialog).getByLabelText(/^email/i), 'ravi@atcraft.example')
+    await user.type(within(dialog).getByLabelText(/first password/i), 'Str0ng-Passw0rd!')
+    const group = within(dialog).getByRole('group', { name: 'Warehouses' })
+    await within(group).findByRole('checkbox', { name: /Main Store/ })
+    return { dialog, group }
+  }
+
+  async function openEdit(
+    user: ReturnType<typeof renderAssignment>['user'],
+  ): Promise<{ dialog: HTMLElement; group: HTMLElement }> {
+    await openActions(user, 'Ravi Kumar')
+    await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(/full name/i)).toHaveValue('Ravi Kumar'),
+    )
+    return { dialog, group: within(dialog).getByRole('group', { name: 'Warehouses' }) }
+  }
+
+  function editRoutes(held: string[]): RouteTable {
+    const detail = { ...SAVED, allowed_warehouse_ids: held }
+    return {
+      'GET /users': page([userRow({ id: 'u-ravi', full_name: 'Ravi Kumar' })]),
+      'GET /users/u-ravi': ok(detail),
+      'PATCH /users/u-ravi': ok(detail),
+    }
+  }
+
+  it('makes a limited administrator choose from their own warehouses, and sends the choice', async () => {
+    const { user, fetch } = renderAssignment(LIMITED_ADMIN, { 'POST /users': ok(SAVED) })
+    const { dialog, group } = await fillNewUser(user)
+
+    expect(within(group).getByText(/you can give an account only those/i)).toBeVisible()
+    expect(within(group).queryByText(/tick none/i)).toBeNull()
+    expect(within(group).getAllByRole('checkbox')).toHaveLength(2)
+
+    // None ticked would ask for every warehouse, which they may not give.
+    await user.click(within(dialog).getByRole('button', { name: /create user/i }))
+    expect(await within(group).findByText('Choose at least one warehouse.')).toBeVisible()
+    expect(within(group).getByRole('checkbox', { name: /Main Store/ })).toHaveFocus()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+
+    await user.click(within(group).getByRole('checkbox', { name: /North Depot/ }))
+    expect(within(group).queryByText('Choose at least one warehouse.')).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: /create user/i }))
+
+    await waitFor(() => fetch.requestFor('POST', '/users'))
+    expect(fetch.requestFor('POST', '/users')).toMatchObject({
+      email: 'ravi@atcraft.example',
+      allowed_warehouse_ids: [NORTH],
+    })
+  })
+
+  it('lets an unrestricted administrator leave every warehouse open, and says so', async () => {
+    const { user, fetch } = renderAssignment(
+      { allowed_warehouse_ids: [] },
+      { 'POST /users': ok({ ...SAVED, allowed_warehouse_ids: [] }) },
+    )
+    const { dialog, group } = await fillNewUser(user)
+
+    expect(
+      within(group).getByText('Tick none and the account may use every warehouse.'),
+    ).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: /create user/i }))
+
+    await waitFor(() => fetch.requestFor('POST', '/users'))
+    expect(fetch.requestFor('POST', '/users')).toMatchObject({ allowed_warehouse_ids: [] })
+  })
+
+  it('says a refused warehouse on the warehouse list, once, and keeps the form', async () => {
+    // The administrator's own assignment was narrowed after they signed in, so
+    // the API refuses a warehouse the form still offered.
+    const { user, fetch } = renderAssignment(LIMITED_ADMIN, {
+      'POST /users': fail(
+        403,
+        'SCOPE_DENIED',
+        'You can only give or take away warehouses you are assigned to.',
+        { warehouse_ids: [NORTH] },
+      ),
+    })
+    const { dialog, group } = await fillNewUser(user)
+
+    await user.click(within(group).getByRole('checkbox', { name: /North Depot/ }))
+    await user.click(within(dialog).getByRole('button', { name: /create user/i }))
+
+    expect(
+      await within(group).findByText(
+        'You can only give or take away warehouses you are assigned to.',
+      ),
+    ).toBeVisible()
+    expect(within(group).getByRole('checkbox', { name: /Main Store/ })).toHaveFocus()
+    // Said once: an error toast never dismisses itself, so a copy would outlive the form.
+    expect(toastAlerts()).toHaveLength(0)
+    expect(within(dialog).getByRole('button', { name: /create user/i })).toBeEnabled()
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('says any other refusal on the form, once', async () => {
+    // The form owns its failures now, so the one with no field behind it -
+    // here the address already in use - must still be said, above the buttons.
+    const { user } = renderAssignment(LIMITED_ADMIN, {
+      'POST /users': fail(
+        409,
+        'DUPLICATE_RECORD',
+        'An account with the address ravi@atcraft.example already exists in this company.',
+      ),
+    })
+    const { dialog, group } = await fillNewUser(user)
+
+    await user.click(within(group).getByRole('checkbox', { name: /Main Store/ }))
+    await user.click(within(dialog).getByRole('button', { name: /create user/i }))
+
+    expect(await within(dialog).findByText(/already exists in this company/)).toBeVisible()
+    expect(toastAlerts()).toHaveLength(0)
+  })
+
+  it('locks a warehouse the account holds outside their own, and keeps it in the list sent', async () => {
+    const { user, fetch } = renderAssignment(LIMITED_ADMIN, editRoutes([MAIN, FAR]))
+    const { dialog, group } = await openEdit(user)
+
+    const locked = await within(group).findByRole('checkbox', {
+      name: /outside your own assignment/i,
+    })
+    expect(locked).toBeChecked()
+    expect(locked).toBeDisabled()
+    expect(within(group).getByRole('checkbox', { name: /Main Store/ })).toBeChecked()
+    expect(within(group).getByRole('checkbox', { name: /North Depot/ })).not.toBeChecked()
+
+    // Moving their own warehouses is theirs to do; the far one rides along.
+    await user.click(within(group).getByRole('checkbox', { name: /Main Store/ }))
+    await user.click(within(group).getByRole('checkbox', { name: /North Depot/ }))
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/users/u-ravi'))
+    expect(fetch.requestFor('PATCH', '/users/u-ravi')).toMatchObject({
+      allowed_warehouse_ids: [FAR, NORTH],
+    })
+  })
+
+  it('states an unrestricted account they cannot limit, and leaves it out of the save', async () => {
+    const { user, fetch } = renderAssignment(LIMITED_ADMIN, editRoutes([]))
+    const { dialog, group } = await openEdit(user)
+
+    expect(within(group).getByText(/this account may use every warehouse/i)).toBeVisible()
+    expect(within(group).queryByRole('checkbox')).toBeNull()
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/users/u-ravi'))
+    expect(fetch.requestFor('PATCH', '/users/u-ravi')).not.toHaveProperty('allowed_warehouse_ids')
+  })
+
+  it('leaves an assignment nobody touched out of the save', async () => {
+    // An unchanged list needs no authority, and resending the one read when the
+    // form opened would undo a change another administrator made meanwhile.
+    const { user, fetch } = renderAssignment(LIMITED_ADMIN, editRoutes([MAIN]))
+    const { dialog, group } = await openEdit(user)
+
+    expect(await within(group).findByRole('checkbox', { name: /Main Store/ })).toBeChecked()
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/users/u-ravi'))
+    expect(fetch.requestFor('PATCH', '/users/u-ravi')).not.toHaveProperty('allowed_warehouse_ids')
   })
 })
 
