@@ -329,19 +329,10 @@ class VendorPortalService:
                     for key in ADDRESS_FIELDS
                     if getattr(warehouse, key, None)
                 )
-        labels = await self.repo.line_labels(order_id)
-        lines = [
-            VendorPortalOrderLine.model_validate(
-                {
-                    **line.model_dump(),
-                    "item_code": labels.get(line.id, {}).get("code"),
-                    "item_name": labels.get(line.id, {}).get("name"),
-                    "item_category_id": labels.get(line.id, {}).get("category_id"),
-                    "uom_code": labels.get(line.id, {}).get("uom_code"),
-                }
-            )
-            for line in detail.lines
-        ]
+        # The order read already names each line's item, category and unit
+        # (procurement fills them for every reader); the vendor's narrower line
+        # model keeps those and drops the internal fields.
+        lines = [VendorPortalOrderLine.model_validate(line.model_dump()) for line in detail.lines]
         embed = PageParams(limit=DETAIL_EMBED_LIMIT)
         shipments, shipments_page = await inbound_service.list_shipments(
             self.session, self.tenant, order_id, embed

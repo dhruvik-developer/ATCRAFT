@@ -382,7 +382,11 @@ async def test_the_vendor_reads_no_internal_fields(api_client, session, tenant, 
     assert "Internal" not in str(detail)
     line = detail["lines"][0]
     assert "requisition_line_id" not in line and "notes" not in line
+    # Named by the order read itself - the vendor holds no master-data rights.
     assert line["item_code"].startswith("RM-")
+    assert line["item_name"]
+    assert line["uom_code"] == world["uom"].code
+    assert "item_default_location_id" not in line
     # The timeline starts when the order was sent; drafting and approval are internal.
     assert [event["to_status"] for event in detail["timeline"]] == ["SENT"]
 

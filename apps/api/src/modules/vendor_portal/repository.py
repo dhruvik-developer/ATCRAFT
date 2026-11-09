@@ -377,37 +377,6 @@ class VendorPortalRepository:
 
     # --- one order ----------------------------------------------------------
 
-    async def line_labels(self, order_id: uuid.UUID) -> dict[uuid.UUID, dict[str, Any]]:
-        """Item code, name, category and unit code per line - the vendor holds no master rights."""
-        stmt = (
-            select(
-                PurchaseOrderLine.id,
-                Item.code,
-                Item.name,
-                Item.category_id,
-                UnitOfMeasure.code.label("uom_code"),
-            )
-            .join(
-                Item,
-                and_(
-                    Item.id == PurchaseOrderLine.item_id,
-                    Item.company_id == PurchaseOrderLine.company_id,
-                ),
-            )
-            .outerjoin(
-                UnitOfMeasure,
-                and_(
-                    UnitOfMeasure.id == PurchaseOrderLine.uom_id,
-                    UnitOfMeasure.company_id == PurchaseOrderLine.company_id,
-                ),
-            )
-            .where(
-                PurchaseOrderLine.company_id == self.tenant.company_id,
-                PurchaseOrderLine.purchase_order_id == order_id,
-            )
-        )
-        return {r.id: dict(r._mapping) for r in (await self.session.execute(stmt)).all()}
-
     async def warehouse(self, warehouse_id: uuid.UUID) -> Warehouse | None:
         return await self.session.scalar(
             select(Warehouse).where(
