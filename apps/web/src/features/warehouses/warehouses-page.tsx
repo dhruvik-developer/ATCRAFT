@@ -426,7 +426,6 @@ export default function WarehousesPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => setExpandedId(row.id === expandedId ? null : row.id)}
         emptyTitle="No warehouses"
-        emptyDescription="Nothing matches the current filters."
         emptyAction={newWarehouseButton}
         toolbar={
           <>

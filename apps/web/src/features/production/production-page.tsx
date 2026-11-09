@@ -33,6 +33,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { usePlantOptions } from '@/hooks/use-organisation-options'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -327,7 +328,7 @@ function OrdersTable({ emptyAction }: { emptyAction: React.ReactNode }) {
       getRowId={(row) => row.id}
       onRowClick={(row) => navigate(`/production/${row.id}`)}
       emptyTitle="No production orders found"
-      emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
+      emptyDescription={empty.filteredWiden('date window')}
       emptyAction={emptyAction}
       toolbar={
         <>

@@ -19,7 +19,7 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { EMPTY_VALUE, formatDate, formatDateTime, formatMoney, humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { courierRefresh, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -94,9 +94,7 @@ export function PurchaseOrderInboundPanel({ order }: { order: InboundPurchaseOrd
     onSuccess: async (result) => {
       await refresh()
       toast.success(
-        result.events_recorded > 0
-          ? 'Courier tracking refreshed'
-          : 'No new courier events were available',
+        result.events_recorded > 0 ? courierRefresh.refreshed : courierRefresh.noNewEvents,
       )
     },
   })

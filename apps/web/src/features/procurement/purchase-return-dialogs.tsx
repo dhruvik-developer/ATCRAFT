@@ -86,7 +86,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { describeError, errors, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1278,9 +1278,7 @@ export function PurchaseReturnCancelDialog({
           className="mt-1.5"
           aria-invalid={touched && tooShort}
         />
-        {touched && tooShort && (
-          <FieldError message={`Record at least ${REASON_MIN_LENGTH} characters of reason`} />
-        )}
+        {touched && tooShort && <FieldError message={errors.reasonTooShort} />}
       </div>
     </ConfirmDialog>
   )

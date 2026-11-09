@@ -53,6 +53,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -424,7 +425,7 @@ export default function PaymentsPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => setDetailId(row.id)}
         emptyTitle="No payments"
-        emptyDescription="Nothing matches these filters. A payment or receipt appears here as soon as it is recorded, and stays in draft until someone approves it."
+        emptyDescription={`${empty.filtered} A payment or receipt appears here as soon as it is recorded, and stays in draft until someone approves it.`}
         emptyAction={recordButton}
         toolbar={
           <>

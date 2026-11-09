@@ -40,7 +40,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatQuantity, humanise, plural, toDecimal } from '@/lib/format'
 import { api } from '@/lib/api-client'
-import { success } from '@/lib/messages'
+import { empty, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -324,7 +324,7 @@ export default function GoodsReceiptsPage() {
         searchPlaceholder="Search receipt code, delivery note or invoice..."
         getRowId={(row) => row.id}
         emptyTitle="No goods receipts found"
-        emptyDescription="Nothing matches the current filters. Widen the date window, or receive against an open order."
+        emptyDescription={`${empty.filtered} Widen the date window, or receive against an open order.`}
         emptyAction={receiveButton}
         toolbar={
           <>

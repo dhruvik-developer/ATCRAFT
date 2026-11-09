@@ -469,6 +469,6 @@ describe('when the list does not arrive', () => {
     })
 
     expect(await screen.findByText('No dealer accounts found')).toBeVisible()
-    expect(screen.getByText(/Nothing matches these filters/i)).toBeVisible()
+    expect(screen.getByText(/Nothing matches the current filters/i)).toBeVisible()
   })
 })

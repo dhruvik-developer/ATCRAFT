@@ -51,6 +51,7 @@ import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -363,7 +364,7 @@ export default function RfqsPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => navigate(`/procurement/rfqs/${row.id}`)}
         emptyTitle="No requests for quotation"
-        emptyDescription="Nothing matches these filters. Raise an RFQ to ask several vendors to price the same lines, then compare what comes back."
+        emptyDescription={`${empty.filtered} Raise an RFQ to ask several vendors to price the same lines, then compare what comes back.`}
         emptyAction={newRfqButton}
         toolbar={
           <>

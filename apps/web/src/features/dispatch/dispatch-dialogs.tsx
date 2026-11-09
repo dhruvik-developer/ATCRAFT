@@ -86,7 +86,7 @@ import {
   toDateTimeInput,
   toDecimal,
 } from '@/lib/format'
-import { describeError, fulfilment, success, validation } from '@/lib/messages'
+import { courierRefresh, describeError, fulfilment, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1813,9 +1813,7 @@ export function DispatchTimelineDialog({
         queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all }),
       ])
       toast.success(
-        result.events_recorded > 0
-          ? 'Courier tracking refreshed'
-          : 'No new courier events were available',
+        result.events_recorded > 0 ? courierRefresh.refreshed : courierRefresh.noNewEvents,
       )
     },
     meta: { errorTitle: 'Could not refresh courier tracking' },

@@ -42,6 +42,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -341,7 +342,7 @@ export default function TransportersPage() {
         emptyTitle="No transporters found"
         emptyDescription={
           filterCount > 0
-            ? 'Nothing matches the current filters. Clear one, or tick "Include retired" if the carrier was withdrawn.'
+            ? `${empty.filtered} Clear one, or tick "Include retired" if the carrier was withdrawn.`
             : 'Add the carriers and couriers you dispatch with, so a consignment can name one and its tracking link resolves.'
         }
         emptyAction={newTransporterButton}

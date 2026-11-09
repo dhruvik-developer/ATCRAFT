@@ -51,6 +51,7 @@ import { useCategoryOptions } from '@/features/items/item-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -372,7 +373,7 @@ export default function QcTemplatesPage() {
         }
         emptyDescription={
           filterCount > 0
-            ? 'Nothing matches these filters. Superseded versions are hidden until you ask for them, and a retired specification is gone from every list.'
+            ? `${empty.filtered} Superseded versions are hidden until you ask for them, and a retired specification is gone from every list.`
             : 'Until one exists, an inspection has no check sheet and can only be dispositioned on judgement. Write the specification for an item, a category, or a whole stage.'
         }
         emptyAction={newTemplateButton}

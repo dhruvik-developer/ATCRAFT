@@ -74,7 +74,7 @@ import {
   plural,
   toDecimal,
 } from '@/lib/format'
-import { fulfilment, success } from '@/lib/messages'
+import { empty, fulfilment, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1006,7 +1006,7 @@ export default function SalesOrderDetailPage() {
         />
         <EmptyState
           title="Order not found"
-          description="It may have been removed, or the link may be wrong."
+          description={empty.notFoundDetail}
           action={
             <Button variant="outline" asChild>
               <Link to="/sales-orders">Back to sales orders</Link>

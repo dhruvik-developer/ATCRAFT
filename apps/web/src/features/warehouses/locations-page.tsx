@@ -54,6 +54,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatDateTime, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -558,7 +559,7 @@ export default function LocationsPage() {
         emptyDescription={
           parentLocationId
             ? 'This location has no sub-locations. Clear the nesting filter to go back to the full list.'
-            : 'Nothing matches these filters. Stock can still be held at warehouse level - racks and bins are added inside a warehouse, on the warehouses screen.'
+            : `${empty.filtered} Stock can still be held at warehouse level - racks and bins are added inside a warehouse, on the warehouses screen.`
         }
         emptyAction={parentLocationId ? undefined : addLocationHint}
         toolbar={

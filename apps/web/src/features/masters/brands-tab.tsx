@@ -34,6 +34,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { manufacturerLabeller, useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -191,7 +192,7 @@ export function BrandsTab() {
         emptyDescription={
           canManage
             ? 'Add the brands this company sells under, and they appear on every item form.'
-            : 'Nothing matches the current filters.'
+            : empty.filtered
         }
         emptyAction={newButton}
         toolbar={

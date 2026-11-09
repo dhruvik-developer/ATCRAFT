@@ -61,6 +61,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatDateTime, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -561,7 +562,7 @@ export default function AccountsPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => setSelected(row)}
         emptyTitle="No accounts match"
-        emptyDescription="Nothing here matches the current filters. Clear one, or widen the status to include retired accounts. A company's control accounts appear the first time the module posts to them."
+        emptyDescription={`${empty.filtered} Clear one, or widen the status to include retired accounts. A company's control accounts appear the first time the module posts to them.`}
         toolbar={
           <>
             <Select

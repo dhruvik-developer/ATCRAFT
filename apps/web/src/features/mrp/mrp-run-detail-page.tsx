@@ -99,6 +99,7 @@ import {
   humanise,
   plural,
 } from '@/lib/format'
+import { empty, errors } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -930,7 +931,7 @@ export default function MrpRunDetailPage() {
         <PageHeader title="MRP run" breadcrumbs={[{ label: 'MRP', to: '/mrp' }]} />
         <EmptyState
           title="Run not found"
-          description="It may have been removed, or the link may be wrong."
+          description={empty.notFoundDetail}
           action={
             <Button variant="outline" asChild>
               <Link to="/mrp">Back to MRP</Link>
@@ -1445,7 +1446,7 @@ export default function MrpRunDetailPage() {
               message={
                 ignoreReason.trim() === ''
                   ? 'A reason is recorded against every ignored suggestion'
-                  : `Record at least ${REASON_MIN_LENGTH} characters of reason`
+                  : errors.reasonTooShort
               }
             />
           )}

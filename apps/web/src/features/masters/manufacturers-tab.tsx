@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -184,7 +185,7 @@ export function ManufacturersTab() {
         emptyDescription={
           canManage
             ? 'Add the makers whose parts this company uses, starting with its own works.'
-            : 'Nothing matches the current filters.'
+            : empty.filtered
         }
         emptyAction={newButton}
         toolbar={

@@ -33,6 +33,7 @@ import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatMoney, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn, indexById } from '@/lib/utils'
@@ -268,7 +269,7 @@ export default function ItemsPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => navigate(`/items/${row.id}`)}
         emptyTitle="No items found"
-        emptyDescription="Nothing matches the current filters. Widen the search or clear a filter."
+        emptyDescription={empty.filteredWiden('search')}
         emptyAction={newItemButton}
         toolbar={
           <>

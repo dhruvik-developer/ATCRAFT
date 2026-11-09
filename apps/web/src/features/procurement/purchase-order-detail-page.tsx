@@ -82,7 +82,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { empty, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -750,7 +750,7 @@ export default function PurchaseOrderDetailPage() {
         />
         <EmptyState
           title="Order not found"
-          description="It may have been removed, or the link may be wrong."
+          description={empty.notFoundDetail}
           action={
             <Button variant="outline" asChild>
               <Link to="/procurement/purchase-orders">Back to purchase orders</Link>

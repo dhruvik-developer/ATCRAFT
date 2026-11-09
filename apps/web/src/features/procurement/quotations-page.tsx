@@ -51,6 +51,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -402,7 +403,7 @@ export default function QuotationsPage() {
         emptyTitle="No quotations found"
         emptyDescription={
           filterCount > 0
-            ? 'Nothing matches these filters. Clear one, or record what the vendor quoted.'
+            ? `${empty.filtered} Clear one, or record what the vendor quoted.`
             : 'Quotations appear here once a vendor answers an RFQ. Record what each one quoted and the comparison ranks them for you.'
         }
         emptyAction={recordButton}

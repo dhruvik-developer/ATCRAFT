@@ -54,7 +54,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatNumber, formatPercent, humanise, toDecimal } from '@/lib/format'
-import { describeError, messages, success } from '@/lib/messages'
+import { describeError, empty, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -724,7 +724,7 @@ export default function VendorsPage() {
         searchPlaceholder="Search code, name, GSTIN or city..."
         getRowId={(row) => row.id}
         emptyTitle="No vendors found"
-        emptyDescription="Nothing matches the current filters. Clear a filter, or add the supplier."
+        emptyDescription={`${empty.filtered} Clear a filter, or add the supplier.`}
         emptyAction={newVendorButton}
         toolbar={
           <>

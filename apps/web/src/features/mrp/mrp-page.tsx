@@ -52,7 +52,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { empty, success } from '@/lib/messages'
 import { formatDateTime, formatNumber, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -478,7 +478,7 @@ export default function MrpPage() {
         emptyDescription={
           can(P.MRP_RUN)
             ? 'Set a horizon above and run MRP to see what the order book needs.'
-            : 'Nothing matches the current filters.'
+            : empty.filtered
         }
         toolbar={
           <>

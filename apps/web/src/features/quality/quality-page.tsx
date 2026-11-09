@@ -45,6 +45,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatQuantity, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -541,7 +542,7 @@ function InspectionsTab({
       emptyDescription={
         reworkOnly
           ? 'Nothing is holding quantity for rework. Lots the verdict sends for rework land here.'
-          : 'Nothing matches the current filters. Clear them to see the full history.'
+          : `${empty.filtered} Clear them to see the full history.`
       }
       toolbar={
         <>

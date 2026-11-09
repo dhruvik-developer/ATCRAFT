@@ -36,6 +36,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -221,7 +222,7 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
         getRowId={(row) => row.id}
         onRowClick={(row) => setOpenRoutingId(row.id)}
         emptyTitle="No routings found"
-        emptyDescription="A routing describes the operations a product passes through. Nothing matches the current filters."
+        emptyDescription={`A routing describes the operations a product passes through. ${empty.filtered}`}
         emptyAction={newButton}
         toolbar={
           <>

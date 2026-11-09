@@ -50,6 +50,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -337,7 +338,7 @@ export default function PurchaseOrdersPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => navigate(`/procurement/purchase-orders/${row.id}`)}
         emptyTitle="No purchase orders found"
-        emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
+        emptyDescription={empty.filteredWiden('date window')}
         emptyAction={newOrderButton}
         toolbar={
           <>

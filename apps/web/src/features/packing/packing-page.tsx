@@ -51,7 +51,7 @@ import {
   toDateInput,
 } from '@/lib/format'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { describeError } from '@/lib/messages'
+import { describeError, empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -445,7 +445,7 @@ export default function PackingPage() {
         searchPlaceholder="Search packing order code..."
         getRowId={(row) => row.id}
         emptyTitle="No packing orders"
-        emptyDescription="Nothing matches the current filters. Raise a standalone or sales-order packing order, or pack a completed assembly above."
+        emptyDescription={`${empty.filtered} Raise a standalone or sales-order packing order, or pack a completed assembly above.`}
         toolbar={
           <>
             <Select

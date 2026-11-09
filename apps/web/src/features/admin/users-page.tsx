@@ -403,7 +403,6 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
         searchPlaceholder="Search name, email or employee code..."
         getRowId={(row) => row.id}
         emptyTitle="No users"
-        emptyDescription="Nothing matches the current filters."
         emptyAction={newUserButton}
         toolbar={
           <>
@@ -708,7 +707,6 @@ function RolesTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
         getRowId={(row) => row.id}
         onRowClick={(row) => onOpenRole(row.id)}
         emptyTitle="No roles"
-        emptyDescription="Nothing matches the current filters."
         emptyAction={newRoleButton}
       />
 

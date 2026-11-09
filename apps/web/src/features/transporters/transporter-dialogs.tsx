@@ -53,7 +53,7 @@ import {
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
-import { success, validation } from '@/lib/messages'
+import { errors, success, validation } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, PAN_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -705,9 +705,7 @@ export function TransporterCommandDialog({
             className="mt-1.5"
             aria-invalid={touched && reasonTooShort}
           />
-          {touched && reasonTooShort && (
-            <FieldError message={`Record at least ${REASON_MIN_LENGTH} characters of reason`} />
-          )}
+          {touched && reasonTooShort && <FieldError message={errors.reasonTooShort} />}
           <p className="mt-1 text-xs text-muted-foreground">
             Kept in the audit trail. Six months from now this is the only record of why the carrier
             was taken out of use.

@@ -58,6 +58,7 @@ import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { ShiftSelect } from '@/features/shifts/shift-select'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDateTime, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -489,7 +490,7 @@ export default function WorkOrdersPage() {
             onRefresh={() => void list.refetch()}
             getRowId={(row) => row.id}
             emptyTitle="No operations here"
-            emptyDescription="Nothing matches these filters. Operations appear when a production order is released - the release turns its routing into one work order per step."
+            emptyDescription={`${empty.filtered} Operations appear when a production order is released - the release turns its routing into one work order per step.`}
             toolbar={
               <>
                 <div>

@@ -86,7 +86,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, humanise, toDecimal } from '@/lib/format'
-import { describeError, joinValidationMessages, success } from '@/lib/messages'
+import { describeError, errors, joinValidationMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1645,9 +1645,7 @@ export function QcTemplateRetireDialog({
           className="mt-1.5"
           aria-invalid={touched && tooShort}
         />
-        {touched && tooShort && (
-          <FieldError message={`Record at least ${REASON_MIN_LENGTH} characters of reason`} />
-        )}
+        {touched && tooShort && <FieldError message={errors.reasonTooShort} />}
       </div>
     </ConfirmDialog>
   )

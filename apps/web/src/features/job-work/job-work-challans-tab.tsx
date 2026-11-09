@@ -19,6 +19,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { formatDate, formatMoney, formatQuantity } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -147,7 +148,7 @@ export default function JobWorkChallansTab() {
       searchPlaceholder="Search challan code or vehicle..."
       getRowId={(row) => row.id}
       emptyTitle="No challans found"
-      emptyDescription="Nothing matches the current filters. Clear a filter to see the rest."
+      emptyDescription={`${empty.filtered} Clear a filter to see the rest.`}
       toolbar={
         <>
           <VendorPicker

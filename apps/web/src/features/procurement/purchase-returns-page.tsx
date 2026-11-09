@@ -45,6 +45,7 @@ import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -351,7 +352,7 @@ export default function PurchaseReturnsPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => setDetailId(row.id)}
         emptyTitle="No purchase returns found"
-        emptyDescription="Nothing matches the current filters. A return always starts from a posted goods receipt - raise one to send material back to the vendor."
+        emptyDescription={`${empty.filtered} A return always starts from a posted goods receipt - raise one to send material back to the vendor.`}
         emptyAction={newReturnButton}
         toolbar={
           <>

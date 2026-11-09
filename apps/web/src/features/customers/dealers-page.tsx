@@ -41,6 +41,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { EMPTY_VALUE, formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -384,7 +385,7 @@ export default function DealersPage() {
         emptyTitle="No dealer accounts found"
         emptyDescription={
           filterCount > 0 || list.search
-            ? 'Nothing matches these filters. Clear one, or widen the search.'
+            ? `${empty.filtered} Clear one, or widen the search.`
             : 'An account appears here as soon as it is opened on the Customers screen with the Dealer or Distributor channel.'
         }
         toolbar={

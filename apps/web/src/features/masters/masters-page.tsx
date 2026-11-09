@@ -82,6 +82,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -335,8 +336,8 @@ function CategoriesTab() {
           parentId
             ? 'This branch has no sub-categories yet. Add one, or clear the drill-down to see the whole tree.'
             : canManage
-              ? 'Nothing matches the current filters. Clear a filter, or create the first category.'
-              : 'Nothing matches the current filters. Clear a filter to see the whole tree.'
+              ? `${empty.filtered} Clear a filter, or create the first category.`
+              : `${empty.filtered} Clear a filter to see the whole tree.`
         }
         emptyAction={newButton}
         toolbar={
@@ -528,8 +529,8 @@ function UnitsTab() {
         emptyTitle="No units of measure"
         emptyDescription={
           canManage
-            ? 'Nothing matches the current filters. Every item needs a base unit, so start with one per measurement family you use.'
-            : 'Nothing matches the current filters. Clear a filter to see every unit.'
+            ? `${empty.filtered} Every item needs a base unit, so start with one per measurement family you use.`
+            : `${empty.filtered} Clear a filter to see every unit.`
         }
         emptyAction={newButton}
         toolbar={
@@ -1157,8 +1158,8 @@ function PricesTab() {
           emptyTitle="No prices for this item"
           emptyDescription={
             canManage
-              ? 'Nothing matches the current filters. Add the first price for a channel, and leave the end date empty for one that runs until it is superseded.'
-              : 'Nothing matches the current filters. Clear a filter to see every price on this item.'
+              ? `${empty.filtered} Add the first price for a channel, and leave the end date empty for one that runs until it is superseded.`
+              : `${empty.filtered} Clear a filter to see every price on this item.`
           }
           emptyAction={newButton}
           toolbar={

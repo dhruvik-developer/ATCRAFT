@@ -33,6 +33,7 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -261,7 +262,7 @@ export default function SalesOrdersPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => navigate(`/sales-orders/${row.id}`)}
         emptyTitle="No sales orders found"
-        emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
+        emptyDescription={empty.filteredWiden('date window')}
         emptyAction={newOrderButton}
         toolbar={
           <>

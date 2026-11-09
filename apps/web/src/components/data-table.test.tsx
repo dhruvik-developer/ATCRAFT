@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SEARCH_DEBOUNCE_MS, SEARCH_MAX_LENGTH } from '@/lib/constants'
 import { ApiError } from '@/lib/api-client'
-import { errors } from '@/lib/messages'
+import { empty, errors } from '@/lib/messages'
 
 import { CellButton, DataTable } from './data-table'
 
@@ -56,6 +56,45 @@ describe('shared table errors', () => {
       />,
     )
     expect(screen.getByText('Please retry. (reference abcdef12)')).toBeVisible()
+  })
+})
+
+describe('the empty table', () => {
+  const columns = [{ accessorKey: 'code', header: 'Code' }]
+
+  it('says the shared filtered sentence when a screen gives none of its own', () => {
+    render(<DataTable columns={columns} data={[]} />)
+    expect(screen.getByText(empty.title)).toBeVisible()
+    // The wording thirty list screens already used, so a list that leaves the
+    // sentence to the table reads the same as its neighbours.
+    expect(screen.getByText('Nothing matches the current filters.')).toBeVisible()
+    expect(empty.filtered).toBe('Nothing matches the current filters.')
+  })
+
+  it('composes a screen hint after the shared sentence, and names the control to widen', () => {
+    const { rerender } = render(
+      <DataTable
+        columns={columns}
+        data={[]}
+        emptyDescription={`${empty.filtered} Clear a filter, or add the supplier.`}
+      />,
+    )
+    expect(
+      screen.getByText('Nothing matches the current filters. Clear a filter, or add the supplier.'),
+    ).toBeVisible()
+
+    rerender(
+      <DataTable
+        columns={columns}
+        data={[]}
+        emptyDescription={empty.filteredWiden('date window')}
+      />,
+    )
+    expect(
+      screen.getByText(
+        'Nothing matches the current filters. Widen the date window or clear a filter.',
+      ),
+    ).toBeVisible()
   })
 })
 

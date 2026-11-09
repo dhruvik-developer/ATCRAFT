@@ -62,7 +62,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { empty, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -861,7 +861,7 @@ function DispatchesTab({
       searchPlaceholder="Search dispatch code or tracking id..."
       getRowId={(row) => row.id}
       emptyTitle="No dispatches found"
-      emptyDescription="Nothing matches the current filters. Widen them, or create a dispatch for a consignment leaving today."
+      emptyDescription={`${empty.filtered} Widen them, or create a dispatch for a consignment leaving today.`}
       toolbar={
         <>
           <Select

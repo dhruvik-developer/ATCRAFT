@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
+import { courierRefresh } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteRequest } from '@/test/harness'
 import type { SchemaOf } from '@/types/api'
@@ -178,6 +179,35 @@ describe('purchase order inbound controls', () => {
     // The control is usable again only once both of TanStack's onError hooks ran.
     await waitFor(() => expect(refresh).toBeEnabled())
     expect(within(region).getAllByRole('alert')).toHaveLength(before + 1)
+  })
+
+  it('says what a courier refresh found, in the words the dispatch dialog uses too', async () => {
+    let recorded = 0
+    const { user } = renderScreen(
+      <>
+        <PurchaseOrderInboundPanel order={order} />
+        <Toaster />
+      </>,
+      {
+        permissions: [P.PURCHASE_ORDER_VIEW, P.DISPATCH_UPDATE],
+        routes: {
+          ...related,
+          'POST /integrations/courier/refresh': () => ok({ events_recorded: recorded }),
+        },
+      },
+    )
+
+    const region = screen.getByRole('region', { name: 'Notifications' })
+    const refresh = await screen.findByRole('button', { name: 'Refresh tracking' })
+    await user.click(refresh)
+    expect(await within(region).findByText(courierRefresh.noNewEvents)).toBeVisible()
+
+    // The refresh re-reads the shipments, which draws the row and its button anew.
+    recorded = 2
+    const again = await screen.findByRole('button', { name: 'Refresh tracking' })
+    await waitFor(() => expect(again).toBeEnabled())
+    await user.click(again)
+    expect(await within(region).findByText(courierRefresh.refreshed)).toBeVisible()
   })
 
   it('explains a vendor decline while shipment creation stays unavailable', async () => {

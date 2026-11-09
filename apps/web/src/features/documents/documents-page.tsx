@@ -76,7 +76,7 @@ import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary, partitionFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatFileSize, humanise } from '@/lib/format'
-import { describeError, joinValidationMessages, messages, success } from '@/lib/messages'
+import { describeError, empty, joinValidationMessages, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -967,7 +967,7 @@ export default function DocumentsPage() {
         emptyTitle="No documents found"
         emptyDescription={
           narrowed
-            ? 'Nothing matches these filters. Clear one, or tick "Include expired" to see files past their retention date.'
+            ? `${empty.filtered} Clear one, or tick "Include expired" to see files past their retention date.`
             : canUpload
               ? 'Files attached to an inspection, a packing order or a report land here. Upload one to start.'
               : 'Files attached to an inspection, a packing order or a report land here. Nothing has been stored yet.'

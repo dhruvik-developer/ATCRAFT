@@ -89,7 +89,7 @@ import {
   humanise,
   plural,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { empty, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -1039,7 +1039,7 @@ export default function BomDetailPage() {
         />
         <EmptyState
           title="Bill not found"
-          description="It may have been removed, or the link may be wrong."
+          description={empty.notFoundDetail}
           action={
             <Button variant="outline" asChild>
               <Link to="/bom">Back to bills of material</Link>

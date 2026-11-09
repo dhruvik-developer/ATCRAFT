@@ -66,7 +66,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
-import { errors, success } from '@/lib/messages'
+import { empty, errors, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -676,7 +676,7 @@ export default function RequisitionsPage() {
         searchPlaceholder="Search requisition code or purpose..."
         getRowId={(row) => row.id}
         emptyTitle="No requisitions found"
-        emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
+        emptyDescription={empty.filteredWiden('date window')}
         toolbar={
           <>
             <Select

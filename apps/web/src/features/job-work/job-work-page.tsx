@@ -80,7 +80,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { errors, success } from '@/lib/messages'
+import { empty, errors, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -601,7 +601,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
         searchPlaceholder="Search order code or process..."
         getRowId={(row) => row.id}
         emptyTitle="No job work orders found"
-        emptyDescription="Nothing matches the current filters. Clear a filter to see the rest."
+        emptyDescription={`${empty.filtered} Clear a filter to see the rest.`}
         emptyAction={newOrderButton}
         toolbar={
           <>

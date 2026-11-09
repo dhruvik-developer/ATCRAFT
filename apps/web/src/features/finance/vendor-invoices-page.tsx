@@ -45,6 +45,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, humanise } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
@@ -325,7 +326,7 @@ export default function VendorInvoicesPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => setOpenInvoiceId(row.id)}
         emptyTitle="No vendor invoices"
-        emptyDescription="Nothing matches these filters. Every supplier bill recorded here is listed, with or without a purchase order; linking one to an order or a goods receipt is what enables the three-way match."
+        emptyDescription={`${empty.filtered} Every supplier bill recorded here is listed, with or without a purchase order; linking one to an order or a goods receipt is what enables the three-way match.`}
         toolbar={
           <>
             <Select

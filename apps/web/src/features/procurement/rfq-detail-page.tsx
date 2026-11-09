@@ -53,6 +53,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { api } from '@/lib/api-client'
 import { formatDate, formatDateTime, formatNumber, formatQuantity, toDecimal } from '@/lib/format'
+import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { cn, indexById } from '@/lib/utils'
@@ -348,7 +349,7 @@ export default function RfqDetailPage() {
         />
         <EmptyState
           title="RFQ not found"
-          description="It may have been removed, or the link may be wrong."
+          description={empty.notFoundDetail}
           action={
             <Button variant="outline" asChild>
               <Link to="/procurement/rfqs">Back to the RFQ list</Link>

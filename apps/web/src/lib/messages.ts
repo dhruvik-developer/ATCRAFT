@@ -217,9 +217,19 @@ export function notificationsRead(
 
 // ------------------------------------------------------- empty states ------
 
+const FILTERED = 'Nothing matches the current filters.'
+
 export const empty = {
   title: 'Nothing here yet',
-  filtered: 'No records match the current filters.',
+  /**
+   * Under a list a filter or a search has emptied - the table's default. A
+   * screen with a hint of its own says it after this: `${empty.filtered} ...`.
+   */
+  filtered: FILTERED,
+  /** The same, naming the control to loosen: the 'date window' or the 'search'. */
+  filteredWiden: (what: string) => `${FILTERED} Widen the ${what} or clear a filter.`,
+  /** Under a detail page's "<Record> not found". */
+  notFoundDetail: 'It may have been removed, or the link may be wrong.',
   loadFailedTitle: 'Could not load this list',
   loadFailedAction: 'Try again',
   /**
@@ -242,6 +252,14 @@ export const picker = {
   searching: 'Searching...',
   /** Under a page of matches that the server says is not all of them. */
   more: (shown: number) => `Showing the first ${shown}. Type more to narrow the search.`,
+} as const
+
+// ------------------------------------------------------------ courier ------
+
+/** Asking the courier for fresh tracking, from a dispatch or an inbound shipment. */
+export const courierRefresh = {
+  refreshed: 'Courier tracking refreshed',
+  noNewEvents: 'No new courier events were available',
 } as const
 
 // ------------------------------------------------------------ prompts ------
