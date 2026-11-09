@@ -453,6 +453,88 @@ describe('completing an assembly', () => {
     expect(await screen.findByText(/Serial numbers are not readable by your account/)).toBeVisible()
   })
 
+  const SERIAL_READER = [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_COMPLETE, P.INVENTORY_VIEW]
+
+  function stockSerial(id: string, serialNumber: string) {
+    return {
+      id,
+      item_id: 'item-bbb-0001',
+      serial_number: serialNumber,
+      warehouse_id: 'wh-1',
+      status: 'IN_STOCK',
+    }
+  }
+
+  it('names a serial from the register at the order warehouse and sends it with its line', async () => {
+    const order = inProgress()
+    const searches: URLSearchParams[] = []
+    const { user, fetch } = renderScreen(<AssemblyPage />, {
+      permissions: SERIAL_READER,
+      routes: {
+        ...panelRoutes(order, [assemblyComponent({ is_serial_tracked_component: true })]),
+        'GET /inventory/serials': ({ url }) => {
+          searches.push(url.searchParams)
+          return page([stockSerial('ser-1', 'SN-0001'), stockSerial('ser-2', 'SN-0002')])
+        },
+        'POST /assembly/asm-1/complete': ok({
+          order: { ...order, status: 'COMPLETED' },
+          consume_movement_count: 1,
+          output_quantity: '6.0000',
+          output_held_for_qc: false,
+          qc_inspection_created: false,
+        }),
+      },
+    })
+    await openPanel(user)
+    await user.click(screen.getByRole('button', { name: 'Complete' }))
+
+    await user.click(await screen.findByRole('button', { name: /^SN-0002/ }))
+    // Named, it leaves the list for the chips above it, which can take it back.
+    expect(screen.getByRole('button', { name: 'Remove serial SN-0002' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /^SN-0002/ })).toBeNull()
+    expect(searches.at(-1)?.get('item_id')).toBe('item-bbb-0001')
+    expect(searches.at(-1)?.get('warehouse_id')).toBe('wh-1')
+    await user.click(screen.getByRole('button', { name: 'Complete assembly' }))
+
+    await waitFor(() => fetch.requestFor('POST', '/assembly/asm-1/complete'))
+    expect(fetch.requestFor('POST', '/assembly/asm-1/complete')).toMatchObject({
+      components: [{ line_number: 1, serial_ids: ['ser-2'] }],
+    })
+  })
+
+  it('says a failed serial search rather than passing it off as no match', async () => {
+    const order = inProgress()
+    const { user } = renderScreen(<AssemblyPage />, {
+      permissions: SERIAL_READER,
+      routes: {
+        ...panelRoutes(order, [assemblyComponent({ is_serial_tracked_component: true })]),
+        'GET /inventory/serials': fail(403, 'PERMISSION_DENIED', 'This warehouse is not yours'),
+      },
+    })
+    await openPanel(user)
+    await user.click(screen.getByRole('button', { name: 'Complete' }))
+
+    expect(await screen.findByText('This warehouse is not yours')).toHaveAttribute('role', 'alert')
+    expect(screen.queryByText(/Nothing matches/)).toBeNull()
+  })
+
+  it('says when the register holds more serials than one page shows', async () => {
+    const order = inProgress()
+    const { user } = renderScreen(<AssemblyPage />, {
+      permissions: SERIAL_READER,
+      routes: {
+        ...panelRoutes(order, [assemblyComponent({ is_serial_tracked_component: true })]),
+        'GET /inventory/serials': page([stockSerial('ser-1', 'SN-0001')], { has_next: true }),
+      },
+    })
+    await openPanel(user)
+    await user.click(screen.getByRole('button', { name: 'Complete' }))
+
+    expect(
+      await screen.findByText('Showing the first 1. Type more to narrow the search.'),
+    ).toHaveAttribute('role', 'status')
+  })
+
   it('shows a refusal that names no field, which the toast layer stays silent on', async () => {
     // The mutation cache suppresses the toast for a 422 carrying field errors,
     // on the understanding that the form shows them. A serial-count or

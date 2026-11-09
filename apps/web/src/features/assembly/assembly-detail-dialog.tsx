@@ -56,7 +56,7 @@ import {
   plural,
   toDecimal,
 } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { describeError, picker, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -460,6 +460,26 @@ function SerialPicker({
   const chosen = new Set(selected.map((serial) => serial.id))
   const rows = (results.data?.data ?? []).filter((serial) => !chosen.has(serial.id))
 
+  // Said beside the list in one live region, as the shared search picker says
+  // it, so a screen reader hears the search answer. A failed search is the
+  // alert below and never passes for "nothing matches".
+  let status: string | null = null
+  let statusVisible = true
+  if (results.isLoading) {
+    status = picker.searching
+  } else if (results.error) {
+    status = null
+  } else if (rows.length === 0) {
+    status =
+      'Nothing matches. The register holds serials in every condition; the API accepts only ' +
+      "the ones actually available in this order's warehouse."
+  } else if (results.data?.pagination.has_next) {
+    status = picker.more(rows.length)
+  } else {
+    status = plural(rows.length, 'result')
+    statusVisible = false
+  }
+
   return (
     <div className="rounded-md border p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -506,27 +526,32 @@ function SerialPicker({
             placeholder="Search a serial number..."
             className="mt-2"
           />
-          <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-            {results.isLoading && <li className="text-xs text-muted-foreground">Loading...</li>}
-            {!results.isLoading && rows.length === 0 && (
-              <li className="text-xs text-muted-foreground">
-                Nothing matches. The register holds serials in every condition; the API accepts only
-                the ones actually available in this order&apos;s warehouse.
-              </li>
-            )}
-            {rows.map((serial) => (
-              <li key={serial.id}>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
-                  onClick={() => onChange([...selected, serial])}
-                >
-                  <span className="font-mono">{serial.serial_number}</span>
-                  <span className="text-muted-foreground">{humanise(serial.status)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {rows.length > 0 && (
+            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto overscroll-contain">
+              {rows.map((serial) => (
+                <li key={serial.id}>
+                  {/* 44px tall for a thumb, as the shared search picker's rows are. */}
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted"
+                    onClick={() => onChange([...selected, serial])}
+                  >
+                    <span className="font-mono">{serial.serial_number}</span>
+                    <span className="text-muted-foreground">{humanise(serial.status)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p
+            role="status"
+            className={statusVisible ? 'mt-2 text-xs text-muted-foreground' : 'sr-only'}
+          >
+            {status}
+          </p>
+          {!results.isLoading && results.error ? (
+            <FieldError message={describeError(results.error)} />
+          ) : null}
         </>
       )}
     </div>
