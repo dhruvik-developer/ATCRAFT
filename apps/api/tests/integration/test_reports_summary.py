@@ -28,6 +28,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.clock import utcnow
 from src.core.deps import Principal, TenantContext
 from src.core.errors import InvalidStateTransitionError, NotFoundError
 from src.core.pagination import PageParams
@@ -36,7 +37,13 @@ from src.modules.audit.models import AuditLog
 from src.modules.inventory.models import InventoryBalance
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunMode, MrpRunStatus
 from src.modules.reports import service
-from src.modules.reports.models import InventorySummary, ReportJobStatus, ReportKey, ReportSnapshot
+from src.modules.reports.models import (
+    REPORT_JOB_STALE_AFTER_SECONDS,
+    InventorySummary,
+    ReportJobStatus,
+    ReportKey,
+    ReportSnapshot,
+)
 from src.modules.reports.repository import ReportSnapshotRepository
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
@@ -997,3 +1004,143 @@ async def test_an_expired_snapshot_is_not_reused_and_is_purged(
     removed = await service.purge_expired_snapshots(session, tenant)
     assert removed == 1
     assert await repo.get(snapshot.id) is None
+
+
+# -----------------------------------------------------------------------------
+# A job abandoned in flight
+# -----------------------------------------------------------------------------
+
+#: Older than the bound by a minute: no worker can still be holding this job.
+ABANDONED_AGE = timedelta(seconds=REPORT_JOB_STALE_AFTER_SECONDS + 60)
+
+
+async def _age(session: AsyncSession, snapshot: ReportSnapshot, by: timedelta) -> None:
+    """Make the job's last change look ``by`` old, as a killed worker leaves it."""
+    snapshot.updated_at = utcnow() - by
+    await session.flush()
+
+
+async def _status_moves(session: AsyncSession, snapshot_id: uuid.UUID) -> list[tuple[Any, Any]]:
+    rows = await session.execute(
+        select(AuditLog.old_values, AuditLog.new_values)
+        .where(
+            AuditLog.entity_type == service.AUDIT_ENTITY,
+            AuditLog.entity_id == snapshot_id,
+            AuditLog.action == "STATUS_CHANGE",
+        )
+        .order_by(AuditLog.created_at, AuditLog.id)
+    )
+    return [(old["status"], new["status"]) for old, new in rows.all()]
+
+
+async def test_a_job_left_running_past_the_bound_is_not_reused_and_is_closed(
+    session: AsyncSession, tenant: TenantContext
+) -> None:
+    """The worker committed RUNNING and was killed: nothing else would move it."""
+    snapshot = await _queued_snapshot(session, tenant)
+    snapshot_id = snapshot.id
+    await service.start_snapshot(session, tenant, snapshot_id)
+    await _age(session, snapshot, ABANDONED_AGE)
+    repo = ReportSnapshotRepository(session, tenant)
+
+    assert await repo.find_reusable(ReportKey.STOCK_AVAILABILITY, "a" * 64, now=utcnow()) is None
+
+    assert await service.close_abandoned_snapshots(session, tenant) == 1
+
+    assert snapshot.status is ReportJobStatus.FAILED
+    assert snapshot.error_message == service.ABANDONED_JOB_MESSAGE
+    assert await _status_moves(session, snapshot_id) == [
+        ("QUEUED", "RUNNING"),
+        ("RUNNING", "FAILED"),
+    ]
+    job = await service.get_job(session, tenant, snapshot_id)
+    assert job.status is ReportJobStatus.FAILED
+    assert job.error_message == service.ABANDONED_JOB_MESSAGE
+
+    # The redelivered task still stands down, now against a FAILED job.
+    with pytest.raises(InvalidStateTransitionError):
+        await service.start_snapshot(session, tenant, snapshot_id)
+
+
+async def test_a_job_running_inside_the_bound_is_reused_and_left_alone(
+    session: AsyncSession, tenant: TenantContext
+) -> None:
+    snapshot = await _queued_snapshot(session, tenant)
+    snapshot_id = snapshot.id
+    await service.start_snapshot(session, tenant, snapshot_id)
+    await _age(session, snapshot, timedelta(seconds=REPORT_JOB_STALE_AFTER_SECONDS - 300))
+    repo = ReportSnapshotRepository(session, tenant)
+
+    found = await repo.find_reusable(ReportKey.STOCK_AVAILABILITY, "a" * 64, now=utcnow())
+    assert found is not None
+    assert found.id == snapshot_id
+
+    assert await service.close_abandoned_snapshots(session, tenant) == 0
+    assert snapshot.status is ReportJobStatus.RUNNING
+
+    with pytest.raises(InvalidStateTransitionError):
+        await service.start_snapshot(session, tenant, snapshot_id)
+
+
+async def test_a_job_the_broker_lost_is_closed_and_its_late_task_stands_down(
+    session: AsyncSession, tenant: TenantContext, company
+) -> None:
+    snapshot = await _queued_snapshot(session, tenant)
+    snapshot_id = snapshot.id
+    await _age(session, snapshot, ABANDONED_AGE)
+
+    assert company.id in await service.companies_with_abandoned_snapshots(session)
+    assert await service.close_abandoned_snapshots(session, tenant) == 1
+    assert await _status_moves(session, snapshot_id) == [("QUEUED", "FAILED")]
+
+    with pytest.raises(InvalidStateTransitionError):
+        await service.start_snapshot(session, tenant, snapshot_id)
+
+
+async def test_another_tenants_abandoned_job_is_not_closed(
+    session: AsyncSession, tenant: TenantContext, other_company
+) -> None:
+    snapshot = await _queued_snapshot(session, tenant)
+    await _age(session, snapshot, ABANDONED_AGE)
+    intruder = TenantContext(company_id=other_company.id, user_id=tenant.user_id)
+
+    assert await service.close_abandoned_snapshots(session, intruder) == 0
+    assert snapshot.status is ReportJobStatus.QUEUED
+
+
+async def test_asking_for_the_same_export_again_replaces_an_abandoned_job(
+    session: AsyncSession, tenant: TenantContext, monkeypatch
+) -> None:
+    """It used to hand back the dead job for as long as its row survived."""
+
+    async def skip_dispatch(*args, **kwargs) -> str:
+        return "test-task"
+
+    monkeypatch.setattr(service, "dispatch_job", skip_dispatch)
+    moment = utcnow()
+    period = ReportPeriod(date_from=moment.date() - timedelta(days=30), date_to=moment.date())
+
+    async def ask() -> ReportSnapshot:
+        return await service.queue_report_export(
+            session,
+            tenant,
+            key=ReportKey.SALES_ORDER_STATUS,
+            period=period,
+            filters=ReportFilters(),
+            file_format="xlsx",
+            now=moment,
+        )
+
+    first = await ask()
+    first_id = first.id
+    await service.start_snapshot(session, tenant, first_id)
+    await _age(session, first, ABANDONED_AGE)
+
+    second = await ask()
+
+    assert second.id != first_id
+    assert second.status is ReportJobStatus.QUEUED
+    assert first.status is ReportJobStatus.FAILED
+    assert first.error_message == service.ABANDONED_JOB_MESSAGE
+    # A live job is still shared, as before.
+    assert (await ask()).id == second.id

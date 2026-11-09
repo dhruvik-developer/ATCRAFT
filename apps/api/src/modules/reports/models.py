@@ -191,6 +191,17 @@ REPORT_JOB_LIFECYCLE: StateMachine[ReportJobStatus] = StateMachine(
     terminal=frozenset({ReportJobStatus.COMPLETED, ReportJobStatus.FAILED}),
 )
 
+#: ASSUMPTION (docs/assumptions.md section REP-1): a job still QUEUED or RUNNING
+#: this long after its last change was abandoned - the worker running it was
+#: killed (the hard time limit, a deploy, memory) after it committed RUNNING, or
+#: the broker lost the message - and nothing will ever finish it: a redelivered
+#: task finds it no longer QUEUED and stands down. Two hours, as MRP's
+#: ``RUN_STALE_AFTER_SECONDS``: comfortably past Celery's one-hour hard limit,
+#: so a job that is merely slow, or waiting behind a long export, is never
+#: mistaken for a dead one. ``tests/unit/test_report_job_staleness.py`` holds it
+#: above the limit.
+REPORT_JOB_STALE_AFTER_SECONDS = 7200
+
 
 class ReportSnapshot(TenantEntity):
     """One generated report: what was asked for, and what came out.

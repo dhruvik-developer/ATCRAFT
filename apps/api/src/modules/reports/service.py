@@ -66,6 +66,7 @@ from src.modules.documents.service import DocumentDownload, DocumentService
 from src.modules.reports.models import (
     DOCUMENT_ONLY_REPORT_KEYS,
     REPORT_JOB_LIFECYCLE,
+    REPORT_JOB_STALE_AFTER_SECONDS,
     ReportJobStatus,
     ReportKey,
     ReportSnapshot,
@@ -1418,6 +1419,7 @@ async def _queue_report(
     digest = parameters_hash(parameters)
     snapshots = ReportSnapshotRepository(session, tenant)
 
+    await close_abandoned_snapshots(session, tenant, now=ctx.now)
     existing = await snapshots.find_reusable(definition.key, digest, now=ctx.now)
     if existing is not None:
         # Five people opening the same link must not queue five identical
@@ -1506,6 +1508,7 @@ async def queue_report_export(
     digest = parameters_hash(parameters)
     snapshots = ReportSnapshotRepository(session, tenant)
 
+    await close_abandoned_snapshots(session, tenant, now=ctx.now)
     if definition.cacheable:
         existing = await snapshots.find_reusable(definition.key, digest, now=ctx.now)
         if existing is not None:
@@ -1936,13 +1939,19 @@ async def _transition(
     target: ReportJobStatus,
     *,
     reason: str | None = None,
+    flush: bool = True,
 ) -> None:
-    """Move a job's status through the state machine, audited (section 73)."""
+    """Move a job's status through the state machine, audited (section 73).
+
+    ``flush=False`` leaves the write to the caller, which must flush before its
+    transaction ends - a sweep moving a batch of jobs flushes them once.
+    """
     previous = snapshot.status
     REPORT_JOB_LIFECYCLE.assert_transition(previous, target)
     snapshot.status = target
     ReportSnapshotRepository(session, tenant).touch(snapshot)
-    await session.flush()
+    if flush:
+        await session.flush()
     await record_status_change(
         session,
         company_id=tenant.company_id,
@@ -1953,6 +1962,7 @@ async def _transition(
         to_status=str(target),
         user_id=tenant.user_id,
         reason=reason,
+        flush=flush,
     )
 
 
@@ -1964,11 +1974,13 @@ async def start_snapshot(
     The state machine is what makes ``task_acks_late`` survivable: the second
     delivery of a task whose job has already started raises
     :class:`~src.core.errors.InvalidStateTransitionError`, which the worker
-    treats as "already handled" rather than as a failure.
+    treats as "already handled" rather than as a failure. The claim reads the
+    row under a lock, so a job :func:`close_abandoned_snapshots` is closing at
+    the same moment is read as FAILED and refused the same way, never revived.
     """
     repo = ReportSnapshotRepository(session, tenant)
-    snapshot = await repo.get_or_404(snapshot_id)
     async with transaction(session):
+        snapshot = await repo.lock_or_404(snapshot_id)
         await _transition(session, tenant, snapshot, ReportJobStatus.RUNNING)
     return snapshot
 
@@ -2046,6 +2058,66 @@ async def fail_snapshot(
             new_values={"error": error[:255]},
         )
     return snapshot
+
+
+#: What a person polling an abandoned job is told (REPORT_JOB_STALE_AFTER_SECONDS).
+ABANDONED_JOB_MESSAGE = "This job stopped before it finished and will not complete. Run it again."
+
+#: Most abandoned jobs one sweep closes for one company; the rest wait a tick.
+ABANDONED_JOB_BATCH = 200
+
+
+async def close_abandoned_snapshots(
+    session: AsyncSession, tenant: TenantContext, *, now: datetime | None = None
+) -> int:
+    """Fail the jobs a dead worker or a lost message left in flight. Returns how many.
+
+    A job is abandoned once it has been QUEUED or RUNNING, unchanged, for
+    ``REPORT_JOB_STALE_AFTER_SECONDS``: the worker that committed RUNNING was
+    killed before any handler could run, and its redelivered task stands down
+    because the job is no longer QUEUED. Nothing else would ever move it, so
+    the person polling it waited for ever and the demo loader refused to rerun.
+    Each moves to FAILED through the state machine, with the message they will
+    read and a status-change audit, as MRP closes its abandoned runs. Called
+    before a catalogue report is queued and from the daily maintenance sweep.
+    """
+    moment = now or utcnow()
+    before = moment - timedelta(seconds=REPORT_JOB_STALE_AFTER_SECONDS)
+    repo = ReportSnapshotRepository(session, tenant)
+    async with transaction(session):
+        abandoned = await repo.lock_abandoned(before=before, limit=ABANDONED_JOB_BATCH)
+        closed = [(str(snapshot.id), str(snapshot.status)) for snapshot in abandoned]
+        for snapshot in abandoned:
+            snapshot.error_message = ABANDONED_JOB_MESSAGE
+            await _transition(
+                session,
+                tenant,
+                snapshot,
+                ReportJobStatus.FAILED,
+                reason=ABANDONED_JOB_MESSAGE,
+                flush=False,
+            )
+        if abandoned:
+            await session.flush()
+    for snapshot_id, previous in closed:
+        log.warning("reports.abandoned_job_closed", snapshot_id=snapshot_id, previous=previous)
+    return len(closed)
+
+
+async def companies_with_abandoned_snapshots(session: AsyncSession) -> list[uuid.UUID]:
+    """Tenants holding at least one job abandoned in flight."""
+    from sqlalchemy import select
+
+    before = utcnow() - timedelta(seconds=REPORT_JOB_STALE_AFTER_SECONDS)
+    stmt = (
+        select(ReportSnapshot.company_id)
+        .where(
+            ReportSnapshot.status.in_((ReportJobStatus.QUEUED, ReportJobStatus.RUNNING)),
+            ReportSnapshot.updated_at <= before,
+        )
+        .distinct()
+    )
+    return list((await session.execute(stmt)).scalars().all())
 
 
 async def purge_expired_snapshots(
@@ -2439,6 +2511,8 @@ register_document_read_policy("job_work_cost_permission", job_work_cost_document
 
 
 __all__ = [
+    "ABANDONED_JOB_BATCH",
+    "ABANDONED_JOB_MESSAGE",
     "AGEING_BUCKETS",
     "AUDIT_ENTITY",
     "CURRENT_BUCKET",
@@ -2474,7 +2548,9 @@ __all__ = [
     "ageing_bucket",
     "available_minutes",
     "build_context",
+    "close_abandoned_snapshots",
     "columns_for",
+    "companies_with_abandoned_snapshots",
     "companies_with_expired_snapshots",
     "companies_with_stock",
     "complete_snapshot",

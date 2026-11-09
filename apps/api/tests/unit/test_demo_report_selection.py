@@ -12,6 +12,7 @@ import pytest
 from src.core.demo_data import reports as demo_reports
 from src.core.demo_data.reports import SeedReportJob, _select_demo_jobs
 from src.core.deps import TenantContext
+from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportJobStatus, ReportKey, ReportSnapshot
 
 pytestmark = pytest.mark.unit
@@ -92,12 +93,18 @@ async def test_discovery_resolves_seed_invoice_ids_before_selecting_jobs(
         "_resolve_principal",
         AsyncMock(return_value=SimpleNamespace(company_id=company_id, user_id=user_id)),
     )
+    close_abandoned = AsyncMock(return_value=0)
+    monkeypatch.setattr(reports_service, "close_abandoned_snapshots", close_abandoned)
     jobs = await demo_reports.queued_demo_jobs("admin@atcraft.example")
     assert jobs == [
         SeedReportJob(ReportKey.SALES_INVOICE, invoice_id, snapshot.id, company_id, user_id)
     ]
     assert session.execute.await_count == 2
     assert session.scalars.await_count == 1
+    # A job an earlier run left in flight is closed before the jobs are read.
+    ((closed_session, closed_tenant), _) = close_abandoned.await_args
+    assert closed_session is session
+    assert (closed_tenant.company_id, closed_tenant.user_id) == (company_id, user_id)
 
 
 @pytest.mark.parametrize("key", [ReportKey.SALES_INVOICE, ReportKey.CREDIT_NOTE])

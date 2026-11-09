@@ -4885,3 +4885,41 @@ again.
 loses that one message: the notification stays in the bell, and the person
 requests another reset link. To retry such a refusal, make
 `permanently_refused` return False for that code.
+
+## §REP-1. A report job in flight for two hours was abandoned
+
+**Assumed.** A report job (`report_snapshots`) still `QUEUED` or `RUNNING` two
+hours after its last change (`REPORT_JOB_STALE_AFTER_SECONDS`, 7 200 s) will
+never finish: the worker that committed `RUNNING` was killed - Celery's
+one-hour hard limit, a deploy, memory - before any handler ran, and the
+redelivered task stands down because the job is no longer `QUEUED`; or the
+broker lost the message. Such a job is not handed to an identical request -
+`find_reusable` shares only a queued or running job changed within the bound -
+and it is moved to `FAILED` through the state machine with the message "This
+job stopped before it finished and will not complete. Run it again." and a
+status-change audit. That happens before a catalogue report is queued (for the
+requesting company, attributed to the requester, as MRP closes its abandoned
+runs), in the daily `maintenance.purge_temp_files` sweep for every company
+holding one (as the system), and when the demo loader starts. A worker claims a
+job under a row lock, so one picked up while the sweep closes it reads `FAILED`
+and stands down instead of reviving it.
+
+**Why.** Nothing moved such a job: the person waiting polled it for as long as
+the tab stayed open, every identical report or export request was handed the
+same dead job until the daily purge deleted its row 24-48 hours later, and the
+demo loader refused to rerun ("still running"). Two hours is comfortably past
+the one-hour hard limit, so a job that is merely slow, or queued behind a long
+export, is never taken for a dead one - the same reasoning as MRP's
+`RUN_STALE_AFTER_SECONDS`.
+
+**Where.** `src/modules/reports/models.py` - `REPORT_JOB_STALE_AFTER_SECONDS`;
+`src/modules/reports/repository.py` - `find_reusable`, `lock_abandoned`,
+`lock_or_404`; `src/modules/reports/service.py` - `close_abandoned_snapshots`,
+`start_snapshot`; `src/workers/tasks/maintenance.py` - `purge_temp_files`;
+`src/core/demo_data/reports.py` - `queued_demo_jobs`.
+`tests/unit/test_report_job_staleness.py` fails if Celery's hard limit, or a
+report task's own, reaches the bound.
+
+**Impact if wrong.** A reports queue whose backlog keeps a job waiting longer
+than two hours would see it failed and asked to run again; raise the constant.
+Raising Celery's time limit needs the constant raised with it.

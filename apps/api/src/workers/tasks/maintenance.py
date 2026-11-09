@@ -25,7 +25,8 @@ that module's service.
 
 ``maintenance.purge_temp_files``
     Clears the scratch directory and the lapsed report snapshots that point at
-    artefacts nobody will fetch again.
+    artefacts nobody will fetch again, and fails the report jobs a dead worker
+    left QUEUED or RUNNING.
 
 ``maintenance.reconcile_quality_owners``
     Re-tells every document still waiting on a quality verdict the verdict its
@@ -586,6 +587,11 @@ async def purge_temp_files(request_id: str | None = None, **_: Any) -> dict[str,
     The file it names is a ``documents`` row with its own retention and is left to
     that module - deleting bytes out from under another module's bookkeeping
     would leave it with a row pointing at nothing.
+
+    It also closes the jobs abandoned in flight
+    (``reports.service.close_abandoned_snapshots``) for every company holding
+    one, so a job whose worker died is failed even when nobody queues another
+    report there.
     """
     moment = utcnow()
     cutoff = (moment - timedelta(hours=TEMP_FILE_MAX_AGE_HOURS)).timestamp()
@@ -597,9 +603,26 @@ async def purge_temp_files(request_id: str | None = None, **_: Any) -> dict[str,
 
     async with session_scope() as session:
         companies = await reports_service.companies_with_expired_snapshots(session)
+        abandoned_in = await reports_service.companies_with_abandoned_snapshots(session)
 
     removed_snapshots = 0
+    jobs_closed = 0
     failed = 0
+    for company_id in abandoned_in:
+        try:
+            async with session_scope() as session:
+                jobs_closed += await reports_service.close_abandoned_snapshots(
+                    session, _system_tenant(company_id)
+                )
+        except Exception as exc:
+            failed += 1
+            count_sweep_failure("maintenance.purge_temp_files")
+            log.error(
+                "maintenance.abandoned_job_close_failed",
+                company_id=str(company_id),
+                error_type=type(exc).__name__,
+                exc_info=exc,
+            )
     for company_id in companies:
         try:
             async with session_scope() as session:
@@ -621,12 +644,14 @@ async def purge_temp_files(request_id: str | None = None, **_: Any) -> dict[str,
         files=removed_files,
         bytes=reclaimed_bytes,
         snapshots=removed_snapshots,
+        jobs_closed=jobs_closed,
         failed=failed,
     )
     return {
         "files_removed": removed_files,
         "bytes_reclaimed": reclaimed_bytes,
         "snapshots_removed": removed_snapshots,
+        "jobs_closed": jobs_closed,
         "failed": failed,
     }
 

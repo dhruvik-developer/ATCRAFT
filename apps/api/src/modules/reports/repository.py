@@ -58,6 +58,7 @@ from sqlalchemy.orm import InstrumentedAttribute, aliased
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
 from src.core.deps import TenantContext
+from src.core.errors import NotFoundError
 from src.core.ids import new_id
 from src.core.pagination import COUNT_CEILING, PageParams
 from src.core.responses import OffsetPagination
@@ -144,7 +145,13 @@ from src.modules.production.models import (
 )
 from src.modules.products.models import Item, ItemCategory
 from src.modules.quality.models import InspectionResult, InspectionStatus, QcInspection
-from src.modules.reports.models import InventorySummary, ReportJobStatus, ReportKey, ReportSnapshot
+from src.modules.reports.models import (
+    REPORT_JOB_STALE_AFTER_SECONDS,
+    InventorySummary,
+    ReportJobStatus,
+    ReportKey,
+    ReportSnapshot,
+)
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
 from src.modules.routing.models import (
     Machine,
@@ -421,18 +428,27 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
     ) -> ReportSnapshot | None:
         """The newest live artefact for exactly this request, if there is one.
 
-        "Live" means queued, running, or completed and not yet expired. Returning
-        a running job rather than starting a second one is what stops five people
-        opening the same dashboard link from queuing five identical exports - the
-        second caller polls the first caller's job.
+        "Live" means queued or running and changed within
+        ``REPORT_JOB_STALE_AFTER_SECONDS``, or completed and not yet expired.
+        Returning a running job rather than starting a second one is what stops
+        five people opening the same dashboard link from queuing five identical
+        exports - the second caller polls the first caller's job. One older than
+        the bound was abandoned, and handing it out made every identical request
+        poll a job that will never finish until the daily purge deleted it.
         """
+        live_since = now - timedelta(seconds=REPORT_JOB_STALE_AFTER_SECONDS)
         stmt = (
             self._scoped()
             .where(
                 ReportSnapshot.report_key == report_key,
                 ReportSnapshot.parameters_hash == parameters_hash,
                 or_(
-                    ReportSnapshot.status.in_((ReportJobStatus.QUEUED, ReportJobStatus.RUNNING)),
+                    and_(
+                        ReportSnapshot.status.in_(
+                            (ReportJobStatus.QUEUED, ReportJobStatus.RUNNING)
+                        ),
+                        ReportSnapshot.updated_at > live_since,
+                    ),
                     and_(
                         ReportSnapshot.status == ReportJobStatus.COMPLETED,
                         or_(
@@ -446,6 +462,42 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
             .limit(1)
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_or_404(self, snapshot_id: uuid.UUID) -> ReportSnapshot:
+        """Read one job under a row lock, fresh from the database.
+
+        What a worker claims a job through: if the abandoned-job sweep is closing
+        the same row, the claim waits for it and then reads FAILED, rather than
+        overwriting the sweep's status with its own.
+        """
+        stmt = (
+            self._scoped()
+            .where(ReportSnapshot.id == snapshot_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        found = (await self.session.execute(stmt)).scalar_one_or_none()
+        if found is None:
+            raise NotFoundError(self._entity_label(), snapshot_id)
+        return found
+
+    async def lock_abandoned(self, *, before: datetime, limit: int) -> list[ReportSnapshot]:
+        """Jobs still QUEUED or RUNNING whose last change is older than ``before``.
+
+        Locked, skipping rows another transaction holds - a worker claiming a
+        job this very moment keeps it - and oldest first, a bounded batch.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                ReportSnapshot.status.in_((ReportJobStatus.QUEUED, ReportJobStatus.RUNNING)),
+                ReportSnapshot.updated_at <= before,
+            )
+            .order_by(ReportSnapshot.updated_at, ReportSnapshot.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
     async def list_expired(self, now: datetime, *, limit: int) -> list[ReportSnapshot]:
         """One bounded batch of lapsed snapshots, for the retention sweep."""

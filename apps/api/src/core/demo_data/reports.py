@@ -127,9 +127,20 @@ async def _prepare_missing_jobs(
 async def queued_demo_jobs(
     admin_email: str, *, company_code: str | None = None
 ) -> list[SeedReportJob]:
+    from src.modules.reports.service import close_abandoned_snapshots
+
     import_all_models()
     async with session_scope() as session:
         principal = await _resolve_principal(session, admin_email, company_code=company_code)
+        tenant = TenantContext(
+            company_id=principal.company_id,
+            user_id=principal.user_id,
+            is_superuser=True,
+        )
+        # A job an earlier run left RUNNING when it was killed is failed first,
+        # once it is old enough to be abandoned, so this run queues a fresh one
+        # instead of refusing for as long as the dead job's row survives.
+        await close_abandoned_snapshots(session, tenant)
         # Invoices issued from a demonstration dispatch carry no demo marker of
         # their own: the finance service owns their notes. Identify them by the
         # dispatch they were raised from, whose notes are tagged by the operations
@@ -177,11 +188,7 @@ async def queued_demo_jobs(
         )
         return await _prepare_missing_jobs(
             session,
-            TenantContext(
-                company_id=principal.company_id,
-                user_id=principal.user_id,
-                is_superuser=True,
-            ),
+            tenant,
             {
                 ReportKey.SALES_INVOICE: {
                     invoice_id for invoice_id, document_id in invoice_rows if document_id is None
