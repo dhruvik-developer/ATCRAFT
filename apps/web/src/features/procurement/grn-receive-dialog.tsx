@@ -56,7 +56,7 @@ import {
 } from '@/components/ui/primitives'
 import { SearchPicker } from '@/components/ui/search-picker'
 import { useAuth } from '@/features/auth/auth-context'
-import { LocationPicker } from '@/features/inventory/location-picker'
+import { LocationPicker, type ItemDefaultBin } from '@/features/inventory/location-picker'
 import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
 import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useUomOptions } from '@/features/items/item-model'
@@ -79,6 +79,7 @@ import {
   type GoodsReceiptDetail,
   type GoodsReceiptPostResult,
   type PurchaseOrderDetail,
+  type PurchaseOrderLine,
   type PurchaseOrderRow,
 } from './procurement-types'
 import { sentLineIndices } from './server-field-errors'
@@ -328,6 +329,21 @@ function linesFrom(order: PurchaseOrderDetail): ReceiptFormValues['lines'] {
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
+/**
+ * Where an order line's item is put away, as the order line itself names it.
+ *
+ * The bin used to be proposed by reading the line's item and then that item's
+ * bin - two requests a line. The order line carries both now.
+ */
+function defaultBinOf(line: PurchaseOrderLine): ItemDefaultBin {
+  return {
+    warehouseId: line.item_default_warehouse_id ?? null,
+    locationId: line.item_default_location_id ?? null,
+    locationCode: line.item_default_location_code,
+    locationName: line.item_default_location_name,
+  }
+}
+
 export function GrnReceiveDialog({
   open,
   onOpenChange,
@@ -372,6 +388,7 @@ export function GrnReceiveDialog({
   })
 
   const { fields } = useFieldArray({ control, name: 'lines' })
+  const orderLineById = useMemo(() => indexById(detail.data?.lines), [detail.data])
 
   useEffect(() => {
     if (!open) return
@@ -638,6 +655,7 @@ export function GrnReceiveDialog({
 
                 {fields.map((field, index) => {
                   const line = lines[index]
+                  const orderLine = orderLineById.get(field.purchase_order_line_id)
                   return (
                     <div key={field.id} className="rounded-lg border p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -756,6 +774,7 @@ export function GrnReceiveDialog({
                                 id={`grn-bin-${index}`}
                                 warehouseId={detail.data?.warehouse_id ?? ''}
                                 itemId={line?.item_id ?? ''}
+                                itemDefault={orderLine ? defaultBinOf(orderLine) : undefined}
                                 value={bin.value || null}
                                 onChange={(value) => bin.onChange(value ?? '')}
                               />

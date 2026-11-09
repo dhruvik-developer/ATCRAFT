@@ -422,6 +422,89 @@ describe('what one submit achieves', () => {
   })
 })
 
+describe('where received stock is put away', () => {
+  /** Line 1's item is put away in this order's warehouse; line 2's in another. */
+  const defaultedOrder = () =>
+    orderDetail([
+      poLine({
+        item_default_warehouse_id: WAREHOUSE_ID,
+        item_default_location_id: 'loc-a1',
+        item_default_location_code: 'A-01-01',
+        item_default_location_name: 'Rack A shelf 1',
+      }),
+      poLine({
+        id: PO_LINE_B,
+        line_number: 2,
+        description: 'Stainless sheet 2mm',
+        item_default_warehouse_id: 'wh-elsewhere',
+        item_default_location_id: 'loc-z9',
+        item_default_location_code: 'Z-09',
+        item_default_location_name: 'Overflow',
+      }),
+    ])
+  const posted = {
+    [`POST ${RECEIPTS_PATH}`]: ok({ id: NEW_RECEIPT_ID, code: 'GRN-0008' }),
+    [`POST ${RECEIPTS_PATH}/${NEW_RECEIPT_ID}/post`]: ok({
+      receipt: { id: NEW_RECEIPT_ID, code: 'GRN-0008', status: 'POSTED' },
+      movements: [],
+      purchase_order_status: 'PARTIALLY_RECEIVED',
+      qc_hold_line_count: 0,
+      qc_inspections_created: false,
+    }),
+  }
+
+  it("proposes each line's default bin from the order line, reading no item and no bin", async () => {
+    // Each line read its item for the default, then the bin for its name: two
+    // requests a line, for what the order line now carries.
+    const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
+      permissions: [...STOREKEEPER, P.LOCATION_VIEW, P.ITEM_VIEW],
+      routes: formRoutes({ [`GET ${ORDERS_PATH}/${PO_ID}`]: defaultedOrder(), ...posted }),
+    })
+
+    await openReceipt(user, fetch)
+    const bins = await waitFor(() => {
+      const found = screen.getAllByRole('combobox', { name: 'Bin' })
+      expect(found[0]).toHaveTextContent('A-01-01 - Rack A shelf 1')
+      return found
+    })
+    // A default in another warehouse is not this receipt's to propose.
+    expect(bins[1]).not.toHaveTextContent('Z-09')
+    expect(
+      fetch.calls.filter(
+        (call) =>
+          call.path.startsWith('/products/items/') || call.path.startsWith('/warehouses/locations'),
+      ),
+    ).toEqual([])
+
+    await countLine(user, 0, '10')
+    await user.click(screen.getByRole('button', { name: 'Post receipt' }))
+    const body = (await waitFor(() => fetch.requestFor('POST', RECEIPTS_PATH))) as {
+      lines: Record<string, unknown>[]
+    }
+    expect(body.lines[0]).toMatchObject({
+      purchase_order_line_id: PO_LINE_A,
+      location_id: 'loc-a1',
+    })
+  })
+
+  it('proposes no bin to a role that may not see the field', async () => {
+    // A bin nobody on the screen can see or clear would be sent all the same.
+    const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
+      permissions: STOREKEEPER,
+      routes: formRoutes({ [`GET ${ORDERS_PATH}/${PO_ID}`]: defaultedOrder(), ...posted }),
+    })
+
+    await openReceipt(user, fetch)
+    expect(screen.queryByRole('combobox', { name: 'Bin' })).not.toBeInTheDocument()
+    await countLine(user, 0, '10')
+    await user.click(screen.getByRole('button', { name: 'Post receipt' }))
+    const body = (await waitFor(() => fetch.requestFor('POST', RECEIPTS_PATH))) as {
+      lines: Record<string, unknown>[]
+    }
+    expect(body.lines[0]).not.toHaveProperty('location_id')
+  })
+})
+
 describe('the register itself', () => {
   it('receives QC-held stock at warehouse level without a bin picker', async () => {
     const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
