@@ -400,7 +400,7 @@ export function AssemblyOrderFormDialog({
                 <FieldError message={errors.assembly_line?.message} />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="assembly-order-planned-start">Planned start</Label>
                   <Input
