@@ -20,7 +20,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from src.core.deps import DbSession, Tenant, require_permission
+from src.core.deps import (
+    DbSession,
+    Tenant,
+    forbid_dealer_users,
+    forbid_vendor_users,
+    require_permission,
+)
 from src.core.messages import success_message
 from src.core.pagination import CursorParams, bind_query_filters, cursor_params
 from src.core.permissions import Permission
@@ -57,6 +63,13 @@ router.include_router(push_router)
 
 CursorDep = Annotated[CursorParams, Depends(cursor_params)]
 
+#: Company messaging and smart-alert administration is staff work. The portal
+#: allow-lists in ``core/deps.py`` admit the whole ``/notifications`` root,
+#: because the bell, its preferences and push registration are a vendor's or a
+#: dealer's too, so these routes refuse a portal account themselves - whatever a
+#: mis-built portal role or a direct grant lets it hold.
+STAFF_ONLY = (Depends(forbid_vendor_users), Depends(forbid_dealer_users))
+
 
 def notification_filters(
     unread_only: Annotated[bool, Query(description="Only unacknowledged notifications")] = False,
@@ -78,7 +91,7 @@ FilterDep = Annotated[NotificationFilters, Depends(notification_filters)]
     "/alert-rules",
     response_model=ApiResponse[list[NotificationAlertRuleRead]],
     summary="Effective smart-alert rules",
-    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+    dependencies=[require_permission(Permission.SETTINGS_VIEW), *STAFF_ONLY],
 )
 async def list_alert_rules(
     session: DbSession, tenant: Tenant
@@ -91,7 +104,7 @@ async def list_alert_rules(
     "/alert-rules",
     response_model=ApiResponse[list[NotificationAlertRuleRead]],
     summary="Update smart-alert rules",
-    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE), *STAFF_ONLY],
 )
 async def update_alert_rules(
     session: DbSession,
@@ -121,7 +134,7 @@ async def notification_channels(
     "/channel-templates",
     response_model=ApiResponse[list[NotificationChannelTemplateRead]],
     summary="Messaging templates configured for this company",
-    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+    dependencies=[require_permission(Permission.SETTINGS_VIEW), *STAFF_ONLY],
 )
 async def list_channel_templates(
     session: DbSession, tenant: Tenant
@@ -134,7 +147,7 @@ async def list_channel_templates(
     "/channel-status",
     response_model=ApiResponse[NotificationChannelsRead],
     summary="Provider status for messaging administration",
-    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+    dependencies=[require_permission(Permission.SETTINGS_VIEW), *STAFF_ONLY],
 )
 async def admin_channel_status(
     session: DbSession, tenant: Tenant
@@ -147,7 +160,7 @@ async def admin_channel_status(
     "/channel-templates",
     response_model=ApiResponse[list[NotificationChannelTemplateRead]],
     summary="Create or update messaging templates",
-    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE), *STAFF_ONLY],
 )
 async def update_channel_templates(
     session: DbSession, tenant: Tenant, payload: NotificationChannelTemplatesUpdate
@@ -162,7 +175,7 @@ async def update_channel_templates(
     "/channel-templates/test",
     response_model=ApiResponse[dict[str, bool]],
     summary="Send a selected template to the signed-in user's verified number",
-    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE), *STAFF_ONLY],
 )
 async def test_channel_template(
     session: DbSession, tenant: Tenant, payload: NotificationChannelTestRequest
@@ -175,7 +188,7 @@ async def test_channel_template(
     "/deliveries",
     response_model=CursorPaginatedResponse[NotificationDeliveryRead],
     summary="Messaging delivery history",
-    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+    dependencies=[require_permission(Permission.SETTINGS_VIEW), *STAFF_ONLY],
 )
 async def list_messaging_deliveries(
     session: DbSession, tenant: Tenant, params: CursorDep

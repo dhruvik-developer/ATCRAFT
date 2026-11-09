@@ -234,7 +234,12 @@ module remembering to filter by vendor:
    `dispatch.view` by mistake still reaches no dispatch. The predicate
    (`vendor_route_allowed`) matches whole path segments, so
    `/vendor-portal-x` is not `/vendor-portal`. The temporary-password gate is
-   applied first.
+   applied first. `/notifications/**` is shared with staff, so the company's
+   alert-rule, messaging-template, channel-status and delivery-history routes
+   under it carry `forbid_vendor_users` and `forbid_dealer_users` themselves;
+   `tests/unit/test_portal_route_scope.py` fails the build on an allow-listed
+   route that is neither the portal's, auth self-service, a named self-service
+   notification route, nor refuses the portal's accounts.
 2. **Portal rights.** The five system vendor roles hold only
    `vendor_portal.access`, `.respond`, `.ship`, `.invoice`, `.quality` and
    `notification.view` (none ends in `.view`, so the AUDITOR bundle does not
@@ -287,7 +292,9 @@ the vendor portal's, decision for decision:
    auth self-service. Every other authenticated route answers 403
    `SCOPE_DENIED` before a handler runs, whatever permissions the account's
    roles carry. The predicate (`dealer_route_allowed`, docs/assumptions.md
-   §C3-1) matches whole path segments.
+   §C3-1) matches whole path segments. The staff administration routes under
+   the shared `/notifications/**` refuse dealer accounts themselves, as for
+   vendors above.
 2. **Portal rights.** The three system dealer roles hold only
    `dealer_portal.browse`, `.order`, `.account`, `.return` and
    `notification.view` (none ends in `.view`, so the AUDITOR bundle does not

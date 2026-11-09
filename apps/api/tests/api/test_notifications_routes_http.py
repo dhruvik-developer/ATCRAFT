@@ -25,7 +25,7 @@ Celery's ``send_task`` is stubbed for every test, so no fan-out leaves the proce
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -744,3 +744,102 @@ async def test_a_template_test_names_a_known_channel_and_type(api_client, gatewa
 
     assert {"channel", "notification_type"} <= set(fields)
     assert gateway.sent == []
+
+
+# -----------------------------------------------------------------------------
+# Portal accounts: their own bell, never the company's messaging administration
+# -----------------------------------------------------------------------------
+
+#: The company's alert and messaging administration, with a body each accepts.
+ADMINISTRATION = [
+    ("GET", "/notifications/alert-rules", None),
+    (
+        "PUT",
+        "/notifications/alert-rules",
+        {
+            "rules": [
+                {
+                    "key": "QC_PENDING",
+                    "is_enabled": True,
+                    "threshold_minutes": ALERT_RULES[
+                        AlertRuleKey.QC_PENDING
+                    ].default_threshold_minutes,
+                    "remind_every_minutes": ALERT_RULES[
+                        AlertRuleKey.QC_PENDING
+                    ].default_remind_every_minutes,
+                }
+            ]
+        },
+    ),
+    ("GET", "/notifications/channel-templates", None),
+    ("PUT", "/notifications/channel-templates", {"templates": [sms_mapping()]}),
+    (
+        "POST",
+        "/notifications/channel-templates/test",
+        {"channel": "SMS", "notification_type": ANNOUNCEMENT},
+    ),
+    ("GET", "/notifications/channel-status", None),
+    ("GET", "/notifications/deliveries", None),
+]
+
+
+@pytest.fixture(params=["vendor", "dealer"])
+async def portal_client(request, session, principal, tenant):
+    """A vendor or a dealer account holding every permission there is - the
+    mis-built portal role the refusal has to survive."""
+    from httpx import ASGITransport, AsyncClient
+
+    from src.core.database import get_db
+    from src.core.deps import get_current_principal
+    from src.main import app
+
+    if request.param == "vendor":
+        vendor = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+        portal = replace(principal, vendor_id=vendor.id)
+    else:
+        customer = await seed_support.seed_customer(session, company_id=tenant.company_id)
+        portal = replace(principal, customer_id=customer.id)
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_current_principal] = lambda: portal
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test/api/v1"
+    ) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(("method", "path", "body"), ADMINISTRATION)
+async def test_a_portal_account_is_refused_the_company_messaging_administration(
+    portal_client, session, tenant, gateway, method, path, body
+):
+    response = await portal_client.request(method, path, json=body)
+
+    refused(response, 403, "SCOPE_DENIED")
+    assert gateway.sent == []
+    stored = await session.scalar(
+        select(func.count())
+        .select_from(NotificationChannelTemplate)
+        .where(NotificationChannelTemplate.company_id == tenant.company_id)
+    )
+    assert stored == 0
+
+
+@pytest.mark.parametrize(("method", "path", "body"), ADMINISTRATION[:4] + ADMINISTRATION[5:])
+async def test_staff_still_administer_the_company_messaging(api_client, method, path, body):
+    """The test send is left out: it needs a gateway and a verified number,
+    and its own tests above already send one as staff."""
+    ok(await api_client.request(method, path, json=body))
+
+
+async def test_a_portal_account_still_works_its_own_bell(portal_client, session, tenant):
+    mine = await bell(session, tenant.company_id, tenant.user_id)
+
+    assert [row["id"] for row in ok(await portal_client.get("/notifications"))] == [str(mine)]
+    assert ok(await portal_client.get("/notifications/unread-count"))["unread_count"] == 1
+    ok(await portal_client.get("/notifications/channels"))
+    ok(await portal_client.get("/notifications/preferences"))
+    ok(await portal_client.post(f"/notifications/{mine}/read"))
+    assert ok(await portal_client.get("/notifications/unread-count"))["unread_count"] == 0
+    ok(await portal_client.post("/notifications/read-all"))
+    ok(await portal_client.get("/notifications/push/config"))
+    assert ok(await portal_client.post("/notifications/push/test")) == {"queued": 0}
