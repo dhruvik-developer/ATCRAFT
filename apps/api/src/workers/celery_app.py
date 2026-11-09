@@ -410,7 +410,7 @@ class _TraceFilter(logging.Filter):
       priya@example.com) already exists')`` - which it names by SQLSTATE and
       constraint instead (:mod:`src.core.database_errors`). The line holds the
       exception's ``repr``, whose escaped text no rewrite of the plain text
-      matches, so it is written again from the rewritten text.
+      matches, so it is written again: the rewritten text, quoted.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -433,7 +433,9 @@ class _TraceFilter(logging.Filter):
         redact = database_error_redactor(exception)
         if exception is not None and redact is not None:
             withheld = dict(context)
-            withheld["exc"] = f"{type(exception).__name__}({redact(str(exception))!r})"
+            # One quoted line, as Celery's repr was; SQLAlchemy's own text
+            # names its class, and task.failed carries error_type beside it.
+            withheld["exc"] = repr(redact(str(exception)))
             trace_text = withheld.get("traceback")
             if isinstance(trace_text, str):
                 withheld["traceback"] = redact(trace_text)

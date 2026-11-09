@@ -291,8 +291,11 @@ def test_celerys_failure_line_names_the_rule_not_the_row(trace: _Captured) -> No
 
     (record,) = trace.records
     (line,) = trace.lines()
-    assert "raised unexpected: IntegrityError(" in line
-    assert "SQLSTATE 23505" in line
+    assert (
+        "raised unexpected: '(sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) "
+        f"[{DRIVER_TEXT_WITHHELD}: SQLSTATE 23505, constraint uq_users_company_id_email"
+    ) in line
+    assert "[SQL: INSERT INTO users" in line
     assert EMAIL not in line
     assert EMAIL not in repr(vars(record)), "nor in the record's extras"
     assert record.exc_info is None
