@@ -25,7 +25,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import { PageHeader, ReasonDialog, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -38,22 +38,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import {
-  Badge,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Input,
-  Label,
-} from '@/components/ui/primitives'
+import { Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useBranchOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
-import { DEFAULT_PAGE_SIZE, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
+import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
 import { formatNumber, formatQuantity, humanise } from '@/lib/format'
-import { prompts, success } from '@/lib/messages'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -184,8 +176,6 @@ export default function WarehousesPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Warehouse | null>(null)
   const [statusTarget, setStatusTarget] = useState<Warehouse | null>(null)
-  const [reason, setReason] = useState('')
-  const [reasonError, setReasonError] = useState<string | null>(null)
 
   const canManage = can(P.WAREHOUSE_MANAGE)
   const canManageLocations = can(P.LOCATION_MANAGE)
@@ -243,23 +233,21 @@ export default function WarehousesPage() {
     setFormOpen(true)
   }, [])
 
-  const openStatusChange = useCallback((warehouse: Warehouse) => {
-    setReason('')
-    setReasonError(null)
-    setStatusTarget(warehouse)
-  }, [])
+  // The shared ReasonDialog holds the reason's length to what the API stores
+  // and shows a refusal inside the dialog; a hand-rolled box did neither, so a
+  // 256-character reason was refused with a field error nothing rendered.
+  const { reset: resetStatusMutation } = statusMutation
+  const openStatusChange = useCallback(
+    (warehouse: Warehouse) => {
+      resetStatusMutation()
+      setStatusTarget(warehouse)
+    },
+    [resetStatusMutation],
+  )
 
-  const confirmStatusChange = () => {
+  const confirmStatusChange = (reason: string) => {
     if (!statusTarget) return
-    if (reason.trim().length < REASON_MIN_LENGTH) {
-      setReasonError(prompts.reasonRequired)
-      return
-    }
-    statusMutation.mutate({
-      id: statusTarget.id,
-      activate: !statusTarget.is_active,
-      why: reason.trim(),
-    })
+    statusMutation.mutate({ id: statusTarget.id, activate: !statusTarget.is_active, why: reason })
   }
 
   const columns = useMemo<ColumnDef<Warehouse, unknown>[]>(() => {
@@ -508,10 +496,13 @@ export default function WarehousesPage() {
         <>
           <WarehouseFormDialog open={formOpen} onOpenChange={setFormOpen} warehouse={editing} />
 
-          <ConfirmDialog
+          <ReasonDialog
             open={Boolean(statusTarget)}
             onOpenChange={(open) => {
-              if (!open) setStatusTarget(null)
+              if (!open) {
+                setStatusTarget(null)
+                resetStatusMutation()
+              }
             }}
             title={
               statusTarget?.is_active
@@ -526,30 +517,10 @@ export default function WarehousesPage() {
             confirmLabel={statusTarget?.is_active ? 'Deactivate' : 'Activate'}
             destructive={Boolean(statusTarget?.is_active)}
             loading={statusMutation.isPending}
+            error={statusMutation.error}
+            inputId="warehouse-status-reason"
             onConfirm={confirmStatusChange}
-          >
-            <div>
-              <Label htmlFor="warehouse-status-reason" required>
-                Reason
-              </Label>
-              <Input
-                id="warehouse-status-reason"
-                value={reason}
-                onChange={(event) => {
-                  setReason(event.target.value)
-                  setReasonError(null)
-                }}
-                autoComplete="off"
-                aria-invalid={Boolean(reasonError)}
-                className="mt-1.5"
-              />
-              <FieldError message={reasonError ?? undefined} />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Recorded in the audit trail. Six months from now this is the only answer to why the
-                warehouse was switched off.
-              </p>
-            </div>
-          </ConfirmDialog>
+          />
         </>
       )}
     </>

@@ -1,7 +1,7 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { cursorPage, ok, renderScreen } from '@/test/harness'
+import { cursorPage, fail, ok, renderScreen } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import MessagingPage from './messaging-page'
@@ -88,5 +88,86 @@ describe('messaging administration', () => {
         notification_type: 'SYSTEM_ANNOUNCEMENT',
       }),
     )
+  })
+
+  it('refuses a new mapping with no template name and sends nothing', async () => {
+    // Add seeds a blank name; the API refuses it as `templates.1`, a field
+    // error the global handler leaves to the page.
+    const { user, fetch } = renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+      routes: { ...routes(), 'PUT /notifications/channel-templates': ok(templates) },
+    })
+
+    await screen.findByLabelText('Approved template name')
+    await user.click(screen.getByRole('button', { name: 'Add template' }))
+    await user.click(screen.getByRole('button', { name: 'Save templates' }))
+
+    const headline = await screen.findByText('The templates were not saved')
+    const summary = headline.closest<HTMLElement>('[role="alert"]')!
+    expect(
+      within(summary).getByText('WHATSAPP · Approval Pending: Approved template name is required.'),
+    ).toBeVisible()
+    expect(fetch.calls.filter((call) => call.method === 'PUT')).toHaveLength(0)
+
+    // Naming the template clears the complaint, and the save goes through.
+    const names = screen.getAllByLabelText('Approved template name')
+    await user.type(names[1]!, 'approval_pending')
+    expect(screen.queryByText('The templates were not saved')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save templates' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('PUT', '/notifications/channel-templates')).toMatchObject({
+        templates: [templates[0], { channel: 'WHATSAPP', template_name: 'approval_pending' }],
+      }),
+    )
+  })
+
+  it('refuses SMS text whose placeholders do not match the parameters', async () => {
+    const sms = {
+      channel: 'SMS',
+      notification_type: 'APPROVAL_PENDING',
+      template_name: null,
+      template_id: '1207160000000000001',
+      language: 'en',
+      parameters: ['title'],
+      sms_text: 'Approval {#var#} is waiting for {#var#}',
+      is_active: true,
+    }
+    const { user, fetch } = renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+      routes: { ...routes(), 'GET /notifications/channel-templates': ok([sms]) },
+    })
+
+    await screen.findByLabelText('DLT template ID')
+    await user.click(screen.getByRole('button', { name: 'Save templates' }))
+
+    expect(
+      await screen.findAllByText(
+        /The registered text has 2 \{#var#\} placeholders but 1 parameter is listed\./,
+      ),
+    ).toHaveLength(2)
+    expect(fetch.calls.filter((call) => call.method === 'PUT')).toHaveLength(0)
+  })
+
+  it('shows a refusal the API names by position on the mapping it belongs to', async () => {
+    const refusal = 'WhatsApp mappings require a template name only.'
+    const { user } = renderScreen(<MessagingPage />, {
+      permissions: [P.SETTINGS_VIEW, P.SETTINGS_MANAGE],
+      routes: {
+        ...routes(),
+        'PUT /notifications/channel-templates': fail(
+          422,
+          'VALIDATION_ERROR',
+          'Some fields need attention.',
+          { fields: { 'templates.0': [refusal] } },
+        ),
+      },
+    })
+
+    await screen.findByLabelText('Approved template name')
+    await user.click(screen.getByRole('button', { name: 'Save templates' }))
+
+    expect(await screen.findByText(`WHATSAPP · System Announcement: ${refusal}`)).toBeVisible()
+    // Twice: in the summary by the Save button, and on the mapping itself.
+    expect(screen.getAllByText(refusal, { exact: false })).toHaveLength(2)
   })
 })

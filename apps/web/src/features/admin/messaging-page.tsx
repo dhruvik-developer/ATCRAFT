@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { PageHeader } from '@/components/shared'
+import { FieldError, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -13,10 +13,11 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { api } from '@/lib/api-client'
+import { ApiError, api } from '@/lib/api-client'
 import { MESSAGING_DELIVERIES_PAGE_SIZE } from '@/lib/constants'
 import { humanise } from '@/lib/format'
-import { describeError, success } from '@/lib/messages'
+import { partitionFieldErrors } from '@/lib/form-errors'
+import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -66,6 +67,55 @@ interface ChannelStatus {
 const CHANNELS_QUERY_KEY = ['notifications', 'channel-templates'] as const
 const DELIVERIES_QUERY_KEY = ['notifications', 'messaging-deliveries'] as const
 
+/** The DLT placeholder; the provider fills one per listed parameter, in order. */
+const DLT_PLACEHOLDER = /\{#var#\}/g
+
+/**
+ * What the API would refuse in one mapping, caught before the round trip.
+ *
+ * Mirrors `NotificationChannelTemplateUpdate`: the channel decides which fields
+ * a mapping needs, and the API names a refusal only by the mapping's position
+ * in the list. Without this, Add then Save sent the blank row Add seeds, and
+ * the refusal came back as a field error nothing on the page rendered.
+ */
+function templateProblems(template: MessagingTemplate): string[] {
+  const problems: string[] = []
+  if (template.language.length < 2) problems.push(validation.required('Language'))
+  if (template.channel === 'WHATSAPP') {
+    if (!template.template_name?.trim()) {
+      problems.push(validation.required('Approved template name'))
+    }
+    return problems
+  }
+  if (!template.template_id?.trim()) problems.push(validation.required('DLT template ID'))
+  const text = template.sms_text?.trim() ?? ''
+  if (!text) {
+    problems.push(validation.required('Registered DLT text'))
+  } else {
+    const placeholders = text.match(DLT_PLACEHOLDER)?.length ?? 0
+    const listed = template.parameters.length
+    if (placeholders !== listed) {
+      problems.push(
+        `The registered text has ${placeholders} {#var#} placeholder${placeholders === 1 ? '' : 's'} but ${listed} parameter${listed === 1 ? ' is' : 's are'} listed.`,
+      )
+    }
+  }
+  return problems
+}
+
+/** A refused save's field errors: per mapping (`templates.N...`), and about the list. */
+function refusedTemplates(error: unknown): { rows: Record<number, string[]>; list: string[] } {
+  const rows: Record<number, string[]> = {}
+  const list: string[] = []
+  if (!(error instanceof ApiError)) return { rows, list }
+  for (const [path, messages] of Object.entries(partitionFieldErrors(error).fields)) {
+    const row = /^templates\.(\d+)(?:\.|$)/.exec(path)
+    if (row) (rows[Number(row[1])] ??= []).push(...messages)
+    else list.push(...messages)
+  }
+  return { rows, list }
+}
+
 function updateTemplate(
   templates: MessagingTemplate[],
   index: number,
@@ -83,6 +133,8 @@ export default function MessagingPage() {
   const [draft, setDraft] = useState<MessagingTemplate[]>([])
   const [channel, setChannel] = useState<Channel>('WHATSAPP')
   const [notificationType, setNotificationType] = useState<string>(NOTIFICATION_TYPES[0])
+  /** Set by the first Save, so a row being filled in is not called wrong while it is typed. */
+  const [saveAttempted, setSaveAttempted] = useState(false)
 
   const status = useQuery({
     queryKey: [...queryKeys.notifications.channels, 'admin'] as const,
@@ -111,8 +163,37 @@ export default function MessagingPage() {
       await queryClient.invalidateQueries({ queryKey: CHANNELS_QUERY_KEY })
       await queryClient.invalidateQueries({ queryKey: DELIVERIES_QUERY_KEY })
       toast.success(success.saved('Messaging templates'))
+      setSaveAttempted(false)
     },
   })
+
+  const localProblems = useMemo(() => draft.map(templateProblems), [draft])
+  const refused = useMemo(() => refusedTemplates(save.error), [save.error])
+  const rowProblems = (index: number): string[] => [
+    ...(saveAttempted ? (localProblems[index] ?? []) : []),
+    ...(refused.rows[index] ?? []),
+  ]
+  const summary = [
+    ...draft.flatMap((template, index) => {
+      const problems = rowProblems(index)
+      return problems.length
+        ? [`${template.channel} · ${humanise(template.notification_type)}: ${problems.join(' ')}`]
+        : []
+    }),
+    ...refused.list,
+  ]
+
+  /** Every edit goes through here: a refusal describes the templates as they were sent. */
+  const editDraft = (next: MessagingTemplate[]) => {
+    setDraft(next)
+    if (save.error) save.reset()
+  }
+
+  const saveTemplates = () => {
+    setSaveAttempted(true)
+    if (localProblems.some((problems) => problems.length > 0)) return
+    save.mutate()
+  }
 
   const sendTest = useMutation({
     mutationFn: (template: MessagingTemplate) =>
@@ -133,6 +214,7 @@ export default function MessagingPage() {
       toast.error('Template already exists', 'Edit the existing channel and notification type.')
       return
     }
+    if (save.error) save.reset()
     setDraft((current) => [
       ...current,
       {
@@ -219,12 +301,25 @@ export default function MessagingPage() {
             className="ml-auto"
             loading={save.isPending}
             disabled={!canManage || draft.length === 0 || templates.isLoading}
-            onClick={() => save.mutate()}
+            onClick={saveTemplates}
           >
             Save templates
           </Button>
         </CardContent>
       </Card>
+
+      {summary.length > 0 && (
+        <Alert variant="destructive" className="mb-5">
+          <p className="mb-1 font-medium leading-none">The templates were not saved</p>
+          <AlertDescription>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {summary.map((problem) => (
+                <li key={problem}>{problem}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="space-y-4">
         {draft.map((template, index) => {
@@ -240,6 +335,7 @@ export default function MessagingPage() {
                     <p className="text-xs text-muted-foreground">
                       Parameter order must match the provider-approved template.
                     </p>
+                    <FieldError message={rowProblems(index)} />
                   </div>
                   <div className="flex items-center gap-2">
                     <Label className="inline-flex items-center gap-2">
@@ -247,7 +343,7 @@ export default function MessagingPage() {
                         checked={template.is_active}
                         disabled={!canManage}
                         onCheckedChange={(checked) =>
-                          setDraft(updateTemplate(draft, index, { is_active: checked === true }))
+                          editDraft(updateTemplate(draft, index, { is_active: checked === true }))
                         }
                       />
                       Active
@@ -281,7 +377,7 @@ export default function MessagingPage() {
                           disabled={!canManage}
                           maxLength={128}
                           onChange={(event) =>
-                            setDraft(
+                            editDraft(
                               updateTemplate(draft, index, { template_name: event.target.value }),
                             )
                           }
@@ -295,7 +391,9 @@ export default function MessagingPage() {
                           disabled={!canManage}
                           maxLength={16}
                           onChange={(event) =>
-                            setDraft(updateTemplate(draft, index, { language: event.target.value }))
+                            editDraft(
+                              updateTemplate(draft, index, { language: event.target.value }),
+                            )
                           }
                         />
                       </div>
@@ -310,7 +408,7 @@ export default function MessagingPage() {
                           disabled={!canManage}
                           maxLength={128}
                           onChange={(event) =>
-                            setDraft(
+                            editDraft(
                               updateTemplate(draft, index, { template_id: event.target.value }),
                             )
                           }
@@ -324,7 +422,9 @@ export default function MessagingPage() {
                           disabled={!canManage}
                           maxLength={2000}
                           onChange={(event) =>
-                            setDraft(updateTemplate(draft, index, { sms_text: event.target.value }))
+                            editDraft(
+                              updateTemplate(draft, index, { sms_text: event.target.value }),
+                            )
                           }
                         />
                       </div>
@@ -340,7 +440,7 @@ export default function MessagingPage() {
                       placeholder="title, body, link"
                       disabled={!canManage}
                       onChange={(event) =>
-                        setDraft(
+                        editDraft(
                           updateTemplate(draft, index, {
                             parameters: parseParameters(event.target.value),
                           }),

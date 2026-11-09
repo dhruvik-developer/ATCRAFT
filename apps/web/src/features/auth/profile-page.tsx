@@ -37,7 +37,7 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatRelative } from '@/lib/format'
 import { describeError, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -76,6 +76,8 @@ function MessagingProfileCard() {
   const profileChanged = phone !== savedPhone
   const updatePhone = useMutation({
     mutationFn: () => api.put<{ acknowledged: boolean }>('/auth/me/phone', { phone }),
+    // A refused number comes back as a field error on `phone`, which the global
+    // handler leaves to the form - so it is shown under the input below.
     onSuccess: async () => {
       setCode('')
       setCodeRequested(false)
@@ -120,6 +122,7 @@ function MessagingProfileCard() {
     )
   }
   const whatsappEnabled = channels.data?.whatsapp_enabled === true
+  const phoneError = fieldErrorSummary(updatePhone.error) ?? undefined
   const smsEnabled = channels.data?.sms_enabled === true
   if (!whatsappEnabled && !smsEnabled) return null
 
@@ -147,10 +150,16 @@ function MessagingProfileCard() {
               autoComplete="tel"
               maxLength={32}
               value={phone}
-              onChange={(event) => setPhone(event.target.value)}
+              onChange={(event) => {
+                setPhone(event.target.value)
+                // The refusal was about the number as it was; editing it starts over.
+                if (updatePhone.error) updatePhone.reset()
+              }}
+              aria-invalid={Boolean(phoneError)}
               className="mt-1.5"
               placeholder="+91 98765 43210"
             />
+            <FieldError message={phoneError} />
           </div>
           <Button
             type="button"

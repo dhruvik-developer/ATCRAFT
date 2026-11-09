@@ -180,4 +180,32 @@ describe('messaging profile', () => {
     )
     expect(screen.queryByRole('checkbox', { name: 'SMS messages' })).not.toBeInTheDocument()
   })
+
+  it('says why a mobile number was refused, under the number', async () => {
+    // A 422 on `phone` is a field error, which the global handler leaves to the
+    // screen - so without this the button stopped spinning and said nothing.
+    const refusal = 'Enter a valid phone number in E.164 format.'
+    const { fetch, user } = renderScreen(<ProfilePage />, {
+      user: { mfa_enabled: false, must_change_password: false, phone_e164: null },
+      routes: {
+        'GET /auth/sessions': sessions,
+        'GET /notifications/channels': ok({ whatsapp_enabled: true, sms_enabled: false }),
+        'PUT /auth/me/phone': fail(422, 'VALIDATION_ERROR', 'Some fields need attention.', {
+          fields: { phone: [refusal] },
+        }),
+      },
+    })
+
+    const number = await screen.findByLabelText('Mobile number')
+    await user.type(number, '98765')
+    await user.click(screen.getByRole('button', { name: 'Save number' }))
+
+    expect(await screen.findByText(refusal)).toBeVisible()
+    expect(fetch.requestFor('PUT', '/auth/me/phone')).toEqual({ phone: '98765' })
+    expect(number).toHaveAttribute('aria-invalid', 'true')
+
+    // Editing the number clears the refusal of the old one.
+    await user.type(number, '4')
+    expect(screen.queryByText(refusal)).not.toBeInTheDocument()
+  })
 })
