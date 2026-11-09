@@ -42,18 +42,12 @@ import { toast } from '@/lib/toast'
 
 import MovementBatchPicker from './movement-batch-picker'
 import { ItemPicker, WarehouseSelect } from './pickers'
-import { SERIAL_BULK_MAX } from './serial-numbers'
+import { SERIAL_BULK_MAX, splitSerialNumbers } from './serial-numbers'
+import { SerialNumbersField } from './serial-numbers-field'
 import type { StockBatchRow, StockSerialDetail, StockSerialRow } from './types'
 
 function errorMessage(error: unknown): string | undefined {
   return error ? describeError(error) : undefined
-}
-
-function splitSerials(value: string): string[] {
-  return value
-    .split(/[\s,;]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
 }
 
 // ------------------------------------------------------------- register batch
@@ -331,39 +325,20 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
   const [warehouseId, setWarehouseId] = useState('')
   const [batchId, setBatchId] = useState('')
   const [text, setText] = useState('')
-  const [prefix, setPrefix] = useState('')
-  const [start, setStart] = useState('1')
-  const [end, setEnd] = useState('10')
-  const [padding, setPadding] = useState('4')
   const [receivedOn, setReceivedOn] = useState(toDateInput(new Date()))
   const [notes, setNotes] = useState('')
 
-  const numbers = splitSerials(text)
-  const unique = new Set(numbers)
-  const overLimit = unique.size > SERIAL_BULK_MAX
-  const rangeError =
-    !Number.isInteger(Number(start)) ||
-    !Number.isInteger(Number(end)) ||
-    Number(end) < Number(start) ||
-    Number(end) - Number(start) + 1 > SERIAL_BULK_MAX
-
-  const addRange = () => {
-    const from = Number(start)
-    const to = Number(end)
-    const width = Math.max(1, Math.min(12, Number(padding) || 1))
-    if (rangeError || from < 1 || to < 1) return
-    const generated = Array.from(
-      { length: to - from + 1 },
-      (_, offset) => `${prefix}${String(from + offset).padStart(width, '0')}`,
-    )
-    setText((current) => [...splitSerials(current), ...generated].join('\n'))
-  }
+  // The labels the API will store: upper-cased and de-duplicated the way it
+  // normalises them, so "sn-1" and "SN-1" are one unit here as they are there
+  // rather than a count of two that the register then refuses as a duplicate.
+  const numbers = splitSerialNumbers(text)
+  const overLimit = numbers.length > SERIAL_BULK_MAX
 
   const create = useMutation({
     mutationFn: () =>
       api.post<StockSerialRow[]>('/inventory/serials/bulk', {
         item_id: itemId,
-        serial_numbers: [...unique],
+        serial_numbers: numbers,
         batch_id: batchId || null,
         warehouse_id: warehouseId || null,
         location_id: null,
@@ -443,93 +418,14 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="serials-text" required>
-              Serial numbers
-            </Label>
-            <Textarea
-              id="serials-text"
-              rows={7}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={'One per line, or separated by commas\nSN-0001\nSN-0002'}
-              className="font-mono text-xs"
-              aria-describedby="serials-count"
-            />
-            <p
-              id="serials-count"
-              className={overLimit ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}
-            >
-              {unique.size} unique serial(s); the register accepts up to {SERIAL_BULK_MAX} at a
-              time.
-            </p>
-          </div>
-
-          <div className="rounded-md border p-3">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">
-              Or generate a label range
-            </p>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-[8rem] flex-1 space-y-1">
-                <Label htmlFor="serials-prefix" className="text-xs">
-                  Prefix
-                </Label>
-                <Input
-                  id="serials-prefix"
-                  value={prefix}
-                  maxLength={32}
-                  onChange={(event) => setPrefix(event.target.value)}
-                />
-              </div>
-              <div className="w-20 space-y-1">
-                <Label htmlFor="serials-start" className="text-xs">
-                  From
-                </Label>
-                <Input
-                  id="serials-start"
-                  inputMode="numeric"
-                  value={start}
-                  onChange={(event) => setStart(event.target.value)}
-                />
-              </div>
-              <div className="w-20 space-y-1">
-                <Label htmlFor="serials-end" className="text-xs">
-                  To
-                </Label>
-                <Input
-                  id="serials-end"
-                  inputMode="numeric"
-                  value={end}
-                  onChange={(event) => setEnd(event.target.value)}
-                />
-              </div>
-              <div className="w-20 space-y-1">
-                <Label htmlFor="serials-padding" className="text-xs">
-                  Digits
-                </Label>
-                <Input
-                  id="serials-padding"
-                  inputMode="numeric"
-                  value={padding}
-                  onChange={(event) => setPadding(event.target.value)}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addRange}
-                disabled={rangeError || !prefix.trim()}
-              >
-                Add range
-              </Button>
-            </div>
-            {rangeError && (
-              <p className="mt-2 text-xs text-destructive">
-                Choose whole numbers with To not before From, and at most {SERIAL_BULK_MAX} at a
-                time.
-              </p>
-            )}
-          </div>
+          <SerialNumbersField
+            id="serials-text"
+            required
+            rows={7}
+            value={text}
+            onChange={setText}
+            hint={`The register accepts up to ${SERIAL_BULK_MAX} at a time.`}
+          />
 
           <div className="space-y-1.5">
             <Label htmlFor="serials-notes">Notes</Label>
@@ -547,10 +443,10 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
           </Button>
           <Button
             loading={create.isPending}
-            disabled={!itemId || unique.size === 0 || overLimit}
+            disabled={!itemId || numbers.length === 0 || overLimit}
             onClick={() => create.mutate()}
           >
-            Register {unique.size || ''} serial(s)
+            Register {numbers.length || ''} serial(s)
           </Button>
         </DialogFooter>
       </DialogContent>

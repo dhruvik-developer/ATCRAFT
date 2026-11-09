@@ -284,6 +284,51 @@ describe('serial tracking', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
+  it('registers the labels the API will store, counting a case-only repeat once', async () => {
+    // The API upper-cases every label and refuses a repeat in one request, so
+    // the dialog must count and send what it will store: "sn-new-1 SN-NEW-1"
+    // is one unit, and a generated range takes the same canonical form.
+    const item = { ...ITEM, is_batch_tracked: false, is_serial_tracked: true }
+    const { user, fetch } = renderScreen(<TrackingPage />, {
+      route: '/inventory/tracking?tab=serials',
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_BATCH_MANAGE],
+      routes: {
+        [SERIALS]: page([]),
+        'GET /warehouses': page([]),
+        'GET /products/items': page([item]),
+        [`GET /products/items/${ITEM.id}`]: ok(item),
+        'POST /inventory/serials/bulk': ok([]),
+        'POST /inventory/serials/labels': fail(503, 'SERVICE_UNAVAILABLE', 'Unavailable'),
+      },
+    })
+
+    await screen.findByText('No serials yet')
+    await user.click(screen.getAllByRole('button', { name: /register serials/i })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Item' }))
+    await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Serial numbers' }),
+      'sn-new-1 SN-NEW-1',
+    )
+    expect(within(dialog).getByText('1 serial captured.')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Register 1 serial(s)' })).toBeEnabled()
+
+    await user.click(within(dialog).getByText('Generate a label range'))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Prefix' }), 'sn-')
+    await user.clear(within(dialog).getByRole('textbox', { name: 'To' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'To' }), '2')
+    await user.click(within(dialog).getByRole('button', { name: 'Add range' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Register 3 serial(s)' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/inventory/serials/bulk')).toMatchObject({
+        item_id: ITEM.id,
+        serial_numbers: ['SN-NEW-1', 'SN-0001', 'SN-0002'],
+      }),
+    )
+  })
+
   it('lets serial managers re-download a label from the serial trace', async () => {
     const unit = serial()
     const { user, fetch } = renderScreen(<TrackingPage />, {

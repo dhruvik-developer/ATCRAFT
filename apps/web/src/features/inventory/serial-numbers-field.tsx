@@ -25,6 +25,7 @@ export function SerialNumbersField({
   hint,
   error,
   rows = 3,
+  required = false,
 }: {
   id: string
   label?: string
@@ -35,6 +36,8 @@ export function SerialNumbersField({
   hint?: string
   error?: string
   rows?: number
+  /** Marks the label required, for a surface whose whole purpose is the labels. */
+  required?: boolean
 }) {
   const [prefix, setPrefix] = useState('')
   const [start, setStart] = useState('1')
@@ -75,7 +78,9 @@ export function SerialNumbersField({
   const describedBy = `${id}-count`
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <Label htmlFor={id} required={required}>
+        {label}
+      </Label>
       <Textarea
         id={id}
         rows={rows}

@@ -1314,13 +1314,6 @@ function CountedQuantityCell({ line }: { line: PhysicalCountLineRow }) {
   )
 }
 
-function parseCountedSerialNumbers(value: string): string[] {
-  return value
-    .split(/[\n,]/)
-    .map((serial) => serial.trim())
-    .filter(Boolean)
-}
-
 function CountedSerialsCell({ line }: { line: PhysicalCountLineRow }) {
   const entry = useContext(CountEntryContext)
   if (!entry) return null
@@ -1339,7 +1332,7 @@ function CountedSerialsCell({ line }: { line: PhysicalCountLineRow }) {
         className="min-h-14 text-xs"
       />
       <p className="text-right text-xs text-muted-foreground">
-        {formatNumber(parseCountedSerialNumbers(value).length)} unit(s)
+        {formatNumber(splitSerialNumbers(value).length)} unit(s)
       </p>
       <FieldError message={message} />
     </div>
@@ -1500,7 +1493,10 @@ export function EnterCountsDialog({
         .filter(([, value]) => value.trim() !== '')
         .map(([line_id, value]) => ({ line_id, counted_quantity: value.trim() })),
       ...Object.entries(serialDrafts).map(([line_id, value]) => {
-        const serial_numbers = parseCountedSerialNumbers(value)
+        // The labels the API will match: a unit scanned twice, or keyed once
+        // in lower case and once in upper, is one unit found - not a count of
+        // two that the sheet then refuses as a duplicate.
+        const serial_numbers = splitSerialNumbers(value)
         return {
           line_id,
           counted_quantity: String(serial_numbers.length),

@@ -871,6 +871,61 @@ describe('physical counts', () => {
     })
   })
 
+  it('counts a unit scanned twice, in either case, as one unit found', async () => {
+    // The API upper-cases counted labels and refuses a repeat, so the cell
+    // counts what it will match - and a space from a scanner separates labels
+    // rather than gluing two of them into one the API would store joined.
+    const { user, fetch } = renderScreen(<MovementsPage />, {
+      route: COUNTS_TAB,
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_PHYSICAL_COUNT],
+      routes: {
+        'GET /inventory/physical-counts': page([count({ status: 'IN_PROGRESS' })]),
+        'GET /inventory/physical-counts/pc000000-0000-7000-8000-000000000001/lines': page([
+          {
+            id: 'serial-line',
+            line_number: 1,
+            item_id: ITEM.id,
+            item_code: ITEM.code,
+            item_name: ITEM.name,
+            is_serial_tracked: true,
+            location_id: null,
+            batch_id: null,
+            counted_serial_numbers: [],
+            system_quantity: '2.0000',
+            counted_quantity: null,
+            variance_quantity: null,
+            unit_cost: '125.00',
+            variance_value: null,
+            counted_at: null,
+            counted_by_id: null,
+            notes: null,
+          },
+        ]),
+        'POST /inventory/physical-counts': ok(count({ status: 'IN_PROGRESS' })),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /key counts/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Serial numbers found for BRASS-ROD-12' }),
+      'sn-001\nSN-001 SN-002',
+    )
+    expect(within(dialog).getByText('2 unit(s)')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /save counts/i }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    expect(fetch.calls.find((call) => call.method === 'POST')!.body).toEqual({
+      entries: [
+        {
+          line_id: 'serial-line',
+          counted_quantity: '2',
+          serial_numbers: ['SN-001', 'SN-002'],
+        },
+      ],
+    })
+  })
+
   it('cancels a sheet only with a recorded reason', async () => {
     // Cancel exists because an open sheet blocks every new count for the
     // warehouse (`open_count_exists`), and the API records why it was closed.
