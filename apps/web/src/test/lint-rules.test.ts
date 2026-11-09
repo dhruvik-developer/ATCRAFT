@@ -372,6 +372,56 @@ describe('the lint rules that replace review comments', () => {
     expect(fired).toEqual([])
   })
 
+  it('checks the read a search picker is handed, in the file that writes it', async () => {
+    // SearchPicker takes its read as `query(term)` returning an object literal,
+    // so both rules see the key and the function where the caller spells them.
+    const field = (key: string, fn: string) =>
+      [
+        "import { SearchPicker } from '@/components/ui/search-picker'",
+        "import { api } from '@/lib/api-client'",
+        "import { queryKeys, staleTimes } from '@/lib/query-client'",
+        '',
+        'export function CustomerField() {',
+        '  return (',
+        '    <SearchPicker',
+        '      id="customer"',
+        '      label="Customer"',
+        '      display={null}',
+        '      placeholder="Choose a customer"',
+        '      searchLabel="Search customers"',
+        '      searchPlaceholder="Name or code"',
+        '      query={(term) => {',
+        '        const params = { search: term }',
+        `        return { queryKey: ${key}, queryFn: ${fn}, staleTime: staleTimes.master }`,
+        '      }}',
+        '      getKey={(row: { id: string }) => row.id}',
+        '      selectedKey={null}',
+        '      renderOption={(row: { id: string }) => row.id}',
+        '      onSelect={() => undefined}',
+        '      emptyText="No customer matches."',
+        '    />',
+        '  )',
+        '}',
+        '',
+      ].join('\n')
+
+    const refused = await rulesFiredBy(
+      field(
+        "['customers', 'picker', params] as const",
+        "() => api.getPage('/customers', { params })",
+      ),
+    )
+    expect(refused.filter((rule) => rule === 'no-restricted-syntax')).toHaveLength(2)
+
+    const accepted = await rulesFiredBy(
+      field(
+        'queryKeys.customers.list(params)',
+        "({ signal }) => api.getPage('/customers', { params, signal })",
+      ),
+    )
+    expect(accepted).toEqual([])
+  })
+
   it('refuses bare browser storage outside lib/storage.ts and the tests', async () => {
     const code = [
       'export function remember(collapsed: boolean): boolean {',
