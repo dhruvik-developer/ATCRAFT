@@ -34,8 +34,9 @@ are easy to get wrong:
   there were none.
 
 No Redis, no database, no dependency added. ``get_redis`` is replaced with a
-stub implementing the same sliding window the Lua script does, so the window
-arithmetic is exercised rather than assumed.
+stub implementing the same sliding window the Lua script does
+(``tests/redis_support.py``), so the window arithmetic is exercised rather than
+assumed.
 """
 
 from __future__ import annotations
@@ -54,6 +55,7 @@ from src.core.errors import ErrorCode, RateLimitedError
 from src.core.ratelimit import KEY_PREFIX, RateLimitPolicy
 from src.modules.mrp import service
 from src.modules.mrp.schemas import ManualDemandIn, MrpRunRequest
+from tests.redis_support import FakeRedis
 
 pytestmark = pytest.mark.unit
 
@@ -87,46 +89,6 @@ class ExplodingSession:
             f"start_run touched the database (session.{name}) on a path that should "
             "have been decided by the rate limiter alone."
         )
-
-
-class FakeRedis:
-    """The sliding window of ``_SLIDING_WINDOW``, in Python.
-
-    ``ZREMRANGEBYSCORE key 0 now-window`` drops everything at or below the cutoff,
-    so an entry survives while its score is strictly greater than it. Returns the
-    same ``[allowed, count, retry_ms]`` triple the script does.
-    """
-
-    def __init__(self) -> None:
-        self.windows: dict[str, list[tuple[int, str]]] = {}
-        self.connection_requests = 0
-        self.deleted: list[str] = []
-
-    async def eval(
-        self,
-        script: str,
-        numkeys: int,
-        key: str,
-        now_ms: Any,
-        window_ms: Any,
-        limit: Any,
-        member: Any,
-    ) -> list[int]:
-        now, window, cap = int(now_ms), int(window_ms), int(limit)
-        entries = [entry for entry in self.windows.get(key, []) if entry[0] > now - window]
-        self.windows[key] = entries
-
-        if len(entries) >= cap:
-            retry = (entries[0][0] + window) - now if entries else window
-            return [0, len(entries), retry]
-
-        entries.append((now, str(member)))
-        entries.sort()
-        return [1, len(entries), 0]
-
-    async def delete(self, *keys: str) -> int:
-        self.deleted.extend(keys)
-        return len(keys)
 
 
 class FrozenClock:

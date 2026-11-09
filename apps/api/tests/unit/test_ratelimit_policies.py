@@ -30,7 +30,7 @@ from src.core.security import create_mfa_challenge_token
 from src.modules.auth import service as auth_service
 from src.modules.auth.schemas import MfaVerifyRequest, PasswordResetRequestPayload
 from src.modules.auth.service import AuthService
-from tests.unit.test_mrp_rate_limit import FakeRedis
+from tests.redis_support import FakeRedis
 
 pytestmark = pytest.mark.unit
 

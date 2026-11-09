@@ -42,8 +42,8 @@ from src.core.errors import AppError, ErrorCode
 from src.core.permissions import Permission
 from src.core.ratelimit import KEY_PREFIX, RateLimitPolicy
 from src.core.responses import AcceptedJobResponse
+from tests.redis_support import FakeRedis
 from tests.route_support import MountedRoute, iter_api_routes, module_routes
-from tests.unit.test_mrp_rate_limit import FakeRedis
 
 pytestmark = pytest.mark.unit
 

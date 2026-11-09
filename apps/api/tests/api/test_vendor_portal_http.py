@@ -1081,7 +1081,7 @@ async def test_a_vendor_gets_its_last_pdf_and_upload_of_the_budget_and_no_more(
     from src.core.ratelimit import KEY_PREFIX, RateLimitPolicy
     from src.modules.reports.models import ReportSnapshot
     from src.workers import celery_app as celery_module
-    from tests.unit.test_mrp_rate_limit import FakeRedis
+    from tests.redis_support import FakeRedis
 
     monkeypatch.setattr(settings, "storage_path", tmp_path)
     monkeypatch.setattr(
