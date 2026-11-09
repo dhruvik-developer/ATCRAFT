@@ -18,6 +18,7 @@ from src.modules.sales_returns.models import SalesReturn, SalesReturnStatus
 from src.modules.sales_returns.repository import SalesReturnRepository
 from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
 from tests import seed_support
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -284,3 +285,83 @@ async def test_a_received_return_cannot_restore_its_cost_a_second_time(session, 
     with pytest.raises(InvalidStateTransitionError):
         await service.transition_return(session, tenant, returned.id, SalesReturnStatus.RECEIVED)
     assert await session.scalar(select(func.count()).select_from(InventoryTransaction)) == before
+
+
+# -----------------------------------------------------------------------------
+# What a new return may still claim from a dispatch line
+# -----------------------------------------------------------------------------
+
+
+def _claim(dispatch, *pairs: tuple[int, str]) -> SalesReturnCreate:
+    """A return naming ``(dispatch line index, quantity)`` pairs, in that order."""
+    return SalesReturnCreate(
+        dispatch_id=dispatch.id,
+        lines=[
+            SalesReturnLineIn(
+                dispatch_line_id=dispatch.lines[index].id,
+                quantity=Decimal(quantity),
+                reason_code="SURPLUS",
+                requires_qc=False,
+            )
+            for index, quantity in pairs
+        ],
+    )
+
+
+async def test_a_return_names_each_dispatch_line_once(session, tenant):
+    """One line per dispatch line, as uq_sales_return_lines_dispatch requires.
+
+    A request naming one dispatch line twice used to pass every check and then
+    fail at the flush on that constraint, answered as a bare 409 "already
+    exists". It is now refused before anything is written, in words.
+    """
+    dispatch, _item, _warehouse = await shipped_stock(session, tenant, [("10", "10")])
+
+    with pytest.raises(BusinessRuleError, match="only once on a sales return"):
+        await service.create_return(session, tenant, _claim(dispatch, (0, "6"), (0, "4")))
+
+    created = await session.scalar(
+        select(func.count(SalesReturn.id)).where(
+            SalesReturn.company_id == tenant.company_id, SalesReturn.dispatch_id == dispatch.id
+        )
+    )
+    assert created == 0
+
+
+async def test_open_drafts_draw_down_what_a_new_return_may_claim(session, tenant):
+    """Earlier non-cancelled returns are counted, now read once for every line."""
+    dispatch, _item, _warehouse = await shipped_stock(
+        session, tenant, [("10", "10")], split_quantities=["6", "4"]
+    )
+    await service.create_return(session, tenant, _claim(dispatch, (0, "4"), (1, "1")))
+
+    with pytest.raises(BusinessRuleError, match="remaining quantity for line 1"):
+        await service.create_return(session, tenant, _claim(dispatch, (1, "3"), (0, "3")))
+
+    accepted = await service.create_return(session, tenant, _claim(dispatch, (0, "2"), (1, "3")))
+    assert sorted(line.quantity for line in accepted.lines) == [Decimal("2"), Decimal("3")]
+
+
+async def test_a_return_reads_earlier_claims_once_however_many_lines_it_names(
+    session, tenant, engine
+):
+    """Two lines and four cost the same reads of earlier returns: one, not one per line."""
+    dispatch, _item, _warehouse = await shipped_stock(
+        session, tenant, [("12", "10")], split_quantities=["2"] * 6
+    )
+
+    def claim_reads(statements: list[str]) -> int:
+        return sum(
+            1
+            for text in statements
+            if text.lstrip().upper().startswith("SELECT") and "sales_return_lines" in text
+        )
+
+    with counted(engine) as two_lines:
+        await service.create_return(session, tenant, _claim(dispatch, (0, "1"), (1, "1")))
+    with counted(engine) as four_lines:
+        await service.create_return(
+            session, tenant, _claim(dispatch, (2, "1"), (3, "1"), (4, "1"), (5, "1"))
+        )
+
+    assert claim_reads(four_lines) == claim_reads(two_lines)

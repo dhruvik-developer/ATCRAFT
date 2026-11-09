@@ -202,6 +202,14 @@ async def create_return(
         if warehouse_exists is None:
             raise NotFoundError("Warehouse", payload.return_warehouse_id)
     line_ids = [line.dispatch_line_id for line in payload.lines]
+    if len(set(line_ids)) != len(line_ids):
+        # The table allows one line per dispatch line in a return
+        # (uq_sales_return_lines_dispatch); refused here in words rather than
+        # by the constraint as a bare 409 once every line has been checked.
+        raise BusinessRuleError(
+            "Each dispatch line can appear only once on a sales return; enter its whole "
+            "quantity on one line."
+        )
     dispatch_lines = list(
         (
             await session.execute(
@@ -254,6 +262,18 @@ async def create_return(
         if all_serial_ids
         else {}
     )
+    # What earlier open returns already claim, for every named dispatch line in
+    # two statements rather than two per line. Read under the dispatch-line
+    # locks above, so a concurrent request for the same lines waits for this
+    # one rather than reading the same pool.
+    returns = SalesReturnRepository(session, tenant)
+    claimed = await returns.claimed_quantities(list(by_id))
+    serial_line_ids = [
+        line.id
+        for line in dispatch_lines
+        if line.item_id in items and items[line.item_id].is_serial_tracked
+    ]
+    claimed_serials = await returns.claimed_serials(serial_line_ids)
     async with transaction(session):
         row = SalesReturn(
             company_id=tenant.company_id,
@@ -277,20 +297,7 @@ async def create_return(
             # Open DRAFT/RECEIVED requests consume the returnable pool too.
             # ``returned_quantity`` only grows when a return is received, so a
             # second DRAFT could otherwise over-claim the dispatched quantity.
-            claimed = await session.scalar(
-                select(func.coalesce(func.sum(SalesReturnLine.quantity), 0)).where(
-                    SalesReturnLine.company_id == tenant.company_id,
-                    SalesReturnLine.dispatch_line_id == dispatch_line.id,
-                    SalesReturnLine.sales_return_id != row.id,
-                    SalesReturnLine.sales_return_id.in_(
-                        select(SalesReturn.id).where(
-                            SalesReturn.company_id == tenant.company_id,
-                            SalesReturn.status != SalesReturnStatus.CANCELLED,
-                        )
-                    ),
-                )
-            )
-            available = dispatch_line.quantity - (claimed or ZERO)
+            available = dispatch_line.quantity - claimed.get(dispatch_line.id, ZERO)
             if line_in.quantity > available:
                 raise BusinessRuleError(
                     "Return quantity exceeds the remaining quantity for line "
@@ -326,28 +333,7 @@ async def create_return(
                         f"Every serial on line {dispatch_line.line_number} must belong to "
                         "the item and currently be dispatched."
                     )
-                prior_lines = list(
-                    (
-                        await session.execute(
-                            select(SalesReturnLine)
-                            .join(
-                                SalesReturn,
-                                SalesReturn.id == SalesReturnLine.sales_return_id,
-                            )
-                            .where(
-                                SalesReturnLine.company_id == tenant.company_id,
-                                SalesReturnLine.dispatch_line_id == dispatch_line.id,
-                                SalesReturnLine.sales_return_id != row.id,
-                                SalesReturn.status != SalesReturnStatus.CANCELLED,
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                already_returned = {
-                    serial_id for prior in prior_lines for serial_id in prior.serial_ids
-                }
+                already_returned = claimed_serials.get(dispatch_line.id, set())
                 if already_returned.intersection(serial_ids):
                     raise BusinessRuleError(
                         f"A serial on line {dispatch_line.line_number} has already been returned."
