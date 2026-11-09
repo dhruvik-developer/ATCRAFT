@@ -64,7 +64,8 @@ import type { VendorRow } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatMoney, toDateInput, toDecimal } from '@/lib/format'
-import { describeError, success, validation } from '@/lib/messages'
+import { REASON_MIN_LENGTH } from '@/lib/constants'
+import { describeError, messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -75,7 +76,6 @@ import {
   isPayableInvoice,
   MAX_ALLOCATIONS,
   MAX_REASON_LENGTH,
-  MIN_REASON_LENGTH,
   MONEY_MOVEMENT_METHODS,
   PAYMENT_METHODS,
   paymentKeys,
@@ -1545,12 +1545,12 @@ export function PaymentCommandDialog({
     },
   })
 
-  const tooShort = reason.trim().length < MIN_REASON_LENGTH
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
   const reasonRequired = copy?.reason === 'required'
   /**
    * Whether the box holds something the endpoint would refuse.
    *
-   * A required reason must clear three characters. An optional one may be left
+   * A required reason must reach `REASON_MIN_LENGTH`. An optional one may be left
    * blank - that sends no body at all - but once written it travels inside a
    * `ReasonRequest`, and the same bound applies. A two-character note would
    * otherwise go out, come back a 422 with a field error, and vanish: the
@@ -1598,12 +1598,12 @@ export function PaymentCommandDialog({
           aria-invalid={touched && reasonUnusable}
         />
         {touched && reasonUnusable ? (
-          <FieldError message={`Record at least ${MIN_REASON_LENGTH} characters of reason`} />
+          <FieldError message={messages.errors.reasonTooShort} />
         ) : (
           <p className="mt-1 text-xs text-muted-foreground">
             {reasonRequired
               ? 'Kept in the audit log against this document.'
-              : `Left blank, the approval is recorded without one; a reason that is written must run to at least ${MIN_REASON_LENGTH} characters.`}
+              : `Left blank, the approval is recorded without one; a reason that is written must run to at least ${REASON_MIN_LENGTH} characters.`}
           </p>
         )}
       </div>

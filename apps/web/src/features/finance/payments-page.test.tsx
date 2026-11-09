@@ -40,6 +40,7 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
+import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
@@ -830,7 +831,7 @@ describe('the lifecycle commands', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Approve payment' }))
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      'Record at least 3 characters of reason',
+      messages.errors.reasonTooShort,
     )
     expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
   })
@@ -854,7 +855,7 @@ describe('the lifecycle commands', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Cancel payment' }))
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      'Record at least 3 characters of reason',
+      messages.errors.reasonTooShort,
     )
     expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
 
