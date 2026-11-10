@@ -223,8 +223,10 @@ make dev                 # Linux / macOS
 .\make.ps1 dev           # Windows
 ```
 
-That brings up infrastructure and then runs both dev servers. First time only,
-in another terminal:
+On Linux and macOS that brings up infrastructure and then runs both dev
+servers. On Windows it brings up infrastructure only and prints the next
+commands: run `.\make.ps1 dev-api` and `.\make.ps1 dev-web` in two more
+terminals. First time only, in another terminal:
 
 ```bash
 make seed-local          # migrations, baseline, demonstration data and seeded PDFs

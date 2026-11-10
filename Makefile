@@ -187,7 +187,8 @@ backup: ## Dump the database to ./backups (never the only copy - section 45)
 	@echo "Reminder: copy this dump to external storage. A backup is not reliable until a restore is tested."
 
 # --- Deployments (two independent stacks on one host) --------------------
-# Every target below takes DEPLOY=main or DEPLOY=dev. There is no default:
+# Every deploy-* target below but deploy-verify takes D=main or D=dev (DEPLOY
+# above is the script's path, not the deployment). There is no default:
 # a defaulted deployment name is a command that acts on whichever stack the
 # author happened to have in mind.
 

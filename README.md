@@ -234,7 +234,8 @@ not duplicate them.
 | `lock` | Regenerate the hash-locked, Linux-resolved Python requirements (`make.ps1` resolves them in the backend image's dependency stage, so Windows keeps the `uvloop` pin CI expects) |
 | `backup` | `pg_dump` to `./backups` |
 | `shell-api` / `shell-db` | Shells inside the containers |
-| `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` / `deploy-verify` | `scripts/deploy.sh` wrappers, `D=main` or `D=dev` (Makefile only) |
+| `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` | `scripts/deploy.sh` wrappers, `D=main` or `D=dev` (Makefile only) |
+| `deploy-verify` | Prove the two deployments cannot reach each other: runs `scripts/verify-isolation.sh` and takes no `D` (Makefile only) |
 | `clean` | Remove generated builds, test outputs and caches; preserve data, configuration and dependencies |
 
 Preview cleanup with `python scripts/clean.py --dry-run` (Windows:
