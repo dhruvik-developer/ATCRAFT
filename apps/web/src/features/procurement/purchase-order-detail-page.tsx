@@ -47,6 +47,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LifecycleStepper,
   LoadError,
   PageHeader,
   PanelLoader,
@@ -121,41 +122,16 @@ const PurchaseOrderAmendmentsPanel = lazy(() => import('./purchase-order-amendme
 
 // -------------------------------------------------------------- stepper -----
 
-function StatusStepper({ status }: { status: string }) {
-  const stopped = (PO_TERMINAL_BAD as readonly string[]).includes(status)
-  const current = poStageIndex(status)
+const PO_STAGE_LABELS = PO_LIFECYCLE.map((stage) => stage.label)
 
+function StatusStepper({ status }: { status: string }) {
   return (
-    <ol
-      className="flex flex-wrap items-center gap-x-1 gap-y-2"
-      aria-label="Purchase order lifecycle"
-    >
-      {PO_LIFECYCLE.map((stage, index) => {
-        const done = !stopped && current > index
-        const active = !stopped && current === index
-        return (
-          <li key={stage.label} className="flex items-center gap-1">
-            <span
-              // aria-current is what tells a screen-reader user where the
-              // document actually is; colour alone would not.
-              aria-current={active ? 'step' : undefined}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
-                done && 'border-success/40 bg-success/10 text-success',
-                active && 'border-primary bg-primary/10 text-primary',
-                !done && !active && 'border-border text-muted-foreground',
-              )}
-            >
-              {done && <Check className="h-3 w-3" aria-hidden />}
-              {stage.label}
-            </span>
-            {index < PO_LIFECYCLE.length - 1 && (
-              <span className={cn('h-px w-4', done ? 'bg-success/50' : 'bg-border')} aria-hidden />
-            )}
-          </li>
-        )
-      })}
-    </ol>
+    <LifecycleStepper
+      stages={PO_STAGE_LABELS}
+      current={poStageIndex(status)}
+      stopped={(PO_TERMINAL_BAD as readonly string[]).includes(status)}
+      label="Purchase order lifecycle"
+    />
   )
 }
 

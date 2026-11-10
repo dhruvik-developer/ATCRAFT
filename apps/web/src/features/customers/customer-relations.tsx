@@ -24,7 +24,7 @@ import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { EmptyState, FieldError, LoadError, ReasonDialog } from '@/components/shared'
+import { EmptyState, FieldError, LoadError, PanelSkeleton, ReasonDialog } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Input, Label, Skeleton } from '@/components/ui/primitives'
+import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
@@ -48,16 +48,6 @@ import { ADDRESS_TYPES, type CustomerAddress, type CustomerContact } from './cus
 const RELATION_LIMIT = 100
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
-function PanelSkeleton() {
-  return (
-    <div className="space-y-2" aria-hidden>
-      <Skeleton className="h-16 w-full" />
-      <Skeleton className="h-16 w-full" />
-      <Skeleton className="h-16 w-full" />
-    </div>
-  )
-}
 
 export function UnsavedCustomerNotice({ what }: { what: string }) {
   return (

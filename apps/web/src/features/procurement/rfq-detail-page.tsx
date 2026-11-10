@@ -23,7 +23,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { Ban, Check, CheckCircle2, Pencil, Send, TriangleAlert } from 'lucide-react'
+import { Ban, CheckCircle2, Pencil, Send, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
@@ -31,6 +31,7 @@ import { DataTable } from '@/components/data-table'
 import {
   DescriptionList,
   EmptyState,
+  LifecycleStepper,
   LoadError,
   PageHeader,
   StatusBadge,
@@ -63,7 +64,7 @@ import {
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
-import { cn, indexById } from '@/lib/utils'
+import { indexById } from '@/lib/utils'
 
 import { RfqCommandDialog, RfqFormDialog } from './rfq-dialogs'
 import {
@@ -85,38 +86,16 @@ import {
 
 // -------------------------------------------------------------- stepper -----
 
-function StatusStepper({ status }: { status: RfqStatus }) {
-  const stopped = status === 'CANCELLED'
-  const current = rfqStageIndex(status)
+const RFQ_STAGE_LABELS = RFQ_LIFECYCLE.map((stage) => stage.label)
 
+function StatusStepper({ status }: { status: RfqStatus }) {
   return (
-    <ol className="flex flex-wrap items-center gap-x-1 gap-y-2" aria-label="RFQ lifecycle">
-      {RFQ_LIFECYCLE.map((stage, index) => {
-        const done = !stopped && current > index
-        const active = !stopped && current === index
-        return (
-          <li key={stage.label} className="flex items-center gap-1">
-            <span
-              // aria-current is what tells a screen-reader user where the
-              // document actually is; colour alone would not.
-              aria-current={active ? 'step' : undefined}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
-                done && 'border-success/40 bg-success/10 text-success',
-                active && 'border-primary bg-primary/10 text-primary',
-                !done && !active && 'border-border text-muted-foreground',
-              )}
-            >
-              {done && <Check className="h-3 w-3" aria-hidden />}
-              {stage.label}
-            </span>
-            {index < RFQ_LIFECYCLE.length - 1 && (
-              <span className={cn('h-px w-4', done ? 'bg-success/50' : 'bg-border')} aria-hidden />
-            )}
-          </li>
-        )
-      })}
-    </ol>
+    <LifecycleStepper
+      stages={RFQ_STAGE_LABELS}
+      current={rfqStageIndex(status)}
+      stopped={status === 'CANCELLED'}
+      label="RFQ lifecycle"
+    />
   )
 }
 

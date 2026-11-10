@@ -18,7 +18,6 @@ import {
   Ban,
   Check,
   CheckCircle2,
-  ChevronRight,
   ClipboardList,
   Coins,
   Factory,
@@ -38,6 +37,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LifecycleStepper,
   LoadError,
   PageHeader,
   StatTile,
@@ -120,6 +120,8 @@ import {
 
 // ------------------------------------------------------------- stepper ------
 
+const PRODUCTION_STAGE_LABELS = PRODUCTION_STEPS.map(humanise)
+
 function StatusStepper({ status }: { status: ProductionStatus }) {
   if (status === 'CANCELLED') {
     return (
@@ -133,38 +135,12 @@ function StatusStepper({ status }: { status: ProductionStatus }) {
     )
   }
 
-  const currentIndex = PRODUCTION_STEPS.indexOf(status)
-
   return (
-    <ol className="flex flex-wrap items-center gap-x-1 gap-y-2" aria-label="Order progress">
-      {PRODUCTION_STEPS.map((step, index) => {
-        const done = index < currentIndex
-        const current = index === currentIndex
-        return (
-          <li key={step} className="flex items-center gap-1">
-            <span
-              aria-current={current ? 'step' : undefined}
-              className={cn(
-                'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
-                done && 'border-success/40 bg-success/10 text-success',
-                current && 'border-primary bg-primary/10 font-medium text-primary',
-                !done && !current && 'border-border text-muted-foreground',
-              )}
-            >
-              {done ? (
-                <Check className="h-3 w-3" aria-hidden />
-              ) : (
-                <span className="tabular text-2xs">{index + 1}</span>
-              )}
-              {humanise(step)}
-            </span>
-            {index < PRODUCTION_STEPS.length - 1 && (
-              <ChevronRight className="h-3 w-3 text-muted-foreground/50" aria-hidden />
-            )}
-          </li>
-        )
-      })}
-    </ol>
+    <LifecycleStepper
+      stages={PRODUCTION_STAGE_LABELS}
+      current={PRODUCTION_STEPS.indexOf(status)}
+      label="Order progress"
+    />
   )
 }
 
