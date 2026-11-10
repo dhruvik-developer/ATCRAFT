@@ -37,6 +37,7 @@ from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
     NotFoundError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.logging import get_logger
@@ -252,10 +253,7 @@ class WarehouseService:
     async def create_warehouse(self, payload: WarehouseCreate) -> WarehouseRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Warehouse code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Warehouse", payload.code)
 
             await self._assert_references_exist(
                 branch_id=payload.branch_id,
@@ -639,9 +637,11 @@ class StorageLocationService:
                 )
 
             if await self.repo.code_taken(warehouse_id, payload.code):
-                raise DuplicateError(
-                    f"Location code '{payload.code}' already exists in warehouse {warehouse.code}.",
-                    details={"code": payload.code, "warehouse_code": warehouse.code},
+                raise duplicate_code(
+                    "Location",
+                    payload.code,
+                    scope=f"warehouse {warehouse.code}",
+                    warehouse_code=warehouse.code,
                 )
 
             if payload.parent_location_id is not None:

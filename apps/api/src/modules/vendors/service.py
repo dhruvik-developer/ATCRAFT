@@ -52,6 +52,7 @@ from src.core.errors import (
     NotFoundError,
     SelfApprovalError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.logging import get_logger
@@ -1248,10 +1249,7 @@ class VendorService:
 
     async def _assert_code_free(self, code: str) -> None:
         if await self.repo.code_taken(code):
-            raise DuplicateError(
-                f"Vendor code '{code}' is already used in this company.",
-                details={"code": code},
-            )
+            raise duplicate_code("Vendor", code)
 
     def _assert_approvable(self, vendor: Vendor) -> None:
         """Refuse to approve a record that cannot actually be transacted with.
@@ -1733,10 +1731,7 @@ class TransporterService:
     async def create_transporter(self, payload: TransporterCreate) -> TransporterRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Transporter code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Transporter", payload.code)
 
             transporter = Transporter(**payload.model_dump())
             self.repo.add(transporter)

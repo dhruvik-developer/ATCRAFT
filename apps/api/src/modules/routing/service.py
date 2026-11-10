@@ -46,10 +46,10 @@ from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     BusinessRuleError,
-    DuplicateError,
     NotFoundError,
     SelfApprovalError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.logging import get_logger
@@ -923,10 +923,7 @@ class WorkCenterService:
 
     async def _assert_code_free(self, code: str, *, exclude_id: uuid.UUID | None = None) -> None:
         if await self.repo.code_taken(code, exclude_id=exclude_id):
-            raise DuplicateError(
-                f"Work centre code '{code}' is already used in this company.",
-                details={"code": code},
-            )
+            raise duplicate_code("Work centre", code)
 
     async def _assert_organisation_refs(
         self, plant_id: uuid.UUID | None, department_id: uuid.UUID | None
@@ -1127,10 +1124,7 @@ class MachineService:
 
     async def _assert_code_free(self, code: str, *, exclude_id: uuid.UUID | None = None) -> None:
         if await self.repo.code_taken(code, exclude_id=exclude_id):
-            raise DuplicateError(
-                f"Machine code '{code}' is already used in this company.",
-                details={"code": code},
-            )
+            raise duplicate_code("Machine", code)
 
     async def _assert_off_the_roster(self, machine: Machine, action: str) -> None:
         machine_id = machine.id
@@ -1624,10 +1618,7 @@ class RoutingService:
 
     async def _assert_code_free(self, code: str, *, exclude_id: uuid.UUID | None = None) -> None:
         if await self.repo.code_taken(code, exclude_id=exclude_id):
-            raise DuplicateError(
-                f"Routing code '{code}' is already used in this company.",
-                details={"code": code},
-            )
+            raise duplicate_code("Routing", code)
 
     async def _load_manufacturable_item(self, item_id: uuid.UUID) -> RoutingItemInfo:
         info = await self.items.load(item_id)
@@ -1882,10 +1873,7 @@ class ShiftService:
     async def create_shift(self, payload: ShiftCreate) -> ShiftRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Shift code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Shift", payload.code)
             shift = Shift(
                 **payload.model_dump(),
                 crosses_midnight=shift_crosses_midnight(payload.start_time, payload.end_time),

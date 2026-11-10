@@ -55,6 +55,7 @@ from src.core.errors import (
     DuplicateError,
     NotFoundError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.messages import (
@@ -510,10 +511,7 @@ class BranchService:
     async def create_branch(self, payload: BranchCreate) -> BranchRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Branch code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Branch", payload.code)
             if payload.is_head_office:
                 await self._assert_head_office_free(exclude_id=None)
 
@@ -691,10 +689,7 @@ class PlantService:
     async def create_plant(self, payload: PlantCreate) -> PlantRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Plant code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Plant", payload.code)
             await self._assert_branch(payload.branch_id)
 
             plant = Plant(**payload.model_dump())
@@ -857,10 +852,7 @@ class DepartmentService:
     async def create_department(self, payload: DepartmentCreate) -> DepartmentRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Department code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Department", payload.code)
             await self._assert_references(payload.plant_id, payload.head_user_id)
             if payload.parent_id is not None:
                 await self._assert_parent(node_id=None, parent_id=payload.parent_id)
@@ -1064,10 +1056,7 @@ class CostCentreService:
     async def create_cost_centre(self, payload: CostCentreCreate) -> CostCentreRead:
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Cost centre code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Cost centre", payload.code)
             await self._assert_references(payload.plant_id, payload.head_user_id)
             if payload.parent_id is not None:
                 parent = await self._assert_parent(

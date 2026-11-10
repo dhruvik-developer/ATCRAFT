@@ -104,6 +104,7 @@ from src.core.errors import (
     InvalidStateTransitionError,
     NotFoundError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.ids import new_id
@@ -1065,10 +1066,7 @@ async def create_template(
 
     async with transaction(session):
         if await repo.get_by_code_version(payload.code, 1) is not None:
-            raise DuplicateError(
-                f"A QC template with code {payload.code} already exists.",
-                details={"code": payload.code},
-            )
+            raise duplicate_code("QC template", payload.code)
         if payload.is_active:
             await _assert_scope_is_free(
                 repo,

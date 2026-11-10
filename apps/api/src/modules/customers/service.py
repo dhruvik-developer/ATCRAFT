@@ -47,6 +47,7 @@ from src.core.errors import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.logging import get_logger
@@ -614,10 +615,7 @@ class CustomerService:
 
         async with transaction(self.session):
             if await self.repo.code_taken(payload.code):
-                raise DuplicateError(
-                    f"Customer code '{payload.code}' is already used in this company.",
-                    details={"code": payload.code},
-                )
+                raise duplicate_code("Customer", payload.code)
             if payload.gstin and await self.repo.gstin_taken(payload.gstin):
                 raise DuplicateError(
                     f"Another customer is already registered under GSTIN {payload.gstin}.",

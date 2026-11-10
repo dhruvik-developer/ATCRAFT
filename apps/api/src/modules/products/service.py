@@ -46,6 +46,7 @@ from src.core.errors import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.ids import new_id
@@ -709,7 +710,7 @@ async def create_category(
 
     async with transaction(session):
         if await repo.exists(code=payload.code):
-            raise DuplicateError(f"An item category with code '{payload.code}' already exists.")
+            raise duplicate_code("Item category", payload.code)
 
         parent: ItemCategory | None = None
         if payload.parent_id is not None:
@@ -923,7 +924,7 @@ async def create_uom(session: AsyncSession, tenant: TenantContext, payload: UomC
 
     async with transaction(session):
         if await repo.exists(code=payload.code):
-            raise DuplicateError(f"A unit of measure with code '{payload.code}' already exists.")
+            raise duplicate_code("Unit of measure", payload.code)
 
         if payload.is_base:
             existing_base = await repo.base_for_category(payload.uom_category)
@@ -1352,9 +1353,7 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
 
     async with transaction(session):
         if await repo.code_exists(code):
-            raise DuplicateError(
-                f"An item with code '{code}' already exists.", details={"code": code}
-            )
+            raise duplicate_code("Item", code)
 
         if payload.category_id is not None:
             category = await ItemCategoryRepository(session, tenant).get(payload.category_id)
@@ -1828,9 +1827,8 @@ async def create_item_attribute(
 
     async with transaction(session):
         if await repo.get_by_code(payload.attribute, payload.code) is not None:
-            raise DuplicateError(
-                f"A {payload.attribute.lower()} with code '{payload.code}' already exists.",
-                details={"attribute": payload.attribute.value, "code": payload.code},
+            raise duplicate_code(
+                payload.attribute.capitalize(), payload.code, attribute=payload.attribute.value
             )
 
         attribute = ItemAttribute(
@@ -1940,13 +1938,9 @@ async def list_item_attributes(
 # same terms; and a retired code is never reissued. docs/assumptions.md §39.
 
 
-def _duplicate_code(entity: str, code: str) -> DuplicateError:
-    """The refusal for a reused code, placed on the form's ``code`` field."""
-    message = (
-        f"{entity} code '{code}' is already used in this company. "
-        "Codes of retired records are not reused."
-    )
-    return DuplicateError(message, details={"code": code, "fields": {"code": [message]}})
+#: Why a manufacturer or brand code the list does not show is still taken: a
+#: retired code is never reissued (the ASSUMPTION above).
+RETIRED_CODE_NOTE = "Codes of retired records are not reused."
 
 
 def _target_state(
@@ -2048,7 +2042,7 @@ async def create_manufacturer(
 
     async with transaction(session):
         if await repo.code_taken(payload.code):
-            raise _duplicate_code(MANUFACTURER_ENTITY, payload.code)
+            raise duplicate_code(MANUFACTURER_ENTITY, payload.code, note=RETIRED_CODE_NOTE)
 
         manufacturer = Manufacturer(**payload.model_dump())
         repo.add(manufacturer)
@@ -2173,7 +2167,7 @@ async def create_brand(
 
     async with transaction(session):
         if await repo.code_taken(payload.code):
-            raise _duplicate_code(BRAND_ENTITY, payload.code)
+            raise duplicate_code(BRAND_ENTITY, payload.code, note=RETIRED_CODE_NOTE)
         await _require_manufacturer(session, tenant, payload.manufacturer_id)
 
         brand = Brand(**payload.model_dump())
@@ -2314,7 +2308,7 @@ async def create_variant(
         item = await item_repo.get_or_404(item_id)
 
         if await repo.code_exists(payload.code):
-            raise DuplicateError(f"A variant with code '{payload.code}' already exists.")
+            raise duplicate_code("Variant", payload.code)
         await _require_attributes(
             session,
             tenant,

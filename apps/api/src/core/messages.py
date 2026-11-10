@@ -233,6 +233,16 @@ SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operat
 NAME_BLANK = "Name cannot be blank."
 
 
+def code_already_used(entity: str, code: str, scope: str = "this company") -> str:
+    """``"Vendor code 'V-001' is already used in this company."``
+
+    ``scope`` is where the code must be unique - a storage location's code is
+    unique within its warehouse, not across the company. Raised through
+    ``src.core.errors.duplicate_code``, which also puts it on the code field.
+    """
+    return f"{entity} code '{code}' is already used in {scope}."
+
+
 def own_parent(entity: str) -> str:
     """``"A department cannot be its own parent."`` - organisation and warehouse trees."""
     return f"A {entity} cannot be its own parent."
@@ -404,6 +414,7 @@ __all__ = [
     "cancel_not_delete",
     "cannot_be_null",
     "channel_not_enabled",
+    "code_already_used",
     "date_before",
     "draft_only_delete",
     "duplicate_line_numbers",

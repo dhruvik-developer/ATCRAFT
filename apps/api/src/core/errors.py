@@ -17,6 +17,7 @@ from src.core.messages import (
     FIELDS_NEED_ATTENTION,
     RATE_LIMITED,
     UNEXPECTED_ERROR,
+    code_already_used,
     failed_unexpectedly,
     self_approval_refused,
 )
@@ -177,6 +178,27 @@ class DuplicateError(AppError):
     status_code = 409
     code = ErrorCode.DUPLICATE_DOCUMENT
     message = "A record with these details already exists."
+
+
+def duplicate_code(
+    entity: str,
+    code: str,
+    *,
+    scope: str = "this company",
+    note: str | None = None,
+    **details: Any,
+) -> DuplicateError:
+    """The refusal for a code another record already holds, on the form's code field.
+
+    One constructor so every such refusal reads the same (``code_already_used``)
+    and carries ``details.fields.code``, which a form shows against its code
+    field instead of as a banner over the dialog. ``note`` adds what the caller
+    knows about why the code is taken; ``details`` the ids behind it.
+    """
+    message = code_already_used(entity, code, scope)
+    if note is not None:
+        message = f"{message} {note}"
+    return DuplicateError(message, details={"code": code, **details, "fields": {"code": [message]}})
 
 
 class AuthenticationError(AppError):
@@ -416,6 +438,7 @@ __all__ = [
     "TenantMismatchError",
     "TokenExpiredError",
     "ValidationError",
+    "duplicate_code",
     "failure_message",
     "is_refusal",
     "referenced_in_use",

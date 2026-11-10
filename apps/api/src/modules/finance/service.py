@@ -89,6 +89,7 @@ from src.core.errors import (
     ErrorCode,
     NotFoundError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
 from src.core.fields import currency_code
@@ -1346,12 +1347,7 @@ async def create_account(
 
     async with transaction(session):
         if await repo.get_by_code(payload.code) is not None:
-            raise BusinessRuleError(
-                f"An account with code {payload.code} already exists.",
-                code=ErrorCode.DUPLICATE_DOCUMENT,
-                status_code=409,
-                details={"code": payload.code},
-            )
+            raise duplicate_code("Account", payload.code)
         if payload.parent_id is not None:
             await repo.get_or_404(payload.parent_id)
 

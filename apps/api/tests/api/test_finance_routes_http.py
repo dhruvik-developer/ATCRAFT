@@ -451,7 +451,10 @@ class TestChartOfAccounts:
             "/finance/accounts", json={"code": code, "name": "Second", "account_type": "EXPENSE"}
         )
 
-        assert refused(response, 409, "DUPLICATE_DOCUMENT")["details"]["code"] == code
+        error = refused(response, 409, "DUPLICATE_DOCUMENT")
+        assert error["message"] == f"Account code '{code}' is already used in this company."
+        # On the code field, so the chart-of-accounts form shows it there.
+        assert error["details"] == {"code": code, "fields": {"code": [error["message"]]}}
         count = select(func.count()).where(
             LedgerAccount.company_id == tenant.company_id, LedgerAccount.code == code
         )
