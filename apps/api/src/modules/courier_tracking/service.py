@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.cache import cache_get, cache_set, make_key
@@ -712,33 +712,23 @@ async def refresh_tracking(
     if not settings.courier_tracking_enabled:
         raise BusinessRuleError("Courier tracking is disabled for this deployment.")
     repo = CourierAccountRepository(session, tenant)
+    # Exactly one of the two is set; the check above refused anything else.
     if dispatch_id is not None:
-        dispatch = (
-            await session.execute(
-                select(Dispatch).where(
-                    Dispatch.company_id == tenant.company_id, Dispatch.id == dispatch_id
-                )
-            )
-        ).scalar_one_or_none()
+        dispatch = await repo.get_dispatch(dispatch_id)
         if dispatch is None or not dispatch.tracking_id:
             raise NotFoundError("Tracked dispatch", dispatch_id)
         tracking_number = dispatch.tracking_id
         transporter_id = dispatch.transporter_id
-    else:
-        shipment = (
-            await session.execute(
-                select(PurchaseOrderShipment).where(
-                    PurchaseOrderShipment.company_id == tenant.company_id,
-                    PurchaseOrderShipment.id == shipment_id,
-                )
-            )
-        ).scalar_one_or_none()
+    elif shipment_id is not None:
+        shipment = await repo.get_shipment(shipment_id)
         if shipment is None or not shipment.tracking_reference:
             raise NotFoundError("Tracked inbound shipment", shipment_id)
         tracking_number = shipment.tracking_reference
         transporter_id = shipment.transporter_id
 
-    account = await _account_for_transporter_or_first(repo, tenant, transporter_id)
+    account = await repo.shiprocket_account_for(transporter_id)
+    if account is None:
+        raise BusinessRuleError("No active Shiprocket account is configured for this company.")
     if account.provider != CourierProvider.SHIPROCKET:
         raise BusinessRuleError("Manual refresh is supported for Shiprocket accounts only.")
     credentials = _read_credentials(account)
@@ -747,37 +737,6 @@ async def refresh_tracking(
     return await ingest_shiprocket_payload(
         session, tenant, account, payload, tracking_number=tracking_number
     )
-
-
-async def _account_for_transporter_or_first(
-    repo: CourierAccountRepository, tenant: TenantContext, transporter_id: uuid.UUID | None
-) -> CourierAccount:
-    stmt = select(CourierAccount).where(
-        CourierAccount.company_id == tenant.company_id,
-        CourierAccount.is_active.is_(True),
-        CourierAccount.deleted_at.is_(None),
-        CourierAccount.provider == CourierProvider.SHIPROCKET,
-    )
-    if transporter_id is not None:
-        mapped = stmt.join(
-            Transporter,
-            and_(
-                Transporter.courier_account_id == CourierAccount.id,
-                Transporter.id == transporter_id,
-                Transporter.company_id == tenant.company_id,
-            ),
-        )
-        account = (await repo.session.execute(mapped.limit(1))).scalar_one_or_none()
-        if account is not None:
-            return account
-    account = (
-        await repo.session.execute(
-            stmt.order_by(CourierAccount.created_at, CourierAccount.id).limit(1)
-        )
-    ).scalar_one_or_none()
-    if account is None:
-        raise BusinessRuleError("No active Shiprocket account is configured for this company.")
-    return account
 
 
 async def _shiprocket_token(

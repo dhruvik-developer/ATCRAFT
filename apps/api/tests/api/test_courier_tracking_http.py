@@ -8,23 +8,74 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.errors import NotFoundError
 from src.core.security import encrypt_courier_webhook_secret, hash_secret_token
+from src.modules.courier_tracking import service as courier_service
 from src.modules.courier_tracking.models import (
     CourierAccount,
     CourierProvider,
     CourierTrackingEvent,
 )
+from src.modules.dispatch.models import Dispatch, DispatchStatus, DispatchType
 from src.modules.organization.models import Company
+from src.modules.vendors.models import Transporter, TransporterType
+from tests.seed_support import seed_customer, seed_warehouse
 
 pytestmark = pytest.mark.integration
+
+
+async def _consignment(
+    session: AsyncSession,
+    company_id: uuid.UUID,
+    *,
+    tracking_id: str | None,
+    transporter_id: uuid.UUID | None = None,
+) -> Dispatch:
+    """A sales dispatch on the road: the least a manual refresh has to find."""
+    suffix = uuid.uuid4().hex[:8].upper()
+    warehouse = await seed_warehouse(session, company_id=company_id, code=f"WH-{suffix}")
+    customer = await seed_customer(session, company_id=company_id)
+    dispatch = Dispatch(
+        company_id=company_id,
+        code=f"DSP-{suffix}",
+        dispatch_type=DispatchType.SALES,
+        customer_id=customer.id,
+        warehouse_id=warehouse.id,
+        status=DispatchStatus.DISPATCHED,
+        dispatch_date=today(),
+        dispatched_at=utcnow(),
+        tracking_id=tracking_id,
+        transporter_id=transporter_id,
+    )
+    session.add(dispatch)
+    await session.flush()
+    return dispatch
+
+
+async def _shiprocket_account(
+    api_client: AsyncClient, code: str, email: str, *, transporter_ids: list[uuid.UUID]
+) -> uuid.UUID:
+    created = await api_client.post(
+        "/integrations/courier/accounts",
+        json={
+            "code": code,
+            "provider": "SHIPROCKET",
+            "display_name": f"Shiprocket {code}",
+            "credentials": {"email": email, "password": f"{code}-password"},
+            "transporter_ids": [str(value) for value in transporter_ids],
+        },
+    )
+    assert created.status_code == 201, created.text
+    return uuid.UUID(created.json()["data"]["id"])
 
 
 @pytest.mark.asyncio
@@ -118,6 +169,145 @@ async def test_an_unknown_account_or_consignment_is_named_once_in_its_404(
         for response in answers:
             assert response.status_code == 404, response.text
             assert response.json()["error"]["message"] == NotFoundError(entity, missing).message
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_polls_through_the_transporters_account_else_the_oldest(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The consignment's carrier picks the account; a consignment with none uses the oldest.
+
+    Both accounts are created in one test transaction, so their ``created_at``
+    is the same instant and "oldest" rests on the id tiebreak. The event the
+    courier reports lands on the dispatch and moves it on, one step further
+    than the poll itself.
+    """
+    monkeypatch.setattr(settings, "courier_tracking_enabled", True)
+    carrier = Transporter(
+        company_id=company.id,
+        code="CR-REFRESH",
+        name="Refresh courier",
+        transporter_type=TransporterType.COURIER,
+    )
+    session.add(carrier)
+    await session.flush()
+    oldest = await _shiprocket_account(
+        api_client, "SR-OLDEST", "oldest@example.com", transporter_ids=[]
+    )
+    linked = await _shiprocket_account(
+        api_client, "SR-LINKED", "linked@example.com", transporter_ids=[carrier.id]
+    )
+    carried = await _consignment(
+        session, company.id, tracking_id="AWB-CARRIED-1", transporter_id=carrier.id
+    )
+    unassigned = await _consignment(session, company.id, tracking_id="AWB-UNASSIGNED-1")
+    carried_id, unassigned_id = carried.id, unassigned.id
+
+    polled: list[tuple[str, str]] = []
+
+    async def login(email: str, password: str) -> str:
+        return f"token:{email}"
+
+    async def track(tracking_number: str, token: str) -> dict[str, Any]:
+        polled.append((tracking_number, token))
+        activity = {
+            "id": f"activity:{tracking_number}",
+            "activity": "In Transit",
+            "date": utcnow().isoformat(),
+            "location": "Pune hub",
+        }
+        return {
+            "tracking_data": {
+                "shipment_track": [{"awb_code": tracking_number}],
+                "shipment_track_activities": [activity],
+            }
+        }
+
+    monkeypatch.setattr(courier_service, "shiprocket_login", login)
+    monkeypatch.setattr(courier_service, "shiprocket_track", track)
+
+    answers = [
+        await api_client.post("/integrations/courier/refresh", json={"dispatch_id": str(target)})
+        for target in (carried_id, unassigned_id)
+    ]
+
+    for answer in answers:
+        assert answer.status_code == 200, answer.text
+        assert answer.json()["data"] == {"events_recorded": 1}
+    assert polled == [
+        ("AWB-CARRIED-1", "token:linked@example.com"),
+        ("AWB-UNASSIGNED-1", "token:oldest@example.com"),
+    ]
+    events = (
+        await session.execute(
+            select(CourierTrackingEvent.dispatch_id, CourierTrackingEvent.courier_account_id).where(
+                CourierTrackingEvent.company_id == company.id
+            )
+        )
+    ).all()
+    assert {tuple(row) for row in events} == {(carried_id, linked), (unassigned_id, oldest)}
+    statuses = (
+        await session.execute(
+            select(Dispatch.status).where(Dispatch.id.in_([carried_id, unassigned_id]))
+        )
+    ).scalars()
+    assert set(statuses) == {DispatchStatus.IN_TRANSIT}
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_sees_only_this_companys_tracked_consignments(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    company: Company,
+    other_company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Another company's consignment and an untracked one are both "not found".
+
+    Neither reaches the account lookup or the courier: the refusal comes from
+    the tenant-scoped read, before anything leaves the building.
+    """
+    monkeypatch.setattr(settings, "courier_tracking_enabled", True)
+    untracked = await _consignment(session, company.id, tracking_id=None)
+    foreign = await _consignment(session, other_company.id, tracking_id="AWB-FOREIGN-1")
+    targets = [untracked.id, foreign.id]
+
+    async def track(tracking_number: str, token: str) -> dict[str, Any]:
+        raise AssertionError(f"{tracking_number} was polled although the refresh cannot see it")
+
+    monkeypatch.setattr(courier_service, "shiprocket_track", track)
+
+    for target in targets:
+        response = await api_client.post(
+            "/integrations/courier/refresh", json={"dispatch_id": str(target)}
+        )
+        assert response.status_code == 404, response.text
+        assert (
+            response.json()["error"]["message"] == NotFoundError("Tracked dispatch", target).message
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_with_no_shiprocket_account_says_so(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "courier_tracking_enabled", True)
+    tracked = await _consignment(session, company.id, tracking_id="AWB-NO-ACCOUNT-1")
+
+    response = await api_client.post(
+        "/integrations/courier/refresh", json={"dispatch_id": str(tracked.id)}
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["message"] == (
+        "No active Shiprocket account is configured for this company."
+    )
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,11 @@ from sqlalchemy import Select, and_, or_, select
 from src.common.repository import BaseRepository
 from src.core.pagination import CursorParams, PageParams
 from src.core.responses import CursorPagination, OffsetPagination
-from src.modules.courier_tracking.models import CourierAccount, CourierTrackingEvent
+from src.modules.courier_tracking.models import (
+    CourierAccount,
+    CourierProvider,
+    CourierTrackingEvent,
+)
 from src.modules.dispatch.models import IN_FLIGHT_STATUSES, Dispatch
 from src.modules.procurement.inbound_models import PurchaseOrderShipment
 from src.modules.procurement.models import PurchaseOrder, PurchaseOrderStatus
@@ -53,6 +57,36 @@ class CourierAccountRepository(BaseRepository[CourierAccount]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def shiprocket_account_for(
+        self, transporter_id: uuid.UUID | None
+    ) -> CourierAccount | None:
+        """The active Shiprocket account a manual refresh polls through.
+
+        The one linked to ``transporter_id`` when there is one, otherwise the
+        company's oldest active Shiprocket account - ``(created_at, id)``, so two
+        created in one transaction still answer the same way every time.
+        """
+        stmt = select(CourierAccount).where(
+            CourierAccount.company_id == self.tenant.company_id,
+            CourierAccount.is_active.is_(True),
+            CourierAccount.deleted_at.is_(None),
+            CourierAccount.provider == CourierProvider.SHIPROCKET,
+        )
+        if transporter_id is not None:
+            linked = stmt.join(
+                Transporter,
+                and_(
+                    Transporter.courier_account_id == CourierAccount.id,
+                    Transporter.id == transporter_id,
+                    Transporter.company_id == self.tenant.company_id,
+                ),
+            )
+            account = (await self.session.execute(linked.limit(1))).scalar_one_or_none()
+            if account is not None:
+                return account
+        oldest = stmt.order_by(CourierAccount.created_at, CourierAccount.id).limit(1)
+        return (await self.session.execute(oldest)).scalar_one_or_none()
+
     async def linked_transporter_ids(self, account_id: uuid.UUID) -> list[uuid.UUID]:
         stmt = select(Transporter.id).where(
             Transporter.company_id == self.tenant.company_id,
@@ -60,6 +94,21 @@ class CourierAccountRepository(BaseRepository[CourierAccount]):
             Transporter.deleted_at.is_(None),
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def get_dispatch(self, dispatch_id: uuid.UUID) -> Dispatch | None:
+        """One of this company's dispatches, tracked or not - the caller decides."""
+        stmt = select(Dispatch).where(
+            Dispatch.company_id == self.tenant.company_id, Dispatch.id == dispatch_id
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get_shipment(self, shipment_id: uuid.UUID) -> PurchaseOrderShipment | None:
+        """One of this company's inbound shipments, tracked or not - the caller decides."""
+        stmt = select(PurchaseOrderShipment).where(
+            PurchaseOrderShipment.company_id == self.tenant.company_id,
+            PurchaseOrderShipment.id == shipment_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def matching_dispatches(self, tracking_numbers: Sequence[str]) -> list[Dispatch]:
         if not tracking_numbers:
