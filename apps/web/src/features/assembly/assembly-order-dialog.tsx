@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/primitives'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { useWarehouseLookup } from '@/features/inventory/use-warehouse-lookup'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import {
   ASSEMBLY_LINE_MAX_LENGTH,
@@ -163,11 +164,8 @@ export function AssemblyOrderFormDialog({
   // the chosen one without a request of its own.
   const warehouses = useWarehouseLookup()
 
-  useEffect(() => {
-    if (open) reset(defaultsFor(order))
-    // Re-read on every open so an amendment never starts from a stale header.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reset])
+  // Re-read on every open so an amendment never starts from a stale header.
+  useFormSeed(open, null, () => reset(defaultsFor(order)))
 
   // The approved structures the item may be built from. Filtered to the two
   // types the order endpoint accepts; anything else is refused at save, so it

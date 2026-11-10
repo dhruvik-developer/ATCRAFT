@@ -8,7 +8,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm, type Control } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -38,6 +37,7 @@ import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { useBrandOptions } from '@/hooks/use-brand-options'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
 import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { P } from '@/lib/permissions'
@@ -396,10 +396,7 @@ export function ItemFormDialog({
   // background refetch of the item would otherwise resolve mid-edit and wipe
   // what the user is typing.
   const editingId = item?.id ?? null
-  useEffect(() => {
-    if (open) reset(item ? valuesFrom(item) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(item ? valuesFrom(item) : emptyValues()))
 
   const mutation = useMutation({
     mutationFn: (values: ItemFormValues) =>

@@ -17,7 +17,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -41,6 +40,7 @@ import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions, type ItemVariant } from '@/features/items/item-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { validation } from '@/lib/messages'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
@@ -145,10 +145,7 @@ export function SalesOrderLineDialog({
   const editingKey = line
     ? `${line.line_number}:${line.item_id}:${line.item_variant_id ?? ''}`
     : null
-  useEffect(() => {
-    if (open) reset(line ? valuesFrom(line) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingKey, reset])
+  useFormSeed(open, editingKey, () => reset(line ? valuesFrom(line) : emptyValues()))
 
   const [itemId, itemVariantId, quantity, unitPrice, discountPercentage] = watch([
     'item_id',

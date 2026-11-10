@@ -19,7 +19,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Save } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -46,6 +46,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -171,11 +172,9 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
     },
   })
 
-  const loadedId = company.data?.id
-  useEffect(() => {
+  useFormSeed(Boolean(company.data), company.data?.id, () => {
     if (company.data) reset(toValues(company.data))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: CompanyValues) =>
@@ -532,13 +531,9 @@ function CompanyBankCard({ record, canManage }: { record: CompanyRecord; canMana
     defaultValues: bankValues(record),
   })
 
-  const loadedId = record.id
-  useEffect(() => {
-    reset(bankValues(record))
-    // Keyed on the record's identity, not its contents: a background refetch
-    // must not wipe a half-typed account number.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedId, reset])
+  // Keyed on the record's identity, not its contents: a background refetch
+  // must not wipe a half-typed account number.
+  useFormSeed(true, record.id, () => reset(bankValues(record)))
 
   const mutation = useMutation({
     mutationFn: (values: BankValues) =>

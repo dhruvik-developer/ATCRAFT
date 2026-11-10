@@ -62,6 +62,7 @@ import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { ApiError, api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
@@ -401,11 +402,9 @@ export function GrnReceiveDialog({
   // Rebuilt when a different order is chosen, and only once its lines have
   // arrived - resetting on every refetch would wipe counts already typed.
   const loadedOrderId = detail.data?.id ?? null
-  useEffect(() => {
-    if (!detail.data) return
-    reset({ ...emptyHeader(), lines: linesFrom(detail.data) })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedOrderId, reset])
+  useFormSeed(Boolean(detail.data), loadedOrderId, () => {
+    if (detail.data) reset({ ...emptyHeader(), lines: linesFrom(detail.data) })
+  })
 
   const post = useMutation({
     mutationFn: async (values: ReceiptFormValues): Promise<ReceiveOutcome> => {

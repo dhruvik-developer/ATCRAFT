@@ -28,7 +28,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -60,6 +60,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { itemSeeds } from '@/features/inventory/item-seeds'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
@@ -288,13 +289,11 @@ export function RequisitionFormDialog({
       ),
     [loaded],
   )
-  useEffect(() => {
-    if (!open) return
-    reset(loaded && requisitionId ? valuesFrom(loaded) : emptyValues())
-    // `loaded` is compared by presence: re-running on every background refetch
-    // would throw away edits in progress.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, requisitionId, Boolean(loaded), reset])
+  // Keyed on the id of the draft that arrived, not the object: re-seeding on
+  // every background refetch would throw away edits in progress.
+  useFormSeed(open, [requisitionId, loaded?.id], () =>
+    reset(loaded && requisitionId ? valuesFrom(loaded) : emptyValues()),
+  )
 
   const save = useMutation({
     mutationFn: (values: RequisitionFormValues) => {

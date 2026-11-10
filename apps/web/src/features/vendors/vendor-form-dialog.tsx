@@ -16,7 +16,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Layers, UserRound } from 'lucide-react'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -36,6 +35,7 @@ import {
   TabsTrigger,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Skeleton, Textarea } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -304,11 +304,7 @@ export function VendorFormDialog({
   // is reset to blank rather than skipped: this dialog stays mounted between
   // openings, and skipping left the vendor edited last in the form, where Save
   // wrote it onto this one. The form is not drawn until the record arrives.
-  useEffect(() => {
-    if (!open) return
-    reset(loaded ? valuesFrom(loaded) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, vendorId, loadedId, reset])
+  useFormSeed(open, [vendorId, loadedId], () => reset(loaded ? valuesFrom(loaded) : emptyValues()))
 
   const save = useMutation({
     mutationFn: (values: VendorFormValues) =>

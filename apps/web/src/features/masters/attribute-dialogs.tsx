@@ -24,7 +24,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -45,6 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { itemAttributeOptionKeys } from '@/hooks/use-item-attribute-options'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -120,10 +120,9 @@ export function ItemAttributeFormDialog({
   })
 
   const editingId = attribute?.id ?? null
-  useEffect(() => {
-    if (open) reset(attribute ? valuesFrom(attribute) : emptyAttribute(defaultKind))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, defaultKind, reset])
+  useFormSeed(open, [editingId, defaultKind], () =>
+    reset(attribute ? valuesFrom(attribute) : emptyAttribute(defaultKind)),
+  )
 
   const mutation = useMutation({
     mutationFn: (values: AttributeFormValues) => {

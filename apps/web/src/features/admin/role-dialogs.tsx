@@ -16,7 +16,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -32,6 +31,7 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { success, validation } from '@/lib/messages'
@@ -100,10 +100,7 @@ export function RoleFormDialog({
   })
 
   const editingId = role?.id ?? null
-  useEffect(() => {
-    if (open) reset(role ? roleValues(role) : emptyRole())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(role ? roleValues(role) : emptyRole()))
 
   const mutation = useMutation({
     mutationFn: (values: RoleFormValues) => {

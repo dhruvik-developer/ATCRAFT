@@ -18,7 +18,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm, useWatch, type Control } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -62,6 +62,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useMachineOptions } from '@/features/production/production-model'
 import { useWorkCentreOptions } from '@/features/production/work-order-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -807,8 +808,7 @@ export function RoutingFormDialog({
   // mounted between openings, and skipping left the routing edited last in the
   // form, where Save sent its name and its operations to this one, replacing
   // this one's wholesale.
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, [editingId, loadedId], () => {
     if (!loaded) {
       reset(routingDefaults(routing))
       return
@@ -842,8 +842,7 @@ export function RoutingFormDialog({
               }))
           : [emptyOperation()],
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, loadedId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: RoutingValues) => {
@@ -1391,10 +1390,7 @@ export function WorkCenterFormDialog({
   })
 
   const editingId = workCenter?.id ?? null
-  useEffect(() => {
-    if (open) reset(workCenterDefaults(workCenter))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(workCenterDefaults(workCenter)))
 
   const mutation = useMutation({
     mutationFn: (values: WorkCenterValues) => {
@@ -1636,10 +1632,7 @@ export function MachineFormDialog({
   })
 
   const editingId = machine?.id ?? null
-  useEffect(() => {
-    if (open) reset(machineDefaults(machine))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(machineDefaults(machine)))
 
   const mutation = useMutation({
     mutationFn: (values: MachineValues) => {
@@ -1889,11 +1882,9 @@ export function MachineStatusDialog({
   const machineId = machine?.id ?? null
   const machineStatus = machine?.status ?? 'AVAILABLE'
   const nextService = machine?.next_maintenance_date?.slice(0, 10) ?? ''
-  useEffect(() => {
-    if (!machineId) return
-    reset({ status: machineStatus, reason: '', next_maintenance_date: nextService })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machineId, reset])
+  useFormSeed(Boolean(machineId), machineId, () =>
+    reset({ status: machineStatus, reason: '', next_maintenance_date: nextService }),
+  )
 
   const mutation = useMutation({
     mutationFn: (values: StatusValues) =>

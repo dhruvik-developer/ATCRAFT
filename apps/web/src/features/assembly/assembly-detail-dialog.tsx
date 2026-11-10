@@ -15,7 +15,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { CheckCircle2, PackageMinus, ScanBarcode } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
 import { z } from 'zod'
@@ -47,6 +47,7 @@ import MovementBatchPicker from '@/features/inventory/movement-batch-picker'
 import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
 import { labelSerials, splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -181,12 +182,9 @@ function IssueComponentsDialog({
 
   const { fields } = useFieldArray({ control, name: 'lines' })
 
-  useEffect(() => {
-    if (open) reset(issueDefaults(components))
-    // Re-read on every open so the outstanding quantities are never a snapshot
-    // from an earlier visit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reset])
+  // Re-read on every open so the outstanding quantities are never a snapshot
+  // from an earlier visit.
+  useFormSeed(open, null, () => reset(issueDefaults(components)))
 
   const issue = useMutation({
     mutationFn: (values: IssueFormValues) =>
@@ -675,26 +673,23 @@ function CompleteAssemblyDialog({
   })
 
   const orderId = order.id
-  useEffect(() => {
-    if (open) {
-      reset({
-        assembled_quantity: remainingToAssemble(order).toFixed(),
-        rejected_quantity: '0',
-        reason: 'Assembly completed',
-        output_batch_id: '',
-        output_serial_numbers: '',
-      })
-      setSerialsByLine({})
-      setBatchesByLine(
-        Object.fromEntries(
-          components
-            .filter((component) => component.issued_batch_id)
-            .map((component) => [component.line_number, component.issued_batch_id ?? '']),
-        ),
-      )
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, orderId, reset])
+  useFormSeed(open, orderId, () => {
+    reset({
+      assembled_quantity: remainingToAssemble(order).toFixed(),
+      rejected_quantity: '0',
+      reason: 'Assembly completed',
+      output_batch_id: '',
+      output_serial_numbers: '',
+    })
+    setSerialsByLine({})
+    setBatchesByLine(
+      Object.fromEntries(
+        components
+          .filter((component) => component.issued_batch_id)
+          .map((component) => [component.line_number, component.issued_batch_id ?? '']),
+      ),
+    )
+  })
 
   const complete = useMutation({
     mutationFn: (values: CompleteFormValues) =>

@@ -20,7 +20,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -48,6 +47,7 @@ import {
   Label,
   Textarea,
 } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -130,10 +130,9 @@ export function CategoryFormDialog({
   // a background refetch of the list would otherwise resolve mid-edit and wipe
   // what the user is typing.
   const editingId = category?.id ?? null
-  useEffect(() => {
-    if (open) reset(category ? valuesFrom(category) : emptyValues(defaultParentId ?? null))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, defaultParentId, reset])
+  useFormSeed(open, [editingId, defaultParentId], () =>
+    reset(category ? valuesFrom(category) : emptyValues(defaultParentId ?? null)),
+  )
 
   const mutation = useMutation({
     mutationFn: (values: CategoryFormValues) => {

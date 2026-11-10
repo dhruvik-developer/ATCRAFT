@@ -16,7 +16,6 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -39,6 +38,7 @@ import {
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -174,10 +174,7 @@ export function VendorLinkDialog({
   // a background refetch of the list would otherwise resolve mid-edit and wipe
   // what the user is typing.
   const editingId = link?.id ?? null
-  useEffect(() => {
-    if (open) reset(link ? valuesFrom(link) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(link ? valuesFrom(link) : emptyValues()))
 
   const mutation = useMutation({
     mutationFn: (values: VendorLinkFormValues) =>

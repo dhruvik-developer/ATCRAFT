@@ -56,6 +56,7 @@ import {
   Input,
   Label,
 } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
@@ -145,10 +146,7 @@ export function UomFormDialog({
   })
 
   const editingId = uom?.id ?? null
-  useEffect(() => {
-    if (open) reset(uom ? valuesFromUom(uom) : emptyUom())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(uom ? valuesFromUom(uom) : emptyUom()))
 
   const mutation = useMutation({
     mutationFn: (values: UomFormValues) => {

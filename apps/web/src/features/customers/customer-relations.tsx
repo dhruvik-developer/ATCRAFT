@@ -20,7 +20,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { MapPin, Pencil, Star, Trash2, Plus, UserRound } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label, Skeleton } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
@@ -191,11 +192,9 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
   // query result: a background refetch must not overwrite what is being typed.
   const editingId = editing && editing !== 'new' ? editing.id : null
   const editorOpen = editing !== null
-  useEffect(() => {
-    if (!editorOpen) return
-    reset(editingId ? addressValuesFrom(editing as CustomerAddress) : emptyAddress())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorOpen, editingId, reset])
+  useFormSeed(editorOpen, editingId, () =>
+    reset(editingId ? addressValuesFrom(editing as CustomerAddress) : emptyAddress()),
+  )
 
   const save = useMutation({
     mutationFn: (values: AddressValues) => {
@@ -674,11 +673,9 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
 
   const editingId = editing && editing !== 'new' ? editing.id : null
   const editorOpen = editing !== null
-  useEffect(() => {
-    if (!editorOpen) return
-    reset(editingId ? contactValuesFrom(editing as CustomerContact) : emptyContact())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorOpen, editingId, reset])
+  useFormSeed(editorOpen, editingId, () =>
+    reset(editingId ? contactValuesFrom(editing as CustomerContact) : emptyContact()),
+  )
 
   const save = useMutation({
     mutationFn: (values: ContactValues) => {

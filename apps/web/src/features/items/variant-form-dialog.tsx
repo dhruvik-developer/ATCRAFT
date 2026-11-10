@@ -1,6 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -23,6 +22,7 @@ import {
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { mastersKeys } from '@/features/masters/masters-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import {
   attributeLabeller,
   useItemAttributeOptions,
@@ -145,10 +145,7 @@ export function VariantFormDialog({
   } = useForm<VariantFormValues>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
 
   const variantId = variant?.id ?? null
-  useEffect(() => {
-    if (open) reset(variant ? valuesFrom(variant) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, itemId, variantId, reset])
+  useFormSeed(open, [itemId, variantId], () => reset(variant ? valuesFrom(variant) : emptyValues()))
 
   const mutation = useMutation({
     mutationFn: (values: VariantFormValues) => {

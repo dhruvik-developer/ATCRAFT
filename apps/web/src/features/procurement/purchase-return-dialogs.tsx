@@ -73,6 +73,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
@@ -349,11 +350,9 @@ export function PurchaseReturnFormDialog({
   // Rebuilt when a different receipt is chosen, and only once its lines have
   // arrived - resetting on every refetch would wipe quantities already typed.
   const loadedReceiptId = detail.data?.id ?? null
-  useEffect(() => {
-    if (!detail.data) return
-    reset({ ...emptyHeader(), lines: linesFrom(detail.data) })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedReceiptId, reset])
+  useFormSeed(Boolean(detail.data), loadedReceiptId, () => {
+    if (detail.data) reset({ ...emptyHeader(), lines: linesFrom(detail.data) })
+  })
 
   const create = useMutation({
     mutationFn: (values: ReturnFormValues) => {

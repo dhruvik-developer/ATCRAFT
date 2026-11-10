@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { manufacturerOptionKeys } from '@/hooks/use-manufacturer-options'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -109,10 +110,9 @@ export function ManufacturerFormDialog({
   })
 
   const editingId = manufacturer?.id ?? null
-  useEffect(() => {
-    if (open) reset(manufacturer ? valuesFrom(manufacturer) : emptyManufacturer())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () =>
+    reset(manufacturer ? valuesFrom(manufacturer) : emptyManufacturer()),
+  )
 
   const mutation = useMutation({
     mutationFn: (values: ManufacturerFormValues) => {

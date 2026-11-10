@@ -67,6 +67,7 @@ import {
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorCategoryOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api, ApiError } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -234,11 +235,7 @@ export function UserFormDialog({
   // account edited last cannot survive into this opening - the fields stay
   // hidden until `user` resolves, and are seeded again when it does.
   const loadedId = user?.id ?? null
-  useEffect(() => {
-    if (!open) return
-    reset(user ? userValues(user) : emptyUser())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isEdit, loadedId, reset])
+  useFormSeed(open, [isEdit, loadedId], () => reset(user ? userValues(user) : emptyUser()))
 
   const password = watch('password')
   const vendorId = watch('vendor_id')
@@ -1090,10 +1087,9 @@ export function RoleAssignmentDialog({
     defaultValues: { role_ids: [], reason: '' },
   })
 
-  useEffect(() => {
-    if (open && user) reset({ role_ids: (user.roles ?? []).map((role) => role.id), reason: '' })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, user?.id, reset])
+  useFormSeed(open && Boolean(user), user?.id, () => {
+    if (user) reset({ role_ids: (user.roles ?? []).map((role) => role.id), reason: '' })
+  })
 
   const mutation = useMutation({
     mutationFn: (values: AssignmentValues) =>

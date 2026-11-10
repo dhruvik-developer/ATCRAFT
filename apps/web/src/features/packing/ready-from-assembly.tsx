@@ -16,7 +16,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { PackagePlus } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -35,6 +35,7 @@ import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui
 import { assemblyKeys, type ReadyForPackingRow } from '@/features/assembly/assembly-model'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -87,19 +88,16 @@ function PackFromAssemblyDialog({
     },
   })
 
-  useEffect(() => {
-    if (open) {
-      reset({
-        customer_id: '',
-        quantity: String(row.assembled_quantity),
-        planned_date: '',
-        notes: '',
-      })
-    }
-    // Re-read on every open so the quantity is never a snapshot from an
-    // earlier visit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reset])
+  // Re-read on every open so the quantity is never a snapshot from an
+  // earlier visit.
+  useFormSeed(open, null, () =>
+    reset({
+      customer_id: '',
+      quantity: String(row.assembled_quantity),
+      planned_date: '',
+      notes: '',
+    }),
+  )
 
   const pack = useMutation({
     mutationFn: (values: FormValues) =>

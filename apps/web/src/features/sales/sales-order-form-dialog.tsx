@@ -15,7 +15,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListPlus, Pencil, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
@@ -41,6 +41,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import type { AddressType, CustomerAddress } from '@/features/customers/customer-types'
 import { WarehouseSelect } from '@/features/inventory/pickers'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -243,13 +244,11 @@ export function SalesOrderFormDialog({
   // Keyed on the order id rather than its identity: a background refetch must
   // not resolve mid-edit and wipe what is being typed.
   const editingId = order?.id ?? null
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, editingId, () => {
     reset(order ? valuesFrom(order) : emptyValues())
     setLines([])
     setLinesTouched(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  })
 
   const customerId = watch('customer_id')
 

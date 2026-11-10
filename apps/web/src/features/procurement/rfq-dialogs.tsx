@@ -29,7 +29,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -59,6 +59,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import {
   DEFAULT_CURRENCY,
@@ -611,13 +612,11 @@ export function RfqFormDialog({
   const { fields, append, remove, replace } = useFieldArray({ control, name: 'lines' })
 
   const loaded = detail.data
-  useEffect(() => {
-    if (!open) return
-    reset(loaded && rfqId ? valuesFrom(loaded) : emptyValues())
-    // `loaded` is compared by presence: re-running on every refetch would throw
-    // away edits in progress.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, rfqId, Boolean(loaded), reset])
+  // Keyed on the id of the RFQ that arrived, not the object: re-seeding on
+  // every refetch would throw away edits in progress.
+  useFormSeed(open, [rfqId, loaded?.id], () =>
+    reset(loaded && rfqId ? valuesFrom(loaded) : emptyValues()),
+  )
 
   const save = useMutation({
     mutationFn: (values: RfqFormValues) => {

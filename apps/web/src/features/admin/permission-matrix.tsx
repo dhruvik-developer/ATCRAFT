@@ -11,7 +11,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Save, Search, ShieldAlert, Undo2, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { EmptyState, SectionHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatNumber, plural } from '@/lib/format'
@@ -70,9 +71,9 @@ export function PermissionMatrix({
   // Seeded from the server whenever a different role is loaded. Keyed on the id
   // rather than the object so a background refetch cannot discard edits in
   // progress.
-  useEffect(() => {
+  useFormSeed(Boolean(role.data), role.data?.id, () => {
     if (role.data) setSelected(new Set(role.data.permissions ?? []))
-  }, [role.data?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  })
 
   const mutation = useMutation({
     mutationFn: (permissions: string[]) =>

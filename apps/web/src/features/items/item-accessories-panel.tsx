@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -22,6 +22,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { QUANTITY_PATTERN } from '@/features/masters/masters-model'
 import { invalidateProductDescriptions } from '@/features/product-descriptions/specification-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { PRODUCT_DESCRIPTION_POSITION_MAX, PRODUCT_DESCRIPTION_TEXT_MAX } from '@/lib/constants'
@@ -86,17 +87,15 @@ export function AccessoryFormDialog({
     },
   })
   const editingId = accessory?.id
-  useEffect(() => {
-    if (open)
-      reset({
-        accessory_item_id: accessory?.accessory_item_id ?? '',
-        quantity: String(accessory?.quantity ?? '1'),
-        relation: accessory?.relation ?? 'OPTIONAL',
-        sort_order: String(accessory?.sort_order ?? 0),
-        notes: accessory?.notes ?? '',
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () =>
+    reset({
+      accessory_item_id: accessory?.accessory_item_id ?? '',
+      quantity: String(accessory?.quantity ?? '1'),
+      relation: accessory?.relation ?? 'OPTIONAL',
+      sort_order: String(accessory?.sort_order ?? 0),
+      notes: accessory?.notes ?? '',
+    }),
+  )
   const relation = watch('relation')
   const mutation = useMutation({
     mutationFn: (values: FormValues) => {

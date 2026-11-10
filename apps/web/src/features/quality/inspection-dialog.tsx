@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import type { ItemDetail } from '@/features/items/item-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -450,11 +451,9 @@ export function InspectionDialog({
   // Rebuilt only when a different inspection's template arrives - resetting on
   // every background refetch would wipe readings already typed.
   const loadedId = detail.data?.id ?? null
-  useEffect(() => {
-    if (!detail.data) return
-    reset(valuesFrom(detail.data, canDecide, canInspect))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedId, canDecide, canInspect, reset])
+  useFormSeed(Boolean(detail.data), [loadedId, canDecide, canInspect], () => {
+    if (detail.data) reset(valuesFrom(detail.data, canDecide, canInspect))
+  })
 
   useEffect(() => {
     if (scrapForbidden) setValue('scrap_quantity', '0')

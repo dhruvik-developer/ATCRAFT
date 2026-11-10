@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import {
   Controller,
   useFieldArray,
@@ -53,6 +53,7 @@ import {
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import BatchSelect from './movement-batch-picker'
 import { useAuth } from '@/features/auth/auth-context'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api, ApiError } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -662,8 +663,9 @@ export function CreateAdjustmentDialog({
     },
   })
   const editingId = adjustment?.id
-  useEffect(() => {
-    if (open && adjustment)
+  // Reset only when opening a different document; background data never replaces edits.
+  useFormSeed(open && Boolean(adjustment), editingId, () => {
+    if (adjustment)
       form.reset({
         warehouse_id: adjustment.warehouse_id,
         adjustment_date: adjustment.adjustment_date,
@@ -678,9 +680,7 @@ export function CreateAdjustmentDialog({
           unit_cost: line.unit_cost,
         })),
       })
-    // Reset only when opening a different document; background data never replaces edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId])
+  })
 
   const create = useMutation({
     mutationFn: (values: AdjustmentForm) => {

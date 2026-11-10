@@ -15,7 +15,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
@@ -149,8 +150,7 @@ export function BranchFormDialog({
   })
 
   const editingId = branch?.id ?? null
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, editingId, () => {
     reset(
       branch
         ? {
@@ -169,8 +169,7 @@ export function BranchFormDialog({
           }
         : emptyBranch(),
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: BranchValues) => {
@@ -408,8 +407,7 @@ export function PlantFormDialog({
   })
 
   const editingId = plant?.id ?? null
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, editingId, () => {
     reset(
       plant
         ? {
@@ -423,8 +421,7 @@ export function PlantFormDialog({
           }
         : emptyPlant(),
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: PlantValues) => {
@@ -634,8 +631,7 @@ export function DepartmentFormDialog({
   })
 
   const editingId = department?.id ?? null
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, editingId, () => {
     reset(
       department
         ? {
@@ -649,8 +645,7 @@ export function DepartmentFormDialog({
           }
         : emptyDepartment(),
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: DepartmentValues) => {
@@ -960,11 +955,9 @@ export function CostCentreFormDialog({
   })
 
   const editingId = centre?.id ?? null
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, editingId, () => {
     reset(centre ? costCentreValues(centre) : emptyCostCentre())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: CostCentreValues) => {
@@ -1224,8 +1217,7 @@ export function FinancialYearFormDialog({
   })
 
   const editingId = year?.id ?? null
-  useEffect(() => {
-    if (!open) return
+  useFormSeed(open, editingId, () => {
     reset(
       year
         ? {
@@ -1237,8 +1229,7 @@ export function FinancialYearFormDialog({
           }
         : { code: '', start_date: '', end_date: '', is_active: true, notes: '' },
     )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  })
 
   const mutation = useMutation({
     mutationFn: (values: FinancialYearValues) => {

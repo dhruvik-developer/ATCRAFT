@@ -22,6 +22,7 @@ import {
   SPECIFICATION_TYPES,
   type SpecificationAttribute,
 } from '@/features/product-descriptions/specification-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { PRODUCT_DESCRIPTION_POSITION_MAX, SPECIFICATION_OPTION_MAX } from '@/lib/constants'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
@@ -115,11 +116,8 @@ export function SpecificationFormDialog({
     defaultValues: formValues(attribute),
   })
   const editingId = attribute?.id
-  useEffect(() => {
-    if (open) reset(formValues(attribute))
-    // A background list refresh must not replace an explanation being edited.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  // A background list refresh must not replace an explanation being edited.
+  useFormSeed(open, editingId, () => reset(formValues(attribute)))
   const valueType = watch('value_type')
   const mutation = useMutation({
     mutationFn: (values: FormValues) => {

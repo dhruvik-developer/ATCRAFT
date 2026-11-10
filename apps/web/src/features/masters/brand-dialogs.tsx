@@ -43,6 +43,7 @@ import {
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { brandOptionKeys } from '@/hooks/use-brand-options'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
@@ -130,10 +131,7 @@ export function BrandFormDialog({
   })
 
   const editingId = brand?.id ?? null
-  useEffect(() => {
-    if (open) reset(brand ? valuesFrom(brand) : emptyBrand())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () => reset(brand ? valuesFrom(brand) : emptyBrand()))
 
   const mutation = useMutation({
     mutationFn: (values: BrandFormValues) => {

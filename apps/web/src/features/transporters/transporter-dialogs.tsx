@@ -50,6 +50,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
@@ -291,11 +292,9 @@ export function TransporterFormDialog({
   // is reset to blank rather than skipped: this dialog stays mounted between
   // openings, and skipping left the transporter edited last in the form, where
   // Save wrote it onto this one. The form is not drawn until the record arrives.
-  useEffect(() => {
-    if (!open) return
-    reset(loaded ? valuesFrom(loaded) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, transporterId, loadedId, reset])
+  useFormSeed(open, [transporterId, loadedId], () =>
+    reset(loaded ? valuesFrom(loaded) : emptyValues()),
+  )
 
   const save = useMutation({
     mutationFn: (values: TransporterFormValues) =>

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useBranchOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
@@ -163,10 +164,9 @@ export function WarehouseFormDialog({
   // Seeded once per opening, keyed on the id rather than the object identity: a
   // background refetch would otherwise resolve mid-edit and wipe the form.
   const editingId = warehouse?.id ?? null
-  useEffect(() => {
-    if (open) reset(warehouse ? warehouseValues(warehouse) : emptyWarehouse())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingId, reset])
+  useFormSeed(open, editingId, () =>
+    reset(warehouse ? warehouseValues(warehouse) : emptyWarehouse()),
+  )
 
   const mutation = useMutation({
     mutationFn: (values: WarehouseFormValues) => {

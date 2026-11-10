@@ -18,7 +18,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Banknote, MapPin, ShieldAlert, ShieldCheck, UserRound } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -52,6 +52,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
@@ -391,15 +392,15 @@ export function CustomerFormDialog({
     formState: { errors },
   } = useForm<CustomerFormValues>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
 
-  // Seeded once per opening and keyed on the id, so a background refetch cannot
-  // resolve mid-edit and wipe what is being typed.
+  // Seeded once per opening and keyed on the id of the record that arrived, so
+  // a background refetch cannot resolve mid-edit and wipe what is being typed.
+  // An edit whose record has not arrived is seeded blank rather than skipped, so
+  // the customer edited last can never survive into this opening; the form is
+  // not drawn until the record arrives.
   const loaded = detail.data
-  useEffect(() => {
-    if (!open) return
-    if (customerId && !loaded) return
-    reset(loaded && customerId ? valuesFrom(loaded) : emptyValues())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, customerId, Boolean(loaded), reset])
+  useFormSeed(open, [customerId, loaded?.id], () =>
+    reset(loaded && customerId ? valuesFrom(loaded) : emptyValues()),
+  )
 
   const unlimited = watch('unlimited_credit')
 

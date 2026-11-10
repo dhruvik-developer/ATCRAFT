@@ -17,7 +17,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Layers, Pencil, Plus, Star, Trash2, UserRound } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label, Skeleton, Textarea } from '@/components/ui/primitives'
 import { useCategoryOptions } from '@/features/items/item-model'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
@@ -146,11 +147,9 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
 
   const editingId = editing && editing !== 'new' ? editing.id : null
   const editorOpen = editing !== null
-  useEffect(() => {
-    if (!editorOpen) return
-    reset(editingId ? contactValuesFrom(editing as VendorContact) : emptyContact())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorOpen, editingId, reset])
+  useFormSeed(editorOpen, editingId, () =>
+    reset(editingId ? contactValuesFrom(editing as VendorContact) : emptyContact()),
+  )
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.vendors.all })
 
@@ -478,16 +477,14 @@ export function VendorCategoriesPanel({
 
   const editingId = editing && editing !== 'new' ? editing.id : null
   const editorOpen = editing !== null
-  useEffect(() => {
-    if (!editorOpen) return
+  useFormSeed(editorOpen, editingId, () => {
     const link = editing !== 'new' ? editing : null
     reset({
       item_category_id: link?.item_category_id ?? '',
       is_preferred: link?.is_preferred ?? false,
       notes: link?.notes ?? '',
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorOpen, editingId, reset])
+  })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.vendors.all })
 

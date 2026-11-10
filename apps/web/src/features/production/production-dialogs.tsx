@@ -52,6 +52,7 @@ import MovementBatchPicker from '@/features/inventory/movement-batch-picker'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
 import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
+import { useFormSeed } from '@/hooks/use-form-seed'
 import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { ShiftSelect } from '@/features/shifts/shift-select'
 import { api } from '@/lib/api-client'
@@ -907,15 +908,12 @@ export function IssueMaterialDialog({
 
   const { fields } = useFieldArray({ control, name: 'lines' })
 
-  useEffect(() => {
-    if (open) {
-      reset(issueDefaults(components))
-      setStrandedDraft(null)
-    }
-    // Components are re-read whenever the dialog opens, so the outstanding
-    // quantities are never a snapshot from an earlier visit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reset])
+  // Components are re-read whenever the dialog opens, so the outstanding
+  // quantities are never a snapshot from an earlier visit.
+  useFormSeed(open, null, () => {
+    reset(issueDefaults(components))
+    setStrandedDraft(null)
+  })
 
   /**
    * Set when the picking document was created but the posting that moves the
@@ -1253,16 +1251,13 @@ export function ReturnMaterialDialog({
 
   const { fields } = useFieldArray({ control, name: 'lines' })
 
-  useEffect(() => {
-    if (open) {
-      reset(returnDefaults(holding))
-      setStrandedDraft(null)
-      setPending(null)
-    }
-    // The holding is re-read whenever the dialog opens, so the balances are
-    // never a snapshot from an earlier visit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, reset])
+  // The holding is re-read whenever the dialog opens, so the balances are
+  // never a snapshot from an earlier visit.
+  useFormSeed(open, null, () => {
+    reset(returnDefaults(holding))
+    setStrandedDraft(null)
+    setPending(null)
+  })
 
   /**
    * Set when the return document was created but the posting that moves the

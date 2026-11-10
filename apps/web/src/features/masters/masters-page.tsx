@@ -571,29 +571,40 @@ function ConversionsTab() {
   const units = useUomReference(true)
   const unitById = useMemo(() => indexById(units.data?.rows), [units.data])
 
-  const codeOf = (uomId: string): string => unitById.get(uomId)?.code ?? 'Unknown unit'
+  // `unitById` is what turns an id into a code, so these - and the cells built
+  // from them - change when the unit master resolves, and only then.
+  const codeOf = useCallback(
+    (uomId: string): string => unitById.get(uomId)?.code ?? 'Unknown unit',
+    [unitById],
+  )
 
-  const statementFor = (row: ConversionRow): string =>
-    conversionStatement(codeOf(row.from_uom_id), codeOf(row.to_uom_id), row.factor)
+  const statementFor = useCallback(
+    (row: ConversionRow): string =>
+      conversionStatement(codeOf(row.from_uom_id), codeOf(row.to_uom_id), row.factor),
+    [codeOf],
+  )
 
-  const unitCell = (uomId: string) => {
-    const unit = unitById.get(uomId)
-    if (!unit) {
-      // A conversion pointing at a unit outside the loaded page, or at one that
-      // has been removed. Saying so beats printing a UUID or an empty cell.
+  const unitCell = useCallback(
+    (uomId: string) => {
+      const unit = unitById.get(uomId)
+      if (!unit) {
+        // A conversion pointing at a unit outside the loaded page, or at one that
+        // has been removed. Saying so beats printing a UUID or an empty cell.
+        return (
+          <span className="text-muted-foreground" title={uomId}>
+            Unknown unit
+          </span>
+        )
+      }
       return (
-        <span className="text-muted-foreground" title={uomId}>
-          Unknown unit
-        </span>
+        <div>
+          <span className="font-medium">{unit.code}</span>
+          <span className="block text-xs text-muted-foreground">{unit.name}</span>
+        </div>
       )
-    }
-    return (
-      <div>
-        <span className="font-medium">{unit.code}</span>
-        <span className="block text-xs text-muted-foreground">{unit.name}</span>
-      </div>
-    )
-  }
+    },
+    [unitById],
+  )
 
   const columns = useMemo<ColumnDef<ConversionRow, unknown>[]>(() => {
     const defs: ColumnDef<ConversionRow, unknown>[] = [
@@ -670,10 +681,7 @@ function ConversionsTab() {
     }
 
     return defs
-    // `unitById` is what turns an id into a code, so the cells must be rebuilt
-    // when the unit master resolves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManage, unitById])
+  }, [canManage, codeOf, statementFor, unitCell])
 
   const newButton = canManage ? (
     <Button onClick={() => setFormOpen(true)}>
@@ -976,22 +984,25 @@ function PricesTab() {
     },
   })
 
-  const variantLabel = (row: PriceRow) => {
-    if (row.variant_id === null) {
-      return <span className="text-xs text-muted-foreground">Every variant</span>
-    }
-    const variant = variantById.get(row.variant_id)
-    return variant ? (
-      <span className="text-xs">
-        {variant.code} - {variant.name}
-      </span>
-    ) : (
-      // Reached when the account holds `price.view` but not `item.view`, so the
-      // variant list was never fetched. The row is still a variant price and
-      // must not read as an item-wide one.
-      <span className="text-xs text-muted-foreground">One variant</span>
-    )
-  }
+  const variantLabel = useCallback(
+    (row: PriceRow) => {
+      if (row.variant_id === null) {
+        return <span className="text-xs text-muted-foreground">Every variant</span>
+      }
+      const variant = variantById.get(row.variant_id)
+      return variant ? (
+        <span className="text-xs">
+          {variant.code} - {variant.name}
+        </span>
+      ) : (
+        // Reached when the account holds `price.view` but not `item.view`, so the
+        // variant list was never fetched. The row is still a variant price and
+        // must not read as an item-wide one.
+        <span className="text-xs text-muted-foreground">One variant</span>
+      )
+    },
+    [variantById],
+  )
 
   const columns = useMemo<ColumnDef<PriceRow, unknown>[]>(() => {
     const defs: ColumnDef<PriceRow, unknown>[] = [
@@ -1094,8 +1105,7 @@ function PricesTab() {
     }
 
     return defs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManage, variantById])
+  }, [canManage, variantLabel])
 
   const newButton =
     canManage && itemId ? (
