@@ -1,8 +1,10 @@
 """Mechanical guards for three CLAUDE.md layering rules that review alone kept.
 
 * A router is thin: parse, authorise, delegate, return the envelope. It imports
-  nothing from SQLAlchemy and never drives the session itself - "Raw database
-  access in a route is a review rejection."
+  nothing from SQLAlchemy or from a repository and never drives the session
+  itself - "Raw database access in a route is a review rejection." The products
+  router imported ``ItemRepository`` to resolve the item list's sort column,
+  which is the repository's job behind the service, as in every other module.
 * Only ``src/core/database.py`` commits or rolls back. ``transaction()`` runs
   its body in a SAVEPOINT so a failure unwinds that operation and nothing
   else; a bare ``session.rollback()`` in a service discards the caller's work
@@ -76,17 +78,22 @@ def _line_number(finding: str) -> int:
     return int(finding.split(":")[0].removeprefix("line "))
 
 
+def _router_may_not_import(module: str) -> bool:
+    """SQLAlchemy, or a repository - ``repository``, ``inbound_repository`` and the like."""
+    return module.split(".")[0] == "sqlalchemy" or module.split(".")[-1].endswith("repository")
+
+
 def router_violations(source: str) -> list[str]:
-    """SQLAlchemy imports and direct session calls in a router module."""
+    """SQLAlchemy and repository imports, and direct session calls, in a router module."""
     found: list[str] = []
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "sqlalchemy":
+        if isinstance(node, ast.ImportFrom) and _router_may_not_import(node.module or ""):
             found.append(f"line {node.lineno}: from {node.module} import ...")
         elif isinstance(node, ast.Import):
             found.extend(
                 f"line {node.lineno}: import {alias.name}"
                 for alias in node.names
-                if alias.name.split(".")[0] == "sqlalchemy"
+                if _router_may_not_import(alias.name)
             )
         elif (
             isinstance(node, ast.Call)
@@ -145,8 +152,9 @@ def test_routers_do_not_touch_the_database() -> None:
         if (found := router_violations(path.read_text(encoding="utf-8")))
     }
     assert not offenders, (
-        "Routers parse, authorise, delegate and return the envelope; move the query "
-        f"into the module's repository and call it through the service: {offenders}"
+        "Routers parse, authorise, delegate and return the envelope; move the query, "
+        "or the use of the repository, behind the module's service and call that: "
+        f"{offenders}"
     )
 
 
@@ -212,7 +220,7 @@ def test_every_float_allowance_is_still_needed() -> None:
 # -- the rules reject what they exist to catch --------------------------------
 
 
-def test_the_router_rule_rejects_queries_and_session_calls() -> None:
+def test_the_router_rule_rejects_queries_session_calls_and_repositories() -> None:
     source = (
         "from sqlalchemy import select\n"
         "import sqlalchemy.orm\n"
@@ -220,12 +228,20 @@ def test_the_router_rule_rejects_queries_and_session_calls() -> None:
         "    await session.execute(select(1))\n"
         "    session.add(object())\n"
         "    await service(session).run()\n"
+        "from src.modules.products.repository import ItemRepository\n"
+        "from src.modules.procurement.inbound_repository import ShipmentRepository\n"
+        "import src.common.repository\n"
+        "from src.modules.products import service\n"
+        "from src.modules.products.schemas import ItemFilters\n"
     )
     assert router_violations(source) == [
         "line 1: from sqlalchemy import ...",
         "line 2: import sqlalchemy.orm",
         "line 4: session.execute()",
         "line 5: session.add()",
+        "line 7: from src.modules.products.repository import ...",
+        "line 8: from src.modules.procurement.inbound_repository import ...",
+        "line 9: import src.common.repository",
     ]
 
 

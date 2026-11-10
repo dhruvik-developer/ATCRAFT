@@ -53,7 +53,6 @@ from src.core.responses import (
 )
 from src.modules.products import service
 from src.modules.products.models import ItemAttributeType, PriceType
-from src.modules.products.repository import ItemRepository
 from src.modules.products.schemas import (
     BrandCreate,
     BrandOut,
@@ -562,9 +561,8 @@ async def search_items(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[ItemSummary | ItemSummaryWithCost]:
-    order_by = sort.resolve(ItemRepository.sortable_fields, default=None)
     rows, pagination = await service.search_items(
-        session, tenant, principal, filters, params, sort_by=order_by
+        session, tenant, principal, filters, params, sort=sort
     )
     response_rows: list[ItemSummary | ItemSummaryWithCost] = list(rows)
     return paginated(response_rows, pagination)

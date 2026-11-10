@@ -1773,7 +1773,7 @@ async def search_items(
     filters: ItemFilters,
     params: PageParams,
     *,
-    sort_by: Any = None,
+    sort: SortParams | None = None,
 ) -> tuple[list[ItemSummary] | list[ItemSummaryWithCost], OffsetPagination]:
     """Offset-paginated item search.
 
@@ -1782,9 +1782,7 @@ async def search_items(
     """
     include_cost = may_view_cost(principal)
     repo = ItemRepository(session, tenant)
-    rows, pagination = await repo.search_page(
-        filters, params, include_cost=include_cost, order_by=sort_by
-    )
+    rows, pagination = await repo.search_page(filters, params, include_cost=include_cost, sort=sort)
     return item_summaries(rows, include_cost=include_cost), pagination
 
 

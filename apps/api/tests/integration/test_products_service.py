@@ -49,7 +49,7 @@ from src.modules.products.models import (
     ProductionType,
     UomCategory,
 )
-from src.modules.products.repository import ItemCategoryRepository, ItemRepository
+from src.modules.products.repository import ItemCategoryRepository
 from src.modules.products.schemas import (
     CategoryCreate,
     CategoryUpdate,
@@ -553,31 +553,36 @@ async def test_search_honours_an_explicit_sort_column(
     for code, name in (("Z-LAST", "Zinc Bracket"), ("A-FIRST", "Aluminium Rail")):
         await service.create_item(session, tenant, item_payload(code, units["NOS"], name=name))
 
-    ascending = SortParams(sort_by="code", sort_dir="asc").resolve(
-        ItemRepository.sortable_fields, default=None
-    )
     rows, _ = await service.search_items(
         session,
         tenant,
         principal,
         ItemFilters(),
         PageParams(page=1, limit=50),
-        sort_by=ascending,
+        sort=SortParams(sort_by="code", sort_dir="asc"),
     )
     assert [row.code for row in rows] == ["A-FIRST", "Z-LAST"]
 
-    descending = SortParams(sort_by="name", sort_dir="desc").resolve(
-        ItemRepository.sortable_fields, default=None
-    )
     rows, _ = await service.search_items(
         session,
         tenant,
         principal,
         ItemFilters(),
         PageParams(page=1, limit=50),
-        sort_by=descending,
+        sort=SortParams(sort_by="name", sort_dir="desc"),
     )
     assert [row.code for row in rows] == ["Z-LAST", "A-FIRST"]
+
+    # A column the repository does not offer is the 422 the shared sort rule raises.
+    with pytest.raises(ValidationError):
+        await service.search_items(
+            session,
+            tenant,
+            principal,
+            ItemFilters(),
+            PageParams(page=1, limit=50),
+            sort=SortParams(sort_by="standard_cost_secret"),
+        )
 
     # The unsorted default still falls back to code ascending.
     rows, _ = await service.search_items(

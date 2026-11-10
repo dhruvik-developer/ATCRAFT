@@ -842,18 +842,21 @@ class ItemRepository(BaseRepository[Item]):
         params: PageParams,
         *,
         include_cost: bool,
-        order_by: Any = None,
+        sort: SortParams | None = None,
     ) -> tuple[list[Item], OffsetPagination]:
-        """Offset pagination - the default for a filtered master-data browse."""
+        """Offset pagination - the default for a filtered master-data browse.
+
+        ``sort`` names one of :attr:`sortable_fields`; with none, code ascending.
+        """
         stmt = self.build_search_statement(filters, include_cost=include_cost)
-        # `order_by or Item.code.asc()` raises: a SQLAlchemy clause has no
-        # truth value, so `or` evaluating the left operand throws
-        # ``TypeError: Boolean value of this clause is not defined`` for every
-        # request that actually names a sort column. The unsorted path survived
-        # it - ``None`` is falsy legally - which is why this reached a browser
-        # before it was noticed, as a 500 on the item list's default sort.
-        resolved = Item.code.asc() if order_by is None else order_by
-        return await self.list_page(params, stmt=stmt, order_by=resolved)
+        # Never `order_by or Item.code.asc()`: a SQLAlchemy clause has no truth
+        # value, so `or` evaluating it throws ``TypeError: Boolean value of this
+        # clause is not defined`` for every request that names a sort column. The
+        # unsorted path survived it - ``None`` is falsy legally - which is why it
+        # reached a browser, as a 500 on the item list's default sort.
+        default = Item.code.asc()
+        order_by = default if sort is None else sort.resolve(self.sortable_fields, default)
+        return await self.list_page(params, stmt=stmt, order_by=order_by)
 
     async def search_keyset(
         self,

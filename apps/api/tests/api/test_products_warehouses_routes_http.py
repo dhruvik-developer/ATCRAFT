@@ -929,6 +929,28 @@ class TestCreateConversion:
 # -----------------------------------------------------------------------------
 
 
+class TestSearchItems:
+    async def test_the_list_sorts_by_an_offered_column_and_refuses_any_other(
+        self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
+    ) -> None:
+        """The route hands its sort to the service, and the repository resolves it."""
+        prefix = unique_code("SRT")
+        for suffix in ("A", "B"):
+            await make_item(session, tenant, f"{prefix}-{suffix}")
+
+        listed = await api_client.get(
+            "/products/items", params={"search": prefix, "sort_by": "code", "sort_dir": "desc"}
+        )
+        unknown = await api_client.get(
+            "/products/items", params={"search": prefix, "sort_by": "no_such_column"}
+        )
+
+        assert listed.status_code == 200, listed.text
+        assert [row["code"] for row in listed.json()["data"]] == [f"{prefix}-B", f"{prefix}-A"]
+        error = refused(unknown, 422, "VALIDATION_ERROR")
+        assert "code" in error["details"]["allowed_sort_fields"]
+
+
 class TestUpdateItem:
     async def test_an_edit_applies_and_audits(
         self, api_client: AsyncClient, session: AsyncSession, tenant: TenantContext, unique_code
