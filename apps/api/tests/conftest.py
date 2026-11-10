@@ -32,6 +32,22 @@ from typing import Any
 
 import pytest
 
+# A support module (``tests/**/*_support.py``) is the library test modules share
+# fixtures and builders through, and some of those assert their own
+# preconditions - a fixture that reserves stock checks that it did. pytest
+# rewrites asserts only in the test modules and conftests it collects, so these
+# are registered before anything imports one: a failing assert in a builder then
+# reports the values it compared, as one in a test does, not a bare
+# AssertionError.
+_TESTS = pathlib.Path(__file__).resolve().parent
+pytest.register_assert_rewrite(
+    *sorted(
+        ".".join(path.relative_to(_TESTS.parent).with_suffix("").parts)
+        for path in _TESTS.rglob("*_support.py")
+        if not path.name.startswith("test_")
+    )
+)
+
 # Must be set before src.core.config is imported anywhere, since Settings is
 # cached at import time.
 os.environ.setdefault("APP_ENV", "test")
