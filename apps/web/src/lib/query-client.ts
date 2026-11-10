@@ -376,6 +376,13 @@ export const queryKeys = {
     purchaseOrders: (params: unknown) => ['procurement', 'po', params] as const,
     purchaseOrder: (id: string) => ['procurement', 'po', 'detail', id] as const,
     grns: (params: unknown) => ['procurement', 'grn', params] as const,
+    /**
+     * One goods receipt, read by the purchase return and the vendor invoice
+     * raised against it. Under `procurement.all`, so posting a return - which
+     * writes the returned quantity back onto the receipt line - drops it with
+     * everything else procurement holds.
+     */
+    goodsReceipt: (id: string) => ['procurement', 'grn', 'detail', id] as const,
     tracking: (params: unknown) => ['procurement', 'tracking', params] as const,
     inboundTracking: (params: unknown) => ['procurement', 'inbound', params] as const,
     shipments: (id: string, params: unknown) =>

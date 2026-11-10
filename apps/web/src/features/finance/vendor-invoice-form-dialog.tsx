@@ -116,11 +116,9 @@ import {
   MAX_TAX_RATE,
   MAX_VENDOR_INVOICE_NUMBER_LENGTH,
   financeKeys,
-  goodsReceiptDetailKey,
   invoiceTotals,
   orderedNetUnitPrice,
   priceInvoiceLine,
-  purchaseOrderDetailKey,
   wasInterstate,
   type VendorInvoiceCreatePayload,
   type VendorInvoiceDetail,
@@ -657,7 +655,7 @@ export function VendorInvoiceFormDialog({
    * "Copy lines" is pressed.
    */
   const orderQuery = useQuery({
-    queryKey: purchaseOrderDetailKey(purchaseOrderId),
+    queryKey: queryKeys.procurement.purchaseOrder(purchaseOrderId),
     queryFn: ({ signal }) =>
       api.get<PurchaseOrderDetail>(`/procurement/purchase-orders/${purchaseOrderId}`, { signal }),
     enabled: open && canReadOrders && Boolean(purchaseOrderId),
@@ -665,7 +663,7 @@ export function VendorInvoiceFormDialog({
   })
 
   const receiptQuery = useQuery({
-    queryKey: goodsReceiptDetailKey(goodsReceiptId),
+    queryKey: queryKeys.procurement.goodsReceipt(goodsReceiptId),
     queryFn: ({ signal }) =>
       api.get<GoodsReceiptDetail>(`/procurement/goods-receipts/${goodsReceiptId}`, { signal }),
     enabled: open && canReadReceipts && Boolean(goodsReceiptId),

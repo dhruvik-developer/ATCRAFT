@@ -370,26 +370,6 @@ export type VendorInvoiceLinePayload = SchemaOf<'VendorInvoiceLineIn'>
  */
 export type InvoiceReasonPayload = SchemaOf<'src__modules__finance__schemas__ReasonRequest'>
 
-/**
- * The purchase order a new invoice is billed against.
- *
- * `queryKeys.procurement` already publishes this one, and it is reused rather
- * than re-spelled so the copy the procurement screens hold is the copy read
- * here. `lib/query-client.ts` is not this feature's to edit.
- */
-export const purchaseOrderDetailKey = queryKeys.procurement.purchaseOrder
-
-/**
- * The goods receipt a new invoice is billed against.
- *
- * The shared registry has `grns(params)` for the receipt list but no key for
- * one receipt, so the shape is spelled here - deliberately identical to the one
- * `features/procurement/purchase-return-model.ts` uses, so both screens read
- * and invalidate the same cache entry instead of fetching the receipt twice.
- */
-export const goodsReceiptDetailKey = (id: string) =>
-  [...queryKeys.procurement.all, 'grn', 'detail', id] as const
-
 // ------------------------------------------------------------- pricing -----
 
 /**

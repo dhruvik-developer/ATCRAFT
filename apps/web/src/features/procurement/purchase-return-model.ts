@@ -61,19 +61,6 @@ export const purchaseReturnKeys = {
     [...queryKeys.finance.all, 'purchase-return-debit-allocations', id] as const,
 }
 
-/**
- * The goods receipt a new return is raised against.
- *
- * `queryKeys.procurement` publishes `grns(params)` for the receipt list but no
- * key for one receipt, and `lib/query-client.ts` is not this feature's to edit -
- * so the key is spelled here in the shape that registry already uses for a
- * detail. Keeping it inside the `queryKeys.procurement.all` prefix means
- * posting a return, which writes the returned quantity back onto the receipt
- * line, drops this cache entry along with everything else procurement holds.
- */
-export const goodsReceiptDetailKey = (id: string) =>
-  [...queryKeys.procurement.all, 'grn', 'detail', id] as const
-
 // ------------------------------------------------------------ vocabulary ----
 
 export type PurchaseReturnStatus = SchemaOf<'PurchaseReturnStatus'>

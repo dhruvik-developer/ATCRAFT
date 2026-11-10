@@ -98,7 +98,6 @@ import {
   MAX_DEBIT_NOTE_LENGTH,
   MAX_LINE_NOTES_LENGTH,
   MAX_NOTES_LENGTH,
-  goodsReceiptDetailKey,
   isReturnPostable,
   purchaseReturnKeys,
   returnableQuantity,
@@ -318,7 +317,7 @@ export function PurchaseReturnFormDialog({
   const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
 
   const detail = useQuery({
-    queryKey: goodsReceiptDetailKey(receipt?.id ?? ''),
+    queryKey: queryKeys.procurement.goodsReceipt(receipt?.id ?? ''),
     queryFn: ({ signal }) =>
       api.get<GoodsReceiptDetail>(`/procurement/goods-receipts/${receipt?.id}`, { signal }),
     enabled: open && canReadReceipts && Boolean(receipt),

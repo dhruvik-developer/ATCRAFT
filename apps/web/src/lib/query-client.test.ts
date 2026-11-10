@@ -317,6 +317,10 @@ describe('query keys', () => {
     ['payments', paymentKeys.detail('id'), queryKeys.finance.all],
     ['sales invoices', salesInvoiceKeys.detail('id'), queryKeys.finance.all],
     ['debit allocations', purchaseReturnKeys.debitAllocations('id'), queryKeys.finance.all],
+    // Posting a purchase return writes its quantity back onto the receipt line
+    // and invalidates procurement; the receipt the return and the vendor
+    // invoice both read must fall under that root.
+    ['a goods receipt', queryKeys.procurement.goodsReceipt('id'), queryKeys.procurement.all],
     ['masters', mastersKeys.uoms({}), queryKeys.masters.all],
     ['packing', packingKeys.detail('id'), queryKeys.packing.all],
     ['storage locations', locationKeys.detail('id'), queryKeys.storageLocations.all],
