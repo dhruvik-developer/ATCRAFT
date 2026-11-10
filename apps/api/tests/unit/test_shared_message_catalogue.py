@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from src.core import messages
-from tests.unit.test_user_message_guards import _error_classes, _template
+from tests.message_scan_support import _error_classes, _template
 
 pytestmark = pytest.mark.unit
 
