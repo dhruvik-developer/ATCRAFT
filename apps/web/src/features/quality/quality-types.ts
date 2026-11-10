@@ -154,11 +154,6 @@ export type QcDecisionHistory = SchemaOf<'DecisionHistoryRead'>
 /** One rework cycle (`ReworkRecordRead`). */
 export type QcReworkRecord = SchemaOf<'ReworkRecordRead'>
 
-/** `ReworkStatus` on the wire. */
-export type QcReworkStatus = SchemaOf<'ReworkStatus'>
-
-export const QC_REWORK_STATUSES = ['OPEN', 'IN_PROGRESS', 'DONE'] as const
-
 /** `ReworkOutcome` on the wire. */
 export type QcReworkOutcome = SchemaOf<'ReworkOutcome'>
 

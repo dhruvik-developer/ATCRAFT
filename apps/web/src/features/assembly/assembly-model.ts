@@ -42,20 +42,6 @@ export const assemblyKeys = {
     [...queryKeys.assembly.all, 'ready-for-packing', params] as const,
 }
 
-/**
- * Bounds that mirror the assembly schemas, owned by `lib/constants`.
- *
- * Re-exported so the screens above it keep one import: a priority of 100 is
- * what a new order is stored with, and what its component reservations
- * inherit, when the planner does not choose one.
- */
-export {
-  ASSEMBLY_LINE_MAX_LENGTH,
-  ASSEMBLY_NOTES_MAX_LENGTH,
-  ASSEMBLY_PRIORITY_MAX,
-  DEFAULT_ASSEMBLY_PRIORITY,
-} from '@/lib/constants'
-
 // ------------------------------------------------------------ vocabulary ----
 
 /**
@@ -122,11 +108,6 @@ export const hasLinkedInspection = (order: {
   status: AssemblyStatus
   qc_inspection_id: string | null
 }): boolean => order.status === 'QC_PENDING' && order.qc_inspection_id !== null
-
-export const needsDirectVerdict = (order: {
-  status: AssemblyStatus
-  qc_inspection_id: string | null
-}): boolean => order.status === 'QC_PENDING' && order.qc_inspection_id === null
 
 /**
  * Only a job actually under way can be completed.

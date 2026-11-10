@@ -22,7 +22,10 @@ export const APP_RELEASE = (import.meta.env.VITE_APP_RELEASE as string | undefin
 /** Where crash reports are posted. Empty disables reporting, which is the default. */
 export const ERROR_REPORT_URL = (import.meta.env.VITE_ERROR_REPORT_URL as string | undefined) ?? ''
 
+/** The product's full name, on the sign-in page's brand panel. */
 export const APP_NAME = 'Atcraft Manufacturing ERP'
+/** The name where there is room for two words: the shell, the portals, the small sign-in mark. */
+export const APP_SHORT_NAME = 'Atcraft ERP'
 
 // ------------------------------------------------------- session & storage ---
 

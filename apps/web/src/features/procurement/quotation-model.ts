@@ -82,18 +82,6 @@ export const QUOTATION_STATUSES = [
 ] as const satisfies readonly QuotationStatus[]
 
 /**
- * The three states that end a quotation, from `QUOTATION_LIFECYCLE`
- * (apps/api/src/modules/procurement/service_rules.py). None has an edge out
- * on its own; a REJECTED or EXPIRED one is reopened only by a revised offer -
- * see `isQuotationRevisable`.
- */
-export const QUOTATION_TERMINAL_STATUSES: readonly QuotationStatus[] = [
-  'SELECTED',
-  'REJECTED',
-  'EXPIRED',
-]
-
-/**
  * Whether the buyer may still select or reject this offer.
  *
  * RECEIVED and UNDER_REVIEW only - those are the two sources the state machine
@@ -149,9 +137,6 @@ export type QuotationRow = SchemaOf<'QuotationSummary'>
  * selection and a rejection, so it is the buyer's justification either way.
  */
 export type QuotationDetail = SchemaOf<'QuotationDetail'>
-
-/** One line of a quotation (`QuotationLineRead`). */
-export type QuotationLine = SchemaOf<'QuotationLineRead'>
 
 /** One line of the create and revise payloads (`QuotationLineIn`). */
 export type QuotationLinePayload = SchemaOf<'QuotationLineIn'>

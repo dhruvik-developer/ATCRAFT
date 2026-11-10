@@ -190,40 +190,6 @@ export type CartonScanRequest = SchemaOf<'CartonScanRequest'>
 /** `GET` or `POST /packing/scan` (`CartonScanResult`). */
 export type CartonScanResult = SchemaOf<'CartonScanResult'>
 
-// ------------------------------------------------------------------ job -----
-
-/**
- * `GET /reports/jobs/{job_id}` (`ReportJobRead`).
- *
- * Rendering a packing list is a PDF build, which is exactly the kind of work
- * docs/api.md says never holds a connection open: `GET /packing/{id}/packing-list`
- * returns 202 with a job id, and the finished artefact arrives as a document to
- * download.
- */
-export interface ReportJob {
-  id: string
-  report_key: string
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
-  row_count: number
-  document_id: string | null
-  download_url: string | null
-  error_message: string | null
-  generated_at: string | null
-  created_at: string
-}
-
-export function isJobInFlight(status: string | null | undefined): boolean {
-  return status === 'QUEUED' || status === 'RUNNING'
-}
-
-export function isJobFailed(status: string | null | undefined): boolean {
-  return status === 'FAILED'
-}
-
-export function isJobComplete(status: string | null | undefined): boolean {
-  return status === 'COMPLETED'
-}
-
 /** Quantities on the carton content form. Empty is treated as zero. */
 export const QUANTITY_INPUT = /^$|^\d{1,14}(\.\d{1,4})?$/
 

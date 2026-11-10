@@ -34,9 +34,6 @@ export type PriceType = (typeof PRICE_TYPES)[number]
 export const ADDRESS_TYPES = ['BILLING', 'SHIPPING'] as const
 export type AddressType = (typeof ADDRESS_TYPES)[number]
 
-/** An unlimited limit is `null`, not a large number and not zero. */
-export const isUnlimitedCredit = (limit: DecimalString | null): boolean => limit === null
-
 // ----------------------------------------------------------- wire shapes ----
 
 /** One row of `GET /customers` (`CustomerSummary`). */

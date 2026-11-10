@@ -15,7 +15,6 @@ import { api } from '@/lib/api-client'
 import type { CursorEnvelope } from '@/types/api'
 
 export const SEVERITIES = ['INFO', 'SUCCESS', 'WARNING', 'CRITICAL'] as const
-export type Severity = (typeof SEVERITIES)[number]
 
 /**
  * The event vocabulary, from `NotificationType`.

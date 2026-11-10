@@ -36,7 +36,7 @@ import { Badge, Input, Separator } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { PushSessionBridge } from '@/features/notifications/push-session'
 import { api } from '@/lib/api-client'
-import { NOTIFICATION_POLL_MS, STORAGE_KEYS } from '@/lib/constants'
+import { APP_SHORT_NAME, NOTIFICATION_POLL_MS, STORAGE_KEYS } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { readStorage, writeStorage } from '@/lib/storage'
@@ -350,7 +350,7 @@ function SidebarContent({
           A
         </div>
         <div className={cn('min-w-0 flex-1', collapsed && 'lg:hidden')}>
-          <p className="truncate text-sm font-semibold text-sidebar-emphasis">Atcraft ERP</p>
+          <p className="truncate text-sm font-semibold text-sidebar-emphasis">{APP_SHORT_NAME}</p>
           <p className="truncate text-2xs text-sidebar-foreground/70">{companyName ?? ''}</p>
         </div>
         {mobile && (

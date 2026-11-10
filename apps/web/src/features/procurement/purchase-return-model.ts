@@ -95,17 +95,6 @@ export const isReturnPostable = (status: PurchaseReturnStatus): boolean => statu
 
 export const isReturnCancellable = (status: PurchaseReturnStatus): boolean => status === 'DRAFT'
 
-/**
- * The two ways a return ends, which are emphatically not the same thing.
- *
- * POSTED means the stock physically left and the receipt and order lines were
- * written back; CANCELLED means the document was abandoned and nothing moved at
- * all. Neither can be reopened, but a screen that shows them as one "closed"
- * state is telling a storekeeper that material has gone back to the vendor when
- * it is still on the shelf.
- */
-export const RETURN_TERMINAL_STATUSES: readonly PurchaseReturnStatus[] = ['POSTED', 'CANCELLED']
-
 // ----------------------------------------------------------- API bounds -----
 
 /** `PurchaseReturnCreate.debit_note_number`. */

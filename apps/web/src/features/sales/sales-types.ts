@@ -34,7 +34,6 @@ import type { DecimalString, SchemaOf } from '@/types/api'
 // ------------------------------------------------------------ vocabulary ----
 
 export type SalesOrderStatus = SchemaOf<'SalesOrderStatus'>
-export type SalesOrderLineStatus = SchemaOf<'SalesOrderLineStatus'>
 
 /** Display order for the status filter. Typed against the contract's enum. */
 export const SALES_ORDER_STATUSES: readonly SalesOrderStatus[] = [
@@ -45,15 +44,6 @@ export const SALES_ORDER_STATUSES: readonly SalesOrderStatus[] = [
   'DISPATCHED',
   'INVOICED',
   'CLOSED',
-  'CANCELLED',
-]
-
-export const SALES_ORDER_LINE_STATUSES: readonly SalesOrderLineStatus[] = [
-  'PENDING',
-  'PARTIALLY_ALLOCATED',
-  'ALLOCATED',
-  'PARTIALLY_DISPATCHED',
-  'DISPATCHED',
   'CANCELLED',
 ]
 

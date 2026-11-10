@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/primitives'
+import { APP_SHORT_NAME } from '@/lib/constants'
 
 import { useAuth } from './auth-context'
 import { ChangePasswordCard } from './profile-page'
@@ -27,7 +28,9 @@ export default function ChangePasswordPage() {
     <main className="min-h-dvh bg-muted/20 p-4 sm:p-6">
       <div className="mx-auto max-w-2xl space-y-5 pt-[max(2rem,8vh)]">
         <div>
-          <p className="mb-1 text-sm font-semibold tracking-wide text-primary">ATCRAFT ERP</p>
+          <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-primary">
+            {APP_SHORT_NAME}
+          </p>
           <PageHeader
             title="Choose a new password"
             description="Finish securing your account before opening the rest of the application."

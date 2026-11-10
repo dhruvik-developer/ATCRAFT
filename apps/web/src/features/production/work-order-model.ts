@@ -103,9 +103,6 @@ export type MachineOption = SchemaOf<'MachineRead'>
 
 // ----------------------------------------------------------- API bounds -----
 
-/** `WorkOrderUpdate.shift`: 1..16 characters, or null to clear it. */
-export const MAX_SHIFT_LENGTH = 16
-
 /** `WorkOrderUpdate.notes`. */
 export const MAX_NOTES_LENGTH = 4000
 

@@ -438,13 +438,6 @@ export interface CloseResult {
  */
 export type MachineOption = SchemaOf<'MachineRead'>
 
-/** Lookup row behind the operator select on a production booking. */
-export interface OperatorOption {
-  id: string
-  full_name: string
-  email: string
-}
-
 // -------------------------------------------------------------- derived -----
 
 const ZERO = new Decimal(0)

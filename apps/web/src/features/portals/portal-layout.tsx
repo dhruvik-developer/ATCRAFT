@@ -23,6 +23,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { PushSessionBridge } from '@/features/notifications/push-session'
 import { api } from '@/lib/api-client'
+import { APP_SHORT_NAME } from '@/lib/constants'
 import { humanise } from '@/lib/format'
 import { P, type PermissionKey } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
@@ -135,7 +136,7 @@ export default function PortalLayout() {
       <header className="sticky top-0 z-30 border-b bg-background">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
-            <p className="truncate font-semibold">{user?.company_name || 'Atcraft ERP'}</p>
+            <p className="truncate font-semibold">{user?.company_name || APP_SHORT_NAME}</p>
             <p className="truncate text-xs text-muted-foreground">
               {accountName} · {isVendorUser ? 'Vendor' : 'Dealer'} portal
             </p>

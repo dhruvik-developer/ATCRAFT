@@ -22,6 +22,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { authenticationRetryAfter } from '@/features/auth/auth-retry'
 import { SessionRecovery } from '@/features/auth/session-recovery'
 import { isAbortError } from '@/lib/api-client'
+import { APP_NAME, APP_SHORT_NAME } from '@/lib/constants'
 import { describeError, validation } from '@/lib/messages'
 
 /**
@@ -183,14 +184,14 @@ export function LoginPage() {
           and not on a phone, and the page's heading structure would change with
           the viewport. The form is the page; this is decoration beside it. */}
       <aside
-        aria-label="About Atcraft Manufacturing ERP"
+        aria-label={`About ${APP_NAME}`}
         className="relative hidden flex-col justify-between bg-sidebar p-10 text-sidebar-emphasis lg:flex"
       >
         <div className="flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-lg bg-sidebar-accent text-lg font-bold">
             A
           </div>
-          <span className="text-lg font-semibold">Atcraft Manufacturing ERP</span>
+          <span className="text-lg font-semibold">{APP_NAME}</span>
         </div>
         <div className="max-w-md">
           <p className="text-3xl font-semibold leading-tight">
@@ -222,7 +223,7 @@ export function LoginPage() {
               <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary font-bold text-primary-foreground">
                 A
               </div>
-              <span className="font-semibold">Atcraft ERP</span>
+              <span className="font-semibold">{APP_SHORT_NAME}</span>
             </div>
             {/* h1: the only heading on the page, and the same on every
                 viewport. CardTitle renders an h3 by default, which skipped two

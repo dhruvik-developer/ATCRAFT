@@ -50,8 +50,6 @@ export const AUDIT_ACTIONS = [
   'SCAN',
 ] as const
 
-export type AuditActionValue = (typeof AUDIT_ACTIONS)[number]
-
 /**
  * Entity types the log records, in the order an investigator scans them.
  *

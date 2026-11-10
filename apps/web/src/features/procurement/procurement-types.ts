@@ -56,33 +56,6 @@ export function clearSearchKeys(
 }
 
 /**
- * Where the demand behind a document came from.
- *
- * `PurchaseSourceType` in the API. A buyer reads this to tell a hand-raised
- * order from one the planner produced, which changes how much they trust the
- * quantity on it.
- */
-export type PurchaseSourceType = SchemaOf<'PurchaseSourceType'>
-
-/**
- * The same vocabulary as a list, for the screens that offer it as options.
- *
- * `satisfies` is what keeps the two honest: a member the API has dropped stops
- * compiling here instead of surviving as an option nothing can match, and one
- * the API has added is caught by a reviewer rather than by a user.
- */
-export const PURCHASE_SOURCE_TYPES = [
-  'MANUAL',
-  'PURCHASE_REQUISITION',
-  'VENDOR_QUOTATION',
-  'MRP_SUGGESTION',
-  'MRP_RUN',
-  'SALES_ORDER',
-  'BOM_DEMAND',
-  'REORDER',
-] as const satisfies readonly PurchaseSourceType[]
-
-/**
  * Priority is an integer 1-9 with 5 as the default, and *lower is more urgent*
  * (`MIN_PRIORITY`/`MAX_PRIORITY` in the API's procurement models). It used to
  * be typed here as a free-text string, so every priority rendered as a raw
@@ -500,16 +473,6 @@ export const OPEN_PO_STATUSES: readonly PurchaseOrderStatus[] = [
  */
 export type PurchaseOrderRow = SchemaOf<'PurchaseOrderSummary'>
 
-export type PurchaseOrderLineStatus = SchemaOf<'PurchaseOrderLineStatus'>
-
-export const PURCHASE_ORDER_LINE_STATUSES = [
-  'PENDING',
-  'PARTIALLY_RECEIVED',
-  'RECEIVED',
-  'CLOSED',
-  'CANCELLED',
-] as const satisfies readonly PurchaseOrderLineStatus[]
-
 /**
  * One line of `GET /procurement/purchase-orders/{id}` (`PurchaseOrderLineRead`).
  *
@@ -605,15 +568,6 @@ export type GrnStatus = SchemaOf<'GoodsReceiptStatus'>
 
 export const GRN_STATUSES = ['DRAFT', 'POSTED', 'CANCELLED'] as const satisfies readonly GrnStatus[]
 
-export type ReceiptLineQcStatus = SchemaOf<'ReceiptLineQcStatus'>
-
-export const RECEIPT_LINE_QC_STATUSES = [
-  'NOT_REQUIRED',
-  'PENDING',
-  'PASSED',
-  'FAILED',
-] as const satisfies readonly ReceiptLineQcStatus[]
-
 /**
  * One row of `GET /procurement/goods-receipts` (`GoodsReceiptSummary`).
  *
@@ -643,14 +597,6 @@ export type GoodsReceiptLinePayload = SchemaOf<'GoodsReceiptLineIn'>
 
 /** Body of `POST /procurement/goods-receipts` (`GoodsReceiptCreate`). */
 export type GoodsReceiptCreatePayload = SchemaOf<'GoodsReceiptCreate'>
-
-/**
- * One inventory movement a posting wrote, echoed back.
- *
- * `quantity` is a magnitude; the transaction type carries the direction. Never
- * render it with a sign of this screen's own invention.
- */
-export type PostedMovement = SchemaOf<'src__modules__procurement__schemas__PostedMovement'>
 
 /**
  * `POST /procurement/goods-receipts/{id}/post` (`GoodsReceiptPostResult`).

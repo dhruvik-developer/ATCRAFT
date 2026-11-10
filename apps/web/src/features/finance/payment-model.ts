@@ -67,17 +67,6 @@ export type PaymentRow = SchemaOf<'PaymentSummary'>
  */
 export type PaymentDetail = SchemaOf<'PaymentDetail'>
 
-/**
- * One settled invoice on a payment.
- *
- * `invoice_code` and `vendor_invoice_number` are resolved for us in one batched
- * query - the only place in this feature where a document id comes back with a
- * human name attached. The invoice's own currency and outstanding are *not*
- * here, so a row that was already settled shows what it settled and nothing
- * about the invoice behind it.
- */
-export type PaymentAllocation = SchemaOf<'PaymentAllocationRead'>
-
 export type PaymentStatus = SchemaOf<'PaymentStatus'>
 export type PaymentType = SchemaOf<'PaymentType'>
 export type PaymentMethod = SchemaOf<'PaymentMethod'>
