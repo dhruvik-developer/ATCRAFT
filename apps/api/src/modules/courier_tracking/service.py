@@ -17,15 +17,24 @@ from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext, system_tenant
-from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
+from src.core.errors import (
+    AuthenticationError,
+    BusinessRuleError,
+    NotFoundError,
+    ValidationError,
+)
 from src.core.ids import new_id
 from src.core.pagination import CursorParams, PageParams
+from src.core.ratelimit import RateLimitPolicy, enforce_policy
 from src.core.responses import OffsetPagination
 from src.core.security import (
+    constant_time_compare,
     decrypt_courier_credential,
+    decrypt_courier_webhook_secret,
     encrypt_courier_credential,
     encrypt_courier_webhook_secret,
     generate_secret_token,
+    hash_secret_token,
 )
 from src.core.state_machine import StateMachine, Transition
 from src.core.validation import require_changes
@@ -45,8 +54,13 @@ from src.modules.courier_tracking.provider import (
     parse_shiprocket_tracking,
     shiprocket_login,
     shiprocket_track,
+    verify_generic_signature,
+    webhook_header_name,
 )
-from src.modules.courier_tracking.repository import CourierAccountRepository
+from src.modules.courier_tracking.repository import (
+    CourierAccountRepository,
+    find_account_by_webhook_token,
+)
 from src.modules.courier_tracking.schemas import (
     CourierAccountCreate,
     CourierAccountRead,
@@ -54,6 +68,8 @@ from src.modules.courier_tracking.schemas import (
     CourierEventFilters,
     CourierEventRead,
     GenericWebhookEvent,
+    GenericWebhookPayload,
+    RotateWebhookRead,
     ShiprocketCredentials,
 )
 from src.modules.dispatch import service as dispatch_service
@@ -298,7 +314,13 @@ async def rotate_webhook(
     session: AsyncSession,
     tenant: TenantContext,
     account_id: uuid.UUID,
-) -> tuple[CourierAccountRead, str, str]:
+) -> RotateWebhookRead:
+    """Mint a new webhook URL token and secret, returned this once and never again.
+
+    Only the token's digest and the encrypted secret are stored, so the old URL
+    stops working at once. ``header_name`` tells the operator which header the
+    provider must send the secret in.
+    """
     repo = CourierAccountRepository(session, tenant)
     token, token_hash = generate_secret_token()
     secret = secrets.token_urlsafe(32)
@@ -322,7 +344,9 @@ async def rotate_webhook(
         )
     root = str(settings.public_web_url).rstrip("/")
     url = f"{root}{settings.api_v1_prefix.rstrip('/')}/integrations/courier/webhook/{token}"
-    return account_read(account), url, secret
+    return RotateWebhookRead(
+        webhook_url=url, secret=secret, header_name=webhook_header_name(account.provider)
+    )
 
 
 async def test_connection(
@@ -340,13 +364,62 @@ async def test_connection(
     return account.provider
 
 
-async def account_for_webhook(session: AsyncSession, token_hash: str) -> CourierAccount | None:
-    stmt = select(CourierAccount).where(
-        CourierAccount.webhook_token_hash == token_hash,
-        CourierAccount.is_active.is_(True),
-        CourierAccount.deleted_at.is_(None),
-    )
-    return (await session.execute(stmt)).scalar_one_or_none()
+async def admit_webhook(client_ip: str | None) -> None:
+    """Let a webhook delivery in, or refuse it before its body is read.
+
+    The deployment switch first, then the ``COURIER_WEBHOOK`` flood guard keyed
+    on the sending address - both before the body is streamed or the database
+    touched, so a refused delivery costs neither.
+    """
+    if not settings.courier_tracking_enabled:
+        raise ValidationError("Courier tracking is disabled for this deployment.")
+    await enforce_policy(RateLimitPolicy.COURIER_WEBHOOK, client_ip or "unknown")
+
+
+async def receive_webhook(
+    session: AsyncSession,
+    token: str,
+    body: bytes,
+    *,
+    signature: str = "",
+    timestamp: str = "",
+    api_key: str = "",
+) -> int:
+    """Authenticate one provider delivery and record the events it carries.
+
+    ``token`` is the capability in the webhook URL. An unknown token, an
+    inactive account and one whose secret was never issued all answer the same
+    404, so the URL discloses nothing about which accounts exist. A generic
+    provider must send a fresh ``timestamp`` and an HMAC-SHA256 ``signature``
+    over ``<timestamp>.<body>``; Shiprocket sends the secret as ``api_key``,
+    compared in constant time. Either failure is a 401, and only an
+    authenticated body is parsed - a malformed one is a 422. Returns how many
+    new events were recorded: a repeated delivery records none.
+    """
+    account = await find_account_by_webhook_token(session, hash_secret_token(token))
+    if account is None or account.webhook_secret_ciphertext is None:
+        raise NotFoundError("Courier webhook")
+    secret = decrypt_courier_webhook_secret(account.webhook_secret_ciphertext)
+    # provider is a String column: ORM loads return plain str, so == not is.
+    if account.provider == CourierProvider.GENERIC_WEBHOOK:
+        if not verify_generic_signature(
+            secret=secret, body=body, signature=signature, timestamp=timestamp
+        ):
+            raise AuthenticationError("Courier webhook signature is invalid.")
+        try:
+            generic = GenericWebhookPayload.model_validate_json(body)
+        except ValueError as exc:
+            raise ValidationError("Courier webhook payload is invalid.") from exc
+        return await ingest_generic_webhook(session, account, generic.events)
+    if not api_key or not constant_time_compare(api_key, secret):
+        raise AuthenticationError("Courier webhook token is invalid.")
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValidationError("Courier webhook payload is invalid.") from exc
+    if not isinstance(payload, dict):
+        raise ValidationError("Courier webhook payload must be an object.")
+    return await ingest_shiprocket_webhook(session, account, payload)
 
 
 async def get_account(
@@ -835,8 +908,8 @@ def _bounded_text(value: Any, limit: int) -> str | None:
 
 __all__ = [
     "COURIER_ACCOUNT_LIFECYCLE",
-    "account_for_webhook",
     "account_read",
+    "admit_webhook",
     "create_account",
     "get_account",
     "ingest_events",
@@ -846,6 +919,7 @@ __all__ = [
     "list_accounts",
     "list_events",
     "poll_account",
+    "receive_webhook",
     "record_poll_failure",
     "refresh_tracking",
     "rotate_webhook",

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Select, and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.repository import BaseRepository
 from src.core.pagination import CursorParams, PageParams
@@ -21,6 +22,25 @@ from src.modules.dispatch.models import IN_FLIGHT_STATUSES, Dispatch
 from src.modules.procurement.inbound_models import PurchaseOrderShipment
 from src.modules.procurement.models import PurchaseOrder, PurchaseOrderStatus
 from src.modules.vendors.models import Transporter
+
+
+async def find_account_by_webhook_token(
+    session: AsyncSession, token_hash: str
+) -> CourierAccount | None:
+    """The live account a webhook URL's token belongs to, looked up by digest.
+
+    Unscoped by necessity - a provider delivering a webhook is not signed in,
+    and the digest of the URL's random token is the only identifier it brings.
+    ``webhook_token_hash`` is unique, so this cannot return another tenant's row
+    by accident; everything the delivery then records is scoped to the
+    account's own company.
+    """
+    stmt = select(CourierAccount).where(
+        CourierAccount.webhook_token_hash == token_hash,
+        CourierAccount.is_active.is_(True),
+        CourierAccount.deleted_at.is_(None),
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 class CourierAccountRepository(BaseRepository[CourierAccount]):
@@ -40,14 +60,6 @@ class CourierAccountRepository(BaseRepository[CourierAccount]):
     ) -> tuple[list[CourierAccount], OffsetPagination]:
         stmt = self._scoped().order_by(CourierAccount.created_at.desc(), CourierAccount.id.desc())
         return await self.list_page(params, stmt=stmt)
-
-    async def by_token_hash(self, token_hash: str) -> CourierAccount | None:
-        stmt = select(CourierAccount).where(
-            CourierAccount.webhook_token_hash == token_hash,
-            CourierAccount.is_active.is_(True),
-            CourierAccount.deleted_at.is_(None),
-        )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def active_ids(self, company_id: uuid.UUID) -> list[uuid.UUID]:
         stmt = select(CourierAccount.id).where(

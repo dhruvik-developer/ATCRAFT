@@ -10,6 +10,12 @@
 * No ``float`` in the business modules. Money and quantities are ``Decimal``;
   the few floats that are not business values are listed below with the
   reason, so a new one is a decision someone has to write down.
+* A budget is a named ``RateLimitPolicy``, spent through ``enforce_policy`` or
+  ``spend_budget``. Only the limiter itself and the general per-principal
+  middleware call ``enforce_rate_limit`` / ``check_rate_limit`` directly. The
+  courier webhook spent a literal 60-a-minute from its route handler, where
+  ``tests/unit/test_route_budgets.py`` - which checks every *named* policy is
+  spent - could not see it, and no document listed it.
 
 Every rule is a function over source text, and each has a self-test that feeds
 it the violation it exists to catch - a guard that cannot fail is worse than
@@ -35,6 +41,15 @@ _SESSION_METHODS = frozenset(
 
 #: The one module allowed to end a transaction.
 _TRANSACTION_OWNER = "core/database.py"
+
+#: The limiter's raw entry points, which take a limit and a window as literals.
+_RAW_LIMITERS = frozenset({"enforce_rate_limit", "check_rate_limit"})
+
+#: The modules allowed to call them, each with the reason.
+RAW_LIMITER_OWNERS: dict[str, str] = {
+    "core/ratelimit.py": "the limiter itself; enforce_policy spends a named policy through it",
+    "core/middleware.py": "the general per-principal API budget, sized by settings",
+}
 
 #: ``float`` in src/modules, each a non-business value.
 FLOAT_ALLOWED: dict[str, str] = {
@@ -96,6 +111,19 @@ def transaction_end_violations(source: str) -> list[str]:
     return sorted(found, key=_line_number)
 
 
+def raw_limiter_calls(source: str) -> list[str]:
+    """Calls of ``enforce_rate_limit`` / ``check_rate_limit``, bare or as an attribute."""
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        if name in _RAW_LIMITERS:
+            found.append(f"line {node.lineno}: {name}()")
+    return sorted(found, key=_line_number)
+
+
 def float_uses(source: str) -> list[str]:
     found = [
         f"line {node.lineno}"
@@ -133,6 +161,30 @@ def test_only_the_transaction_helper_commits_or_rolls_back() -> None:
         "Use `async with transaction(session):` from src.core.database; a direct "
         f"commit or rollback ends work that belongs to the caller: {offenders}"
     )
+
+
+def test_only_the_limiter_and_the_general_budget_call_the_raw_limiter() -> None:
+    offenders = {
+        _relative(path): found
+        for path in _python_files(SRC)
+        if _relative(path) not in RAW_LIMITER_OWNERS
+        and (found := raw_limiter_calls(path.read_text(encoding="utf-8")))
+    }
+    assert not offenders, (
+        "Declare the budget as a RateLimitPolicy in src/core/ratelimit.py and spend it "
+        "with enforce_policy (or spend_budget on a route), so test_route_budgets sees "
+        f"it and docs/security.md section 8 can name it: {offenders}"
+    )
+
+
+def test_every_raw_limiter_owner_still_calls_it() -> None:
+    stale = [
+        name
+        for name in RAW_LIMITER_OWNERS
+        if not (SRC / name).is_file()
+        or not raw_limiter_calls((SRC / name).read_text(encoding="utf-8"))
+    ]
+    assert not stale, f"remove these RAW_LIMITER_OWNERS entries, the call is gone: {stale}"
 
 
 def test_business_modules_hold_no_float() -> None:
@@ -180,6 +232,20 @@ def test_the_router_rule_rejects_queries_and_session_calls() -> None:
 def test_the_transaction_rule_rejects_commit_and_rollback() -> None:
     source = "async def f(session):\n    await session.rollback()\n    await self.db.commit()\n"
     assert transaction_end_violations(source) == ["line 2: .rollback()", "line 3: .commit()"]
+
+
+def test_the_limiter_rule_rejects_a_literal_budget_and_passes_a_named_one() -> None:
+    source = (
+        "from src.core import ratelimit\n"
+        "async def handler(ip):\n"
+        "    await enforce_rate_limit(f'hook:{ip}', limit=60, window_seconds=60)\n"
+        "    await ratelimit.check_rate_limit(ip, limit=5)\n"
+        "    await enforce_policy(RateLimitPolicy.COURIER_WEBHOOK, ip)\n"
+    )
+    assert raw_limiter_calls(source) == [
+        "line 3: enforce_rate_limit()",
+        "line 4: check_rate_limit()",
+    ]
 
 
 def test_the_float_rule_rejects_annotations_and_conversions() -> None:

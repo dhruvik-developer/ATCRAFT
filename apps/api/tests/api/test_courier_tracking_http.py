@@ -398,3 +398,88 @@ async def test_generic_webhook_verifies_signature_and_deduplicates_events(
         .all()
     )
     assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_shiprocket_webhook_is_keyed_by_x_api_key_and_parsed_only_once_keyed(
+    api_client: AsyncClient,
+    session: AsyncSession,
+    company: Company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deployment switch, the key and the body, in the order the service decides them."""
+    token = "test-shiprocket-token"
+    secret = "test-shiprocket-webhook-key"
+    session.add(
+        CourierAccount(
+            id=uuid.uuid4(),
+            company_id=company.id,
+            code="SR-HOOK",
+            provider=CourierProvider.SHIPROCKET,
+            display_name="Shiprocket webhook",
+            webhook_token_hash=hash_secret_token(token),
+            webhook_secret_ciphertext=encrypt_courier_webhook_secret(secret),
+        )
+    )
+    await session.flush()
+    url = f"/integrations/courier/webhook/{token}"
+    body = json.dumps(
+        {
+            "awb": "AWB-SR-HOOK-1",
+            "current_status": "In Transit",
+            "current_timestamp": datetime.now(UTC).replace(microsecond=0).isoformat(),
+            "id": "shiprocket-event-1",
+        }
+    ).encode()
+    keyed = {"X-Api-Key": secret, "Content-Type": "application/json"}
+
+    disabled = await api_client.post(url, content=body, headers=keyed)
+    monkeypatch.setattr(settings, "courier_tracking_enabled", True)
+    accepted = await api_client.post(url, content=body, headers=keyed)
+    wrong_key = await api_client.post(url, content=body, headers={**keyed, "X-Api-Key": "nope"})
+    no_key = await api_client.post(url, content=body, headers={"Content-Type": "application/json"})
+    not_an_object = await api_client.post(url, content=b"[1, 2]", headers=keyed)
+
+    assert disabled.status_code == 422, disabled.text
+    assert disabled.json()["error"]["message"] == (
+        "Courier tracking is disabled for this deployment."
+    )
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json()["data"] == {"events_recorded": 1}
+    assert [wrong_key.status_code, no_key.status_code] == [401, 401]
+    assert wrong_key.json()["error"]["message"] == "Courier webhook token is invalid."
+    assert not_an_object.status_code == 422, not_an_object.text
+    assert not_an_object.json()["error"]["message"] == (
+        "Courier webhook payload must be an object."
+    )
+    recorded = (
+        await session.execute(
+            select(CourierTrackingEvent.tracking_number).where(
+                CourierTrackingEvent.company_id == company.id
+            )
+        )
+    ).scalars()
+    assert list(recorded) == ["AWB-SR-HOOK-1"]
+
+
+@pytest.mark.asyncio
+async def test_rotating_a_shiprocket_webhook_names_the_key_header_as_loaded_from_the_database(
+    api_client: AsyncClient, session: AsyncSession
+) -> None:
+    """The header comes from the account as a fresh request loads it.
+
+    This client shares one session across requests, so without the expiry the
+    account would still hold the enum member its create request set, and a
+    comparison by identity would pass here while failing in production - where
+    the provider column loads as a plain string and every Shiprocket operator was
+    told to configure ``X-Courier-Signature``.
+    """
+    account_id = await _shiprocket_account(
+        api_client, "SR-ROTATE", "rotate@example.com", transporter_ids=[]
+    )
+    session.expire_all()
+
+    rotated = await api_client.post(f"/integrations/courier/accounts/{account_id}/rotate-webhook")
+
+    assert rotated.status_code == 200, rotated.text
+    assert rotated.json()["data"]["header_name"] == "X-Api-Key"

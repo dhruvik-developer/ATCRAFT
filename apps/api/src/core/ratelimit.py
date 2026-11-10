@@ -209,6 +209,11 @@ class RateLimitPolicy:
     DOCUMENT_PDF = ("document_pdf", 60, 600)
     # and nobody picks sixty files in five minutes one at a time.
     FILE_UPLOAD = ("upload", 60, 300)
+    # The public courier webhook's flood guard (docs/security.md D3): keyed on
+    # the sending address and spent before the body is read or the database
+    # touched, by courier_tracking.service.admit_webhook. A provider's address is
+    # a site, so every account it delivers to shares this one budget.
+    COURIER_WEBHOOK = ("courier_webhook", 60, 60)
 
 
 async def enforce_policy(policy: tuple[str, int, int], identifier: str) -> RateLimitResult:

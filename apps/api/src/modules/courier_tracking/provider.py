@@ -17,8 +17,16 @@ import anyio
 from src.core.config import settings
 from src.modules.courier_tracking.models import (
     WEBHOOK_CLOCK_SKEW_SECONDS,
+    CourierProvider,
     CourierStatus,
 )
+
+#: The headers a webhook delivery authenticates with. A generic provider signs
+#: ``<timestamp>.<body>`` with the account's secret and sends the signature and
+#: the timestamp; Shiprocket sends the secret itself as its webhook key.
+GENERIC_SIGNATURE_HEADER = "X-Courier-Signature"
+GENERIC_TIMESTAMP_HEADER = "X-Courier-Timestamp"
+SHIPROCKET_KEY_HEADER = "X-Api-Key"
 
 SHIPROCKET_API = "https://apiv2.shiprocket.in"
 SHIPROCKET_LOGIN_PATH = "/v1/external/auth/login"
@@ -70,6 +78,14 @@ def normalize_status(raw_status: str) -> CourierStatus:
     # Unknown provider labels must never imply delivery or another lifecycle
     # transition. They surface for staff review as an exception.
     return _STATUS_WORDS.get(key, CourierStatus.EXCEPTION)
+
+
+def webhook_header_name(provider: str) -> str:
+    """The header the account's webhook secret is configured under at the provider."""
+    # provider is a String column: ORM loads return plain str, so == not is.
+    if provider == CourierProvider.SHIPROCKET:
+        return SHIPROCKET_KEY_HEADER
+    return GENERIC_SIGNATURE_HEADER
 
 
 def verify_generic_signature(
@@ -232,6 +248,9 @@ def _parse_provider_time(value: Any) -> datetime:
 
 
 __all__ = [
+    "GENERIC_SIGNATURE_HEADER",
+    "GENERIC_TIMESTAMP_HEADER",
+    "SHIPROCKET_KEY_HEADER",
     "CourierProviderError",
     "normalize_status",
     "parse_shiprocket_tracking",
@@ -239,4 +258,5 @@ __all__ = [
     "shiprocket_request_payload",
     "shiprocket_track",
     "verify_generic_signature",
+    "webhook_header_name",
 ]
