@@ -35,6 +35,12 @@ OWNERS: dict[str, str] = {
     "require_changes": "core/validation.py",
     "date_before": "core/messages.py",
     "inactive_record": "core/messages.py",
+    "duplicate_code": "core/errors.py",
+    "code_already_used": "core/messages.py",
+    "not_tracked": "core/messages.py",
+    "belongs_elsewhere": "core/messages.py",
+    "not_for_this_item": "core/messages.py",
+    "currency_code": "core/fields.py",
 }
 
 #: The error code only :func:`src.core.errors.referenced_in_use` attaches by hand
