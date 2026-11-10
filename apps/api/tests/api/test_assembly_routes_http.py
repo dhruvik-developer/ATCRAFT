@@ -47,7 +47,7 @@ from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
 from src.modules.products.models import Item
 from src.workers import celery_app as celery_module
 from tests import seed_support
-from tests.integration.test_assembly_completion import (
+from tests.assembly_support import (
     Kit,
     completed_order,
     make_kit,

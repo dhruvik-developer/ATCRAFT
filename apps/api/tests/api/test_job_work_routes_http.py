@@ -56,16 +56,16 @@ from src.modules.production.models import (
 from src.modules.products.models import Item
 from src.workers import celery_app as celery_module
 from tests import seed_support
-from tests.integration.test_assembly_completion import make_kit, raise_order
-from tests.integration.test_job_work_service import (
+from tests.assembly_support import make_kit, raise_order
+from tests.job_work_support import (
     PvdJob,
     issued_order,
     stock_in,
 )
-from tests.integration.test_job_work_service import seed_item as seed_job_work_item
-from tests.integration.test_job_work_service import seed_uom as seed_job_work_uom
-from tests.integration.test_job_work_service import seed_vendor as seed_job_work_vendor
-from tests.integration.test_job_work_service import (
+from tests.job_work_support import seed_item as seed_job_work_item
+from tests.job_work_support import seed_uom as seed_job_work_uom
+from tests.job_work_support import seed_vendor as seed_job_work_vendor
+from tests.job_work_support import (
     seed_warehouse as seed_job_work_warehouse,
 )
 

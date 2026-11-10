@@ -55,7 +55,7 @@ from tests.api.vendor_portal_support import (
     sign_in,
     vendor_principal,
 )
-from tests.integration.test_job_work_service import (
+from tests.job_work_support import (
     PvdJob,
     issued_order,
     seed_item,

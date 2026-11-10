@@ -27,7 +27,6 @@ from sqlalchemy.pool import NullPool
 
 from src.core.clock import today, utcnow
 from src.core.config import settings
-from src.core.database import transaction
 from src.core.deps import TenantContext, system_tenant
 from src.core.errors import (
     BusinessRuleError,
@@ -42,26 +41,32 @@ from src.modules.assembly import service
 from src.modules.assembly.models import AssemblyOrder, AssemblyOrderStatus, AssemblySourceType
 from src.modules.assembly.schemas import (
     AssemblyBoardFilters,
-    AssemblyOrderCreate,
     CompleteRequest,
     ComponentIssueIn,
     IssueComponentsRequest,
     QcResultRequest,
 )
 from src.modules.audit.models import AuditLog
-from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
 from src.modules.inventory import service as inv
-from src.modules.inventory.models import InventoryTransaction, StockState, TransactionType
+from src.modules.inventory.models import InventoryTransaction, StockState
 from src.modules.packing import service as packing_service
 from src.modules.packing.models import PackingOrderLine, PackingOrderStatus
 from src.modules.packing.schemas import PackingFromAssemblyCreate
-from src.modules.products.models import ItemGroup, ProductionType
 from src.modules.quality import owners as quality_owners
 from src.modules.quality import service as quality_service
 from src.modules.quality.models import QcInspection
 from src.modules.quality.schemas import DecideRequest
 from src.modules.sales.models import SalesOrder
 from tests import seed_support
+from tests.assembly_support import (
+    Kit,
+    _code,
+    completed_order,
+    make_kit,
+    raise_order,
+    stock_in,
+    to_in_progress,
+)
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
@@ -154,170 +159,8 @@ async def ctx(
 
 
 # -----------------------------------------------------------------------------
-# Seeding - through the ORM (tests/seed_support), never raw INSERTs
+# Reads and QC holds - the kit and its orders are built in tests/assembly_support.py
 # -----------------------------------------------------------------------------
-
-
-def _code(prefix: str) -> str:
-    return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
-
-
-class Kit:
-    """A lock set and its components, stocked at one store."""
-
-    def __init__(
-        self,
-        *,
-        uom_id: uuid.UUID,
-        output_item_id: uuid.UUID,
-        components: dict[uuid.UUID, Decimal],
-        warehouse_id: uuid.UUID,
-        output_warehouse_id: uuid.UUID,
-    ) -> None:
-        self.uom_id = uom_id
-        self.output_item_id = output_item_id
-        self.components = components
-        self.warehouse_id = warehouse_id
-        self.output_warehouse_id = output_warehouse_id
-
-
-async def stock_in(
-    session: AsyncSession,
-    tenant: TenantContext,
-    item_id: uuid.UUID,
-    warehouse_id: uuid.UUID,
-    quantity: str,
-) -> None:
-    async with transaction(session):
-        await inv.post_movement(
-            session,
-            tenant,
-            item_id=item_id,
-            warehouse_id=warehouse_id,
-            quantity=Decimal(quantity),
-            transaction_type=TransactionType.OPENING_BALANCE,
-            reference_type="opening",
-            reference_id=None,
-            reference_code="OPENING",
-            reason="assembly completion fixture opening stock",
-            unit_cost=Decimal("10"),
-        )
-
-
-async def make_kit(
-    session: AsyncSession,
-    tenant: TenantContext,
-    *,
-    stock: dict[str, str] | None = None,
-    separate_output_warehouse: bool = False,
-) -> Kit:
-    """A lock set of a handle (x1), keys (x2) and a screw kit (x4)."""
-    uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
-    warehouse = await seed_support.seed_warehouse(
-        session, company_id=tenant.company_id, code=_code("WH")
-    )
-    output_warehouse = (
-        await seed_support.seed_warehouse(session, company_id=tenant.company_id, code=_code("FG"))
-        if separate_output_warehouse
-        else warehouse
-    )
-    output = await seed_support.seed_item(
-        session,
-        company_id=tenant.company_id,
-        code=_code("LOCKSET"),
-        base_uom_id=uom.id,
-        item_group=ItemGroup.ASSEMBLY,
-        standard_cost=Decimal("40"),
-        production_type=ProductionType.MAKE,
-        can_manufacture=True,
-    )
-    per_set = {"HANDLE": Decimal("1"), "KEYS": Decimal("2"), "SCREWKIT": Decimal("4")}
-    stock = stock or {}
-    components: dict[uuid.UUID, Decimal] = {}
-    for name, quantity_per in per_set.items():
-        item = await seed_support.seed_item(
-            session,
-            company_id=tenant.company_id,
-            code=_code(name),
-            base_uom_id=uom.id,
-            item_group=ItemGroup.COMPONENT,
-            standard_cost=Decimal("10"),
-            can_be_assembly_component=True,
-        )
-        components[item.id] = quantity_per
-        on_hand = stock.get(name, "1000")
-        if Decimal(on_hand) > 0:
-            await stock_in(session, tenant, item.id, warehouse.id, on_hand)
-
-    bom = Bom(
-        company_id=tenant.company_id,
-        code=_code("BOM"),
-        item_id=output.id,
-        version=1,
-        status=BomStatus.APPROVED,
-        bom_type=BomType.ASSEMBLY,
-        is_default=True,
-        output_quantity=Decimal("1"),
-        base_uom_id=uom.id,
-        effective_from=today(),
-        approved_by_id=tenant.user_id,
-        approved_at=utcnow(),
-    )
-    session.add(bom)
-    await session.flush()
-    for number, (item_id, quantity_per) in enumerate(components.items(), start=1):
-        session.add(
-            BomLine(
-                company_id=tenant.company_id,
-                bom_id=bom.id,
-                parent_item_id=output.id,
-                line_number=number,
-                component_item_id=item_id,
-                quantity_per=quantity_per,
-                uom_id=uom.id,
-            )
-        )
-    await session.flush()
-    return Kit(
-        uom_id=uom.id,
-        output_item_id=output.id,
-        components=components,
-        warehouse_id=warehouse.id,
-        output_warehouse_id=output_warehouse.id,
-    )
-
-
-async def raise_order(
-    session: AsyncSession,
-    tenant: TenantContext,
-    kit: Kit,
-    *,
-    planned: str = "10",
-    requires_qc: bool = False,
-    **fields: object,
-) -> AssemblyOrder:
-    order, _ = await service.create_order(
-        session,
-        tenant,
-        AssemblyOrderCreate(
-            item_id=kit.output_item_id,
-            planned_quantity=Decimal(planned),
-            warehouse_id=kit.warehouse_id,
-            output_warehouse_id=kit.output_warehouse_id,
-            requires_qc=requires_qc,
-            **fields,  # type: ignore[arg-type]
-        ),
-    )
-    return order
-
-
-async def to_in_progress(session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID) -> None:
-    await service.approve_order(session, tenant, order_id, reason="Scheduled")
-    await service.release_order(session, tenant, order_id, reason="To the bench")
-    await service.issue_components(
-        session, tenant, order_id, IssueComponentsRequest(reason="Kitted")
-    )
-    await service.start_assembly(session, tenant, order_id, reason="Shift started")
 
 
 async def held_for_qc(
@@ -757,21 +600,6 @@ async def test_the_board_groups_open_orders_by_line_and_flags_the_late_ones(ctx)
 # -----------------------------------------------------------------------------
 # Hand-over to packing
 # -----------------------------------------------------------------------------
-
-
-async def completed_order(
-    session: AsyncSession, tenant: TenantContext, kit: Kit, *, quantity: str = "6", **fields
-) -> uuid.UUID:
-    order = await raise_order(session, tenant, kit, planned=quantity, **fields)
-    order_id = order.id
-    await to_in_progress(session, tenant, order_id)
-    await service.complete_assembly(
-        session,
-        tenant,
-        order_id,
-        CompleteRequest(assembled_quantity=Decimal(quantity), reason="Bench finished"),
-    )
-    return order_id
 
 
 async def test_a_packing_order_raised_from_an_assembly_claims_it_once(ctx) -> None:
