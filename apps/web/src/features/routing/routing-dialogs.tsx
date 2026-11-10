@@ -66,6 +66,7 @@ import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatMoney,
   formatNumber,
@@ -418,7 +419,7 @@ export function RoutingDetailDialog({
           const centre = centres.get(row.original.work_center_id)
           const rate = line?.work_center_cost_per_hour ?? centre?.cost_per_hour
           return rate === undefined ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(rate)
           )
@@ -442,7 +443,7 @@ export function RoutingDetailDialog({
         cell: ({ row }) => {
           const line = costBySequence.get(row.original.sequence)
           return line === undefined ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="font-medium">{formatMoney(line.total_cost)}</span>
           )
@@ -554,7 +555,7 @@ export function RoutingDetailDialog({
                       label: 'Cost / unit',
                       value: cost.data ? formatMoney(cost.data.cost_per_unit) : 'Not costed',
                     },
-                    { label: 'Notes', value: routing.notes ?? '-' },
+                    { label: 'Notes', value: routing.notes ?? EMPTY_VALUE },
                   ]}
                 />
 

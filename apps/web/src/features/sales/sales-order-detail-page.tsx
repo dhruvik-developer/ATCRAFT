@@ -1123,17 +1123,17 @@ export default function SalesOrderDetailPage() {
                       <span className="font-mono text-xs">{order.customer_id}</span>
                     ),
                   },
-                  { label: 'Customer code', value: customer.data?.code ?? '-' },
+                  { label: 'Customer code', value: customer.data?.code ?? EMPTY_VALUE },
                   { label: 'GSTIN', value: customer.data?.gstin ?? 'Unregistered' },
                   { label: 'Order date', value: formatDate(order.order_date) },
                   { label: 'Required date', value: formatDate(order.required_date) },
                   { label: 'Promised date', value: formatDate(order.promised_date) },
-                  { label: 'Customer PO', value: order.customer_po_number ?? '-' },
+                  { label: 'Customer PO', value: order.customer_po_number ?? EMPTY_VALUE },
                   { label: 'Dispatch from', value: warehouseLabel },
                   { label: 'Currency', value: order.currency },
                   {
                     label: 'Place of supply',
-                    value: order.place_of_supply_state_code ?? '-',
+                    value: order.place_of_supply_state_code ?? EMPTY_VALUE,
                   },
                   {
                     label: 'Supply type',

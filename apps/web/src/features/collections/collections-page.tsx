@@ -42,6 +42,7 @@ import { reportFieldErrors } from '@/lib/form-errors'
 import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -275,7 +276,7 @@ export default function CollectionsPage() {
         cell: ({ row }) =>
           row.original.promised_date && row.original.promised_amount
             ? `${formatMoney(row.original.promised_amount, { currency: row.original.currency })} · ${formatDate(row.original.promised_date)}`
-            : '-',
+            : EMPTY_VALUE,
       },
       {
         accessorKey: 'status',

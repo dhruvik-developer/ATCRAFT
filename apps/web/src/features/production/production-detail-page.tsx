@@ -65,6 +65,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -259,7 +260,7 @@ function ComponentsPanel({
         // contract, and a figure the API did not report is a dash, never a zero.
         cell: ({ row }) =>
           row.original.reserved_quantity === undefined ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatQuantity(row.original.reserved_quantity)
           ),
@@ -271,7 +272,7 @@ function ComponentsPanel({
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.available_quantity === undefined ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatQuantity(row.original.available_quantity)
           ),
@@ -413,7 +414,7 @@ function WorkOrdersPanel({ orderId }: { orderId: string }) {
         // number nobody has written down yet.
         cell: ({ row }) => {
           const actual = actualMinutes(row.original)
-          if (actual === null) return <span className="text-muted-foreground">-</span>
+          if (actual === null) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           const over = actual.greaterThan(plannedMinutes(row.original))
           return (
             <span className={over ? 'font-medium text-warning' : undefined}>
@@ -437,7 +438,7 @@ function WorkOrdersPanel({ orderId }: { orderId: string }) {
         cell: ({ row }) => {
           const rejected = toDecimal(row.original.rejected_quantity)
           return rejected.isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="text-destructive">
               {formatQuantity(row.original.rejected_quantity)}
@@ -515,7 +516,7 @@ function EntriesPanel({
         id: 'shift',
         header: 'Shift',
         enableSorting: false,
-        cell: ({ row }) => row.original.shift ?? '-',
+        cell: ({ row }) => row.original.shift ?? EMPTY_VALUE,
       },
       {
         id: 'produced_quantity',
@@ -533,7 +534,7 @@ function EntriesPanel({
         cell: ({ row }) => {
           const rejected = toDecimal(row.original.rejected_quantity)
           return rejected.isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="text-destructive">
               {formatQuantity(row.original.rejected_quantity)}
@@ -547,7 +548,7 @@ function EntriesPanel({
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[16rem] truncate text-muted-foreground">
-            {row.original.rejection_reason ?? '-'}
+            {row.original.rejection_reason ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -570,7 +571,7 @@ function EntriesPanel({
           row.original.output_transaction_id ? (
             <span className="text-success">Posted</span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ],

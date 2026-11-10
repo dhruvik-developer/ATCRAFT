@@ -179,7 +179,7 @@ export default function AssemblyPage() {
         // untouched order as having rejected output.
         cell: ({ row }) =>
           toDecimal(row.original.rejected_quantity).isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="font-medium text-destructive">
               {formatQuantity(row.original.rejected_quantity)}
@@ -214,7 +214,7 @@ export default function AssemblyPage() {
         header: 'Line',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.assembly_line ?? '-'}</span>
+          <span className="text-muted-foreground">{row.original.assembly_line ?? EMPTY_VALUE}</span>
         ),
       },
       {

@@ -44,7 +44,7 @@ import { EmptyState, SectionHeader } from '@/components/shared'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
-import { formatNumber, formatQuantity } from '@/lib/format'
+import { EMPTY_VALUE, formatNumber, formatQuantity } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import type { PaginatedEnvelope } from '@/types/api'
@@ -152,7 +152,7 @@ export function WipBoardPanel({
           row.original.pending_work_orders > 0 ? (
             <Badge variant="warning">{formatNumber(row.original.pending_work_orders)}</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -164,7 +164,7 @@ export function WipBoardPanel({
           row.original.in_progress_work_orders > 0 ? (
             <Badge>{formatNumber(row.original.in_progress_work_orders)}</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {

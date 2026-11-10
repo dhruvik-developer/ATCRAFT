@@ -52,7 +52,14 @@ import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { api } from '@/lib/api-client'
-import { formatDate, formatDateTime, formatNumber, formatQuantity, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatDateTime,
+  formatNumber,
+  formatQuantity,
+  toDecimal,
+} from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -289,7 +296,7 @@ export default function RfqDetailPage() {
               {row.original.specification}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -302,7 +309,7 @@ export default function RfqDetailPage() {
               {row.original.notes}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ],
@@ -470,7 +477,7 @@ export default function RfqDetailPage() {
                   { label: 'Material needed', value: formatDate(rfq.required_date) },
                   {
                     label: 'Deliver to',
-                    value: warehouse ? `${warehouse.code} - ${warehouse.name}` : '-',
+                    value: warehouse ? `${warehouse.code} - ${warehouse.name}` : EMPTY_VALUE,
                   },
                   { label: 'Currency', value: <span className="font-mono">{rfq.currency}</span> },
                   {

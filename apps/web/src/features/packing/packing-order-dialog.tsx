@@ -94,6 +94,7 @@ import { api } from '@/lib/api-client'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { LOOKUP_LIST_LIMIT, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatNumber,
@@ -971,7 +972,7 @@ function CartonCard({
                         ? `${content.serial_ids.length} serial${content.serial_ids.length === 1 ? '' : 's'}`
                         : content.batch_id
                           ? 'Batch named'
-                          : '-'}
+                          : EMPTY_VALUE}
                     </td>
                     {canManage && open && orderPackable && (
                       <td className="py-1.5 text-right">
@@ -1560,7 +1561,9 @@ export function PackingOrderDialog({
                   },
                   {
                     label: 'Handed over',
-                    value: order.handed_over_at ? formatDateTime(order.handed_over_at) : '-',
+                    value: order.handed_over_at
+                      ? formatDateTime(order.handed_over_at)
+                      : EMPTY_VALUE,
                   },
                 ]}
               />

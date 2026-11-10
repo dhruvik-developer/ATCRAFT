@@ -73,6 +73,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatMoney,
   formatNumber,
@@ -368,7 +369,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
         enableSorting: false,
         cell: ({ row }) => {
           const vendor = vendorById.get(row.original.vendor_id)
-          if (!vendor) return <span className="text-muted-foreground">-</span>
+          if (!vendor) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           return (
             <div className="max-w-[18rem]">
               <span className="block truncate">{vendor.name}</span>
@@ -455,7 +456,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
         // than against a literal that the wire format never produces.
         cell: ({ row }) =>
           toDecimal(row.original.vendor_debit_amount).isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="tabular font-medium text-destructive">
               {formatMoney(row.original.vendor_debit_amount)}
@@ -504,7 +505,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
             !showCancel &&
             !showDelete
           ) {
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
 
           return (
@@ -858,7 +859,7 @@ function PendingPanel() {
           // as groups instead of a wall of repeated text.
           if (previous && previous.vendor_id === row.original.vendor_id) return null
           const vendor = vendorById.get(row.original.vendor_id)
-          if (!vendor) return <span className="text-muted-foreground">-</span>
+          if (!vendor) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           return (
             <div className="max-w-[18rem]">
               <span className="block truncate font-medium">{vendor.name}</span>
@@ -890,7 +891,7 @@ function PendingPanel() {
           return warehouse ? (
             <span title={warehouse.name}>{warehouse.code}</span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           )
         },
       },

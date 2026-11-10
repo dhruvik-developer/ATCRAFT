@@ -44,7 +44,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { useBranchOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
-import { formatNumber, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatNumber, formatQuantity, humanise } from '@/lib/format'
 import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -99,7 +99,7 @@ function LocationsPanel({
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.capacity_quantity === null ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatQuantity(row.original.capacity_quantity, row.original.capacity_uom ?? undefined)
           ),
@@ -109,7 +109,7 @@ function LocationsPanel({
         header: 'Barcode',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.barcode ?? '-'}</span>
+          <span className="text-muted-foreground">{row.original.barcode ?? EMPTY_VALUE}</span>
         ),
       },
       {
@@ -312,7 +312,7 @@ export default function WarehousesPage() {
         enableSorting: false,
         cell: ({ row }) => {
           const branch = row.original.branch_id ? branchById.get(row.original.branch_id) : undefined
-          return <span className="text-muted-foreground">{branch ? branch.name : '-'}</span>
+          return <span className="text-muted-foreground">{branch ? branch.name : EMPTY_VALUE}</span>
         },
       },
       {
@@ -327,7 +327,7 @@ export default function WarehousesPage() {
         header: 'City',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.city ?? '-'}</span>
+          <span className="text-muted-foreground">{row.original.city ?? EMPTY_VALUE}</span>
         ),
       },
       {

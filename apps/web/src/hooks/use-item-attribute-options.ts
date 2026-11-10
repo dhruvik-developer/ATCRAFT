@@ -22,6 +22,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
+import { EMPTY_VALUE } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
@@ -65,5 +66,5 @@ export function useItemAttributeOptions(attribute: ItemAttributeType, enabled = 
  */
 export function attributeLabeller(options: ItemAttributeOption[] | undefined) {
   const byId = new Map((options ?? []).map((option) => [option.id, option.name]))
-  return (id: string | null | undefined): string => (id ? (byId.get(id) ?? id) : '-')
+  return (id: string | null | undefined): string => (id ? (byId.get(id) ?? id) : EMPTY_VALUE)
 }

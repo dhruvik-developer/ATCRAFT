@@ -35,7 +35,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -104,7 +104,7 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
         // `sort_by` is a hard validation error rather than an ignored parameter.
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="block max-w-[18rem] truncate">{row.original.name ?? '-'}</span>
+          <span className="block max-w-[18rem] truncate">{row.original.name ?? EMPTY_VALUE}</span>
         ),
       },
       {
@@ -145,7 +145,7 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
               Default
             </Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -359,7 +359,7 @@ function WorkCentresPanel({
                 const centre = row.original.cost_centre_id
                   ? costCentreById.get(row.original.cost_centre_id)
                   : undefined
-                return <span className="text-muted-foreground">{centre?.code ?? '-'}</span>
+                return <span className="text-muted-foreground">{centre?.code ?? EMPTY_VALUE}</span>
               },
             } satisfies ColumnDef<WorkCenter, unknown>,
           ]
@@ -481,7 +481,7 @@ function MachinesPanel({ canManage }: { canManage: boolean }) {
         header: 'Type',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.machine_type ?? '-'}</span>
+          <span className="text-muted-foreground">{row.original.machine_type ?? EMPTY_VALUE}</span>
         ),
       },
       {

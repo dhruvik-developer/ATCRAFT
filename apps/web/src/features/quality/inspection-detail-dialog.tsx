@@ -31,7 +31,7 @@ import {
 import { Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
-import { formatDateTime, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDateTime, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -52,7 +52,7 @@ function ReadingValue({ result }: { result: NonNullable<QcInspectionDetail['resu
   if (result.measured_value_numeric !== null) return <span>{result.measured_value_numeric}</span>
   if (result.measured_value_bool !== null)
     return <span>{result.measured_value_bool ? 'Pass' : 'Fail'}</span>
-  return <span>{result.measured_value_text ?? '-'}</span>
+  return <span>{result.measured_value_text ?? EMPTY_VALUE}</span>
 }
 
 export function InspectionDetailDialog({

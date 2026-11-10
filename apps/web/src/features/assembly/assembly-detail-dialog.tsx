@@ -1142,7 +1142,7 @@ export function AssemblyDetailDialog({
           row.original.is_serial_tracked_component ? (
             <Badge variant="secondary">Serial</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -1382,7 +1382,7 @@ export function AssemblyDetailDialog({
                       // comparison against the literal "0" never matched and
                       // every untouched order read as having rejected output.
                       value: toDecimal(order.rejected_quantity).isZero() ? (
-                        '-'
+                        EMPTY_VALUE
                       ) : (
                         <span className="text-destructive">
                           {formatQuantity(order.rejected_quantity)}

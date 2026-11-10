@@ -32,7 +32,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatMoney, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatMoney, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -163,7 +163,9 @@ export default function ItemsPage() {
           const category = row.original.category_id
             ? categoryById.get(row.original.category_id)
             : undefined
-          return <span className="text-muted-foreground">{category ? category.name : '-'}</span>
+          return (
+            <span className="text-muted-foreground">{category ? category.name : EMPTY_VALUE}</span>
+          )
         },
       },
       {
@@ -178,7 +180,7 @@ export default function ItemsPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {uomById.get(row.original.base_uom_id)?.code ?? '-'}
+            {uomById.get(row.original.base_uom_id)?.code ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -220,7 +222,7 @@ export default function ItemsPage() {
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.standard_cost === undefined ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(row.original.standard_cost)
           ),

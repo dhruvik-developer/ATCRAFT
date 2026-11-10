@@ -25,7 +25,7 @@ import { invalidateProductDescriptions } from '@/features/product-descriptions/s
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { PRODUCT_DESCRIPTION_POSITION_MAX, PRODUCT_DESCRIPTION_TEXT_MAX } from '@/lib/constants'
-import { formatQuantity, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatQuantity, toDecimal } from '@/lib/format'
 import { applyFieldErrors, fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -295,7 +295,7 @@ export function ItemAccessoriesPanel({ itemId }: { itemId: string }) {
         accessorKey: 'notes',
         header: 'Notes',
         enableSorting: false,
-        cell: ({ row }) => row.original.notes || '-',
+        cell: ({ row }) => row.original.notes || EMPTY_VALUE,
       },
       ...(canEdit
         ? [

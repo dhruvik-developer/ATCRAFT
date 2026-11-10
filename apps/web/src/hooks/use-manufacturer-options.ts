@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
+import { EMPTY_VALUE } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -54,5 +55,7 @@ export function useManufacturerOptions(enabled = true) {
 export function manufacturerLabeller(options: ManufacturerOption[] | undefined, canView = true) {
   const byId = new Map((options ?? []).map((option) => [option.id, option.name]))
   return (id: string | null | undefined): string =>
-    id ? (byId.get(id) ?? (canView ? empty.unlistedReference : empty.referenceNotVisible)) : '-'
+    id
+      ? (byId.get(id) ?? (canView ? empty.unlistedReference : empty.referenceNotVisible))
+      : EMPTY_VALUE
 }

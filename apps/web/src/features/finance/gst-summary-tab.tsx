@@ -45,7 +45,14 @@ import {
   TableScroller,
 } from '@/components/ui/table'
 import { api } from '@/lib/api-client'
-import { formatDate, formatMoney, formatNumber, formatPercent, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatMoney,
+  formatNumber,
+  formatPercent,
+  toDecimal,
+} from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
@@ -144,7 +151,7 @@ export function GstSummaryTab({
       <div className="grid gap-3 md:grid-cols-3">
         <StatTile
           label="Output tax"
-          value={data ? formatMoney(data.output.total_tax) : '-'}
+          value={data ? formatMoney(data.output.total_tax) : EMPTY_VALUE}
           hint={
             data
               ? `${formatNumber(data.output.rows?.length ?? 0)} rate slabs`
@@ -154,7 +161,7 @@ export function GstSummaryTab({
         />
         <StatTile
           label="Input tax credit"
-          value={data ? formatMoney(data.input.total_tax) : '-'}
+          value={data ? formatMoney(data.input.total_tax) : EMPTY_VALUE}
           hint={
             data
               ? `${formatNumber(data.input.rows?.length ?? 0)} rate slabs`
@@ -164,7 +171,7 @@ export function GstSummaryTab({
         />
         <StatTile
           label={isCredit ? 'Credit carried forward' : 'Net tax payable'}
-          value={data ? formatMoney(data.net_payable) : '-'}
+          value={data ? formatMoney(data.net_payable) : EMPTY_VALUE}
           tone={!data ? 'default' : isCredit ? 'success' : 'warning'}
           isLoading={summary.isLoading}
         />

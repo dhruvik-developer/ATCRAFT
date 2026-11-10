@@ -65,7 +65,7 @@ import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
+import { EMPTY_VALUE, daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
 import { empty, errors, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -416,7 +416,7 @@ export default function RequisitionsPage() {
         cell: ({ row }) => {
           const { status, open_line_count: open } = row.original
           if (!(CONVERTIBLE_REQUISITION_STATUSES as readonly string[]).includes(status)) {
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           return open === 0 ? (
             <span className="text-xs text-muted-foreground">All ordered</span>
@@ -449,7 +449,7 @@ export default function RequisitionsPage() {
           row.original.purpose ? (
             <span className="block max-w-[18rem] break-words">{row.original.purpose}</span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -459,8 +459,8 @@ export default function RequisitionsPage() {
         cell: ({ row }) => (
           <span className="text-muted-foreground">
             {row.original.department_id
-              ? (departmentById.get(row.original.department_id)?.name ?? '-')
-              : '-'}
+              ? (departmentById.get(row.original.department_id)?.name ?? EMPTY_VALUE)
+              : EMPTY_VALUE}
           </span>
         ),
       },
@@ -470,7 +470,7 @@ export default function RequisitionsPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {warehouseById.get(row.original.warehouse_id)?.code ?? '-'}
+            {warehouseById.get(row.original.warehouse_id)?.code ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -486,7 +486,7 @@ export default function RequisitionsPage() {
               {formatDateTime(row.original.approved_at)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ]

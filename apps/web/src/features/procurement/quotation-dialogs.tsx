@@ -70,6 +70,7 @@ import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY, PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -414,7 +415,7 @@ export function QuotationDetailDialog({
                       <TableRow key={line.id}>
                         <TableCell className="text-muted-foreground">{line.line_number}</TableCell>
                         <TableCell className="max-w-[18rem]">
-                          <span className="block truncate">{line.description ?? '-'}</span>
+                          <span className="block truncate">{line.description ?? EMPTY_VALUE}</span>
                           {line.notes && (
                             <span className="block truncate text-xs text-muted-foreground">
                               {line.notes}
@@ -427,7 +428,7 @@ export function QuotationDetailDialog({
                         </TableCell>
                         <TableCell align="right">
                           {toDecimal(line.discount_percentage).isZero()
-                            ? '-'
+                            ? EMPTY_VALUE
                             : formatPercent(line.discount_percentage, 2)}
                         </TableCell>
                         <TableCell align="right">{formatPercent(line.tax_rate, 2)}</TableCell>

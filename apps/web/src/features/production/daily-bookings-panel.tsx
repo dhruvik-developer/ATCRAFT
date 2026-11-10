@@ -25,7 +25,7 @@ import { ShiftSelect } from '@/features/shifts/shift-select'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api-client'
-import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -48,7 +48,7 @@ interface DayTotal {
 }
 
 function DayCell({ total }: { total: DayTotal | undefined }) {
-  if (!total) return <span className="text-muted-foreground">-</span>
+  if (!total) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   const rejected = toDecimal(total.rejected)
   return (
     <span className="tabular">

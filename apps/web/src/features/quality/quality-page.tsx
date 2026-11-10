@@ -44,7 +44,7 @@ import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -77,7 +77,7 @@ const AGEING_CRITICAL_DAYS = 7
 
 function AgeingCell({ raisedAt }: { raisedAt: string | null }) {
   const days = ageInDays(raisedAt)
-  if (days === null) return <span className="text-muted-foreground">-</span>
+  if (days === null) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   if (days >= AGEING_CRITICAL_DAYS) {
     return <Badge variant="destructive">{days} days waiting</Badge>
   }
@@ -477,7 +477,7 @@ function InspectionsTab({
           row.original.return_required ? (
             <Badge variant="warning">To vendor</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {

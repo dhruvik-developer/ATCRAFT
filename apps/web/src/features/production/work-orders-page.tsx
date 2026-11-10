@@ -57,7 +57,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { ShiftSelect } from '@/features/shifts/shift-select'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDateTime, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDateTime, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -336,7 +336,7 @@ export default function WorkOrdersPage() {
           row.original.shift ? (
             <Badge variant="secondary">{row.original.shift}</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -387,7 +387,7 @@ export default function WorkOrdersPage() {
           toDecimal(row.original.rejected_quantity).greaterThan(0) ? (
             <Badge variant="destructive">{formatQuantity(row.original.rejected_quantity)}</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {

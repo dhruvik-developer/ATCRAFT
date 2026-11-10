@@ -33,7 +33,7 @@ import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import { formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
@@ -120,7 +120,7 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
         enableSorting: false,
         cell: ({ row }) => (
           <div>
-            <span className="block font-medium">{row.original.reference_code ?? '-'}</span>
+            <span className="block font-medium">{row.original.reference_code ?? EMPTY_VALUE}</span>
             <span className="block text-2xs text-muted-foreground">
               {humanise(row.original.reference_type)}
             </span>
@@ -133,7 +133,7 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[24rem] truncate text-muted-foreground">
-            {row.original.narration ?? '-'}
+            {row.original.narration ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -152,7 +152,7 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
               </span>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground">-</span>
+            <span className="text-xs text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -162,13 +162,15 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
         cell: ({ row }) =>
           row.original.party_code || row.original.party_name ? (
             <div className="max-w-[14rem]">
-              <span className="block font-mono text-xs">{row.original.party_code ?? '-'}</span>
+              <span className="block font-mono text-xs">
+                {row.original.party_code ?? EMPTY_VALUE}
+              </span>
               <span className="block truncate text-2xs text-muted-foreground">
                 {row.original.party_name ?? humanise(row.original.party_type)}
               </span>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground">-</span>
+            <span className="text-xs text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -178,7 +180,7 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
         meta: { align: 'right' },
         cell: ({ row }) =>
           toDecimal(row.original.debit_amount).isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(row.original.debit_amount)
           ),
@@ -190,7 +192,7 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
         meta: { align: 'right' },
         cell: ({ row }) =>
           toDecimal(row.original.credit_amount).isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(row.original.credit_amount)
           ),
@@ -268,25 +270,25 @@ export function AccountStatementPanel({ accountId, className }: AccountStatement
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Opening balance"
-          value={header ? formatMoney(header.opening_balance) : '-'}
+          value={header ? formatMoney(header.opening_balance) : EMPTY_VALUE}
           hint="Carried in from before this window"
           isLoading={statement.isLoading}
         />
         <StatTile
           label="Debits"
-          value={header ? formatMoney(header.total_debit) : '-'}
+          value={header ? formatMoney(header.total_debit) : EMPTY_VALUE}
           hint={periodLabel}
           isLoading={statement.isLoading}
         />
         <StatTile
           label="Credits"
-          value={header ? formatMoney(header.total_credit) : '-'}
+          value={header ? formatMoney(header.total_credit) : EMPTY_VALUE}
           hint={periodLabel}
           isLoading={statement.isLoading}
         />
         <StatTile
           label="Closing balance"
-          value={header ? formatMoney(header.closing_balance) : '-'}
+          value={header ? formatMoney(header.closing_balance) : EMPTY_VALUE}
           hint="Debit-positive: negative means the account is in credit"
           isLoading={statement.isLoading}
         />

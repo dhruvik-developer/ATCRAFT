@@ -38,7 +38,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatQuantity, humanise, plural, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, humanise, plural, toDecimal } from '@/lib/format'
 import { api } from '@/lib/api-client'
 import { empty, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -186,7 +186,7 @@ export default function GoodsReceiptsPage() {
         enableSorting: false,
         cell: ({ row }) => {
           const vendor = vendorById.get(row.original.vendor_id)
-          if (!vendor) return <span className="text-muted-foreground">-</span>
+          if (!vendor) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           return (
             <div className="max-w-[16rem]">
               <span className="block truncate">{vendor.name}</span>
@@ -201,7 +201,7 @@ export default function GoodsReceiptsPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {warehouseById.get(row.original.warehouse_id)?.code ?? '-'}
+            {warehouseById.get(row.original.warehouse_id)?.code ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -214,7 +214,9 @@ export default function GoodsReceiptsPage() {
         cell: ({ row }) =>
           row.original.vendor_delivery_note || row.original.vendor_invoice_number ? (
             <span className="block max-w-[12rem]">
-              <span className="block truncate">{row.original.vendor_delivery_note ?? '-'}</span>
+              <span className="block truncate">
+                {row.original.vendor_delivery_note ?? EMPTY_VALUE}
+              </span>
               {row.original.vendor_invoice_number && (
                 <span className="block truncate text-xs text-muted-foreground">
                   Invoice {row.original.vendor_invoice_number}
@@ -222,7 +224,7 @@ export default function GoodsReceiptsPage() {
               )}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -250,7 +252,7 @@ export default function GoodsReceiptsPage() {
         meta: { align: 'right' },
         cell: ({ row }) =>
           toDecimal(row.original.total_rejected_quantity).isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="font-medium text-destructive">
               {formatQuantity(row.original.total_rejected_quantity)}

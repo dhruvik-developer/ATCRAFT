@@ -18,7 +18,7 @@ import { Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { LocationPicker } from './location-picker'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatMoney, formatQuantity, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
@@ -117,19 +117,21 @@ export default function InventoryBalancesPage() {
         accessorKey: 'item_name',
         header: 'Item',
         cell: ({ row }) => (
-          <span className="block max-w-[22rem] truncate">{row.original.item_name ?? '-'}</span>
+          <span className="block max-w-[22rem] truncate">
+            {row.original.item_name ?? EMPTY_VALUE}
+          </span>
         ),
       },
       {
         accessorKey: 'warehouse_code',
         header: 'Warehouse',
-        cell: ({ row }) => row.original.warehouse_code ?? '-',
+        cell: ({ row }) => row.original.warehouse_code ?? EMPTY_VALUE,
       },
       {
         accessorKey: 'location_code',
         header: 'Bin',
         enableSorting: false,
-        cell: ({ row }) => row.original.location_code ?? '-',
+        cell: ({ row }) => row.original.location_code ?? EMPTY_VALUE,
       },
       {
         id: 'scrap_quantity',
@@ -144,7 +146,7 @@ export default function InventoryBalancesPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="font-mono text-xs text-muted-foreground">
-            {row.original.batch_number ?? '-'}
+            {row.original.batch_number ?? EMPTY_VALUE}
           </span>
         ),
       },

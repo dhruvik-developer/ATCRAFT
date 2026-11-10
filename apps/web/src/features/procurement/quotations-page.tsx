@@ -50,7 +50,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -168,7 +168,7 @@ export default function QuotationsPage() {
             // A suspended vendor is not in the picker projection, and the row
             // carries no name of its own. A dash is honest; the quotation's own
             // dialog identifies the offer by the vendor's reference.
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           return (
             <div className="max-w-[16rem]">

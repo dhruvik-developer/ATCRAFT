@@ -49,6 +49,7 @@ import {
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { EMPTY_VALUE } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { IFSC_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -251,13 +252,13 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
           <DescriptionList
             columns={3}
             items={[
-              { label: 'Legal name', value: record.legal_name ?? '-' },
-              { label: 'GSTIN', value: record.gstin ?? '-' },
-              { label: 'PAN', value: record.pan ?? '-' },
-              { label: 'CIN', value: record.cin ?? '-' },
-              { label: 'Email', value: record.email ?? '-' },
-              { label: 'Phone', value: record.phone ?? '-' },
-              { label: 'Website', value: record.website ?? '-' },
+              { label: 'Legal name', value: record.legal_name ?? EMPTY_VALUE },
+              { label: 'GSTIN', value: record.gstin ?? EMPTY_VALUE },
+              { label: 'PAN', value: record.pan ?? EMPTY_VALUE },
+              { label: 'CIN', value: record.cin ?? EMPTY_VALUE },
+              { label: 'Email', value: record.email ?? EMPTY_VALUE },
+              { label: 'Phone', value: record.phone ?? EMPTY_VALUE },
+              { label: 'Website', value: record.website ?? EMPTY_VALUE },
               {
                 label: 'Address',
                 value:
@@ -269,13 +270,13 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
                     record.postal_code,
                   ]
                     .filter(Boolean)
-                    .join(', ') || '-',
+                    .join(', ') || EMPTY_VALUE,
               },
               { label: 'Country', value: record.country },
               { label: 'Currency', value: record.currency },
               {
                 label: 'Financial year starts',
-                value: MONTHS[record.financial_year_start_month - 1] ?? '-',
+                value: MONTHS[record.financial_year_start_month - 1] ?? EMPTY_VALUE,
               },
               { label: 'Time zone', value: record.timezone },
             ]}
@@ -568,16 +569,18 @@ function CompanyBankCard({ record, canManage }: { record: CompanyRecord; canMana
           <DescriptionList
             columns={3}
             items={[
-              { label: 'Bank', value: record.bank_name ?? '-' },
-              { label: 'Branch', value: record.bank_branch ?? '-' },
-              { label: 'Account name', value: record.bank_account_name ?? '-' },
+              { label: 'Bank', value: record.bank_name ?? EMPTY_VALUE },
+              { label: 'Branch', value: record.bank_branch ?? EMPTY_VALUE },
+              { label: 'Account name', value: record.bank_account_name ?? EMPTY_VALUE },
               {
                 label: 'Account number',
-                value: <span className="font-mono">{record.bank_account_number ?? '-'}</span>,
+                value: (
+                  <span className="font-mono">{record.bank_account_number ?? EMPTY_VALUE}</span>
+                ),
               },
               {
                 label: 'IFSC',
-                value: <span className="font-mono">{record.bank_ifsc ?? '-'}</span>,
+                value: <span className="font-mono">{record.bank_ifsc ?? EMPTY_VALUE}</span>,
               },
             ]}
           />
@@ -586,7 +589,9 @@ function CompanyBankCard({ record, canManage }: { record: CompanyRecord; canMana
             items={[
               {
                 label: 'Invoice terms',
-                value: <span className="whitespace-pre-line">{record.invoice_terms ?? '-'}</span>,
+                value: (
+                  <span className="whitespace-pre-line">{record.invoice_terms ?? EMPTY_VALUE}</span>
+                ),
               },
             ]}
           />

@@ -41,7 +41,7 @@ import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate } from '@/lib/format'
+import { EMPTY_VALUE, formatDate } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -193,7 +193,7 @@ export default function TransportersPage() {
         cell: ({ row }) => {
           const number = row.original.mobile ?? row.original.phone
           if (!row.original.contact_person && !number) {
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           return (
             <div className="max-w-[14rem]">

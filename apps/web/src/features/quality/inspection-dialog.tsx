@@ -58,7 +58,7 @@ import type { ItemDetail } from '@/features/items/item-model'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { describeError, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -709,7 +709,7 @@ export function InspectionDialog({
                           <ExternalLink className="h-3 w-3" aria-hidden />
                         </Link>
                       ) : (
-                        (inspection.reference_code ?? '-')
+                        (inspection.reference_code ?? EMPTY_VALUE)
                       ),
                     },
                     {

@@ -59,6 +59,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   daysUntil,
   formatDate,
   formatMoney,
@@ -1195,7 +1196,7 @@ export function RequisitionBatchPicker({
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {warehouseById.get(row.original.warehouse_id)?.code ?? '-'}
+            {warehouseById.get(row.original.warehouse_id)?.code ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -1216,7 +1217,7 @@ export function RequisitionBatchPicker({
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[16rem] truncate text-muted-foreground">
-            {row.original.purpose ?? '-'}
+            {row.original.purpose ?? EMPTY_VALUE}
           </span>
         ),
       },

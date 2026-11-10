@@ -71,6 +71,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -1074,7 +1075,7 @@ function renderValue(
     if (profitability && column.kind === 'number') {
       return <span className="text-muted-foreground">Unavailable</span>
     }
-    return <span className="text-muted-foreground">-</span>
+    return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   }
 
   switch (column.kind) {

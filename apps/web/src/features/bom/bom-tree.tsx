@@ -21,7 +21,7 @@ import { Link } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/primitives'
 import { TableScroller } from '@/components/ui/table'
-import { formatPercent, formatQuantity } from '@/lib/format'
+import { EMPTY_VALUE, formatPercent, formatQuantity } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { BomLine, ExplodedComponent } from './bom-model'
@@ -110,7 +110,7 @@ export function BomStructure({
                     {formatPercent(line.scrap_percentage, 2)}
                   </td>
                   <td className="px-3 py-2 text-right tabular text-muted-foreground">
-                    {line.operation_sequence ?? '-'}
+                    {line.operation_sequence ?? EMPTY_VALUE}
                   </td>
                   <td className="px-3 py-2">
                     {/* Purchased and manufactured are independent flags on the
@@ -128,9 +128,9 @@ export function BomStructure({
                           Bought
                         </Badge>
                       )}
-                      {!named && <span className="text-muted-foreground">-</span>}
+                      {!named && <span className="text-muted-foreground">{EMPTY_VALUE}</span>}
                       {named && !named.is_manufactured && !named.is_purchased && (
-                        <span className="text-muted-foreground">-</span>
+                        <span className="text-muted-foreground">{EMPTY_VALUE}</span>
                       )}
                     </span>
                   </td>

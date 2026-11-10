@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/primit
 import { useAuth } from '@/features/auth/auth-context'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -150,7 +151,7 @@ function LinesCard({ order }: { order: JobWorkOrderDetail }) {
               {formatQuantity(row.original.rejected_quantity)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -162,7 +163,7 @@ function LinesCard({ order }: { order: JobWorkOrderDetail }) {
           toDecimal(row.original.scrap_quantity).greaterThan(0) ? (
             <span className="tabular">{formatQuantity(row.original.scrap_quantity)}</span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -250,7 +251,7 @@ function ReconciliationCard({
               {formatQuantity(row.original.outstanding_quantity)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -276,7 +277,7 @@ function ReconciliationCard({
               {formatQuantity(row.original.excess_loss_quantity)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ],
@@ -378,7 +379,7 @@ function ReceiptsCard({
               {formatQuantity(row.original.total_rejected_quantity)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -393,7 +394,7 @@ function ReceiptsCard({
           ) : row.original.qc_held_at ? (
             <Badge variant="muted">On hold</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -415,7 +416,8 @@ function ReceiptsCard({
             .sort((a, b) =>
               toDecimal(b.rejected_quantity).comparedTo(toDecimal(a.rejected_quantity)),
             )[0]
-          if (!canRework || !worst) return <span className="text-muted-foreground">-</span>
+          if (!canRework || !worst)
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           return (
             <Button
               variant="outline"

@@ -81,6 +81,7 @@ import { optionLabel, useWorkCentreOptions } from '@/features/production/work-or
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -294,7 +295,7 @@ function OperationsPanel({
           row.original.work_center_id ? (
             (centreById.get(row.original.work_center_id) ?? 'Assigned')
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -333,7 +334,7 @@ function OperationsPanel({
           row.original.is_outsourced ? (
             <Badge variant="warning">Job work</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ],
@@ -387,7 +388,7 @@ function SourcePathsCell({ component }: { component: ExplodedComponent }) {
   const parents = parentsOf(component)
   const merged = parents.length > 1
 
-  if (paths.length === 0) return <span className="text-muted-foreground">-</span>
+  if (paths.length === 0) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
 
   return (
     <Popover>
@@ -540,7 +541,7 @@ function ExplosionPanel({ bom }: { bom: BomDetail }) {
             {row.original.is_manufactured && <Badge variant="default">Made</Badge>}
             {row.original.is_purchased && <Badge variant="secondary">Bought</Badge>}
             {!row.original.is_manufactured && !row.original.is_purchased && (
-              <span className="text-muted-foreground">-</span>
+              <span className="text-muted-foreground">{EMPTY_VALUE}</span>
             )}
           </span>
         ),
@@ -1176,7 +1177,7 @@ export default function BomDetailPage() {
               { label: 'Operations', value: formatNumber(bom.operations?.length ?? 0) },
               { label: 'Created', value: formatDateTime(bom.created_at) },
               { label: 'Last updated', value: formatDateTime(bom.updated_at) },
-              { label: 'Notes', value: bom.notes ?? '-' },
+              { label: 'Notes', value: bom.notes ?? EMPTY_VALUE },
             ]}
           />
         </CardContent>

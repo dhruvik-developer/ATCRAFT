@@ -81,7 +81,7 @@ import { ItemPicker } from '@/features/inventory/pickers'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -230,7 +230,7 @@ function CategoriesTab() {
               {row.original.description}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {

@@ -49,7 +49,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
+import { EMPTY_VALUE, daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -184,7 +184,7 @@ export default function PurchaseOrdersPage() {
           if (!vendor) {
             // A suspended vendor is not in the picker projection. A dash is
             // honest here; the order's own screen names the supplier.
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           return (
             <div className="max-w-[18rem]">
@@ -207,7 +207,7 @@ export default function PurchaseOrdersPage() {
             : null
           if (!id || !name) {
             // No category: the order's lines span several, or have none.
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           return (
             <CellButton
@@ -245,7 +245,7 @@ export default function PurchaseOrdersPage() {
           // no quantities, so a receipt percentage cannot be computed from it.
           const outstanding = OPEN_STATUSES.has(row.original.status)
           if (days === null || days >= 0 || !outstanding) {
-            return <span className="text-muted-foreground">-</span>
+            return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           }
           return (
             <Badge variant="destructive">

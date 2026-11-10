@@ -18,7 +18,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatMoney, formatQuantity } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -86,7 +86,7 @@ export default function JobWorkChallansTab() {
           return vendor ? (
             <span title={vendor.name}>{vendor.code}</span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           )
         },
       },

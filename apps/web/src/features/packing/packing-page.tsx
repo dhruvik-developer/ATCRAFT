@@ -43,6 +43,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { CARTON_SCAN_HISTORY_DAYS, DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatNumber,
@@ -351,7 +352,7 @@ export default function PackingPage() {
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.total_cartons === 0 ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatNumber(row.original.total_cartons)
           ),
@@ -382,7 +383,7 @@ export default function PackingPage() {
           ) : row.original.status === 'PACKED' ? (
             <Badge variant="warning">Awaiting dispatch</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {

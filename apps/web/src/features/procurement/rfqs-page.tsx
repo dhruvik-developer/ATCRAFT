@@ -50,7 +50,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -199,7 +199,7 @@ export default function RfqsPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-xs">
-            {warehouseById.get(row.original.warehouse_id)?.code ?? '-'}
+            {warehouseById.get(row.original.warehouse_id)?.code ?? EMPTY_VALUE}
           </span>
         ),
       },

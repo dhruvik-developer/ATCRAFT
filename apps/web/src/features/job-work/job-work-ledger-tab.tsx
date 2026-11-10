@@ -20,7 +20,14 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { downloadCsv } from '@/lib/csv'
-import { formatDate, formatMoney, formatQuantity, plural, toDateInput } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatMoney,
+  formatQuantity,
+  plural,
+  toDateInput,
+} from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
@@ -94,7 +101,7 @@ export default function JobWorkLedgerTab() {
         header: 'Item',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.item_code || '-'}</span>
+          <span className="font-mono text-xs">{row.original.item_code || EMPTY_VALUE}</span>
         ),
       },
       {
@@ -173,7 +180,7 @@ export default function JobWorkLedgerTab() {
               {formatMoney(row.original.vendor_debits)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ],

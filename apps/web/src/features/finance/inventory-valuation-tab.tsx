@@ -50,6 +50,7 @@ import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jo
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDateTime,
   formatMoney,
   formatNumber,
@@ -244,13 +245,13 @@ export function InventoryValuationTab() {
             must not look like a company whose stock is worth nothing. */}
         <StatTile
           label="Total value"
-          value={data ? formatMoney(data.summary.total_value) : '-'}
+          value={data ? formatMoney(data.summary.total_value) : EMPTY_VALUE}
           hint="Across every position matching these filters"
           isLoading={valuation.isLoading}
         />
         <StatTile
           label="Total quantity"
-          value={data ? formatQuantity(data.summary.total_quantity) : '-'}
+          value={data ? formatQuantity(data.summary.total_quantity) : EMPTY_VALUE}
           hint={
             data
               ? `${formatNumber(data.summary.row_count)} item and warehouse positions`

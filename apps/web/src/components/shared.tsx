@@ -327,7 +327,7 @@ const STATUS_VARIANTS: Record<
 }
 
 export function StatusBadge({ status, className }: { status?: string | null; className?: string }) {
-  if (!status) return <span className="text-muted-foreground">-</span>
+  if (!status) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   const variant = STATUS_VARIANTS[status.toUpperCase()] ?? 'secondary'
   return (
     <Badge variant={variant} className={className}>

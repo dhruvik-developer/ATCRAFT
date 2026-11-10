@@ -206,7 +206,7 @@ function OverviewPanel({
               { label: 'Sale unit', value: uomLabel(item.sale_uom_id) },
               { label: 'Production type', value: humanise(item.production_type) },
               { label: 'Lead time', value: plural(item.lead_time_days, 'day') },
-              { label: 'HSN code', value: item.hsn_code ?? '-' },
+              { label: 'HSN code', value: item.hsn_code ?? EMPTY_VALUE },
               { label: 'GST rate', value: formatPercent(item.gst_rate, 2) },
               { label: 'Reorder level', value: formatQuantity(item.reorder_level) },
               { label: 'Reorder quantity', value: formatQuantity(item.reorder_quantity) },
@@ -214,7 +214,7 @@ function OverviewPanel({
               { label: 'Safety stock', value: formatQuantity(item.safety_stock) },
               {
                 label: 'Shelf life',
-                value: item.shelf_life_days ? plural(item.shelf_life_days, 'day') : '-',
+                value: item.shelf_life_days ? plural(item.shelf_life_days, 'day') : EMPTY_VALUE,
               },
               {
                 label: 'Tracking',
@@ -238,7 +238,9 @@ function OverviewPanel({
                     {
                       label: 'Standard cost',
                       value:
-                        item.standard_cost === undefined ? '-' : formatMoney(item.standard_cost),
+                        item.standard_cost === undefined
+                          ? EMPTY_VALUE
+                          : formatMoney(item.standard_cost),
                     },
                   ]
                 : []),
@@ -247,7 +249,10 @@ function OverviewPanel({
               { label: 'Colour', value: colourLabel(item.colour_id) },
               { label: 'Brand', value: brandLabel(item.brand_id) },
               { label: 'Manufacturer', value: makerLabel(item.manufacturer_id) },
-              { label: 'Manufacturer part no.', value: item.manufacturer_part_number ?? '-' },
+              {
+                label: 'Manufacturer part no.',
+                value: item.manufacturer_part_number ?? EMPTY_VALUE,
+              },
               { label: 'Created', value: formatDateTime(item.created_at) },
               { label: 'Last updated', value: formatDateTime(item.updated_at) },
             ]}
@@ -325,7 +330,9 @@ function StockPanel({ itemId, uomCode }: { itemId: string; uomCode: string }) {
         header: 'Name',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.warehouse_name ?? '-'}</span>
+          <span className="text-muted-foreground">
+            {row.original.warehouse_name ?? EMPTY_VALUE}
+          </span>
         ),
       },
       {
@@ -462,9 +469,9 @@ function StockPanel({ itemId, uomCode }: { itemId: string; uomCode: string }) {
  * and have to read the same way.
  */
 function DeltaCell({ value }: { value: ItemVariant['price_delta'] | null }) {
-  if (value === null) return <span className="text-muted-foreground">-</span>
+  if (value === null) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   const amount = toDecimal(value)
-  if (amount.isZero()) return <span className="text-muted-foreground">-</span>
+  if (amount.isZero()) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   return (
     <span className={amount.isNegative() ? 'text-destructive' : undefined}>
       {amount.isPositive() ? '+' : ''}
@@ -592,7 +599,7 @@ function VariantsPanel({
         header: 'Barcode',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.barcode ?? '-'}</span>
+          <span className="text-muted-foreground">{row.original.barcode ?? EMPTY_VALUE}</span>
         ),
       },
       {
@@ -827,7 +834,7 @@ function PricesPanel({ itemId }: { itemId: string }) {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[18rem] truncate text-muted-foreground">
-            {row.original.notes ?? '-'}
+            {row.original.notes ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -950,7 +957,9 @@ function VendorsPanel({
         header: 'Vendor item code',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.vendor_item_code ?? '-'}</span>
+          <span className="text-muted-foreground">
+            {row.original.vendor_item_code ?? EMPTY_VALUE}
+          </span>
         ),
       },
       {
@@ -960,7 +969,7 @@ function VendorsPanel({
         cell: ({ row }) =>
           row.original.manufacturer_part_number || row.original.manufacturer_id ? (
             <span className="block">
-              <span className="block">{row.original.manufacturer_part_number ?? '-'}</span>
+              <span className="block">{row.original.manufacturer_part_number ?? EMPTY_VALUE}</span>
               {row.original.manufacturer_id && (
                 <span className="block text-xs text-muted-foreground">
                   {makerLabel(row.original.manufacturer_id)}
@@ -968,7 +977,7 @@ function VendorsPanel({
               )}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -999,7 +1008,7 @@ function VendorsPanel({
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.last_purchase_price === null ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(row.original.last_purchase_price, { currency: row.original.currency })
           ),
@@ -1201,9 +1210,10 @@ export default function ItemDetailPage() {
 
   const categoryLabel = (id: string | null) => {
     if (!id) return 'Uncategorised'
-    return categoryById.get(id)?.name ?? '-'
+    return categoryById.get(id)?.name ?? EMPTY_VALUE
   }
-  const uomLabel = (id: string | null) => (id ? (uomById.get(id)?.code ?? '-') : '-')
+  const uomLabel = (id: string | null) =>
+    id ? (uomById.get(id)?.code ?? EMPTY_VALUE) : EMPTY_VALUE
   const baseUomCode = uomById.get(item.base_uom_id)?.code ?? ''
 
   const canEdit = can(P.ITEM_UPDATE)

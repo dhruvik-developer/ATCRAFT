@@ -61,7 +61,7 @@ import {
 import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
 import { empty, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -427,7 +427,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
 }
 
 function DelayBadge({ days }: { days: number | null }) {
-  if (days === null) return <span className="text-muted-foreground">-</span>
+  if (days === null) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   return (
     <Badge variant="destructive">
       <AlertTriangle className="h-3 w-3" aria-hidden />
@@ -552,7 +552,7 @@ function DispatchesTab({
             </Link>
           ) : (
             <span className="text-muted-foreground">
-              {row.original.vendor_id ? 'Vendor consignment' : '-'}
+              {row.original.vendor_id ? 'Vendor consignment' : EMPTY_VALUE}
             </span>
           ),
       },
@@ -582,7 +582,7 @@ function DispatchesTab({
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[12rem] truncate text-muted-foreground">
-            {row.original.courier_name ?? '-'}
+            {row.original.courier_name ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -1007,7 +1007,7 @@ function TrackingTab() {
           )
           return (
             <LeadingCell delayed={late !== null || row.original.is_delayed}>
-              <span className="block truncate">{row.original.party_name ?? '-'}</span>
+              <span className="block truncate">{row.original.party_name ?? EMPTY_VALUE}</span>
               <span className="block truncate text-xs font-normal text-muted-foreground">
                 {humanise(row.original.party_type)} - {row.original.code}
               </span>
@@ -1021,7 +1021,9 @@ function TrackingTab() {
         enableSorting: false,
         // The board reports the reference code only - there is no id to link to.
         cell: ({ row }) => (
-          <span className="text-muted-foreground">{row.original.reference_code ?? '-'}</span>
+          <span className="text-muted-foreground">
+            {row.original.reference_code ?? EMPTY_VALUE}
+          </span>
         ),
       },
       {
@@ -1030,7 +1032,7 @@ function TrackingTab() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[14rem] truncate text-muted-foreground">
-            {row.original.courier_name ?? row.original.transporter_name ?? '-'}
+            {row.original.courier_name ?? row.original.transporter_name ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -1086,7 +1088,7 @@ function TrackingTab() {
           row.original.qc_pending ? (
             <Badge variant="warning">QC pending</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {
@@ -1097,7 +1099,7 @@ function TrackingTab() {
           row.original.grn_pending ? (
             <Badge variant="warning">GRN pending</Badge>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ],

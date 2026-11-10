@@ -38,7 +38,14 @@ import {
 import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatMoney, formatQuantity, plural, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatMoney,
+  formatQuantity,
+  plural,
+  toDecimal,
+} from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
@@ -120,7 +127,7 @@ function BatchesTab() {
         cell: ({ row }) => (
           <div>
             <p className="font-medium">{row.original.item_code ?? 'Unknown item'}</p>
-            <p className="text-xs text-muted-foreground">{row.original.item_name ?? '-'}</p>
+            <p className="text-xs text-muted-foreground">{row.original.item_name ?? EMPTY_VALUE}</p>
           </div>
         ),
       },
@@ -370,7 +377,7 @@ function SerialsTab() {
         cell: ({ row }) => (
           <div>
             <p className="font-medium">{row.original.item_code ?? 'Unknown item'}</p>
-            <p className="text-xs text-muted-foreground">{row.original.item_name ?? '-'}</p>
+            <p className="text-xs text-muted-foreground">{row.original.item_name ?? EMPTY_VALUE}</p>
           </div>
         ),
       },
@@ -379,7 +386,7 @@ function SerialsTab() {
         header: 'Batch',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.original.batch_number ?? '-'}</span>
+          <span className="font-mono text-xs">{row.original.batch_number ?? EMPTY_VALUE}</span>
         ),
       },
       {
@@ -392,7 +399,7 @@ function SerialsTab() {
         id: 'warehouse',
         header: 'Warehouse',
         enableSorting: false,
-        cell: ({ row }) => row.original.warehouse_code ?? '-',
+        cell: ({ row }) => row.original.warehouse_code ?? EMPTY_VALUE,
       },
       {
         id: 'received',

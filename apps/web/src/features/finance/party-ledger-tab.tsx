@@ -32,7 +32,7 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import { formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 import type { OffsetPagination } from '@/types/api'
@@ -164,7 +164,7 @@ export function PartyLedgerTab() {
         enableSorting: false,
         cell: ({ row }) => (
           <div>
-            <span className="block font-medium">{row.original.reference_code ?? '-'}</span>
+            <span className="block font-medium">{row.original.reference_code ?? EMPTY_VALUE}</span>
             {row.original.reference_type && (
               <span className="block text-2xs text-muted-foreground">
                 {humanise(row.original.reference_type)}
@@ -179,7 +179,7 @@ export function PartyLedgerTab() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[28rem] truncate text-muted-foreground">
-            {row.original.narration ?? '-'}
+            {row.original.narration ?? EMPTY_VALUE}
           </span>
         ),
       },
@@ -191,7 +191,7 @@ export function PartyLedgerTab() {
         cell: ({ row }) => {
           const value = toDecimal(row.original.debit_amount)
           return value.isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(row.original.debit_amount)
           )
@@ -205,7 +205,7 @@ export function PartyLedgerTab() {
         cell: ({ row }) => {
           const value = toDecimal(row.original.credit_amount)
           return value.isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             formatMoney(row.original.credit_amount)
           )
@@ -303,7 +303,7 @@ export function PartyLedgerTab() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile
               label="Opening balance"
-              value={data ? formatMoney(data.opening_balance) : '-'}
+              value={data ? formatMoney(data.opening_balance) : EMPTY_VALUE}
               hint={
                 data
                   ? `${data.party_name}${data.party_code ? ` (${data.party_code})` : ''}`
@@ -313,7 +313,7 @@ export function PartyLedgerTab() {
             />
             <StatTile
               label="Debits"
-              value={data ? formatMoney(data.total_debit) : '-'}
+              value={data ? formatMoney(data.total_debit) : EMPTY_VALUE}
               hint={
                 data
                   ? `${data.date_from ? formatDate(data.date_from) : 'From the first posting'} to ${formatDate(data.date_to)}`
@@ -323,12 +323,12 @@ export function PartyLedgerTab() {
             />
             <StatTile
               label="Credits"
-              value={data ? formatMoney(data.total_credit) : '-'}
+              value={data ? formatMoney(data.total_credit) : EMPTY_VALUE}
               isLoading={statement.isLoading}
             />
             <StatTile
               label="Closing balance"
-              value={data ? formatMoney(data.closing_balance) : '-'}
+              value={data ? formatMoney(data.closing_balance) : EMPTY_VALUE}
               hint="A positive balance is money owed"
               tone={
                 data && toDecimal(data.closing_balance).isNegative() ? 'destructive' : 'default'

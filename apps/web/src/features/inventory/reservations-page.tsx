@@ -60,7 +60,14 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
-import { daysUntil, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  daysUntil,
+  formatDate,
+  formatQuantity,
+  humanise,
+  toDecimal,
+} from '@/lib/format'
 import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -856,7 +863,7 @@ export default function ReservationsPage() {
         id: 'warehouse_code',
         header: 'Warehouse',
         enableSorting: false,
-        cell: ({ row }) => row.original.warehouse_code ?? '-',
+        cell: ({ row }) => row.original.warehouse_code ?? EMPTY_VALUE,
       },
       {
         id: 'demand_code',

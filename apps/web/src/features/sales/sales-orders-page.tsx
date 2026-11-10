@@ -32,7 +32,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
+import { EMPTY_VALUE, daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -139,7 +139,7 @@ export default function SalesOrdersPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[12rem] truncate text-muted-foreground">
-            {row.original.customer_po_number ?? '-'}
+            {row.original.customer_po_number ?? EMPTY_VALUE}
           </span>
         ),
       },

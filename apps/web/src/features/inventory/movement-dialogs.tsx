@@ -57,6 +57,7 @@ import { api, ApiError } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatMoney,
   formatNumber,
   formatQuantity,
@@ -1396,7 +1397,7 @@ const COUNT_ENTRY_COLUMNS: ColumnDef<PhysicalCountLineRow, unknown>[] = [
     cell: ({ row }) => {
       const line = row.original
       if (line.counted_quantity === null) {
-        return <span className="text-muted-foreground">-</span>
+        return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
       }
       const variance = toDecimal(line.variance_quantity)
       return (

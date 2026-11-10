@@ -73,6 +73,7 @@ import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   daysUntil,
   formatDate,
   formatDateTime,
@@ -240,13 +241,13 @@ function TrackingPanel({ orderId }: { orderId: string }) {
               columns={2}
               items={[
                 { label: 'Vendor', value: data.vendor_name },
-                { label: 'Courier', value: data.courier_name ?? '-' },
+                { label: 'Courier', value: data.courier_name ?? EMPTY_VALUE },
                 {
                   label: 'Consignment reference',
                   value: data.tracking_reference ? (
                     <span className="tabular">{data.tracking_reference}</span>
                   ) : (
-                    '-'
+                    EMPTY_VALUE
                   ),
                 },
                 { label: 'Sent to vendor', value: formatDateTime(data.sent_at) },
@@ -272,7 +273,7 @@ function TrackingPanel({ orderId }: { orderId: string }) {
                   {
                     label: 'Rejected',
                     value: toDecimal(data.rejected_quantity).isZero() ? (
-                      '-'
+                      EMPTY_VALUE
                     ) : (
                       <span className="font-medium text-destructive">
                         {formatQuantity(data.rejected_quantity)}
@@ -281,7 +282,8 @@ function TrackingPanel({ orderId }: { orderId: string }) {
                   },
                   {
                     label: 'Lines held for QC',
-                    value: data.qc_pending_line_count > 0 ? data.qc_pending_line_count : '-',
+                    value:
+                      data.qc_pending_line_count > 0 ? data.qc_pending_line_count : EMPTY_VALUE,
                   },
                 ]}
               />
@@ -611,7 +613,7 @@ export default function PurchaseOrderDetailPage() {
         cell: ({ row }) => {
           const rejected = toDecimal(row.original.rejected_quantity)
           return rejected.isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="font-medium text-destructive">
               {formatQuantity(row.original.rejected_quantity)}
@@ -626,7 +628,7 @@ export default function PurchaseOrderDetailPage() {
         meta: { align: 'right' },
         cell: ({ row }) =>
           toDecimal(row.original.returned_quantity).isZero() ? (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ) : (
             <span className="font-medium text-destructive">
               {formatQuantity(row.original.returned_quantity)}
@@ -668,7 +670,7 @@ export default function PurchaseOrderDetailPage() {
           const flat = toDecimal(row.original.discount)
           if (!percentage.isZero()) return formatPercent(row.original.discount_percentage, 2)
           if (!flat.isZero()) return formatMoney(row.original.discount, { currency })
-          return <span className="text-muted-foreground">-</span>
+          return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
         },
       },
       {
@@ -912,11 +914,11 @@ export default function PurchaseOrderDetailPage() {
                             ? 'Loading...'
                             : tracking.error
                               ? 'Not available'
-                              : '-')}
+                              : EMPTY_VALUE)}
                       </Link>
                     ),
                   },
-                  { label: 'Vendor reference', value: order.vendor_reference ?? '-' },
+                  { label: 'Vendor reference', value: order.vendor_reference ?? EMPTY_VALUE },
                   {
                     label: 'Item category',
                     // Derived from the lines by the API: one category when every
@@ -980,9 +982,9 @@ export default function PurchaseOrderDetailPage() {
                   { label: 'Payment terms', value: `${order.payment_terms_days} days` },
                   {
                     label: 'Deliver to',
-                    value: warehouseById.get(order.warehouse_id)?.code ?? '-',
+                    value: warehouseById.get(order.warehouse_id)?.code ?? EMPTY_VALUE,
                   },
-                  { label: 'Delivery address', value: order.delivery_address ?? '-' },
+                  { label: 'Delivery address', value: order.delivery_address ?? EMPTY_VALUE },
                   {
                     label: 'Approved',
                     value: order.approved_at

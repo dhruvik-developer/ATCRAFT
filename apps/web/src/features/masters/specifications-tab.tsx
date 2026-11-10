@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import type { SpecificationAttribute } from '@/features/product-descriptions/specification-model'
 import { useListQuery } from '@/hooks/use-list-query'
+import { EMPTY_VALUE } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -43,7 +44,7 @@ export function SpecificationsTab() {
         accessorKey: 'unit',
         header: 'Unit',
         enableSorting: false,
-        cell: ({ row }) => row.original.unit || '-',
+        cell: ({ row }) => row.original.unit || EMPTY_VALUE,
       },
       {
         accessorKey: 'is_filterable',
@@ -52,7 +53,7 @@ export function SpecificationsTab() {
         cell: ({ row }) =>
           row.original.is_filterable && ['OPTION', 'BOOLEAN'].includes(row.original.value_type)
             ? 'Available'
-            : '-',
+            : EMPTY_VALUE,
       },
       { accessorKey: 'sort_order', header: 'Position' },
       {

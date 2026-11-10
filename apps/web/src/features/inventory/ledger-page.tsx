@@ -28,7 +28,14 @@ import {
 import { Badge, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import { formatDateTime, formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDateTime,
+  formatQuantity,
+  humanise,
+  toDateInput,
+  toDecimal,
+} from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { CursorEnvelope } from '@/types/api'
 
@@ -212,7 +219,7 @@ export default function InventoryLedgerPage() {
         id: 'warehouse',
         header: 'Warehouse',
         enableSorting: false,
-        cell: ({ row }) => row.original.warehouse_code ?? '-',
+        cell: ({ row }) => row.original.warehouse_code ?? EMPTY_VALUE,
       },
       {
         id: 'quantity',
@@ -247,7 +254,7 @@ export default function InventoryLedgerPage() {
         enableSorting: false,
         cell: ({ row }) => {
           const { reference_type, reference_id, reference_code } = row.original
-          if (!reference_code) return <span className="text-muted-foreground">-</span>
+          if (!reference_code) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           const href = referenceLink(reference_type, reference_id, reference_code)
           return href ? (
             <Link to={href} className="font-mono text-xs hover:underline">
@@ -264,7 +271,7 @@ export default function InventoryLedgerPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="block max-w-[20rem] truncate" title={row.original.reason}>
-            {row.original.reason || '-'}
+            {row.original.reason || EMPTY_VALUE}
           </span>
         ),
       },

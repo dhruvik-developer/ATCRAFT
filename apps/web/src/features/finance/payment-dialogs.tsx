@@ -73,7 +73,14 @@ import type { VendorRow } from '@/features/vendors/vendor-types'
 import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatDate, formatDateTime, formatMoney, toDateInput, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  toDateInput,
+  toDecimal,
+} from '@/lib/format'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { describeError, messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
@@ -772,8 +779,8 @@ export function PaymentDetailDialog({
                   },
                   { label: 'Payment date', value: formatDate(payment.payment_date) },
                   { label: 'Method', value: PAYMENT_METHOD_LABELS[payment.payment_method] },
-                  { label: 'Reference', value: payment.reference_number ?? '-' },
-                  { label: 'Bank', value: payment.bank_name ?? '-' },
+                  { label: 'Reference', value: payment.reference_number ?? EMPTY_VALUE },
+                  { label: 'Bank', value: payment.bank_name ?? EMPTY_VALUE },
                   { label: 'Instrument date', value: formatDate(payment.instrument_date) },
                   { label: 'Currency', value: payment.currency },
                   { label: 'Amount', value: formatMoney(payment.amount, { currency }) },
@@ -793,7 +800,7 @@ export function PaymentDetailDialog({
                   },
                   {
                     label: 'Approved',
-                    value: payment.approved_at ? formatDateTime(payment.approved_at) : '-',
+                    value: payment.approved_at ? formatDateTime(payment.approved_at) : EMPTY_VALUE,
                   },
                 ]}
               />
@@ -836,19 +843,21 @@ export function PaymentDetailDialog({
                           <TableRow key={allocation.id}>
                             <TableCell>
                               <span className="block break-all">
-                                {allocation.vendor_invoice_number ?? allocation.invoice_code ?? '-'}
+                                {allocation.vendor_invoice_number ??
+                                  allocation.invoice_code ??
+                                  EMPTY_VALUE}
                               </span>
                               <span className="block font-mono text-2xs text-muted-foreground">
                                 {allocation.invoice_code ??
                                   (
                                     allocation.vendor_invoice_id ??
                                     allocation.sales_invoice_id ??
-                                    '-'
+                                    EMPTY_VALUE
                                   ).slice(0, 8)}
                               </span>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {allocation.notes ?? '-'}
+                              {allocation.notes ?? EMPTY_VALUE}
                             </TableCell>
                             <TableCell align="right" className="whitespace-nowrap">
                               {formatMoney(allocation.amount, { currency })}

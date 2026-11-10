@@ -17,6 +17,7 @@
  */
 
 import type { DecimalString, SchemaOf } from '@/types/api'
+import { EMPTY_VALUE } from '@/lib/format'
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -373,7 +374,7 @@ export function runDurationMs(run: {
 
 /** Compact elapsed time: "8s", "1m 12s", "1h 04m". */
 export function formatDuration(ms: number | null): string {
-  if (ms === null) return '-'
+  if (ms === null) return EMPTY_VALUE
   const totalSeconds = Math.floor(ms / 1000)
   if (totalSeconds < 60) return `${totalSeconds}s`
   const minutes = Math.floor(totalSeconds / 60)

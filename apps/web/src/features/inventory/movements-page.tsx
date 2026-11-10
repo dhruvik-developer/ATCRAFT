@@ -42,6 +42,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatMoney,
   formatNumber,
@@ -304,13 +305,13 @@ function TransfersTab() {
         id: 'from_warehouse_code',
         header: 'From',
         enableSorting: false,
-        cell: ({ row }) => row.original.from_warehouse_code ?? '-',
+        cell: ({ row }) => row.original.from_warehouse_code ?? EMPTY_VALUE,
       },
       {
         id: 'to_warehouse_code',
         header: 'To',
         enableSorting: false,
-        cell: ({ row }) => row.original.to_warehouse_code ?? '-',
+        cell: ({ row }) => row.original.to_warehouse_code ?? EMPTY_VALUE,
       },
       {
         id: 'line_count',
@@ -546,7 +547,7 @@ function AdjustmentsTab() {
         id: 'warehouse_code',
         header: 'Warehouse',
         enableSorting: false,
-        cell: ({ row }) => row.original.warehouse_code ?? '-',
+        cell: ({ row }) => row.original.warehouse_code ?? EMPTY_VALUE,
       },
       {
         accessorKey: 'adjustment_date',
@@ -770,7 +771,7 @@ function PhysicalCountsTab() {
         id: 'warehouse_code',
         header: 'Warehouse',
         enableSorting: false,
-        cell: ({ row }) => row.original.warehouse_code ?? '-',
+        cell: ({ row }) => row.original.warehouse_code ?? EMPTY_VALUE,
       },
       {
         accessorKey: 'count_date',

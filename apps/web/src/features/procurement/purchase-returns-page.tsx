@@ -44,7 +44,7 @@ import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatMoney, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, formatMoney, humanise } from '@/lib/format'
 import { empty } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -180,7 +180,7 @@ export default function PurchaseReturnsPage() {
         enableSorting: false,
         cell: ({ row }) => {
           const vendor = vendorById.get(row.original.vendor_id)
-          if (!vendor) return <span className="text-muted-foreground">-</span>
+          if (!vendor) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           return (
             <div className="max-w-[16rem]">
               <span className="block truncate">{vendor.name}</span>
@@ -195,7 +195,7 @@ export default function PurchaseReturnsPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {warehouseById.get(row.original.warehouse_id)?.code ?? '-'}
+            {warehouseById.get(row.original.warehouse_id)?.code ?? EMPTY_VALUE}
           </span>
         ),
       },

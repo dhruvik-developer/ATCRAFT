@@ -36,6 +36,7 @@ import {
 import { Label } from '@/components/ui/primitives'
 import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { SELECT_NONE } from '@/lib/constants'
+import { EMPTY_VALUE } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { costCentreLabel, pickableCostCentres } from './cost-centre-model'
@@ -157,6 +158,6 @@ export function CostCentreName({
   if (!id) return <span className="text-muted-foreground">{emptyLabel}</span>
 
   const row = options.data?.find((entry) => entry.id === id)
-  if (!row) return <span className="text-muted-foreground">-</span>
+  if (!row) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
   return <span>{costCentreLabel(row)}</span>
 }

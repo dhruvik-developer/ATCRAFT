@@ -51,7 +51,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { formatDateTime, formatNumber, formatRelative } from '@/lib/format'
+import { EMPTY_VALUE, formatDateTime, formatNumber, formatRelative } from '@/lib/format'
 import { prompts, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -252,10 +252,10 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
         cell: ({ row }) => {
           const branch = row.original.branch_id ? branchById.get(row.original.branch_id) : undefined
           const plant = row.original.plant_id ? plantById.get(row.original.plant_id) : undefined
-          if (!branch && !plant) return <span className="text-muted-foreground">-</span>
+          if (!branch && !plant) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           return (
             <span className="block text-xs">
-              <span className="block">{branch?.name ?? '-'}</span>
+              <span className="block">{branch?.name ?? EMPTY_VALUE}</span>
               <span className="block text-muted-foreground">{plant?.name ?? ''}</span>
             </span>
           )
@@ -608,7 +608,7 @@ function RolesTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
             className="block max-w-[28rem] truncate text-muted-foreground"
             title={row.original.description ?? undefined}
           >
-            {row.original.description ?? '-'}
+            {row.original.description ?? EMPTY_VALUE}
           </span>
         ),
       },

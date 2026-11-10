@@ -67,7 +67,7 @@ import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
-import { formatDate, humanise } from '@/lib/format'
+import { EMPTY_VALUE, formatDate, humanise } from '@/lib/format'
 import { empty, prompts, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -225,7 +225,9 @@ function BranchesTab({ canManage }: { canManage: boolean }) {
         id: 'gstin',
         header: 'GSTIN',
         enableSorting: false,
-        cell: ({ row }) => <span className="font-mono text-xs">{row.original.gstin ?? '-'}</span>,
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.original.gstin ?? EMPTY_VALUE}</span>
+        ),
       },
       {
         id: 'location',
@@ -233,7 +235,7 @@ function BranchesTab({ canManage }: { canManage: boolean }) {
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {[row.original.city, row.original.state].filter(Boolean).join(', ') || '-'}
+            {[row.original.city, row.original.state].filter(Boolean).join(', ') || EMPTY_VALUE}
           </span>
         ),
       },
@@ -374,7 +376,7 @@ function PlantsTab({ canManage, canSeeBranches }: { canManage: boolean; canSeeBr
         enableSorting: false,
         cell: ({ row }) => {
           const branch = row.original.branch_id ? branchById.get(row.original.branch_id) : undefined
-          return <span className="text-muted-foreground">{branch?.name ?? '-'}</span>
+          return <span className="text-muted-foreground">{branch?.name ?? EMPTY_VALUE}</span>
         },
       },
       {
@@ -383,7 +385,7 @@ function PlantsTab({ canManage, canSeeBranches }: { canManage: boolean; canSeeBr
         enableSorting: false,
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {[row.original.city, row.original.state].filter(Boolean).join(', ') || '-'}
+            {[row.original.city, row.original.state].filter(Boolean).join(', ') || EMPTY_VALUE}
           </span>
         ),
       },
@@ -557,7 +559,7 @@ function DepartmentsTab({
         enableSorting: false,
         cell: ({ row }) => {
           const plant = row.original.plant_id ? plantById.get(row.original.plant_id) : undefined
-          return <span className="text-muted-foreground">{plant?.name ?? '-'}</span>
+          return <span className="text-muted-foreground">{plant?.name ?? EMPTY_VALUE}</span>
         },
       },
       {
@@ -568,7 +570,7 @@ function DepartmentsTab({
           const head = row.original.head_user_id
             ? userById.get(row.original.head_user_id)
             : undefined
-          return <span className="text-muted-foreground">{head?.full_name ?? '-'}</span>
+          return <span className="text-muted-foreground">{head?.full_name ?? EMPTY_VALUE}</span>
         },
       },
       ...(canSeeCostCentres
@@ -581,7 +583,7 @@ function DepartmentsTab({
                 const centre = row.original.cost_centre_id
                   ? costCentreById.get(row.original.cost_centre_id)
                   : undefined
-                return <span className="text-muted-foreground">{centre?.code ?? '-'}</span>
+                return <span className="text-muted-foreground">{centre?.code ?? EMPTY_VALUE}</span>
               },
             } satisfies ColumnDef<DepartmentRow, unknown>,
           ]
@@ -797,7 +799,7 @@ function CostCentresTab({
           const parent = centreById.get(parentId)
           return (
             <span className="block max-w-[16rem] truncate text-muted-foreground">
-              {parent ? costCentreLabel(parent) : '-'}
+              {parent ? costCentreLabel(parent) : EMPTY_VALUE}
             </span>
           )
         },
@@ -808,7 +810,7 @@ function CostCentresTab({
         enableSorting: false,
         cell: ({ row }) => {
           const plant = row.original.plant_id ? plantById.get(row.original.plant_id) : undefined
-          return <span className="text-muted-foreground">{plant?.name ?? '-'}</span>
+          return <span className="text-muted-foreground">{plant?.name ?? EMPTY_VALUE}</span>
         },
       },
       {
@@ -819,7 +821,7 @@ function CostCentresTab({
           const head = row.original.head_user_id
             ? userById.get(row.original.head_user_id)
             : undefined
-          return <span className="text-muted-foreground">{head?.full_name ?? '-'}</span>
+          return <span className="text-muted-foreground">{head?.full_name ?? EMPTY_VALUE}</span>
         },
       },
       {
@@ -1072,7 +1074,7 @@ function FinancialYearsTab({ canManage }: { canManage: boolean }) {
             className="block max-w-[24rem] truncate text-muted-foreground"
             title={row.original.notes ?? undefined}
           >
-            {row.original.notes ?? '-'}
+            {row.original.notes ?? EMPTY_VALUE}
           </span>
         ),
       },

@@ -73,6 +73,7 @@ import { CostCentreName } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatMoney,
   formatPercent,
@@ -323,7 +324,7 @@ export function VendorInvoiceMatchDialog({
               </Link>
             ) : (
               <span className="block truncate font-mono text-xs">
-                {row.original.item_code ?? '-'}
+                {row.original.item_code ?? EMPTY_VALUE}
               </span>
             )}
             {row.original.description && (
@@ -509,7 +510,7 @@ export function VendorInvoiceMatchDialog({
                               View orders
                             </Link>
                           ) : (
-                            '-'
+                            EMPTY_VALUE
                           ),
                         }
                       : {
@@ -522,12 +523,12 @@ export function VendorInvoiceMatchDialog({
                               View order
                             </Link>
                           ) : (
-                            '-'
+                            EMPTY_VALUE
                           ),
                         },
                     {
                       label: 'Goods receipt',
-                      value: invoice.goods_receipt_id ? 'Receipted' : '-',
+                      value: invoice.goods_receipt_id ? 'Receipted' : EMPTY_VALUE,
                     },
                     // Lines may name their own; this is where the rest go.
                     ...(canViewCostCentres
@@ -880,7 +881,8 @@ function VarianceCell({
   ratio: DecimalString | null
   outOfTolerance: boolean
 }) {
-  if (raw === null || display === null) return <span className="text-muted-foreground">-</span>
+  if (raw === null || display === null)
+    return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
 
   const isZero = toDecimal(raw).isZero()
 

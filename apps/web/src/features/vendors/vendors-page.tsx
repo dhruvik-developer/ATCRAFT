@@ -53,7 +53,14 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
-import { formatDate, formatNumber, formatPercent, humanise, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatNumber,
+  formatPercent,
+  humanise,
+  toDecimal,
+} from '@/lib/format'
 import { describeError, empty, messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -317,14 +324,14 @@ function VendorRatingDialog({
                     label: 'Delivered on time',
                     value:
                       data.on_time_percentage === null
-                        ? '-'
+                        ? EMPTY_VALUE
                         : formatPercent(data.on_time_percentage, 1),
                   },
                   {
                     label: 'Rejected on inspection',
                     value:
                       data.rejection_percentage === null
-                        ? '-'
+                        ? EMPTY_VALUE
                         : formatPercent(data.rejection_percentage, 1),
                   },
                   { label: 'Receipts in the window', value: formatNumber(data.receipt_count) },
@@ -490,7 +497,7 @@ export default function VendorsPage() {
         cell: ({ row }) => (
           <div className="flex max-w-[16rem] flex-wrap gap-1">
             {row.original.vendor_types.length === 0 ? (
-              <span className="text-muted-foreground">-</span>
+              <span className="text-muted-foreground">{EMPTY_VALUE}</span>
             ) : (
               row.original.vendor_types.map((type) => (
                 <Badge key={type} variant="secondary">
@@ -539,7 +546,7 @@ export default function VendorsPage() {
           <span className="tabular">
             {row.original.lead_time_days > 0
               ? `${formatNumber(row.original.lead_time_days)} d`
-              : '-'}
+              : EMPTY_VALUE}
           </span>
         ),
       },
@@ -556,7 +563,7 @@ export default function VendorsPage() {
               {formatDate(row.original.rating_updated_at)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
       {

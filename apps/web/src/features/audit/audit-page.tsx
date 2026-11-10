@@ -64,7 +64,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
-import { formatDateTime, humanise, toDateInput } from '@/lib/format'
+import { EMPTY_VALUE, formatDateTime, humanise, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
@@ -315,7 +315,7 @@ function AuditTable({
         enableSorting: false,
         cell: ({ row }) => {
           const { entity_code, entity_type, entity_id } = row.original
-          if (!entity_code) return <span className="text-muted-foreground">-</span>
+          if (!entity_code) return <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           const href = entityLink(entity_type, entity_id)
           return href ? (
             <Link to={href} className="font-mono text-xs hover:underline">
@@ -349,7 +349,7 @@ function AuditTable({
               {row.original.request_id.slice(0, 8)}
             </span>
           ) : (
-            <span className="text-muted-foreground">-</span>
+            <span className="text-muted-foreground">{EMPTY_VALUE}</span>
           ),
       },
     ]

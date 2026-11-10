@@ -75,6 +75,7 @@ import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -1837,18 +1838,18 @@ export function DispatchTimelineDialog({
                 items={[
                   { label: 'Status', value: <StatusBadge status={dispatch.status} /> },
                   { label: 'Type', value: humanise(dispatch.dispatch_type) },
-                  { label: 'Courier', value: dispatch.courier_name ?? '-' },
-                  { label: 'Transport', value: consignment?.transport_name ?? '-' },
-                  { label: 'Tracking id', value: dispatch.tracking_id ?? '-' },
-                  { label: 'LR number', value: consignment?.lr_number ?? '-' },
-                  { label: 'Vehicle', value: consignment?.vehicle_number ?? '-' },
+                  { label: 'Courier', value: dispatch.courier_name ?? EMPTY_VALUE },
+                  { label: 'Transport', value: consignment?.transport_name ?? EMPTY_VALUE },
+                  { label: 'Tracking id', value: dispatch.tracking_id ?? EMPTY_VALUE },
+                  { label: 'LR number', value: consignment?.lr_number ?? EMPTY_VALUE },
+                  { label: 'Vehicle', value: consignment?.vehicle_number ?? EMPTY_VALUE },
                   {
                     label: 'Driver',
                     value: consignment?.driver_name
                       ? `${consignment.driver_name}${consignment.driver_mobile ? ` - ${consignment.driver_mobile}` : ''}`
-                      : '-',
+                      : EMPTY_VALUE,
                   },
-                  { label: 'E-way bill', value: consignment?.eway_bill_number ?? '-' },
+                  { label: 'E-way bill', value: consignment?.eway_bill_number ?? EMPTY_VALUE },
                   { label: 'Dispatched', value: formatDate(dispatch.dispatch_date) },
                   { label: 'Gate time', value: formatDateTime(consignment?.dispatched_at) },
                   { label: 'Expected', value: formatDate(dispatch.expected_delivery_date) },
@@ -1865,7 +1866,7 @@ export function DispatchTimelineDialog({
                             ? ` (${humanise(consignment.freight_paid_by)})`
                             : ''
                         }`
-                      : '-',
+                      : EMPTY_VALUE,
                   },
                   { label: 'Lines', value: formatNumber(consignment?.lines.length ?? null) },
                 ]}

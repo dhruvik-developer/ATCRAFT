@@ -454,7 +454,10 @@ export function SalesInvoiceDetailDialog({
                 <DescriptionList
                   items={[
                     { label: 'Date', value: formatDate(invoice.invoice_date) },
-                    { label: 'Place of supply', value: invoice.place_of_supply_state_code ?? '-' },
+                    {
+                      label: 'Place of supply',
+                      value: invoice.place_of_supply_state_code ?? EMPTY_VALUE,
+                    },
                     {
                       label: 'Sales order',
                       value: (
