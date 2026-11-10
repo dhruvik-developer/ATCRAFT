@@ -60,7 +60,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.pagination import PageParams
+from src.core.pagination import PageParams, paginate_rows
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination, api_path
 from src.modules.audit.models import AuditAction
@@ -79,7 +79,6 @@ from src.modules.reports.repository import (
     ReportQueryRepository,
     ReportSnapshotRepository,
     count_rows,
-    paginate_rows,
 )
 from src.modules.reports.schemas import (
     ConsumptionByDepartmentRow,

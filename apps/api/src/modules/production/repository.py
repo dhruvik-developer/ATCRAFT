@@ -50,7 +50,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO, to_quantity
 from src.modules.allocation.models import (
@@ -736,32 +736,12 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
     async def wip_page(
         self, filters: WipFilters, params: PageParams, *, as_of: date
     ) -> tuple[list[WipOrderAggregate], OffsetPagination]:
-        """Paginate the WIP board.
-
-        ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``,
-        which would keep only the first column of each row. The semantics are
-        reproduced - one extra row to decide ``has_next``, and a bounded count
-        only when the caller asked for a total.
-        """
+        """One page of the WIP board, counted only when asked."""
         stmt = self._wip_stmt(filters)
         if filters.late_only:
             stmt = stmt.where(ProductionOrder.planned_end_date < as_of)
 
-        rows = (
-            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
-        ).all()
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(
-                stmt.order_by(None).limit(COUNT_CEILING).subquery()
-            )
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
+        rows, pagination = await paginate_rows(self.session, stmt, params)
         items = [
             WipOrderAggregate(
                 production_order_id=row.production_order_id,
@@ -783,14 +763,7 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
             )
             for row in rows
         ]
-        return items, OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
-        )
+        return items, pagination
 
     async def in_progress_output_by_item(
         self,

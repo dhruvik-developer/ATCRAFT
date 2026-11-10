@@ -27,12 +27,11 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Numeric, Select, and_, cast, delete, exists, func, literal, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
+from src.core.pagination import PageParams, SortParams, paginate, paginate_rows
 from src.core.responses import OffsetPagination
 
 # Read-only references to other modules' master tables. Routing validates that a
@@ -737,42 +736,6 @@ async def _live_roster(repo: BaseRepository[Any], condition: Any, *, from_date: 
     return bool((await repo.session.execute(select(exists(probe)))).scalar_one())
 
 
-async def _paginate_projection(
-    session: AsyncSession, stmt: Select[Any], params: PageParams
-) -> tuple[list[Any], OffsetPagination]:
-    """Offset-paginate a statement that selects columns rather than an entity.
-
-    ``core.pagination.paginate`` reads ``.scalars()``, which would keep only the
-    first column of a projected row, so its semantics are reproduced: one extra
-    row to decide ``has_next``, and a count bounded by ``COUNT_CEILING`` that is
-    reported as unknown past it rather than as the ceiling. The caller's ORDER BY
-    must already be total - the roster orders by its primary key last.
-    """
-    rows = (await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
-    has_next = len(rows) > params.limit
-    rows = rows[: params.limit]
-
-    total: int | None = None
-    total_pages: int | None = None
-    if params.with_total:
-        count_stmt = select(func.count()).select_from(
-            stmt.order_by(None).limit(COUNT_CEILING + 1).subquery()
-        )
-        counted = int((await session.execute(count_stmt)).scalar_one())
-        if counted <= COUNT_CEILING:
-            total = counted
-            total_pages = max(1, -(-total // params.limit))
-
-    return list(rows), OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
-    )
-
-
 class CompanyZoneRepository(BaseRepository[Company]):
     """The tenant's own company row, read for the timezone its shifts run in."""
 
@@ -902,7 +865,7 @@ class ShiftAssignmentRepository(BaseRepository[ShiftAssignment]):
             stmt = stmt.where(ShiftAssignment.operator_user_id == filters.operator_user_id)
         if filters.status is not None:
             stmt = stmt.where(ShiftAssignment.status == filters.status)
-        rows, pagination = await _paginate_projection(self.session, self._ordered(stmt), params)
+        rows, pagination = await paginate_rows(self.session, self._ordered(stmt), params)
         return [_assignment_read(row) for row in rows], pagination
 
     async def reads(self, assignment_ids: Sequence[uuid.UUID]) -> list[ShiftAssignmentRead]:

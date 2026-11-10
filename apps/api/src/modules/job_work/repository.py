@@ -39,7 +39,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from src.common.repository import BaseRepository
 from src.core.clock import today, utcnow
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, DemandType, StockReservation
 from src.modules.inventory.models import InventoryBalance
@@ -583,38 +583,13 @@ class JobWorkReceiptRepository(BaseRepository[JobWorkReceipt]):
         vendor_ids: Sequence[uuid.UUID] | None,
         params: PageParams,
     ) -> tuple[list[VendorChargeRow], OffsetPagination]:
-        """Paginate the aggregate, as ``pending_at_vendor_page`` does.
-
-        ``core.pagination.paginate`` reads ``.scalars()`` and would keep only the
-        first column of an aggregate row, so the semantics are reproduced here:
-        one extra row decides ``has_next``, and a bounded count of vendors is
-        run only when the caller asked for a total.
-        """
-        stmt = self.charges_stmt(date_from=date_from, date_to=date_to, vendor_ids=vendor_ids)
-        rows = (
-            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
-        ).all()
-
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(
-                stmt.order_by(None).limit(COUNT_CEILING).subquery()
-            )
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
-        return [_charge_row(row) for row in rows], OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
+        """One page of the per-vendor charge aggregate, counted only when asked."""
+        rows, pagination = await paginate_rows(
+            self.session,
+            self.charges_stmt(date_from=date_from, date_to=date_to, vendor_ids=vendor_ids),
+            params,
         )
+        return [_charge_row(row) for row in rows], pagination
 
     async def consumed_by_item(
         self, vendor_id: uuid.UUID, date_from: date, date_to: date
@@ -885,9 +860,16 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
             stmt = stmt.where(JobWorkOrder.expected_return_date < today())
 
         # Oldest despatch first: the material that has been out longest is the
-        # material somebody needs to chase. ``vendor_id`` breaks ties so a page
-        # boundary cannot repeat or drop a group.
-        return stmt.order_by(func.min(JobWorkOrder.issued_at).asc(), JobWorkOrder.vendor_id.asc())
+        # material somebody needs to chase. The whole group key breaks ties, so a
+        # page boundary cannot repeat or drop a group - ``vendor_id`` alone did
+        # not, because one order issuing two items puts two groups at one vendor
+        # with one despatch time.
+        return stmt.order_by(
+            func.min(JobWorkOrder.issued_at).asc(),
+            JobWorkOrder.vendor_id.asc(),
+            JobWorkOrderLine.item_id.asc(),
+            JobWorkOrder.warehouse_id.asc(),
+        )
 
     async def pending_at_vendor(
         self,
@@ -917,44 +899,19 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
         overdue_only: bool,
         params: PageParams,
     ) -> tuple[list[PendingAtVendorRow], OffsetPagination]:
-        """Paginate the aggregate.
-
-        ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``,
-        which would keep only the first column of an aggregate row. The semantics
-        are reproduced here - one extra row to decide ``has_next``, and a bounded
-        count only when the caller asked for a total.
-        """
-        stmt = self.pending_at_vendor_stmt(
-            vendor_id=vendor_id,
-            item_id=item_id,
-            warehouse_id=warehouse_id,
-            overdue_only=overdue_only,
+        """One page of the at-vendor aggregate, counted only when asked."""
+        rows, pagination = await paginate_rows(
+            self.session,
+            self.pending_at_vendor_stmt(
+                vendor_id=vendor_id,
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                overdue_only=overdue_only,
+            ),
+            params,
         )
-        rows = (
-            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
-        ).all()
-
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(
-                stmt.order_by(None).limit(COUNT_CEILING).subquery()
-            )
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
         now = utcnow()
-        return [_pending_row(row, now) for row in rows], OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
-        )
+        return [_pending_row(row, now) for row in rows], pagination
 
 
 def _pending_row(row: Any, now: datetime) -> PendingAtVendorRow:

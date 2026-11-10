@@ -49,7 +49,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, CursorParams, PageParams, SortParams
+from src.core.pagination import CursorParams, PageParams, SortParams, paginate_rows
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.customers.models import Customer
 from src.modules.dispatch.models import (
@@ -902,7 +902,7 @@ class DispatchRepository(BaseRepository[Dispatch]):
     async def tracking_board_page(
         self, filters: DispatchFilters, params: PageParams, *, as_of: date
     ) -> tuple[list[TrackingBoardRow], OffsetPagination]:
-        rows, pagination = await paginate_projection(
+        rows, pagination = await paginate_rows(
             self.session, self.tracking_board_stmt(filters, as_of=as_of), params
         )
         return [_board_row(row, as_of=as_of) for row in rows], pagination
@@ -954,7 +954,7 @@ class DispatchRepository(BaseRepository[Dispatch]):
     async def delayed_page(
         self, params: PageParams, *, as_of: date, warehouse_id: uuid.UUID | None = None
     ) -> tuple[list[DelayedDispatchRow], OffsetPagination]:
-        rows, pagination = await paginate_projection(
+        rows, pagination = await paginate_rows(
             self.session, self.delayed_stmt(as_of=as_of, warehouse_id=warehouse_id), params
         )
         return [_delayed_row(row, as_of=as_of) for row in rows], pagination
@@ -1186,40 +1186,6 @@ def _delayed_row(row: Any, *, as_of: date) -> DelayedDispatchRow:
     )
 
 
-async def paginate_projection(
-    session: AsyncSession, stmt: Select[Any], params: PageParams
-) -> tuple[list[Any], OffsetPagination]:
-    """Offset-paginate a statement that selects columns rather than entities.
-
-    ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``, which
-    would keep only the first column of a projected row. The semantics are
-    reproduced here - one extra row to decide ``has_next``, and a bounded count
-    only when the caller asked for a total.
-    """
-    rows = (await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
-
-    has_next = len(rows) > params.limit
-    rows = rows[: params.limit]
-
-    total: int | None = None
-    total_pages: int | None = None
-    if params.with_total:
-        count_stmt = select(func.count()).select_from(
-            stmt.order_by(None).limit(COUNT_CEILING).subquery()
-        )
-        total = int((await session.execute(count_stmt)).scalar_one())
-        total_pages = max(1, -(-total // params.limit))
-
-    return list(rows), OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
-    )
-
-
 __all__ = [
     "GRN_OUTSTANDING_STATUSES",
     "BatchFacts",
@@ -1244,6 +1210,5 @@ __all__ = [
     "VendorLookupRepository",
     "WarehouseLookupRepository",
     "mark_delay_notified",
-    "paginate_projection",
     "scan_delayed_across_tenants",
 ]

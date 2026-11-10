@@ -36,7 +36,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from src.common.repository import BaseRepository
 from src.core.clock import today
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
+from src.core.pagination import PageParams, SortParams, paginate, paginate_rows
 from src.core.responses import OffsetPagination
 from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, DemandType, StockReservation
 from src.modules.assembly.models import (
@@ -506,46 +506,10 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
     async def ready_for_packing_page(
         self, *, warehouse_id: uuid.UUID | None, params: PageParams
     ) -> tuple[list[ReadyForPackingRow], OffsetPagination]:
-        """Paginate the aggregate - see :meth:`_aggregate_page`."""
-        rows, pagination = await self._aggregate_page(
-            self.ready_for_packing_stmt(warehouse_id), params
+        rows, pagination = await paginate_rows(
+            self.session, self.ready_for_packing_stmt(warehouse_id), params
         )
         return [_packing_row(row) for row in rows], pagination
-
-    async def _aggregate_page(
-        self, stmt: Select[Any], params: PageParams
-    ) -> tuple[list[Any], OffsetPagination]:
-        """Offset-page a grouped statement.
-
-        ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``,
-        which would keep only the first column of an aggregate row. The
-        semantics are reproduced here - one extra row to decide ``has_next``,
-        and a bounded count only when the caller asked for a total.
-        """
-        rows = list(
-            (await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
-        )
-
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(
-                stmt.order_by(None).limit(COUNT_CEILING).subquery()
-            )
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
-        return rows, OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
-        )
 
     # --- the assembly board -------------------------------------------------
 
@@ -619,7 +583,7 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
         if warehouse_id is not None:
             stmt = stmt.where(AssemblyOrder.warehouse_id == warehouse_id)
 
-        rows, pagination = await self._aggregate_page(stmt, params)
+        rows, pagination = await paginate_rows(self.session, stmt, params)
         return [
             AssemblyLineLoad(
                 assembly_line=row.assembly_line,

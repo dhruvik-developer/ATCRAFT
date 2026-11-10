@@ -35,7 +35,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import CustomerAddress
 from src.modules.inventory.models import InventoryBalance
@@ -743,30 +743,10 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
     async def demand_summary(
         self, filters: DemandSummaryFilters, params: PageParams
     ) -> tuple[list[DemandSummaryRow], OffsetPagination]:
-        """Paginate the aggregate.
-
-        ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``,
-        which would keep only the first column of an aggregate row. The
-        semantics are reproduced here - one extra row to decide ``has_next``,
-        and a bounded count only when the caller asked for a total.
-        """
-        stmt = self.demand_summary_stmt(filters)
-        rows = (
-            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
-        ).all()
-
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(
-                stmt.order_by(None).limit(COUNT_CEILING).subquery()
-            )
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
+        """One page of the per-item demand aggregate, counted only when asked."""
+        rows, pagination = await paginate_rows(
+            self.session, self.demand_summary_stmt(filters), params
+        )
         summaries = [
             DemandSummaryRow(
                 item_id=row.item_id,
@@ -781,15 +761,7 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             )
             for row in rows
         ]
-
-        return summaries, OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
-        )
+        return summaries, pagination
 
     async def has_live_invoice(self, order_id: uuid.UUID) -> bool:
         from src.core.models import Base

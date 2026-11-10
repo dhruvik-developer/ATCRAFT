@@ -17,11 +17,10 @@ system by a wide margin.
 
 **Rows, not entities.** These statements return column tuples, so they cannot go
 through :func:`src.core.pagination.paginate`, which reduces a result to
-``.scalars()`` and would silently keep only the first column. :func:`paginate_rows`
-below is the row-shaped equivalent - same keyset-free offset strategy, same
-``limit + 1`` probe for ``has_next``, and the total is passed in because the
-service has already had to count the rows to decide whether the report can be
-served inline at all.
+``.scalars()`` and would silently keep only the first column. The service pages
+them with :func:`src.core.pagination.paginate_rows`, the row-shaped equivalent,
+passing in the total :func:`count_rows` below has already produced - it had to
+count the rows to decide whether the report can be served inline at all.
 """
 
 from __future__ import annotations
@@ -36,7 +35,6 @@ from sqlalchemy import (
     Date,
     Integer,
     Numeric,
-    Row,
     Select,
     String,
     and_,
@@ -60,8 +58,6 @@ from src.core.database import affected_rows
 from src.core.deps import TenantContext
 from src.core.errors import NotFoundError
 from src.core.ids import new_id
-from src.core.pagination import COUNT_CEILING, PageParams
-from src.core.responses import OffsetPagination
 from src.core.types import ZERO, Money
 from src.modules.collections.models import LIVE_FOLLOW_UP_STATUSES, PaymentFollowUp
 from src.modules.customers.models import Customer, CustomerType
@@ -286,38 +282,6 @@ async def count_rows(session: AsyncSession, stmt: Select[Any], *, cap: int) -> i
     """
     counted = select(func.count()).select_from(stmt.order_by(None).limit(cap + 1).subquery())
     return int((await session.execute(counted)).scalar_one())
-
-
-async def paginate_rows(
-    session: AsyncSession,
-    stmt: Select[Any],
-    params: PageParams,
-    *,
-    total: int | None = None,
-) -> tuple[list[Row[Any]], OffsetPagination]:
-    """Offset-paginate a row-shaped SELECT.
-
-    ``limit + 1`` is fetched so ``has_next`` is known without a second query.
-    ``total`` is supplied by the caller when it has already been counted; when it
-    has not, the count is bounded by ``COUNT_CEILING`` exactly as the core
-    paginator does, because past that the exact number is not worth a scan.
-    """
-    rows = list((await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all())
-    has_next = len(rows) > params.limit
-    rows = rows[: params.limit]
-
-    if total is None and params.with_total:
-        total = await count_rows(session, stmt, cap=COUNT_CEILING)
-
-    total_pages = max(1, -(-total // params.limit)) if total is not None else None
-    return rows, OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
-    )
 
 
 class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
@@ -4230,6 +4194,5 @@ __all__ = [
     "ReportQueryRepository",
     "ReportSnapshotRepository",
     "count_rows",
-    "paginate_rows",
     "period_bounds",
 ]

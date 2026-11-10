@@ -10,8 +10,9 @@ Two query shapes, each one statement:
   joined, because a list that showed UUIDs would send the browser back for every
   row - the N+1 this repository exists to prevent.
 
-Nothing here paginates with the core ``paginate`` helper: both statements select
-column tuples rather than ORM entities, and that helper calls ``.scalars()``.
+Both statements select column tuples rather than ORM entities, so the service
+pages them with ``core.pagination.paginate_rows`` rather than ``paginate``, which
+calls ``.scalars()``.
 """
 
 from __future__ import annotations
@@ -22,13 +23,12 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Date, and_, case, func, literal, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.errors import NotFoundError
-from src.core.pagination import COUNT_CEILING, CursorParams, PageParams, SortParams, paginate_keyset
-from src.core.responses import CursorPagination, OffsetPagination
+from src.core.pagination import CursorParams, SortParams, paginate_keyset
+from src.core.responses import CursorPagination
 from src.core.types import ZERO
 from src.modules.collections.models import (
     LIVE_FOLLOW_UP_STATUSES,
@@ -52,43 +52,6 @@ OPEN_INVOICE_STATUSES: tuple[SalesInvoiceStatus, ...] = (
     SalesInvoiceStatus.ISSUED,
     SalesInvoiceStatus.PARTIALLY_PAID,
 )
-
-
-async def count_rows(session: AsyncSession, stmt: Any, *, cap: int) -> int:
-    """How many rows a statement produces, counted no further than ``cap``.
-
-    One past the cap is enough to tell "exactly the ceiling" from "more than the
-    ceiling"; the LIMIT is what bounds the scan either way.
-    """
-    counted = select(func.count()).select_from(stmt.order_by(None).limit(cap + 1).subquery())
-    return int((await session.execute(counted)).scalar_one())
-
-
-async def paginate_rows(
-    session: AsyncSession, stmt: Any, params: PageParams
-) -> tuple[list[Any], OffsetPagination]:
-    """Offset-paginate a row-shaped SELECT."""
-    rows = list((await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all())
-    has_next = len(rows) > params.limit
-    rows = rows[: params.limit]
-
-    total: int | None = None
-    total_pages: int | None = None
-    if params.with_total:
-        total = await count_rows(session, stmt, cap=COUNT_CEILING)
-        if total > COUNT_CEILING:
-            total = None
-        else:
-            total_pages = max(1, -(-total // params.limit))
-
-    return rows, OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
-    )
 
 
 def _credited_subquery(company_id: uuid.UUID) -> Any:
@@ -553,6 +516,4 @@ __all__ = [
     "PaymentFollowUpNoteRepository",
     "PaymentFollowUpRepository",
     "bucket_columns",
-    "count_rows",
-    "paginate_rows",
 ]

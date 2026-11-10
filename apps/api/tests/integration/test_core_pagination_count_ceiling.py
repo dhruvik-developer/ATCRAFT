@@ -14,6 +14,9 @@ the capped answer from the true one, which is what makes it worse than no answer
 at all - ``None`` at least says "unknown" in a field that is already optional
 and that the web client already reads that way.
 
+``paginate_rows``, the row-shaped twin every projection pages through, is
+held to the same rule at the end of the file.
+
 The ceiling is monkeypatched down to a handful of rows. Seeding ten thousand of
 them would test the same branch for a hundred times the runtime, and the branch
 is what is under test - not the number.
@@ -34,7 +37,7 @@ from sqlalchemy import Select, event, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core import pagination as pagination_module
-from src.core.pagination import PageParams, paginate
+from src.core.pagination import PageParams, paginate, paginate_rows
 from src.modules.users.models import Role
 
 pytestmark = pytest.mark.integration
@@ -216,3 +219,53 @@ async def test_asking_for_no_total_still_runs_no_count(
     assert page.total is None
     assert page.total_pages is None
     assert [sql for sql in statements if "count(" in sql] == []
+
+
+# -----------------------------------------------------------------------------
+# The row-shaped twin keeps the same rule
+# -----------------------------------------------------------------------------
+
+
+def _scoped_rows(company_id: uuid.UUID, *, limit: int | None = None) -> Select[Any]:
+    """The same rows as :func:`_scoped`, as a two-column projection."""
+    stmt = (
+        select(Role.code, Role.name)
+        .where(Role.company_id == company_id, Role.code.startswith(CODE_PREFIX))
+        .order_by(Role.code.asc())
+    )
+    return stmt if limit is None else stmt.where(Role.code <= f"{CODE_PREFIX}-{limit - 1:03d}")
+
+
+async def test_a_row_page_at_the_ceiling_is_exact(
+    session: AsyncSession, company: Any, roles: list[Role]
+) -> None:
+    rows, page = await paginate_rows(
+        session, _scoped_rows(company.id, limit=CEILING), PageParams(page=1, limit=PAGE_SIZE)
+    )
+
+    assert [(row.code, row.name) for row in rows] == [
+        (role.code, role.name) for role in roles[:PAGE_SIZE]
+    ]
+    assert page.total == CEILING
+    assert page.total_pages == -(-CEILING // PAGE_SIZE)
+
+
+async def test_a_row_page_past_the_ceiling_is_unknown_and_still_walks_the_set(
+    session: AsyncSession, company: Any, roles: list[Role]
+) -> None:
+    """Eight module copies answered ``total=CEILING`` here, and a page count from it."""
+    seen: list[str] = []
+    page_number = 1
+    while True:
+        rows, page = await paginate_rows(
+            session, _scoped_rows(company.id), PageParams(page=page_number, limit=PAGE_SIZE)
+        )
+        assert page.total is None, f"the ceiling was reported as an exact total ({page.total})"
+        assert page.total_pages is None
+        seen.extend(row.code for row in rows)
+        if not page.has_next:
+            break
+        page_number += 1
+        assert page_number <= ROW_COUNT, "paging did not terminate"
+
+    assert seen == [role.code for role in roles]

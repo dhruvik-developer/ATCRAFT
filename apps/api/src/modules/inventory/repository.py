@@ -36,7 +36,7 @@ from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
 from src.core.clock import utcnow
 from src.core.ids import new_id, persisted_actor
-from src.core.pagination import PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.modules.inventory.models import (
     BALANCE_GRAIN_SQL,
@@ -476,34 +476,10 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
                 *warehouse_scope(self.tenant, InventoryBalance.warehouse_id),
             )
             .group_by(InventoryBalance.warehouse_id, Warehouse.code, Warehouse.name)
+            # A warehouse code is unique per company, so the order is total.
             .order_by(Warehouse.code)
         )
-
-        # paginate() in core is built for entity selects; a grouped projection
-        # needs its own window, but the endpoint stays bounded either way.
-        rows = list(
-            (
-                await self.session.execute(grouped.limit(params.limit + 1).offset(params.offset))
-            ).all()
-        )
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(grouped.order_by(None).subquery())
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
-        return rows, OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
-        )
+        return await paginate_rows(self.session, grouped, params)
 
     async def positions_for_count(
         self,

@@ -40,7 +40,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
 from src.core.deps import TenantContext
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
+from src.core.pagination import PageParams, SortParams, paginate, paginate_rows
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import Customer
 from src.modules.inventory.models import (
@@ -330,7 +330,7 @@ class ItemLookupRepository(BaseRepository[Item]):
             pattern = f"%{search.strip()}%"
             stmt = stmt.where(Item.code.ilike(pattern) | Item.name.ilike(pattern))
 
-        rows, pagination = await _paginate_aggregate(self.session, stmt, params)
+        rows, pagination = await paginate_rows(self.session, stmt, params)
         return [
             PackingMaterialRow(
                 item_id=row.item_id,
@@ -977,7 +977,7 @@ class PackingOrderRepository(BaseRepository[PackingOrder]):
     async def ready_for_dispatch_page(
         self, *, warehouse_id: uuid.UUID | None, params: PageParams
     ) -> tuple[list[ReadyForDispatchRow], OffsetPagination]:
-        rows, pagination = await _paginate_aggregate(
+        rows, pagination = await paginate_rows(
             self.session, self.ready_for_dispatch_stmt(warehouse_id), params
         )
         return [_dispatch_row(row) for row in rows], pagination
@@ -996,40 +996,6 @@ def _dispatch_row(row: Any) -> ReadyForDispatchRow:
         carton_count=int(row.carton_count),
         total_gross_weight=Decimal(str(row.total_gross_weight)),
         total_net_weight=Decimal(str(row.total_net_weight)),
-    )
-
-
-async def _paginate_aggregate(
-    session: Any, stmt: Select[Any], params: PageParams
-) -> tuple[list[Any], OffsetPagination]:
-    """Offset-paginate a statement that selects columns rather than entities.
-
-    ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``, which
-    would keep only the first column of an aggregate row. The semantics are
-    reproduced here - one extra row to decide ``has_next``, and a bounded count
-    only when the caller asked for a total.
-    """
-    rows = (await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
-
-    has_next = len(rows) > params.limit
-    rows = rows[: params.limit]
-
-    total: int | None = None
-    total_pages: int | None = None
-    if params.with_total:
-        count_stmt = select(func.count()).select_from(
-            stmt.order_by(None).limit(COUNT_CEILING).subquery()
-        )
-        total = int((await session.execute(count_stmt)).scalar_one())
-        total_pages = max(1, -(-total // params.limit))
-
-    return list(rows), OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
     )
 
 

@@ -93,7 +93,7 @@ from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO
 from src.modules.customers.models import Customer
@@ -2801,46 +2801,9 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
 # -----------------------------------------------------------------------------
 
 
-async def paginate_projection(
-    session: AsyncSession, stmt: Select[Any], params: PageParams
-) -> tuple[list[Any], OffsetPagination]:
-    """Offset-paginate a statement that selects columns rather than entities.
-
-    ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``, which
-    would keep only the first column of a projected row. The semantics are
-    reproduced here - one extra row to decide ``has_next``, and a bounded count
-    only when the caller asked for a total.
-
-    Bounded the same way the core paginator bounds it: exact up to
-    :data:`~src.core.pagination.COUNT_CEILING`, and ``None`` past it. Returning
-    the ceiling as though it were the count reports ten thousand open invoices
-    for a company with two hundred thousand of them, in the field that means
-    "this is how many there are" (docs/assumptions.md 15).
-    """
-    rows = (await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
-
-    has_next = len(rows) > params.limit
-    rows = rows[: params.limit]
-
-    total: int | None = None
-    total_pages: int | None = None
-    if params.with_total:
-        count_stmt = select(func.count()).select_from(
-            stmt.order_by(None).limit(COUNT_CEILING + 1).subquery()
-        )
-        counted = int((await session.execute(count_stmt)).scalar_one())
-        if counted <= COUNT_CEILING:
-            total = counted
-            total_pages = max(1, -(-total // params.limit))
-
-    return list(rows), OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
-    )
+#: Projections page through the shared row paginator. The finance service still
+#: imports it under this name; the logic is not copied here.
+paginate_projection = paginate_rows
 
 
 __all__ = [

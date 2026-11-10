@@ -55,7 +55,7 @@ from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
 from src.core.database import affected_rows
 from src.core.models import Base
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.pagination import PageParams, SortParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.core.types import GUID, Money, to_quantity
 from src.modules.inventory.models import StockBatch
@@ -1858,13 +1858,7 @@ class PendingApprovalRepository(BaseRepository[PurchaseOrder]):
         include_requisitions: bool,
         include_orders: bool,
     ) -> tuple[list[PendingApproval], OffsetPagination]:
-        """Paginate the union.
-
-        ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``,
-        which would keep only the first column of each row. The semantics are
-        reproduced - one extra row to decide ``has_next``, and a bounded count
-        only when the caller asked for a total.
-        """
+        """One page of the union, counted only when asked."""
         stmt = self._stmt(
             filters, include_requisitions=include_requisitions, include_orders=include_orders
         )
@@ -1875,21 +1869,7 @@ class PendingApprovalRepository(BaseRepository[PurchaseOrder]):
                 page=params.page, limit=params.limit, total=0, total_pages=1
             )
 
-        rows = (
-            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
-        ).all()
-        has_next = len(rows) > params.limit
-        rows = rows[: params.limit]
-
-        total: int | None = None
-        total_pages: int | None = None
-        if params.with_total:
-            count_stmt = select(func.count()).select_from(
-                stmt.order_by(None).limit(COUNT_CEILING).subquery()
-            )
-            total = int((await self.session.execute(count_stmt)).scalar_one())
-            total_pages = max(1, -(-total // params.limit))
-
+        rows, pagination = await paginate_rows(self.session, stmt, params)
         items = [
             PendingApproval(
                 document_type=row.document_type,
@@ -1906,15 +1886,7 @@ class PendingApprovalRepository(BaseRepository[PurchaseOrder]):
             )
             for row in rows
         ]
-
-        return items, OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_previous=params.page > 1,
-        )
+        return items, pagination
 
 
 __all__ = [

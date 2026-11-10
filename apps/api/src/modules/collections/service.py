@@ -33,7 +33,7 @@ from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, DuplicateError, NotFoundError
 from src.core.messages import plural
-from src.core.pagination import CursorParams, PageParams, SortParams
+from src.core.pagination import CursorParams, PageParams, SortParams, paginate_rows
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination, api_path
 from src.core.state_machine import StateMachine, Transition
@@ -51,10 +51,7 @@ from src.modules.collections.models import (
     PaymentFollowUp,
     PaymentFollowUpNote,
 )
-from src.modules.collections.repository import (
-    PaymentFollowUpRepository,
-    paginate_rows,
-)
+from src.modules.collections.repository import PaymentFollowUpRepository
 from src.modules.collections.schemas import (
     FollowUpCancel,
     FollowUpCreate,

@@ -419,20 +419,17 @@ async def list_documents(
 ) -> tuple[list[InboundDocumentRead], OffsetPagination]:
     """The order's files the caller may see (all of them for staff; shared ones for a vendor)."""
     await PurchaseOrderRepository(session, tenant).get_or_404(order_id)
-    rows = await InboundDocumentRepository(session, tenant).page_documents(order_id, params)
+    rows, pagination = await InboundDocumentRepository(session, tenant).page_documents(
+        order_id, params
+    )
     return [
         InboundDocumentRead(
             **DocumentRead.model_validate(doc).model_dump(),
             kind=link.kind if link else "OTHER",
             shipment_id=link.shipment_id if link else None,
         )
-        for doc, link in rows[: params.limit]
-    ], OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        has_next=len(rows) > params.limit,
-        has_previous=params.page > 1,
-    )
+        for doc, link in rows
+    ], pagination
 
 
 #: Two decimals for a percentage of goods received - a ratio, not a quantity.

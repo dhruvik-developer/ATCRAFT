@@ -25,7 +25,7 @@ from sqlalchemy.orm import aliased
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
-from src.core.pagination import PageParams
+from src.core.pagination import PageParams, paginate_rows
 from src.core.responses import OffsetPagination
 from src.modules.documents.models import Document
 from src.modules.procurement.inbound_models import PurchaseOrderDocument, PurchaseOrderShipment
@@ -294,16 +294,16 @@ class InboundDocumentRepository(BaseRepository[PurchaseOrderDocument]):
             )
         )
 
-    async def page_documents(self, order_id: uuid.UUID, params: PageParams) -> list[Any]:
-        return list(
-            (
-                await self.session.execute(
-                    self.documents([order_id], utcnow())
-                    .order_by(Document.created_at.desc(), Document.id.desc())
-                    .offset(params.offset)
-                    .limit(params.limit + 1)
-                )
-            ).all()
+    async def page_documents(
+        self, order_id: uuid.UUID, params: PageParams
+    ) -> tuple[list[Any], OffsetPagination]:
+        """One page of ``(Document, link)`` pairs, newest first."""
+        return await paginate_rows(
+            self.session,
+            self.documents([order_id], utcnow()).order_by(
+                Document.created_at.desc(), Document.id.desc()
+            ),
+            params,
         )
 
     async def visible_document(self, document_id: uuid.UUID, order_id: uuid.UUID) -> Any:
@@ -548,27 +548,11 @@ class InboundRepository(PurchaseOrderRepository):
     async def page_projection(
         self, filters: InboundTrackingFilters, params: PageParams, as_of: date
     ) -> tuple[list[Any], OffsetPagination]:
-        stmt = self.filtered_projection(filters, as_of)
-        total = (
-            int(await self.session.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
-            if params.with_total
-            else None
+        """One page of the board, newest order first, counted no further than the ceiling."""
+        stmt = self.filtered_projection(filters, as_of).order_by(
+            PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()
         )
-        rows = (
-            await self.session.execute(
-                stmt.order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc())
-                .offset(params.offset)
-                .limit(params.limit + 1)
-            )
-        ).all()
-        return list(rows[: params.limit]), OffsetPagination(
-            page=params.page,
-            limit=params.limit,
-            total=total,
-            total_pages=(total + params.limit - 1) // params.limit if total is not None else None,
-            has_next=len(rows) > params.limit,
-            has_previous=params.page > 1,
-        )
+        return await paginate_rows(self.session, stmt, params)
 
     async def order_row(self, order_id: uuid.UUID, as_of: date) -> Any:
         """One order's projection row, or ``None`` when the caller cannot see it."""

@@ -1,4 +1,4 @@
-"""A background job never walks a result set with OFFSET.
+"""OFFSET is written in one place: ``core.pagination``, one page per request.
 
 A worker has no client page to serve, so an ``.offset(...)`` under
 ``src/workers`` is a loop re-sending one statement per chunk. Each pass repeats
@@ -9,11 +9,16 @@ offsets and are exported twice or not at all. The inventory valuation export
 did exactly that. Read a bounded result in one statement, as
 ``reports.service.snapshot_rows`` does, or stream it with ``session.stream``.
 
-The rule is scoped to the workers on purpose: request-path list endpoints page
-with OFFSET legitimately (``core.pagination`` and the modules' ``paginate_rows``
-helpers), one page per request.
+Request-path list endpoints page with OFFSET legitimately, one page per request
+- but only through ``core.pagination``: ``paginate`` for entities and
+``paginate_rows`` for projections. Fifteen copies of the row paginator had been
+pasted into the modules, and eight of them counted ``LIMIT COUNT_CEILING`` and
+reported the ceiling as an exact total, so a set of 25 000 rows answered
+``total=10000`` (docs/assumptions.md 15). A hand-written ``.offset(`` under
+``src/modules`` is how such a copy starts, so each one left is listed below with
+the reason it is not a page through the shared helpers.
 
-The rule is a function over source text with a self-test that feeds it the
+Each rule is a function over source text with a self-test that feeds it the
 violation, as in ``test_layering_guards.py``.
 """
 
@@ -27,6 +32,16 @@ import pytest
 pytestmark = pytest.mark.unit
 
 WORKERS = Path(__file__).resolve().parents[2] / "src" / "workers"
+MODULES = Path(__file__).resolve().parents[2] / "src" / "modules"
+
+#: Hand-written OFFSET under src/modules, each with the reason it does not page
+#: through ``core.pagination``.
+MODULE_OFFSET_ALLOWED: dict[str, str] = {
+    "production/repository.py": (
+        "the work-centre board cuts its page at MAX_WORK_CENTRE_ROWS and reports no "
+        "total on purpose - counting the cells would be a second aggregate of the scan"
+    ),
+}
 
 
 def offset_calls(source: str) -> list[str]:
@@ -43,6 +58,10 @@ def offset_calls(source: str) -> list[str]:
 
 def _worker_files() -> list[Path]:
     return sorted(path for path in WORKERS.rglob("*.py") if "__pycache__" not in path.parts)
+
+
+def _module_files() -> list[Path]:
+    return sorted(path for path in MODULES.rglob("*.py") if "__pycache__" not in path.parts)
 
 
 def test_the_scan_finds_the_workers() -> None:
@@ -69,3 +88,30 @@ def test_the_rule_rejects_an_offset_walk() -> None:
         "    return params.offset\n"
     )
     assert offset_calls(source) == ["line 2: .offset()"]
+
+
+def test_the_scan_finds_the_modules() -> None:
+    assert (MODULES / "dispatch" / "repository.py") in _module_files()
+
+
+def test_list_endpoints_page_only_through_core_pagination() -> None:
+    offenders = {
+        relative: found
+        for path in _module_files()
+        if (relative := path.relative_to(MODULES).as_posix()) not in MODULE_OFFSET_ALLOWED
+        and (found := offset_calls(path.read_text(encoding="utf-8")))
+    }
+    assert not offenders, (
+        "Page a list with core.pagination.paginate (entities) or paginate_rows "
+        "(projections, aggregates, unions); a hand-written OFFSET is a copy of the "
+        f"paginator, with its own count rule: {offenders}"
+    )
+
+
+def test_every_module_offset_allowance_is_still_needed() -> None:
+    stale = [
+        relative
+        for relative in MODULE_OFFSET_ALLOWED
+        if not offset_calls((MODULES / relative).read_text(encoding="utf-8"))
+    ]
+    assert not stale, f"these allowances no longer cover any OFFSET; remove them: {stale}"

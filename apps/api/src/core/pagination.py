@@ -29,7 +29,7 @@ from typing import Annotated, Any, Literal, TypeVar
 
 from fastapi import Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import Select, func, select
+from sqlalchemy import Row, Select, func, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.exc import UnmappedColumnError
@@ -296,6 +296,44 @@ def _stable_order(stmt: Select[Any]) -> Select[Any]:
     return stmt.order_by(*(term.desc() if descending else term.asc() for term in key_terms))
 
 
+async def _bounded_total(session: AsyncSession, stmt: Select[Any]) -> int | None:
+    """How many rows ``stmt`` returns, or ``None`` when that is past the ceiling.
+
+    ``order_by`` is stripped: it is meaningless inside COUNT and forces
+    PostgreSQL to sort rows it is only going to count.
+
+    ``COUNT_CEILING + 1`` rather than ``COUNT_CEILING``: one row past the
+    ceiling is what distinguishes "exactly ten thousand" from "more than ten
+    thousand", and the two must not report the same number. The extra row costs
+    nothing - the LIMIT is what bounds the scan either way.
+    """
+    count_stmt = select(func.count()).select_from(
+        stmt.order_by(None).limit(COUNT_CEILING + 1).subquery()
+    )
+    return _within_ceiling(int((await session.execute(count_stmt)).scalar_one()))
+
+
+def _within_ceiling(counted: int) -> int | None:
+    """``counted`` when it is an exact total the envelope may report, else ``None``."""
+    return counted if counted <= COUNT_CEILING else None
+
+
+def _offset_page(params: PageParams, *, total: int | None, has_next: bool) -> OffsetPagination:
+    """The pagination block of one offset page.
+
+    ``total_pages`` follows ``total``: an unknown total is never divided into
+    pages, and an empty set is one empty page rather than none.
+    """
+    return OffsetPagination(
+        page=params.page,
+        limit=params.limit,
+        total=total,
+        total_pages=None if total is None else max(1, -(-total // params.limit)),
+        has_next=has_next,
+        has_previous=params.page > 1,
+    )
+
+
 async def paginate(
     session: AsyncSession,
     stmt: Select[Any],
@@ -321,34 +359,50 @@ async def paginate(
     has_next = len(rows) > params.limit
     rows = rows[: params.limit]
 
-    total: int | None = None
-    total_pages: int | None = None
-    if params.with_total:
-        # order_by must be stripped: it is meaningless inside COUNT and forces
-        # PostgreSQL to sort rows it is only going to count. Built from the
-        # caller's statement rather than the ordered one, so the tiebreaker
-        # cannot reach the count even if this ``order_by(None)`` is ever lost.
-        #
-        # ``COUNT_CEILING + 1`` rather than ``COUNT_CEILING``: one row past the
-        # ceiling is what distinguishes "exactly ten thousand" from "more than
-        # ten thousand", and the two must not report the same number. The extra
-        # row costs nothing - the LIMIT is what bounds the scan either way.
-        count_stmt = select(func.count()).select_from(
-            stmt.order_by(None).limit(COUNT_CEILING + 1).subquery()
-        )
-        counted = int((await session.execute(count_stmt)).scalar_one())
-        if counted <= COUNT_CEILING:
-            total = counted
-            total_pages = max(1, -(-total // params.limit))
+    # Counted from the caller's statement rather than the ordered one, so the
+    # tiebreaker cannot reach the count even if the count's ``order_by(None)``
+    # is ever lost.
+    total = await _bounded_total(session, stmt) if params.with_total else None
+    return rows, _offset_page(params, total=total, has_next=has_next)
 
-    return rows, OffsetPagination(
-        page=params.page,
-        limit=params.limit,
-        total=total,
-        total_pages=total_pages,
-        has_next=has_next,
-        has_previous=params.page > 1,
-    )
+
+async def paginate_rows(
+    session: AsyncSession,
+    stmt: Select[Any],
+    params: PageParams,
+    *,
+    total: int | None = None,
+) -> tuple[list[Row[Any]], OffsetPagination]:
+    """Offset-paginate a SELECT whose rows are column tuples, not entities.
+
+    :func:`paginate` reads ``.scalars()``, which keeps only the first column of
+    a projected, grouped or unioned row. This is its row-shaped twin, with the
+    same ``limit + 1`` probe for ``has_next`` and the same bounded count: exact
+    up to :data:`COUNT_CEILING` and ``None`` past it (docs/assumptions.md 15).
+    It is the one copy on purpose - module copies of it drifted, and eight of
+    them reported the ceiling itself as an exact total.
+
+    The caller's ORDER BY must already be total. :func:`_stable_order` is not
+    applied, because a projection has no single entity whose primary key is the
+    row's - and a grouped statement cannot take one at all - so each statement
+    ends its own ORDER BY on something unique: an id, the group key, or a code
+    that is unique per company.
+
+    ``total`` is for a caller that has already counted the set, as reports does
+    to decide whether a report can be served inline. It is reported through the
+    same ceiling rule, and no second count runs.
+    """
+    result = await session.execute(stmt.limit(params.limit + 1).offset(params.offset))
+    rows = list(result.all())
+
+    has_next = len(rows) > params.limit
+    rows = rows[: params.limit]
+
+    if total is not None:
+        total = _within_ceiling(total)
+    elif params.with_total:
+        total = await _bounded_total(session, stmt)
+    return rows, _offset_page(params, total=total, has_next=has_next)
 
 
 def paginated(items: list[T], pagination: OffsetPagination) -> PaginatedResponse[T]:
@@ -503,6 +557,7 @@ __all__ = [
     "page_params",
     "paginate",
     "paginate_keyset",
+    "paginate_rows",
     "paginated",
     "sort_params",
 ]
