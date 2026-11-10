@@ -25,92 +25,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import today, utcnow
 from src.core.deps import Principal, TenantContext
-from src.core.permissions import Permission
 from src.modules.audit.models import AuditLog
 from src.modules.finance.models import VendorInvoice
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.procurement import service as procurement
 from src.modules.procurement.models import GoodsReceiptLine, PurchaseOrder, PurchaseOrderStatus
-from src.modules.vendors.models import Transporter, Vendor
+from src.modules.vendors.models import Transporter
 from src.workers.tasks.reports import render_purchase_order_pdf
 from tests import seed_support
 from tests.api.vendor_portal_support import (
-    approved_vendor,
+    as_owner,
     code,
     order_line,
     portal_user,
-    raise_order,
     receive,
-    role,
     send,
+    sent_order,
     sign_in,
-    staff_user,
     vendor_principal,
 )
+from tests.api.vendor_portal_support import world as world
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
 PDF = render_purchase_order_pdf({"code": "TEST", "lines": []})
-
-
-@pytest.fixture
-async def world(session: AsyncSession, tenant: TenantContext, principal: Principal) -> Any:
-    """Two approved vendors, a store, a vendor account each, and the buying office.
-
-    The buying office is the order's creator (the ``principal`` fixture's user),
-    an approver holding ``purchase_order.approve`` and an ADMIN - the three
-    groups a shipment update must reach.
-    """
-    uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
-    warehouse = await seed_support.seed_warehouse(
-        session, company_id=tenant.company_id, code=code("WH"), address_line1="Plot 7, MIDC"
-    )
-    ours = await approved_vendor(session, tenant, "Our Fasteners")
-    theirs = await approved_vendor(session, tenant, "Somebody Else's Fasteners")
-    approvers = await role(
-        session,
-        tenant,
-        role_code=code("APPROVER"),
-        permissions=[Permission.PURCHASE_ORDER_VIEW, Permission.PURCHASE_ORDER_APPROVE],
-    )
-    admins = await role(session, tenant, role_code="ADMIN", permissions=[])
-    owner = await portal_user(session, tenant, ours)
-
-    async def order_for(vendor: Vendor, **kwargs: Any) -> PurchaseOrder:
-        return await raise_order(
-            session,
-            tenant,
-            principal,
-            vendor=vendor,
-            warehouse_id=warehouse.id,
-            uom_id=uom.id,
-            **kwargs,
-        )
-
-    return {
-        "ours": ours,
-        "theirs": theirs,
-        "owner": owner,
-        "approver": await staff_user(session, tenant, with_role=approvers, name="Approver"),
-        "admin": await staff_user(session, tenant, with_role=admins, name="Admin"),
-        "warehouse": warehouse,
-        "uom": uom,
-        "order_for": order_for,
-    }
-
-
-def as_owner(principal: Principal, world: Any) -> Principal:
-    vendor = vendor_principal(principal, world["ours"].id, user_id=world["owner"].id)
-    sign_in(vendor)
-    return vendor
-
-
-async def sent_order(
-    session: AsyncSession, tenant: TenantContext, principal: Principal, world: Any, **kwargs: Any
-) -> PurchaseOrder:
-    order = await world["order_for"](world["ours"], **kwargs)
-    await send(session, tenant, principal, order.id)
-    return order
 
 
 async def accepted_order(

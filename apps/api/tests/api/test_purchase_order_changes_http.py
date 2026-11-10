@@ -18,12 +18,16 @@ from src.modules.procurement.models import PurchaseOrderStatus, PurchaseRequisit
 from src.modules.procurement.schemas import PurchaseOrderAmendLineIn, PurchaseOrderAmendRequest
 from src.modules.sales.models import SalesOrder, SalesOrderLine
 from tests import seed_support
-from tests.api.test_procurement_conversion_http import setting as setting
-from tests.api.test_vendor_portal_http import as_owner, sent_order
-from tests.api.test_vendor_portal_http import world as world
-from tests.api.vendor_portal_support import order_line, portal_user, vendor_principal
-from tests.integration.test_procurement_service import make_order, send_order
-from tests.integration.test_purchase_order_changes import manual_payload, manual_resolution
+from tests.api.vendor_portal_support import (
+    as_owner,
+    order_line,
+    portal_user,
+    sent_order,
+    vendor_principal,
+)
+from tests.api.vendor_portal_support import world as world
+from tests.procurement_support import make_order, manual_payload, manual_resolution, send_order
+from tests.requisition_support import setting as setting
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 

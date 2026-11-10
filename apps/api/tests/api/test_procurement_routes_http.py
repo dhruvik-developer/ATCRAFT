@@ -59,13 +59,7 @@ from src.modules.vendors.models import VendorType
 from src.modules.warehouses.schemas import StorageLocationCreate
 from src.modules.warehouses.service import StorageLocationService
 from tests import seed_support
-from tests.integration.test_procurement_service import (
-    make_order,
-    make_requisition,
-    make_rfq,
-    receive,
-    send_order,
-)
+from tests.procurement_support import make_order, make_requisition, make_rfq, receive, send_order
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 

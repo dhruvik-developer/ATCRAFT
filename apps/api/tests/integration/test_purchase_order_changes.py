@@ -6,7 +6,6 @@ import dataclasses
 import uuid
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any
 
 import pytest
 from sqlalchemy import func, select
@@ -38,24 +37,28 @@ from src.modules.procurement.models import (
 from src.modules.procurement.schemas import (
     PurchaseOrderAmendLineIn,
     PurchaseOrderAmendRequest,
-    PurchaseOrderCreate,
     PurchaseOrderDuplicateResolutionRequest,
     PurchaseOrderLineIn,
-    RequisitionCreate,
-    RequisitionLineIn,
 )
 from tests import seed_support
-from tests.integration.test_procurement_service import _schema as _schema
-from tests.integration.test_procurement_service import approver as approver
-from tests.integration.test_procurement_service import buyer as buyer
-from tests.integration.test_procurement_service import (
-    buyer_without_approval as buyer_without_approval,
+from tests.procurement_support import _schema as _schema
+from tests.procurement_support import (
+    approved_request,
+    fresh,
+    linked_order,
+    make_order,
+    manual_payload,
+    manual_resolution,
+    receive,
+    send_order,
 )
-from tests.integration.test_procurement_service import db as db
-from tests.integration.test_procurement_service import make_order, receive, send_order
-from tests.integration.test_procurement_service import masters as masters
-from tests.integration.test_procurement_service import other_tenant as other_tenant
-from tests.integration.test_procurement_service import tenant as tenant
+from tests.procurement_support import approver as approver
+from tests.procurement_support import buyer as buyer
+from tests.procurement_support import buyer_without_approval as buyer_without_approval
+from tests.procurement_support import db as db
+from tests.procurement_support import masters as masters
+from tests.procurement_support import other_tenant as other_tenant
+from tests.procurement_support import tenant as tenant
 
 pytestmark = pytest.mark.integration
 
@@ -104,87 +107,6 @@ async def test_cancel_request_does_not_ignore_an_unknown_requisition(
     assert (
         await fresh(db, PurchaseRequisitionLine, source_id)
     ).status != RequisitionLineStatus.CANCELLED
-
-
-def manual_payload(masters: dict[str, Any], quantity: str = "25", **overrides: Any):
-    values = {
-        "vendor_id": masters["vendor"].id,
-        "warehouse_id": masters["warehouse"].id,
-        "expected_delivery_date": today() + timedelta(days=10),
-        "lines": [
-            PurchaseOrderLineIn(
-                line_number=1,
-                item_id=masters["item"].id,
-                quantity=Decimal(quantity),
-                unit_price=Decimal("50"),
-            )
-        ],
-    }
-    values.update(overrides)
-    return PurchaseOrderCreate.model_validate(values)
-
-
-def manual_resolution(order, draft, *, action="MERGE", line_id=None, version=None):
-    return PurchaseOrderDuplicateResolutionRequest(
-        action=action,
-        candidate_purchase_order_id=order.id,
-        candidate_line_id=line_id,
-        expected_candidate_version=order.version if version is None else version,
-        reason="Additional approved demand",
-        draft={"kind": "MANUAL", "purchase_order": draft},
-    )
-
-
-async def fresh(db, model, identifier):
-    return (
-        await db.execute(
-            select(model).where(model.id == identifier).execution_options(populate_existing=True)
-        )
-    ).scalar_one()
-
-
-async def approved_request(db, tenant, buyer, approver, masters, *quantities):
-    payload = RequisitionCreate(
-        required_date=today() + timedelta(days=10),
-        warehouse_id=masters["warehouse"].id,
-        lines=[
-            RequisitionLineIn(
-                line_number=number,
-                item_id=masters["item"].id,
-                quantity=Decimal(quantity),
-                suggested_vendor_id=masters["vendor"].id,
-                estimated_unit_price=Decimal("50"),
-            )
-            for number, quantity in enumerate(quantities or ("20",), 1)
-        ],
-    )
-    header, lines = await service.create_requisition(db, tenant, buyer, payload)
-    for status in (RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.APPROVED):
-        await service.transition_requisition(
-            db, tenant, approver, header.id, status, reason="Demand approved"
-        )
-    return header, lines
-
-
-async def linked_order(db, tenant, buyer, masters, allocations, *, quantity=None):
-    total = sum((Decimal(value) for _, value in allocations), Decimal("0"))
-    payload = manual_payload(
-        masters,
-        lines=[
-            PurchaseOrderLineIn(
-                line_number=1,
-                item_id=masters["item"].id,
-                uom_id=masters["uom"].id,
-                quantity=Decimal(quantity) if quantity else total,
-                unit_price=Decimal("50"),
-                source_allocations=[
-                    {"requisition_line_id": identifier, "quantity": value}
-                    for identifier, value in allocations
-                ],
-            )
-        ],
-    )
-    return await service.create_purchase_order(db, tenant, buyer, payload)
 
 
 @pytest.mark.parametrize("status", ["DRAFT", "PENDING_APPROVAL", "SENT"])

@@ -25,11 +25,11 @@ from src.modules.procurement.models import (
 from src.modules.procurement.service_rules import DuplicateAction, DuplicateConfidence, ProposedLine
 from src.modules.products.models import ItemCategory
 from src.modules.vendors.models import VendorCategory
-from tests.integration.test_procurement_service import _schema as _schema
-from tests.integration.test_procurement_service import db as db
-from tests.integration.test_procurement_service import masters as masters
-from tests.integration.test_procurement_service import other_tenant as other_tenant
-from tests.integration.test_procurement_service import tenant as tenant
+from tests.procurement_support import _schema as _schema
+from tests.procurement_support import db as db
+from tests.procurement_support import masters as masters
+from tests.procurement_support import other_tenant as other_tenant
+from tests.procurement_support import tenant as tenant
 from tests.seed_support import seed_item
 
 pytestmark = pytest.mark.integration

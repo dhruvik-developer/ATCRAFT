@@ -33,23 +33,23 @@ from src.modules.procurement.schemas import (
     PurchaseOrderLineIn,
 )
 from tests import seed_support
-from tests.integration.test_procurement_service import _schema as _schema
-from tests.integration.test_procurement_service import _schema_engine, make_order, send_order
-from tests.integration.test_procurement_service import approver as approver
-from tests.integration.test_procurement_service import buyer as buyer
-from tests.integration.test_procurement_service import (
-    buyer_without_approval as buyer_without_approval,
-)
-from tests.integration.test_procurement_service import db as db
-from tests.integration.test_procurement_service import masters as masters
-from tests.integration.test_procurement_service import tenant as tenant
-from tests.integration.test_purchase_order_changes import (
+from tests.procurement_support import _schema as _schema
+from tests.procurement_support import (
+    _schema_engine,
     approved_request,
     fresh,
     linked_order,
+    make_order,
     manual_payload,
     manual_resolution,
+    send_order,
 )
+from tests.procurement_support import approver as approver
+from tests.procurement_support import buyer as buyer
+from tests.procurement_support import buyer_without_approval as buyer_without_approval
+from tests.procurement_support import db as db
+from tests.procurement_support import masters as masters
+from tests.procurement_support import tenant as tenant
 
 pytestmark = pytest.mark.integration
 

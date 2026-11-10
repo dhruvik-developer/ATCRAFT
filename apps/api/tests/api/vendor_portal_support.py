@@ -3,6 +3,11 @@
 Orders are raised, approved and sent through the procurement service as the
 buyer - the vendor's requests are what the tests put over HTTP. Rows are built
 through the ORM (CLAUDE.md: a hand-written column list goes stale).
+
+``world`` is the fixture most of them start from: two approved vendors, a store,
+a portal account for ours, an approver and an ADMIN, and ``order_for`` to raise
+an order to either vendor. ``sent_order`` raises and sends one to ours, and
+``as_owner`` signs the request in as ours' portal account.
 """
 
 from __future__ import annotations
@@ -11,8 +16,9 @@ import uuid
 from collections.abc import Iterable
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import cast
+from typing import Any, cast
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -284,3 +290,63 @@ async def receive(
     )
     await procurement.post_goods_receipt(session, tenant, principal, receipt.id)
     return receipt
+
+
+@pytest.fixture
+async def world(session: AsyncSession, tenant: TenantContext, principal: Principal) -> Any:
+    """Two approved vendors, a store, a vendor account each, and the buying office.
+
+    The buying office is the order's creator (the ``principal`` fixture's user),
+    an approver holding ``purchase_order.approve`` and an ADMIN - the three
+    groups a shipment update must reach.
+    """
+    uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
+    warehouse = await seed_support.seed_warehouse(
+        session, company_id=tenant.company_id, code=code("WH"), address_line1="Plot 7, MIDC"
+    )
+    ours = await approved_vendor(session, tenant, "Our Fasteners")
+    theirs = await approved_vendor(session, tenant, "Somebody Else's Fasteners")
+    approvers = await role(
+        session,
+        tenant,
+        role_code=code("APPROVER"),
+        permissions=[Permission.PURCHASE_ORDER_VIEW, Permission.PURCHASE_ORDER_APPROVE],
+    )
+    admins = await role(session, tenant, role_code="ADMIN", permissions=[])
+    owner = await portal_user(session, tenant, ours)
+
+    async def order_for(vendor: Vendor, **kwargs: Any) -> PurchaseOrder:
+        return await raise_order(
+            session,
+            tenant,
+            principal,
+            vendor=vendor,
+            warehouse_id=warehouse.id,
+            uom_id=uom.id,
+            **kwargs,
+        )
+
+    return {
+        "ours": ours,
+        "theirs": theirs,
+        "owner": owner,
+        "approver": await staff_user(session, tenant, with_role=approvers, name="Approver"),
+        "admin": await staff_user(session, tenant, with_role=admins, name="Admin"),
+        "warehouse": warehouse,
+        "uom": uom,
+        "order_for": order_for,
+    }
+
+
+def as_owner(principal: Principal, world: Any) -> Principal:
+    vendor = vendor_principal(principal, world["ours"].id, user_id=world["owner"].id)
+    sign_in(vendor)
+    return vendor
+
+
+async def sent_order(
+    session: AsyncSession, tenant: TenantContext, principal: Principal, world: Any, **kwargs: Any
+) -> PurchaseOrder:
+    order = await world["order_for"](world["ours"], **kwargs)
+    await send(session, tenant, principal, order.id)
+    return order
