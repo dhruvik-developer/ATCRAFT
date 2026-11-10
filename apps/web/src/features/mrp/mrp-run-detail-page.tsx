@@ -40,7 +40,7 @@ import {
   Timer,
   TriangleAlert,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -350,13 +350,14 @@ export default function MrpRunDetailPage() {
     () => run?.warehouse_ids ?? run?.parameters?.warehouse_ids ?? [],
     [run],
   )
+  const canViewWarehouses = can(P.WAREHOUSE_VIEW)
   // The one spelling of the lookup, so this and `WarehouseSelect` share a
   // cache entry rather than fetching the same bounded list twice.
   const warehouses = useWarehouseLookup(
     (scopedWarehouseIds.length > 0 ||
       convertOpen ||
       suggestions.data.some((row) => row.suggestion_type === 'TRANSFER')) &&
-      can(P.WAREHOUSE_VIEW),
+      canViewWarehouses,
   )
   const warehouseById = useMemo(
     () => new Map((warehouses.data?.data ?? []).map((warehouse) => [warehouse.id, warehouse])),
@@ -512,7 +513,7 @@ export default function MrpRunDetailPage() {
     (jobWorkRows.length === 1 &&
       convertibleRows.length === 1 &&
       can(P.VENDOR_VIEW) &&
-      (Boolean(singleRunWarehouseId) || can(P.WAREHOUSE_VIEW)))
+      (Boolean(singleRunWarehouseId) || canViewWarehouses))
   const jobWorkInputsReady =
     Boolean(jobWorkVendorId && jobWorkProcess && jobWorkReturnDate) &&
     Boolean(singleRunWarehouseId || jobWorkWarehouseId) &&
@@ -555,28 +556,35 @@ export default function MrpRunDetailPage() {
     convert.mutate({ ids: convertibleIds })
   }
 
-  const toggleRow = (row: MrpSuggestionRow) => {
+  // Stable callbacks: the columns below are memoised on them, and a new one per
+  // render would rebuild the whole suggestion table on every render.
+  const toggleRow = useCallback((row: MrpSuggestionRow) => {
     setSelected((current) => {
       const next = { ...current }
       if (next[row.id]) delete next[row.id]
       else next[row.id] = row
       return next
     })
-  }
+  }, [])
 
-  const togglePage = (checked: boolean) => {
-    setSelected((current) => {
-      const next = { ...current }
-      for (const row of pageActionable) {
-        if (checked) next[row.id] = row
-        else delete next[row.id]
-      }
-      return next
-    })
-  }
+  const togglePage = useCallback(
+    (checked: boolean) => {
+      setSelected((current) => {
+        const next = { ...current }
+        for (const row of pageActionable) {
+          if (checked) next[row.id] = row
+          else delete next[row.id]
+        }
+        return next
+      })
+    },
+    [pageActionable],
+  )
 
-  const toggleExpanded = (id: string) =>
-    setExpanded((current) => ({ ...current, [id]: !current[id] }))
+  const toggleExpanded = useCallback(
+    (id: string) => setExpanded((current) => ({ ...current, [id]: !current[id] })),
+    [],
+  )
 
   const columns = useMemo<ColumnDef<MrpSuggestionRow, unknown>[]>(
     () => [
@@ -675,7 +683,7 @@ export default function MrpRunDetailPage() {
           if (warehouses.error) {
             return <FieldError message="Warehouse labels could not be loaded." />
           }
-          if (!can(P.WAREHOUSE_VIEW)) {
+          if (!canViewWarehouses) {
             return <span className="text-muted-foreground">Warehouse details hidden</span>
           }
           const source = warehouseById.get(row.original.from_warehouse_id ?? '')
@@ -878,10 +886,24 @@ export default function MrpRunDetailPage() {
         },
       },
     ],
-    // The header checkbox and every row checkbox depend on the current tick
-    // list and on which rows this page can act on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allPageSelected, canConvert, canViewAllocation, expanded, pageActionable, selected],
+    // Everything a cell reads. The warehouse lookup is listed in full: a route
+    // cell drawn while it loaded has to be redrawn when it arrives or fails,
+    // and nothing else on the page need change at that moment.
+    [
+      allPageSelected,
+      canConvert,
+      canViewAllocation,
+      canViewWarehouses,
+      expanded,
+      pageActionable,
+      selected,
+      toggleExpanded,
+      togglePage,
+      toggleRow,
+      warehouseById,
+      warehouses.error,
+      warehouses.isLoading,
+    ],
   )
 
   // ------------------------------------------------------------- states ----
@@ -1341,7 +1363,7 @@ export default function MrpRunDetailPage() {
                   onValueChange={(value) =>
                     setJobWorkWarehouseId(value === SELECT_ALL ? '' : value)
                   }
-                  disabled={!can(P.WAREHOUSE_VIEW) || warehouses.isLoading}
+                  disabled={!canViewWarehouses || warehouses.isLoading}
                 >
                   <SelectTrigger id="mrp-job-work-warehouse">
                     <SelectValue placeholder="Choose a warehouse" />

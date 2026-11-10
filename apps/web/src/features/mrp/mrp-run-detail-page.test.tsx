@@ -1,8 +1,8 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen, type RouteBody, type RouteHandler } from '@/test/harness'
 
 import type { MrpRequirementRow, MrpRunDetail, MrpSuggestionRow } from './mrp-types'
 import MrpRunDetailPage from './mrp-run-detail-page'
@@ -228,6 +228,70 @@ describe('MRP transfer conversion', () => {
     expect(fetch.requestFor('POST', `/mrp/suggestions/${TRANSFER_SUGGESTION_ID}/convert`)).toEqual(
       {},
     )
+  })
+})
+
+/**
+ * A transfer's route on a cold warehouse cache - a direct link, a notification
+ * or a reload.
+ *
+ * An unscoped run needs the warehouse list only for its transfer rows, so the
+ * lookup starts in the render where the suggestions arrive, and every route
+ * cell is drawn while it is still loading. The suggestion columns were memoised
+ * without the lookup among their dependencies, so nothing redrew those cells
+ * when it answered: every route read "Loading warehouses…" until the planner
+ * happened to tick a row, and a failed lookup was never reported at all.
+ */
+describe('MRP transfer route on a cold warehouse cache', () => {
+  const transferSuggestion: MrpSuggestionRow = {
+    ...suggestion,
+    id: TRANSFER_SUGGESTION_ID,
+    suggestion_type: 'TRANSFER',
+    from_warehouse_id: SOURCE_WAREHOUSE_ID,
+    to_warehouse_id: WAREHOUSE_ID,
+  }
+  const WAREHOUSES = page([
+    { id: SOURCE_WAREHOUSE_ID, code: 'WH-A', name: 'Source' },
+    { id: WAREHOUSE_ID, code: 'WH-B', name: 'Destination' },
+  ])
+
+  function renderUnscopedRun(warehouses: RouteHandler) {
+    return renderScreen(<MrpRunDetailPage />, {
+      route: `/mrp/runs/${RUN_ID}`,
+      path: '/mrp/runs/:runId',
+      permissions: [P.MRP_VIEW, P.WAREHOUSE_VIEW],
+      routes: {
+        [`GET /mrp/runs/${RUN_ID}`]: ok({ ...run, warehouse_ids: [] }),
+        [`GET /mrp/runs/${RUN_ID}/suggestions`]: page([transferSuggestion]),
+        'GET /mrp/shortage-report': page([]),
+        'GET /warehouses': warehouses,
+      },
+    })
+  }
+
+  it('names the route when the warehouse list arrives, without touching the table', async () => {
+    let answerWarehouses!: (response: RouteBody) => void
+    renderUnscopedRun(
+      () =>
+        new Promise<RouteBody>((resolve) => {
+          answerWarehouses = resolve
+        }),
+    )
+
+    expect(await screen.findByText('Loading warehouses…')).toBeInTheDocument()
+    await act(async () => {
+      answerWarehouses(WAREHOUSES)
+    })
+
+    expect(await screen.findByText('WH-A → WH-B')).toBeInTheDocument()
+    expect(screen.queryByText('Loading warehouses…')).not.toBeInTheDocument()
+  })
+
+  it('says the lookup failed rather than loading for ever', async () => {
+    renderUnscopedRun(fail(500, 'INTERNAL_ERROR', 'The warehouse register is unavailable'))
+
+    expect(await screen.findByText('Warehouse labels could not be loaded.')).toBeInTheDocument()
+    expect(screen.queryByText('Loading warehouses…')).not.toBeInTheDocument()
   })
 })
 
