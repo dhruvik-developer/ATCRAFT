@@ -25,6 +25,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.deps import (
     CurrentUser,
     DbSession,
@@ -106,7 +107,10 @@ FiltersDep = Annotated[ItemFilters, Depends(item_filters)]
 # organisation masters' does: a DELETE body is legal but several clients and
 # proxies drop it, and the reason is not optional.
 ReasonQuery = Annotated[
-    str, Query(min_length=3, max_length=255, description="Why the record is being retired")
+    str,
+    Query(
+        min_length=REASON_MIN_LENGTH, max_length=255, description="Why the record is being retired"
+    ),
 ]
 
 

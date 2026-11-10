@@ -28,6 +28,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import date_before
 from src.modules.quality.models import (
     ALLOWED_VALUE_LENGTH,
@@ -49,7 +50,7 @@ PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 Measurement = Annotated[Decimal, Field(max_digits=18, decimal_places=6)]
 SamplePercentage = Annotated[Decimal, Field(gt=0, le=100, max_digits=9, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 Code = Annotated[str, Field(min_length=2, max_length=64)]
 Name = Annotated[str, Field(min_length=2, max_length=255)]
 ParameterName = Annotated[str, Field(min_length=1, max_length=PARAMETER_NAME_LENGTH)]
@@ -500,7 +501,9 @@ class DecideRequest(BaseModel):
     #: Required whenever anything is rejected or scrapped. Checked here so the
     #: caller is told which field is missing, and again by the database so a
     #: write that did not come through this schema cannot skip it.
-    rejection_reason: Annotated[str, Field(min_length=3, max_length=2000)] | None = None
+    rejection_reason: (
+        Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=2000)] | None
+    ) = None
     remarks: Remark | None = None
 
     #: Business time of the inspection. Defaults to now; supplied when a check

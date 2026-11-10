@@ -28,6 +28,7 @@ from typing import Annotated, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.dispatch.models import (
     EWAY_BILL_LENGTH,
     MAX_CARTONS_PER_LINE,
@@ -44,7 +45,7 @@ from src.modules.dispatch.models import (
 PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
 NonNegativeWeight = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 Notes = Annotated[str, Field(max_length=2000)]
 
 #: Upper bound on a single delay sweep. The Celery beat task runs hourly against

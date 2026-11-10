@@ -29,6 +29,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import date_before
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.finance.models import (
@@ -55,7 +56,7 @@ PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 UnitPriceIn = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=3, max_length=500)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=500)]
 Notes = Annotated[str, Field(max_length=2000)]
 Currency = Annotated[str, Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")]
 
@@ -932,7 +933,7 @@ class PaymentFilters(BaseModel):
 #: Bounded to what the customers module accepts on its own ``OutstandingAdjustment``
 #: payload (3-255 characters): the reason is forwarded verbatim, so a reason
 #: that passes here must not fail validation there and become a 500.
-AdjustmentReason = Annotated[str, Field(min_length=3, max_length=255)]
+AdjustmentReason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 class CustomerAdjustmentCreate(BaseModel):

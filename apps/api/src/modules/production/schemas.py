@@ -25,6 +25,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import (
     OUTPUT_SERIAL_LENGTH,
     OUTPUT_SERIAL_REPEATED,
@@ -46,7 +47,7 @@ from src.modules.production.models import (
 PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 Priority = Annotated[int, Field(ge=0, le=9999)]
-ReasonField = Annotated[str, Field(min_length=3, max_length=255)]
+ReasonField = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 #: A single issue document with more lines than this is a data-entry accident,
 #: not a kit. The bound matters because posting locks every affected balance row

@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.deps import DbSession, Tenant, require_any_permission, require_permission
 from src.core.messages import success_message
 from src.core.pagination import PageParams, SortParams, page_params, paginated, sort_params
@@ -30,7 +31,9 @@ from src.modules.products.specification_service import SpecificationService
 router = APIRouter()
 PageDep = Annotated[PageParams, Depends(page_params)]
 SortDep = Annotated[SortParams, Depends(sort_params)]
-ReasonQuery = Annotated[str, Query(min_length=3, max_length=255, pattern=r"\S.{1,253}\S|\S{3}")]
+ReasonQuery = Annotated[
+    str, Query(min_length=REASON_MIN_LENGTH, max_length=255, pattern=r"\S.{1,253}\S|\S{3}")
+]
 
 
 @router.get(

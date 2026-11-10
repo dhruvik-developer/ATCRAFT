@@ -24,6 +24,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.common.codes import clean_text
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.allocation.models import (
     DEFAULT_RESERVATION_PRIORITY,
     DemandType,
@@ -32,7 +33,7 @@ from src.modules.allocation.models import (
     ReservationType,
 )
 
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 PositiveQuantity = Annotated[Decimal, Field(gt=0, le=Decimal("99999999999999"))]
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
 #: Bounded so a client cannot express a priority the ranking cannot compare

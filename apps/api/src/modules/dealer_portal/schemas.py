@@ -12,11 +12,11 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.constants import MAX_INTEGER_COLUMN
+from src.core.constants import MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
 from src.modules.dealer_portal.models import AvailabilityBand, OfferScopeKind
 from src.modules.sales.models import SalesOrderLineStatus, SalesOrderStatus
 
-Reason = Field(min_length=3, max_length=500)
+Reason = Field(min_length=REASON_MIN_LENGTH, max_length=500)
 
 
 class DealerOfferSnippet(BaseModel):

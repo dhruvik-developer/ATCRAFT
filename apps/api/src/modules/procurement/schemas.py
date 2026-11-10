@@ -32,7 +32,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN
+from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
 from src.core.demand_provenance import DemandReference
 from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, duplicate_line_numbers, listed
 from src.core.validation import reject_null
@@ -68,7 +68,7 @@ DiscountPercentage = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decima
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
 CurrencyCode = Annotated[str, Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")]
 Priority = Annotated[int, Field(ge=MIN_PRIORITY, le=MAX_PRIORITY)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 LeadTimeDays = Annotated[int, Field(ge=0, le=3650)]
 PaymentTermsDays = Annotated[int, Field(ge=0, le=365)]
 #: The pools a purchase return may draw from - ``models.RETURNABLE_STOCK_STATES``
@@ -1200,7 +1200,7 @@ class PurchaseOrderApprovalRequest(BaseModel):
     def _confirmation_reason(self) -> PurchaseOrderApprovalRequest:
         if self.reason is not None:
             self.reason = self.reason.strip()
-        if self.confirm_duplicate and len(self.reason or "") < 3:
+        if self.confirm_duplicate and len(self.reason or "") < REASON_MIN_LENGTH:
             raise ValueError("Confirming duplicate demand requires a meaningful approval reason.")
         return self
 
@@ -1307,7 +1307,7 @@ class PurchaseOrderDuplicateResolutionRequest(BaseModel):
         PurchaseOrderManualDuplicateDraft | PurchaseOrderRequisitionDuplicateDraft,
         Field(discriminator="kind"),
     ]
-    reason: str = Field(min_length=3, max_length=1000)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=1000)
 
     @field_validator("reason", mode="before")
     @classmethod

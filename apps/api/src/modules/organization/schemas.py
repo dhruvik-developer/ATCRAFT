@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from src.common.banking import validate_optional_ifsc
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
-from src.core.constants import MAX_NOTES_LENGTH
+from src.core.constants import MAX_NOTES_LENGTH, REASON_MIN_LENGTH
 from src.core.validation import reject_null
 from src.modules.organization.models import CostCentreType
 
@@ -611,7 +611,7 @@ class ReasonRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 __all__ = [

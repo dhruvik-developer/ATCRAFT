@@ -36,6 +36,7 @@ from pydantic import (
 )
 
 from src.common.codes import clean_text
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.demand_provenance import RootDemandProvenance, project_demand_provenance
 from src.core.messages import date_before
 from src.core.types import to_quantity
@@ -58,7 +59,7 @@ from src.modules.mrp.models import (
 PositiveQuantity = Annotated[
     Decimal, Field(gt=0, le=Decimal("99999999999999"), max_digits=18, decimal_places=4)
 ]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 #: Bound on a single manual-demand payload. A planner types these by hand; a
 #: request carrying thousands is a bulk import, which is a different endpoint

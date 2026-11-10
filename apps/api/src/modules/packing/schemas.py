@@ -26,6 +26,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.packing.models import (
     MAX_CARTONS_PER_ORDER,
     MAX_CONTENTS_PER_CARTON,
@@ -39,7 +40,7 @@ from src.modules.packing.models import (
 PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
 NonNegativeWeight = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 PositiveDimension = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 Notes = Annotated[str, Field(max_length=2000)]
 LineNumber = Annotated[int, Field(ge=1, le=100_000)]
 

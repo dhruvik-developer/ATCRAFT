@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.core.constants import MAX_INTEGER_COLUMN
+from src.core.constants import MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
 from src.core.messages import needs_time_zone
 from src.core.responses import OffsetPagination
 from src.core.validation import bind_request_model
@@ -58,14 +58,14 @@ class VendorPortalAccept(BaseModel):
 class VendorPortalDecline(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 class VendorPortalDateChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     date: date
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 class VendorPortalReady(BaseModel):

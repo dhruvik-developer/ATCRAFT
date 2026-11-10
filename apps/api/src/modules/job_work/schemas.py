@@ -24,7 +24,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.constants import MAX_SERIAL_BULK
+from src.core.constants import MAX_SERIAL_BULK, REASON_MIN_LENGTH
 from src.core.messages import SOURCE_DOCUMENT_REQUIRED
 from src.modules.job_work.models import (
     VEHICLE_NUMBER_LENGTH,
@@ -47,7 +47,7 @@ TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)
 #: SAC for the processing service, e.g. 9988 for manufacturing services on
 #: others' goods. A blank string is not a code.
 SacCode = Annotated[str, Field(min_length=1, max_length=16)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 Notes = Annotated[str, Field(max_length=2000)]
 LineNumber = Annotated[int, Field(ge=1, le=100_000)]
 

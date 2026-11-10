@@ -26,6 +26,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, date_before, duplicate_line_numbers
 from src.modules.sales.models import (
     DEFAULT_PRIORITY,
@@ -47,7 +48,7 @@ TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)
 StateCode = Annotated[str, Field(min_length=2, max_length=4, pattern=r"^[0-9]{2}$")]
 CurrencyCode = Annotated[str, Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")]
 Priority = Annotated[int, Field(ge=MIN_PRIORITY, le=MAX_PRIORITY)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 #: An order with more lines than this is a data-entry accident or a bulk import
 #: that belongs in a job, not an HTTP request. The bound matters because create

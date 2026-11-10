@@ -31,6 +31,7 @@ from pydantic import (
 )
 
 from src.common.codes import normalise_code
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import date_before, duplicate_operation_sequences, listed
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
@@ -54,7 +55,7 @@ WorkingHours = Annotated[
 CodeField = Annotated[str, Field(min_length=1, max_length=32)]
 RoutingCodeField = Annotated[str, Field(min_length=1, max_length=64)]
 NameField = Annotated[str, Field(min_length=1, max_length=255)]
-ReasonField = Annotated[str, Field(min_length=3, max_length=255)]
+ReasonField = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 #: A routing with more steps than this is a data-entry accident, not a process.
 #: The bound matters because create and update both replace the whole operation

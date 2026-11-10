@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
-from src.core.constants import MAX_NOTES_LENGTH
+from src.core.constants import MAX_NOTES_LENGTH, REASON_MIN_LENGTH
 from src.modules.customers.models import AddressType, CustomerType, PriceType
 
 #: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
@@ -43,7 +43,7 @@ SignedMoneyField = Annotated[Decimal, Field(max_digits=18, decimal_places=4)]
 
 Code = Annotated[str, Field(min_length=1, max_length=32)]
 Name = Annotated[str, Field(min_length=1, max_length=255)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 def _validate_state_code(value: str | None) -> str | None:

@@ -30,6 +30,7 @@ from src.core.constants import (
     MAX_DESCRIPTION_LENGTH,
     MAX_INTEGER_COLUMN,
     MAX_NOTES_LENGTH,
+    REASON_MIN_LENGTH,
 )
 from src.core.messages import date_before
 from src.core.pagination import bind_query_filters
@@ -600,7 +601,7 @@ class ItemStatusChange(_Base):
     model_config = ConfigDict(extra="forbid")
 
     is_active: bool
-    reason: Annotated[str, Field(min_length=3, max_length=255)]
+    reason: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 # -----------------------------------------------------------------------------

@@ -35,7 +35,12 @@ from src.common.tax_ids import (
     validate_gstin,
     validate_pan,
 )
-from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY, MAX_NOTES_LENGTH
+from src.core.constants import (
+    CURRENCY_CODE_LENGTH,
+    DEFAULT_CURRENCY,
+    MAX_NOTES_LENGTH,
+    REASON_MIN_LENGTH,
+)
 from src.modules.vendors.models import (
     DEFAULT_RATING_WINDOW_DAYS,
     MAX_RATING_WINDOW_DAYS,
@@ -776,7 +781,7 @@ class StatusChangeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 class ApprovalRequest(BaseModel):
@@ -784,7 +789,7 @@ class ApprovalRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 __all__ = [

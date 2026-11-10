@@ -27,6 +27,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import (
     date_before,
     duplicate_line_numbers,
@@ -359,7 +360,7 @@ class BomStatusChange(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: Annotated[str, Field(min_length=3, max_length=255)]
+    reason: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 class CopyAsNewVersionRequest(BaseModel):
@@ -372,7 +373,7 @@ class CopyAsNewVersionRequest(BaseModel):
     effective_to: date | None = None
     copy_operations: bool = True
     notes: str | None = Field(default=None, max_length=4000)
-    reason: Annotated[str, Field(min_length=3, max_length=255)]
+    reason: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 # -----------------------------------------------------------------------------

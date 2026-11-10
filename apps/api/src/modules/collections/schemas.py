@@ -21,6 +21,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.collections.models import FollowUpChannel, FollowUpOutcome, FollowUpStatus
 from src.modules.customers.models import CustomerType
 
@@ -107,7 +108,7 @@ class FollowUpEscalate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: Annotated[str, Field(min_length=3, max_length=500)]
+    reason: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=500)]
     #: Requires ``customer.update`` in addition to ``collection.manage``; the
     #: router checks the second right before the block is attempted.
     block_customer: bool = False
@@ -116,13 +117,13 @@ class FollowUpEscalate(BaseModel):
 class FollowUpResolve(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    note: Annotated[str, Field(min_length=3, max_length=2000)]
+    note: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=2000)]
 
 
 class FollowUpCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: Annotated[str, Field(min_length=3, max_length=500)]
+    reason: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=500)]
 
 
 # -----------------------------------------------------------------------------

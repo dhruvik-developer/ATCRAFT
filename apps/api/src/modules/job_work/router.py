@@ -23,6 +23,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.deps import (
     CurrentUser,
     DbSession,
@@ -75,7 +76,10 @@ SortDep = Annotated[SortParams, Depends(sort_params)]
 # several HTTP clients and proxies drop it, and the reason is not optional
 # (master rules section 83).
 ReasonQuery = Annotated[
-    str, Query(min_length=3, max_length=255, description="Why the draft is being deleted")
+    str,
+    Query(
+        min_length=REASON_MIN_LENGTH, max_length=255, description="Why the draft is being deleted"
+    ),
 ]
 
 

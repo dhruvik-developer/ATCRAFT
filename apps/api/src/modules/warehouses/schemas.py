@@ -21,7 +21,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import clean_name, strip_optional, validate_code
-from src.core.constants import MAX_NOTES_LENGTH
+from src.core.constants import MAX_NOTES_LENGTH, REASON_MIN_LENGTH
 from src.core.validation import reject_null
 from src.modules.warehouses.models import StorageLocationType, WarehouseType
 
@@ -289,7 +289,7 @@ class StatusChangeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 __all__ = [

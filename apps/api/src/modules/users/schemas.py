@@ -35,6 +35,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.common.codes import clean_name, strip_optional
+from src.core.constants import REASON_MIN_LENGTH
 from src.core.messages import cannot_be_null
 from src.core.permissions import Permission
 from src.core.validation import reject_null
@@ -71,7 +72,7 @@ Name = Annotated[str, Field(min_length=1, max_length=255)]
 #: ``roles.name`` is VARCHAR(120). The person-sized ``Name`` let 121-255
 #: characters through to a column that refuses them - a database error, a 500.
 RoleName = Annotated[str, Field(min_length=1, max_length=120)]
-Reason = Annotated[str, Field(min_length=3, max_length=255)]
+Reason = Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 def _bounded_preferences(value: dict[str, Any] | None) -> dict[str, Any] | None:

@@ -52,7 +52,7 @@ from src.common.repository import labels_by_id
 from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.actors import actor_id
 from src.core.clock import today, utcnow
-from src.core.constants import DEFAULT_CURRENCY
+from src.core.constants import DEFAULT_CURRENCY, REASON_MIN_LENGTH
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
@@ -3320,7 +3320,7 @@ async def transition_purchase_order(
                 return order
 
             if order.duplicate_acknowledged:
-                if not confirm_duplicate or len(reason.strip()) < 3:
+                if not confirm_duplicate or len(reason.strip()) < REASON_MIN_LENGTH:
                     raise BusinessRuleError(
                         "Confirm the duplicate demand and give an approval reason."
                     )

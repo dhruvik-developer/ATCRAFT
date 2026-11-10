@@ -9,6 +9,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.finance.models import SalesInvoiceStatus
 
 
@@ -25,7 +26,7 @@ class SalesInvoiceCreate(BaseModel):
 
 class SalesInvoiceCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    reason: Annotated[str, Field(min_length=3, max_length=255)]
+    reason: Annotated[str, Field(min_length=REASON_MIN_LENGTH, max_length=255)]
 
 
 class SalesInvoiceLineRead(BaseModel):

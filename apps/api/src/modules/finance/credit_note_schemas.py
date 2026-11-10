@@ -7,6 +7,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.finance.models import CreditNoteReason, CreditNoteStatus
 
 
@@ -53,7 +54,7 @@ class CreditNoteCreate(BaseModel):
 class CreditNoteCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=500)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=500)
 
 
 class CreditNoteLineRead(BaseModel):

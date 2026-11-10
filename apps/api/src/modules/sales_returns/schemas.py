@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import REASON_MIN_LENGTH
 from src.modules.sales_returns.models import SalesReturnSource, SalesReturnStatus
 
 
@@ -34,7 +35,7 @@ class SalesReturnCreate(BaseModel):
 class SalesReturnCancel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    reason: str = Field(min_length=3, max_length=255)
+    reason: str = Field(min_length=REASON_MIN_LENGTH, max_length=255)
 
 
 class SalesReturnUnits(BaseModel):
