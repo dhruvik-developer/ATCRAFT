@@ -66,8 +66,8 @@ from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLine
 from src.modules.warehouses.models import WarehouseType
 from tests import seed_support
 from tests.dispatch_support import consignment_line, raise_consignment
-from tests.integration.test_customer_return_costing import receive_goods, shipped_stock
-from tests.integration.test_packing_final_serials import decide, make_packing_kit, start
+from tests.packing_support import decide, make_packing_kit, start
+from tests.sales_return_support import receive_goods, shipped_stock
 from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]

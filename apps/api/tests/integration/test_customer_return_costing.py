@@ -5,102 +5,18 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import func, select
 
-from src.core.clock import today
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
-from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.models import DispatchLine
-from src.modules.dispatch.schemas import DispatchCreate, DispatchLineIn, DispatchRequest
 from src.modules.inventory.models import InventoryBalance, InventoryTransaction, TransactionType
 from src.modules.inventory.repository import CostConsumptionRepository
-from src.modules.inventory.service import MovementRequest, post_movements
 from src.modules.sales_returns import service
 from src.modules.sales_returns.models import SalesReturn, SalesReturnStatus
 from src.modules.sales_returns.repository import SalesReturnRepository
 from src.modules.sales_returns.schemas import SalesReturnCreate, SalesReturnLineIn
-from tests import seed_support
+from tests.sales_return_support import receive_goods, shipped_stock
 from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
-
-
-async def shipped_stock(session, tenant, costs, *, split_quantities=None, serialized=False):
-    warehouse = await seed_support.seed_warehouse(
-        session, company_id=tenant.company_id, code="RETURN-FIFO"
-    )
-    customer = await seed_support.seed_customer(session, company_id=tenant.company_id)
-    item = await seed_support.seed_item(
-        session,
-        company_id=tenant.company_id,
-        code="RETURN-FIFO",
-        can_sell=True,
-        is_serial_tracked=serialized,
-        standard_cost=Decimal(costs[0][1]),
-    )
-    total = sum((Decimal(quantity) for quantity, _ in costs), Decimal("0"))
-    serial_ids = []
-    if serialized:
-        for _ in costs:
-            serial = await seed_support.seed_serial(
-                session, company_id=tenant.company_id, item_id=item.id, warehouse_id=warehouse.id
-            )
-            serial_ids.append(serial.id)
-    await post_movements(
-        session,
-        tenant,
-        [
-            MovementRequest(
-                item_id=item.id,
-                warehouse_id=warehouse.id,
-                quantity=Decimal(quantity),
-                unit_cost=Decimal(unit_cost),
-                serial_id=serial_ids[number] if serialized else None,
-                transaction_type=TransactionType.OPENING_BALANCE,
-                reference_type="return_cost_fixture",
-                reference_code=str(number),
-                reason="Costed stock for customer return regression",
-            )
-            for number, (quantity, unit_cost) in enumerate(costs)
-        ],
-    )
-    dispatch = await dispatch_service.create_dispatch(
-        session,
-        tenant,
-        DispatchCreate(
-            warehouse_id=warehouse.id,
-            customer_id=customer.id,
-            dispatch_date=today(),
-            lines=[
-                DispatchLineIn(item_id=item.id, quantity=Decimal(quantity), serial_ids=serial_ids)
-                for quantity in (split_quantities or [total])
-            ],
-        ),
-    )
-    await dispatch_service.mark_ready(session, tenant, dispatch.id, reason="Loaded for delivery")
-    await dispatch_service.dispatch_consignment(
-        session, tenant, dispatch.id, DispatchRequest(reason="Goods dispatched to customer")
-    )
-    return dispatch, item, warehouse
-
-
-async def receive_goods(session, tenant, dispatch, quantity, *, line_index=0, serial_ids=None):
-    returned = await service.create_return(
-        session,
-        tenant,
-        SalesReturnCreate(
-            dispatch_id=dispatch.id,
-            lines=[
-                SalesReturnLineIn(
-                    dispatch_line_id=dispatch.lines[line_index].id,
-                    quantity=Decimal(quantity),
-                    reason_code="SURPLUS",
-                    requires_qc=bool(serial_ids),
-                    serial_ids=serial_ids or [],
-                )
-            ],
-        ),
-    )
-    await service.transition_return(session, tenant, returned.id, SalesReturnStatus.RECEIVED)
-    return returned
 
 
 @pytest.mark.parametrize("original_cost", ["10", "0"])

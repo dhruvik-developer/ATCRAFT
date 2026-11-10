@@ -6,7 +6,7 @@ import pytest
 
 from src.core.deps import get_current_principal
 from src.core.permissions import Permission
-from tests.integration.test_packing_final_serials import legacy_sealed_carton, make_packing_kit
+from tests.packing_support import legacy_sealed_carton, make_packing_kit
 
 pytestmark = pytest.mark.integration
 
