@@ -20,9 +20,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from src.common.codes import strip_optional, validate_code
+from src.common.codes import clean_name, strip_optional, validate_code
 from src.core.constants import MAX_NOTES_LENGTH
-from src.core.messages import NAME_BLANK
+from src.core.validation import reject_null
 from src.modules.warehouses.models import StorageLocationType, WarehouseType
 
 #: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
@@ -84,14 +84,7 @@ class WarehouseCreate(WarehouseAddress):
     notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
-
-    @field_validator("name")
-    @classmethod
-    def _clean_name(cls, value: str) -> str:
-        cleaned = " ".join(value.split())
-        if not cleaned:
-            raise ValueError(NAME_BLANK)
-        return cleaned
+    _name = field_validator("name")(clean_name)
 
 
 class WarehouseUpdate(BaseModel):
@@ -127,16 +120,9 @@ class WarehouseUpdate(BaseModel):
     _strip = field_validator(
         "address_line1", "address_line2", "city", "state", "state_code", "postal_code", "phone"
     )(strip_optional)
-
-    @field_validator("name")
-    @classmethod
-    def _clean_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = " ".join(value.split())
-        if not cleaned:
-            raise ValueError(NAME_BLANK)
-        return cleaned
+    # An explicit null names a NOT NULL column; omitting the key keeps it.
+    _name = field_validator("name")(clean_name)
+    _not_null = field_validator("warehouse_type", "allow_negative_stock", "country")(reject_null)
 
 
 class WarehouseRead(BaseModel):
@@ -220,15 +206,8 @@ class StorageLocationCreate(BaseModel):
     notes: Notes | None = None
 
     _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
     _strip = field_validator("capacity_uom", "barcode")(strip_optional)
-
-    @field_validator("name")
-    @classmethod
-    def _clean_name(cls, value: str) -> str:
-        cleaned = " ".join(value.split())
-        if not cleaned:
-            raise ValueError(NAME_BLANK)
-        return cleaned
 
 
 class StorageLocationUpdate(BaseModel):
@@ -247,16 +226,9 @@ class StorageLocationUpdate(BaseModel):
     notes: Notes | None = None
 
     _strip = field_validator("capacity_uom", "barcode")(strip_optional)
-
-    @field_validator("name")
-    @classmethod
-    def _clean_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = " ".join(value.split())
-        if not cleaned:
-            raise ValueError(NAME_BLANK)
-        return cleaned
+    # An explicit null names a NOT NULL column; omitting the key keeps it.
+    _name = field_validator("name")(clean_name)
+    _location_type = field_validator("location_type")(reject_null)
 
 
 class StorageLocationRead(BaseModel):

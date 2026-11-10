@@ -49,10 +49,10 @@ from src.core.deps import TenantContext
 from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
-    ErrorCode,
     NotFoundError,
     SelfApprovalError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.logging import get_logger
 from src.core.messages import plural
@@ -263,17 +263,6 @@ _TRANSPORTER_AUDITED_FIELDS = [
 # -----------------------------------------------------------------------------
 # Pure helpers - unit tested without a database
 # -----------------------------------------------------------------------------
-
-
-def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
-    """The "you cannot remove this, something still points at it" refusal.
-
-    One constructor so every such refusal carries the same machine-readable code
-    and the frontend can react to all of them uniformly.
-    """
-    return BusinessRuleError(
-        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
-    )
 
 
 def build_tracking_url(template: str | None, tracking_id: str) -> str | None:
@@ -1943,7 +1932,6 @@ __all__ = [
     "insufficient_result",
     "load_performance",
     "mask_account_number",
-    "referenced_in_use",
     "template_has_placeholder",
     "transporter_state",
     "vendor_state",

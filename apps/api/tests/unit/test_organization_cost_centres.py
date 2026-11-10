@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.dialects import postgresql
 
 from src.common.banking import IFSC_SHAPE_MESSAGE, mask_account_number
+from src.common.hierarchy import assert_parent_allowed
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
 from src.core.models import Base
@@ -43,7 +44,6 @@ from src.modules.organization.service import (
     MAX_COST_CENTRE_DEPTH,
     MAX_DEPARTMENT_DEPTH,
     MasterLifecycleState,
-    assert_parent_allowed,
 )
 
 pytestmark = pytest.mark.unit
@@ -197,7 +197,11 @@ class TestDepth:
         node = uuid.uuid4()
         chain = _ids(MAX_DEPARTMENT_DEPTH - 1)
         assert_parent_allowed(
-            entity="department", node_id=node, parent_id=chain[0], parent_ancestor_ids=chain
+            entity="department",
+            node_id=node,
+            parent_id=chain[0],
+            parent_ancestor_ids=chain,
+            max_depth=MAX_DEPARTMENT_DEPTH,
         )
 
     def test_the_messages_name_a_cost_centre(self) -> None:

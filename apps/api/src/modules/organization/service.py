@@ -46,22 +46,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.banking import mask_account_number
 from src.common.codes import financial_year_key
+from src.common.hierarchy import assert_parent_allowed
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
     AuthorizationError,
     BusinessRuleError,
     DuplicateError,
-    ErrorCode,
     NotFoundError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.messages import (
     NO_FIELDS_TO_UPDATE,
-    hierarchy_too_deep,
     inactive_record,
-    own_parent,
-    parent_below,
 )
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -364,58 +362,6 @@ def financial_year_state(year: FinancialYear) -> FinancialYearState:
 # -----------------------------------------------------------------------------
 # Pure rule helpers - unit tested without a database
 # -----------------------------------------------------------------------------
-
-
-def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
-    """The "you cannot retire this, something still points at it" error.
-
-    One constructor so every such refusal carries the same machine-readable code
-    and the frontend can react to it uniformly.
-    """
-    return BusinessRuleError(
-        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
-    )
-
-
-def assert_parent_allowed(
-    *,
-    entity: str,
-    node_id: uuid.UUID | None,
-    parent_id: uuid.UUID,
-    parent_ancestor_ids: list[uuid.UUID],
-    max_depth: int = MAX_DEPARTMENT_DEPTH,
-    subtree_height: int = 0,
-) -> None:
-    """Reject a parent assignment that would break the tree.
-
-    ``parent_ancestor_ids`` is the chain from the proposed parent up to its root,
-    *including the parent itself*, as returned by the repository's recursive
-    walk. ``subtree_height`` is how many levels sit *below* the record - zero
-    for a leaf, and always zero on a create. Three failures are possible:
-
-    * the record is its own parent;
-    * the record already appears above the proposed parent, which would close a
-      cycle - the case that turns a roll-up query into an infinite loop;
-    * the resulting chain would be deeper than ``max_depth``, counted to the
-      deepest descendant that moves with the record.
-    """
-    if node_id is not None and parent_id == node_id:
-        raise BusinessRuleError(own_parent(entity))
-
-    if node_id is not None and node_id in parent_ancestor_ids:
-        raise BusinessRuleError(
-            parent_below(entity),
-            details={"parent_id": str(parent_id)},
-        )
-
-    # +1 for the record itself, which sits one level under the proposed parent,
-    # and the levels beneath it, which move with it.
-    depth = len(parent_ancestor_ids) + 1 + max(0, subtree_height)
-    if depth > max_depth:
-        raise BusinessRuleError(
-            hierarchy_too_deep(entity, max_depth),
-            details={"depth": depth, "max_depth": max_depth},
-        )
 
 
 def ranges_overlap(
@@ -1069,6 +1015,7 @@ class DepartmentService:
             node_id=node_id,
             parent_id=parent_id,
             parent_ancestor_ids=ancestors,
+            max_depth=MAX_DEPARTMENT_DEPTH,
         )
 
     async def _assert_references(
@@ -1789,7 +1736,6 @@ __all__ = [
     "MasterLifecycleState",
     "PlantService",
     "active_cost_centre_ids",
-    "assert_parent_allowed",
     "assert_period_valid",
     "cost_centre_facts",
     "default_financial_year_code",
@@ -1797,7 +1743,6 @@ __all__ = [
     "lifecycle_state",
     "master_lifecycle",
     "ranges_overlap",
-    "referenced_in_use",
     "require_cost_centre",
     "require_cost_centres",
     "require_department",

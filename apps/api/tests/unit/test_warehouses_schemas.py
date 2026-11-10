@@ -156,6 +156,51 @@ class TestPartialUpdateSemantics:
         with pytest.raises(ValidationError):
             StorageLocationUpdate(code="BIN-02")
 
+    @pytest.mark.parametrize(
+        ("schema", "field", "label"),
+        [
+            (WarehouseUpdate, "name", "Name"),
+            (WarehouseUpdate, "warehouse_type", "warehouse_type"),
+            (WarehouseUpdate, "allow_negative_stock", "allow_negative_stock"),
+            (WarehouseUpdate, "country", "country"),
+            (StorageLocationUpdate, "name", "Name"),
+            (StorageLocationUpdate, "location_type", "location_type"),
+        ],
+    )
+    def test_an_explicit_null_on_a_required_column_is_refused_on_that_field(
+        self, schema: type[WarehouseUpdate | StorageLocationUpdate], field: str, label: str
+    ) -> None:
+        # The copies of the name validator returned None, so {"name": null} reached
+        # the NOT NULL column and came back as a 422 naming no field.
+        with pytest.raises(ValidationError) as refused:
+            schema.model_validate({field: None})
+        [error] = refused.value.errors()
+        assert error["loc"] == (field,)
+        assert (
+            error["msg"] == f"Value error, {label} cannot be null. Omit it to leave it unchanged."
+        )
+
+    @pytest.mark.parametrize(
+        ("schema", "field"),
+        [
+            (WarehouseUpdate, "notes"),
+            (WarehouseUpdate, "city"),
+            (WarehouseUpdate, "parent_warehouse_id"),
+            (StorageLocationUpdate, "barcode"),
+            (StorageLocationUpdate, "parent_location_id"),
+        ],
+    )
+    def test_a_nullable_field_can_still_be_cleared(
+        self, schema: type[WarehouseUpdate | StorageLocationUpdate], field: str
+    ) -> None:
+        assert schema.model_validate({field: None}).model_dump(exclude_unset=True) == {field: None}
+
+    def test_an_update_collapses_and_refuses_a_blank_name_as_a_create_does(self) -> None:
+        assert WarehouseUpdate(name="  Raw   store ").name == "Raw store"
+        assert StorageLocationUpdate(name=" Bin   A1 ").name == "Bin A1"
+        with pytest.raises(ValidationError, match="Name cannot be blank"):
+            StorageLocationUpdate(name="   ")
+
 
 class TestLocationCapacity:
     def test_capacity_is_optional(self) -> None:

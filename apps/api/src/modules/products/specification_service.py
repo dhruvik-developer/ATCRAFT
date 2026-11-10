@@ -12,7 +12,13 @@ from src.core.actors import actor_id
 from src.core.constants import MAX_ITEM_ACCESSORIES, MAX_SPECIFICATION_BATCH
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import TenantContext
-from src.core.errors import BusinessRuleError, DuplicateError, NotFoundError, ValidationError
+from src.core.errors import (
+    BusinessRuleError,
+    DuplicateError,
+    NotFoundError,
+    ValidationError,
+    referenced_in_use,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -22,7 +28,6 @@ from src.modules.audit.service import record_audit, record_status_change
 from src.modules.organization.service import (
     MasterLifecycleState,
     master_lifecycle,
-    referenced_in_use,
 )
 from src.modules.products.models import (
     AccessoryRelation,

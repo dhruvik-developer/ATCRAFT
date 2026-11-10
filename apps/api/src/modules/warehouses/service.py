@@ -26,21 +26,20 @@ from __future__ import annotations
 
 import uuid
 from enum import StrEnum
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.document_access import register_document_entity_resolver
+from src.common.hierarchy import assert_parent_allowed
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
-    ErrorCode,
     NotFoundError,
+    referenced_in_use,
 )
 from src.core.logging import get_logger
-from src.core.messages import hierarchy_too_deep, own_parent, parent_below
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -207,59 +206,6 @@ def lifecycle_state(record: Warehouse | StorageLocation) -> MasterLifecycleState
     if record.deleted_at is not None:
         return MasterLifecycleState.ARCHIVED
     return MasterLifecycleState.ACTIVE if record.is_active else MasterLifecycleState.INACTIVE
-
-
-# -----------------------------------------------------------------------------
-# Pure rule helpers - unit tested without a database
-# -----------------------------------------------------------------------------
-
-
-def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
-    """The "you cannot remove this, something still points at it" error.
-
-    One constructor so every such refusal carries the same machine-readable code
-    and the frontend can react to it uniformly.
-    """
-    return BusinessRuleError(
-        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
-    )
-
-
-def assert_parent_allowed(
-    *,
-    entity: str,
-    node_id: uuid.UUID | None,
-    parent_id: uuid.UUID,
-    parent_ancestor_ids: list[uuid.UUID],
-    max_depth: int = MAX_HIERARCHY_DEPTH,
-) -> None:
-    """Reject a parent assignment that would break the tree.
-
-    ``parent_ancestor_ids`` is the chain from the proposed parent up to its root,
-    *including the parent itself*, as returned by the repository's recursive
-    walk. Three failures are possible:
-
-    * the record is its own parent;
-    * the record already appears above the proposed parent, which would close a
-      cycle - the case that turns a roll-up query into an infinite loop;
-    * the resulting chain would be deeper than :data:`MAX_HIERARCHY_DEPTH`.
-    """
-    if node_id is not None and parent_id == node_id:
-        raise BusinessRuleError(own_parent(entity))
-
-    if node_id is not None and node_id in parent_ancestor_ids:
-        raise BusinessRuleError(
-            parent_below(entity),
-            details={"parent_id": str(parent_id)},
-        )
-
-    # +1 for the record itself, which sits one level under the proposed parent.
-    depth = len(parent_ancestor_ids) + 1
-    if depth > max_depth:
-        raise BusinessRuleError(
-            hierarchy_too_deep(entity, max_depth),
-            details={"depth": depth, "max_depth": max_depth},
-        )
 
 
 # -----------------------------------------------------------------------------
@@ -582,6 +528,7 @@ class WarehouseService:
             node_id=node_id,
             parent_id=parent_id,
             parent_ancestor_ids=ancestors,
+            max_depth=MAX_HIERARCHY_DEPTH,
         )
 
     async def _assert_references_exist(
@@ -863,6 +810,7 @@ class StorageLocationService:
             node_id=node_id,
             parent_id=parent_id,
             parent_ancestor_ids=ancestors,
+            max_depth=MAX_HIERARCHY_DEPTH,
         )
 
 
@@ -876,7 +824,5 @@ __all__ = [
     "MasterLifecycleState",
     "StorageLocationService",
     "WarehouseService",
-    "assert_parent_allowed",
     "lifecycle_state",
-    "referenced_in_use",
 ]

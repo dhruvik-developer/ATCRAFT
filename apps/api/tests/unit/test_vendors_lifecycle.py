@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.clock import utcnow
-from src.core.errors import ErrorCode, InvalidStateTransitionError
+from src.core.errors import ErrorCode, InvalidStateTransitionError, referenced_in_use
 from src.core.permissions import Permission
 from src.modules.vendors.service import (
     ACCOUNT_NUMBER_VISIBLE_DIGITS,
@@ -26,7 +26,6 @@ from src.modules.vendors.service import (
     build_tracking_url,
     can_receive_purchase_orders,
     mask_account_number,
-    referenced_in_use,
     template_has_placeholder,
     transporter_state,
     vendor_state,

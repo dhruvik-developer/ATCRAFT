@@ -12,8 +12,9 @@ import uuid
 
 import pytest
 
+from src.common.hierarchy import assert_parent_allowed
 from src.core.errors import BusinessRuleError
-from src.modules.warehouses.service import MAX_HIERARCHY_DEPTH, assert_parent_allowed
+from src.modules.warehouses.service import MAX_HIERARCHY_DEPTH
 
 pytestmark = pytest.mark.unit
 
@@ -30,6 +31,7 @@ class TestParentAssignment:
             node_id=node,
             parent_id=parent,
             parent_ancestor_ids=[parent],
+            max_depth=MAX_HIERARCHY_DEPTH,
         )
 
     def test_rejects_self_parenting(self) -> None:
@@ -40,6 +42,7 @@ class TestParentAssignment:
                 node_id=node,
                 parent_id=node,
                 parent_ancestor_ids=[node],
+                max_depth=MAX_HIERARCHY_DEPTH,
             )
 
     def test_rejects_a_direct_cycle(self) -> None:
@@ -51,6 +54,7 @@ class TestParentAssignment:
                 node_id=node,
                 parent_id=child,
                 parent_ancestor_ids=[child, node],
+                max_depth=MAX_HIERARCHY_DEPTH,
             )
 
     def test_rejects_an_indirect_cycle(self) -> None:
@@ -62,6 +66,7 @@ class TestParentAssignment:
                 node_id=node,
                 parent_id=grandchild,
                 parent_ancestor_ids=[grandchild, middle, node],
+                max_depth=MAX_HIERARCHY_DEPTH,
             )
         assert exc.value.details["parent_id"] == str(grandchild)
 
@@ -76,6 +81,7 @@ class TestDepthLimit:
             node_id=uuid.uuid4(),
             parent_id=ancestors[0],
             parent_ancestor_ids=ancestors,
+            max_depth=MAX_HIERARCHY_DEPTH,
         )
 
     def test_rejects_one_level_too_deep(self) -> None:
@@ -86,6 +92,7 @@ class TestDepthLimit:
                 node_id=uuid.uuid4(),
                 parent_id=ancestors[0],
                 parent_ancestor_ids=ancestors,
+                max_depth=MAX_HIERARCHY_DEPTH,
             )
         assert exc.value.details == {
             "depth": MAX_HIERARCHY_DEPTH + 1,
@@ -101,6 +108,7 @@ class TestDepthLimit:
                 node_id=None,
                 parent_id=ancestors[0],
                 parent_ancestor_ids=ancestors,
+                max_depth=MAX_HIERARCHY_DEPTH,
             )
 
     def test_limit_is_overridable_for_a_configured_site(self) -> None:
@@ -123,4 +131,5 @@ class TestMessageWording:
                 node_id=node,
                 parent_id=node,
                 parent_ancestor_ids=[node],
+                max_depth=MAX_HIERARCHY_DEPTH,
             )

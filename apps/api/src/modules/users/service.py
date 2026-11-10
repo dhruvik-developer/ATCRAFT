@@ -66,6 +66,7 @@ from src.core.errors import (
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.logging import get_logger
 from src.core.messages import NO_FIELDS_TO_UPDATE, plural
@@ -809,17 +810,6 @@ def _user_detail(user: User, roles: Sequence[Role]) -> UserDetail:
         is_dealer_user=user.customer_id is not None,
         updated_at=user.updated_at,
         roles=[_role_summary(role, len(role.permissions or [])) for role in roles],
-    )
-
-
-def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
-    """The "you cannot remove this, something still depends on it" refusal.
-
-    One constructor so every such refusal carries the same machine-readable code
-    and the frontend can react to all of them uniformly.
-    """
-    return BusinessRuleError(
-        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
     )
 
 
@@ -1957,7 +1947,6 @@ __all__ = [
     "holds_super_admin",
     "lifecycle_state",
     "permission_catalogue",
-    "referenced_in_use",
     "resolve_effective_permissions",
     "role_permission_map",
     "usable_roles",

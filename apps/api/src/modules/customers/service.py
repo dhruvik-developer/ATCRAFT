@@ -44,10 +44,10 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
-    ErrorCode,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.logging import get_logger
 from src.core.messages import NO_FIELDS_TO_UPDATE
@@ -316,17 +316,6 @@ def lifecycle_state(record: Any) -> MasterLifecycleState:
 
 def credit_standing(record: Any) -> CreditStanding:
     return CreditStanding.ON_HOLD if record.is_blocked else CreditStanding.GOOD_STANDING
-
-
-def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
-    """The "you cannot remove this, something still depends on it" refusal.
-
-    One constructor so every such refusal carries the same machine-readable code
-    and the frontend can react to all of them uniformly.
-    """
-    return BusinessRuleError(
-        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
-    )
 
 
 # -----------------------------------------------------------------------------

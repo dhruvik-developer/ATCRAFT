@@ -297,6 +297,19 @@ class BusinessRuleError(AppError):
     message = "This operation is not allowed by the configured business rules."
 
 
+def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
+    """The "you cannot remove this, something still depends on it" refusal.
+
+    One constructor so every such refusal carries the same machine-readable code,
+    ``REFERENCED_RECORD_IN_USE``, and the frontend can react to all of them
+    uniformly. ``message`` says what still depends on the record and what to do
+    instead; ``details`` carries the ids and counts behind it.
+    """
+    return BusinessRuleError(
+        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
+    )
+
+
 class InvalidStateTransitionError(BusinessRuleError):
     code = ErrorCode.INVALID_STATE_TRANSITION
 
@@ -405,4 +418,5 @@ __all__ = [
     "ValidationError",
     "failure_message",
     "is_refusal",
+    "referenced_in_use",
 ]

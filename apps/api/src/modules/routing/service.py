@@ -47,10 +47,10 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
-    ErrorCode,
     NotFoundError,
     SelfApprovalError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.logging import get_logger
 from src.core.messages import (
@@ -658,17 +658,6 @@ def cost_breakdown(
         working_hours_per_day=hours_per_day,
         lead_time_days=total_lead_time_days(routing, quantity, working_hours_per_day=hours_per_day),
         operations=lines,
-    )
-
-
-def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
-    """The "you cannot retire this, something still points at it" error.
-
-    One constructor so every such refusal carries the same machine-readable code
-    and the frontend can react to it uniformly.
-    """
-    return BusinessRuleError(
-        message, code=ErrorCode.REFERENCED_RECORD_IN_USE, details=details or None
     )
 
 
@@ -2634,7 +2623,6 @@ __all__ = [
     "manufacture_lead_time_days",
     "manufacture_lead_times",
     "net_shift_minutes",
-    "referenced_in_use",
     "require_shift",
     "resolve_working_hours_per_day",
     "resolve_zone",

@@ -89,6 +89,7 @@ from src.core.errors import (
     ErrorCode,
     NotFoundError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
@@ -1462,17 +1463,15 @@ async def delete_account(
                 details={"system_code": account.system_code},
             )
         if await repo.has_postings(account.id):
-            raise BusinessRuleError(
+            raise referenced_in_use(
                 f"{account.code} has postings against it and cannot be removed. Deactivate it "
                 "instead so it stops appearing on new documents.",
-                code=ErrorCode.REFERENCED_RECORD_IN_USE,
-                details={"account_id": str(account.id)},
+                account_id=str(account.id),
             )
         if await repo.has_children(account.id):
-            raise BusinessRuleError(
+            raise referenced_in_use(
                 f"{account.code} has accounts beneath it. Move or remove them first.",
-                code=ErrorCode.REFERENCED_RECORD_IN_USE,
-                details={"account_id": str(account.id)},
+                account_id=str(account.id),
             )
 
         await repo.soft_delete(account)

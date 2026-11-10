@@ -43,10 +43,10 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
-    ErrorCode,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.ids import new_id
 from src.core.messages import (
@@ -67,7 +67,6 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.organization.service import (
     MasterLifecycleState,
     master_lifecycle,
-    referenced_in_use,
 )
 from src.modules.products.models import (
     MAX_CATEGORY_DEPTH,
@@ -1522,12 +1521,13 @@ async def _assert_tracking_change_is_safe(
     if not await repo.has_stock_balance(item.id):
         return
 
-    raise BusinessRuleError(
+    raise referenced_in_use(
         f"Item {item.code} still holds stock, so how its stock is identified cannot be "
         "changed. Issue, transfer or write the remaining balance off - including anything "
         "in transit or out at a job-work vendor - and then change the tracking setting.",
-        code=ErrorCode.REFERENCED_RECORD_IN_USE,
-        details={"item_code": item.code, "item_id": str(item.id), "fields": changing},
+        item_code=item.code,
+        item_id=str(item.id),
+        fields=changing,
     )
 
 

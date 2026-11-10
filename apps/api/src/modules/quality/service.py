@@ -104,6 +104,7 @@ from src.core.errors import (
     InvalidStateTransitionError,
     NotFoundError,
     ValidationError,
+    referenced_in_use,
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
@@ -1146,13 +1147,13 @@ async def update_template(
         if changing_meaning:
             used = await inspection_repo.count_for_template(template.id)
             if used:
-                raise BusinessRuleError(
+                raise referenced_in_use(
                     f"{template.code} v{template.version} has been applied to "
                     f"{plural(used, 'inspection')}, so its specification is frozen. Raise a new "
                     "version instead - "
                     "editing it in place would restate whether those inspections passed.",
-                    code=ErrorCode.REFERENCED_RECORD_IN_USE,
-                    details={"template_id": str(template.id), "inspection_count": used},
+                    template_id=str(template.id),
+                    inspection_count=used,
                 )
 
         for field in ("name", "description", "is_active"):
