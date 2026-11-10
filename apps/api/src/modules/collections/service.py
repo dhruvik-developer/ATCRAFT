@@ -826,6 +826,7 @@ async def scan_overdue_receivables(
                 to_status=str(FollowUpStatus.RESOLVED),
                 user_id=tenant.user_id,
                 reason="No overdue balance remains.",
+                flush=False,
             )
             result.resolved += 1
             live_map.pop(key, None)
@@ -869,8 +870,13 @@ async def scan_overdue_receivables(
                 to_status=str(FollowUpStatus.OPEN),
                 user_id=tenant.user_id,
                 reason=f"Promise due {broken_date.isoformat()} was not met.",
+                flush=False,
             )
             result.broken_promises += 1
+    # One flush for every status change staged above, notes and audit rows
+    # included: a constraint violation still surfaces in this sweep, and every
+    # resolution reaches the database before a chase below is opened.
+    await session.flush()
 
     # --- (a) open a chase where the money has none --------------------------
     for key, row in current.items():

@@ -75,9 +75,11 @@ from src.modules.sales.models import SalesOrderStatus
 from src.modules.sales_returns import service as returns
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
 from src.modules.users.models import User
+from tests.collections_support import _follow_up
 from tests.sales_invoice_support import _return_for_invoice, issue, make_dispatch
 from tests.sales_invoice_support import bench as bench
 from tests.seed_support import seed_customer
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -1568,3 +1570,51 @@ async def test_collections_sweep_breaks_promises_resolves_paid_and_repeats_remin
     assert settled.resolved == 1
     await b.session.refresh(row)
     assert row.status == FollowUpStatus.RESOLVED
+
+
+async def test_a_collections_sweep_writes_its_status_audit_rows_in_one_statement(session, tenant):
+    """One audit row per follow-up the sweep moves, and one round trip for all of them.
+
+    The sweep visits every live chase of a tenant each night, and flushed each
+    status change's audit row as it wrote it: one INSERT per follow-up resolved
+    or returned to OPEN. A sweep that resolves three costs what one that
+    resolves one does - the staged rows, then the run's own summary row.
+    """
+
+    async def unpaid_chases(count: int) -> list[uuid.UUID]:
+        # ``_follow_up`` records money overdue that no invoice backs, so the
+        # sweep finds nothing owed and resolves every one of them.
+        ids: list[uuid.UUID] = []
+        for _ in range(count):
+            customer = await seed_customer(session, company_id=tenant.company_id)
+            follow = await _follow_up(
+                session, company_id=tenant.company_id, customer_id=customer.id
+            )
+            ids.append(follow.id)
+        return ids
+
+    def audit_inserts(statements: list[str]) -> int:
+        return sum(
+            1 for text in statements if text.lstrip().upper().startswith("INSERT INTO AUDIT_LOGS")
+        )
+
+    one = await unpaid_chases(1)
+    with counted(session.bind) as single:
+        first = await collections_service.scan_overdue_receivables(session, tenant, as_of=today())
+    three = await unpaid_chases(3)
+    with counted(session.bind) as several:
+        second = await collections_service.scan_overdue_receivables(session, tenant, as_of=today())
+
+    assert (first.resolved, second.resolved) == (1, 3)
+    assert audit_inserts(single) == audit_inserts(several) == 2
+    moved = (
+        await session.execute(
+            select(AuditLog.entity_id, AuditLog.new_values).where(
+                AuditLog.company_id == tenant.company_id,
+                AuditLog.entity_type == collections_service.AUDIT_FOLLOW_UP,
+                AuditLog.entity_id.in_([*one, *three]),
+            )
+        )
+    ).all()
+    assert sorted(entity_id for entity_id, _ in moved) == sorted([*one, *three])
+    assert {values["status"] for _, values in moved} == {str(FollowUpStatus.RESOLVED)}
