@@ -94,6 +94,16 @@ function stillToIssue(line: JobWorkOrderLine): string {
  * (output-equivalent plus unworked returns plus scrap), so it is the whole
  * subtrahend: subtracting rejected or scrap again would count them twice.
  */
+/**
+ * A line as the issue and receipt forms head it: its number, which tells two
+ * lines of one item apart, and the item's code, which the read carries.
+ */
+function lineLabel(line: JobWorkOrderLine): string {
+  return line.item_code
+    ? `Line ${line.line_number} - ${line.item_code}`
+    : `Line ${line.line_number}`
+}
+
 function stillAtVendor(line: JobWorkOrderLine): string {
   const outstanding = toDecimal(line.issued_quantity).minus(toDecimal(line.received_quantity))
   return outstanding.greaterThan(0) ? outstanding.toFixed() : '0'
@@ -135,11 +145,9 @@ function issueDefaults(order: JobWorkOrderDetail | undefined): IssueFormValues {
     transporter_id: '',
     remarks: '',
     reason: '',
-    // The line carries an item id and nothing else - no code, no name - so the
-    // label is the line number and the id it points at.
     lines: linesOf(order).map((line) => ({
       line_number: line.line_number,
-      label: `Line ${line.line_number} - ${line.item_id.slice(0, 8)}`,
+      label: lineLabel(line),
       batch_id: line.batch_id ?? '',
       serial_ids: line.is_serial_tracked
         ? (line.source_rejected_serial_ids ?? []).slice(
@@ -547,7 +555,7 @@ function receiveDefaults(order: JobWorkOrderDetail | undefined): ReceiveFormValu
     approve_excess_loss: false,
     lines: linesOf(order).map((line) => ({
       line_number: line.line_number,
-      label: `Line ${line.line_number} - ${line.item_id.slice(0, 8)}`,
+      label: lineLabel(line),
       // Outstanding is in input units; Received is in output units. Apply the
       // order's frozen yield, just as the receipt service does in reverse.
       received_quantity: toDecimal(stillAtVendor(line))
@@ -894,8 +902,8 @@ export function JobWorkReceiveDialog({
                               Issued {formatQuantity(line.issued_quantity)}
                               {' - still at vendor '}
                               {formatQuantity(stillAtVendor(line))}
-                              {' - returns as '}
-                              {line.expected_output_item_id.slice(0, 8)}
+                              {line.expected_output_item_code &&
+                                ` - returns as ${line.expected_output_item_code}`}
                               {' - loss allowance '}
                               {formatQuantity(line.expected_loss_percentage)}%
                             </p>

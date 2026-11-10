@@ -513,12 +513,24 @@ export const PURCHASE_ORDER_LINE_STATUSES = [
 /**
  * One line of `GET /procurement/purchase-orders/{id}` (`PurchaseOrderLineRead`).
  *
- * The ordered quantity is `quantity`, not `ordered_quantity`. `description` is
- * what the order recorded, because the item master is not joined in, and
- * `requires_qc` is what sends a receipt to QC hold instead of free stock. Every
- * quantity on it is a magnitude - none of them ever carries a sign.
+ * The ordered quantity is `quantity`, not `ordered_quantity`. `item_code` and
+ * `item_name` are joined in from the item master; `description` is what the
+ * order recorded. `requires_qc` is what sends a receipt to QC hold instead of
+ * free stock. Every quantity on it is a magnitude - none of them ever carries a
+ * sign.
  */
 export type PurchaseOrderLine = SchemaOf<'PurchaseOrderLineRead'>
+
+/**
+ * How a screen names an order line's item: its code and name, or the
+ * description the order recorded when the item cannot be named.
+ */
+export function purchaseOrderLineLabel(
+  line: Pick<PurchaseOrderLine, 'item_code' | 'item_name' | 'description' | 'line_number'>,
+): string {
+  const recorded = line.description || `Order line ${line.line_number}`
+  return line.item_code ? `${line.item_code} - ${line.item_name || recorded}` : recorded
+}
 
 /**
  * Still to arrive on a line, as a decimal string.

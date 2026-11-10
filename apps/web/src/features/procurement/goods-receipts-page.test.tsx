@@ -422,6 +422,43 @@ describe('what one submit achieves', () => {
   })
 })
 
+describe('naming the lines received', () => {
+  it("heads each line by its item's code and name, and warns of QC by the same name", async () => {
+    // The header printed the order's description, or 'Item' when it had none,
+    // though the order line reads with its item's code and name.
+    const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
+      permissions: CLERK,
+      routes: formRoutes({
+        [`GET ${ORDERS_PATH}/${PO_ID}`]: orderDetail([
+          poLine({
+            item_code: 'BRASS-ROD-12',
+            item_name: 'Brass rod 12mm',
+            description: null,
+            requires_qc: true,
+          }),
+          poLine({ id: PO_LINE_B, line_number: 2, description: 'Stainless sheet 2mm' }),
+        ]),
+      }),
+    })
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /receive against po/i }))
+    await stable(() => screen.getByRole('dialog'))
+    await user.click(screen.getByRole('combobox', { name: 'Purchase order' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: /PO-0001/ })))
+
+    expect(await stable(() => screen.getByText('BRASS-ROD-12 - Brass rod 12mm'))).toBeVisible()
+    // A line the read did not name keeps the description the order recorded.
+    expect(screen.getByText('Stainless sheet 2mm')).toBeVisible()
+
+    await countLine(user, 0, '2')
+    expect(
+      await stable(() =>
+        screen.getByText(/^BRASS-ROD-12 - Brass rod 12mm require incoming inspection/),
+      ),
+    ).toBeVisible()
+  })
+})
+
 describe('where received stock is put away', () => {
   /** Line 1's item is put away in this order's warehouse; line 2's in another. */
   const defaultedOrder = () =>

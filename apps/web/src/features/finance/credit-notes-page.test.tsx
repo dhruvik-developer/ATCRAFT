@@ -79,6 +79,21 @@ describe('credit note settlement breakdown', () => {
   )
 })
 
+describe('the credit note register', () => {
+  it('says why each note was raised in words, not as the enum', async () => {
+    renderScreen(<CreditNotesPage />, {
+      permissions: [P.CREDIT_NOTE_VIEW],
+      routes: {
+        'GET /finance/credit-notes': page([creditNote({ reason_type: 'PRICE_ADJUSTMENT' })]),
+      },
+    })
+
+    const row = (await screen.findByRole('button', { name: 'CN-001' })).closest('tr')!
+    expect(within(row).getByText('Price Adjustment')).toBeVisible()
+    expect(within(row).queryByText('PRICE_ADJUSTMENT')).toBeNull()
+  })
+})
+
 describe('credit note detail', () => {
   it('opens as a dialog over the list and prints a line quantity as a quantity', async () => {
     await openCreditNote({

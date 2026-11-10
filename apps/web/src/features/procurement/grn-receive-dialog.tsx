@@ -75,6 +75,7 @@ import { indexById } from '@/lib/utils'
 import {
   isPoReceivable,
   pendingQuantity,
+  purchaseOrderLineLabel,
   type GoodsReceiptCreatePayload,
   type GoodsReceiptDetail,
   type GoodsReceiptPostResult,
@@ -664,7 +665,9 @@ export function GrnReceiveDialog({
                             <span className="tabular mr-2 text-muted-foreground">
                               {field.line_number}
                             </span>
-                            {field.description || 'Item'}
+                            {orderLine
+                              ? purchaseOrderLineLabel(orderLine)
+                              : field.description || 'Item'}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -839,7 +842,10 @@ export function GrnReceiveDialog({
                 </AlertTitle>
                 <AlertDescription>
                   {qcLines
-                    .map((line) => line.description)
+                    .map((line) => {
+                      const orderLine = orderLineById.get(line.purchase_order_line_id)
+                      return orderLine ? purchaseOrderLineLabel(orderLine) : line.description
+                    })
                     .filter(Boolean)
                     .join(', ') || 'They'}{' '}
                   require incoming inspection. Posting puts the accepted quantity in QC hold; it can

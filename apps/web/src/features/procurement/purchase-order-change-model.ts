@@ -8,6 +8,7 @@ import { queryKeys } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 import {
+  purchaseOrderLineLabel,
   requisitionKeys,
   type DuplicateCandidate,
   type PurchaseOrderDetail,
@@ -136,9 +137,7 @@ export function amendmentLineDrafts(order: PurchaseOrderDetail): AmendmentLineDr
     key: line.id,
     lineId: line.id,
     itemId: line.item_id,
-    label: line.item_code
-      ? `${line.item_code} - ${line.item_name || line.description || `Order line ${line.line_number}`}`
-      : line.description || `Order line ${line.line_number}`,
+    label: purchaseOrderLineLabel(line),
     quantity: line.quantity,
     unitPrice: line.unit_price,
     allocations: (line.source_allocations ?? [])

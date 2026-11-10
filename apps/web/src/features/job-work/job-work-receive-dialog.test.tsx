@@ -277,6 +277,53 @@ describe('named serial processing', () => {
   })
 })
 
+describe('naming the lines', () => {
+  // Both forms headed a line 'Line 1 - ' and eight characters of its item's id,
+  // and the receipt said what the line returns as the same way. The order line
+  // reads with both items' codes and names.
+  const NAMED = {
+    ...LINE,
+    item_code: 'HDL-BLANK',
+    item_name: 'Lever handle blank',
+    expected_output_item_code: 'HDL-PVD-RG',
+    expected_output_item_name: 'Lever handle, rose gold PVD',
+  }
+
+  it('heads a receipt line by its item code and says what it returns as', async () => {
+    renderReceive([], { ...DETAIL, lines: [NAMED] })
+
+    expect(await screen.findByText('Line 1 - HDL-BLANK')).toBeVisible()
+    expect(screen.getByText(/returns as HDL-PVD-RG/)).toBeVisible()
+    expect(screen.queryByText(/item-raw|item-coat/)).toBeNull()
+  })
+
+  it('names the quantity it issues for by the same code', async () => {
+    renderScreen(
+      <JobWorkIssueDialog open onOpenChange={() => {}} orderId="jw-1" orderCode="JW-0001" />,
+      {
+        permissions: [P.JOB_WORK_VIEW, P.JOB_WORK_ISSUE],
+        routes: {
+          'GET /job-work/jw-1': ok({
+            ...DETAIL,
+            lines: [{ ...NAMED, issued_quantity: '0.0000' }],
+          }),
+          'GET /transporters/options': ok([]),
+        },
+      },
+    )
+
+    expect(await screen.findByLabelText('Line 1 - HDL-BLANK')).toBeVisible()
+    expect(screen.queryByText(/item-raw/)).toBeNull()
+  })
+
+  it('heads a line the read could not name by its number alone', async () => {
+    renderReceive([], { ...DETAIL, lines: [{ ...LINE, item_code: null }] })
+
+    expect(await screen.findByText('Line 1')).toBeVisible()
+    expect(screen.queryByText(/returns as/)).toBeNull()
+  })
+})
+
 describe('the receive dialog request body', () => {
   it.each([
     ['50', '0', '50'],

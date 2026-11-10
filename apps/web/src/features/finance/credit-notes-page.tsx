@@ -29,7 +29,14 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { useListQuery } from '@/hooks/use-list-query'
-import { EMPTY_VALUE, formatDate, formatMoney, formatQuantity, toDecimal } from '@/lib/format'
+import {
+  EMPTY_VALUE,
+  formatDate,
+  formatMoney,
+  formatQuantity,
+  humanise,
+  toDecimal,
+} from '@/lib/format'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { P } from '@/lib/permissions'
@@ -90,7 +97,11 @@ export default function CreditNotesPage() {
         cell: ({ row }) => formatDate(row.original.note_date),
       },
       { accessorKey: 'buyer_name', header: 'Customer' },
-      { accessorKey: 'reason_type', header: 'Reason' },
+      {
+        accessorKey: 'reason_type',
+        header: 'Reason',
+        cell: ({ row }) => humanise(row.original.reason_type),
+      },
       {
         accessorKey: 'total_amount',
         header: 'Total',
