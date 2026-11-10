@@ -29,6 +29,7 @@ import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
+import { queryKeys } from '@/lib/query-client'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import MovementsPage from './movements-page'
@@ -422,6 +423,40 @@ describe('adjustments', () => {
     // put the movement on the ledger.
     expect(within(rowFor('ADJ-DRAFT')).queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /new adjustment/i })).not.toBeInTheDocument()
+  })
+
+  it('drops the cached approvals queue once an adjustment is approved', async () => {
+    // Approving closes the adjustment's request in the approvals inbox, which
+    // the production cache keeps for a minute.
+    const waiting = adjustment({ code: 'ADJ-WAITING', status: 'PENDING_APPROVAL' })
+    const queue = [
+      queryKeys.audit.approvals({ limit: 6 }),
+      queryKeys.audit.approvals({ page: 1, limit: 25 }),
+    ]
+    const { user, fetch, queryClient } = renderScreen(<MovementsPage />, {
+      route: ADJUSTMENTS_TAB,
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_ADJUST_APPROVE],
+      cachePolicy: 'production',
+      routes: {
+        'GET /inventory/adjustments': page([waiting]),
+        [`POST /inventory/adjustments/${waiting.id}/approve`]: ok({
+          ...waiting,
+          status: 'APPROVED',
+        }),
+      },
+    })
+    for (const queryKey of queue) queryClient.setQueryData(queryKey, { data: [] })
+
+    await screen.findByText('ADJ-WAITING')
+    await user.click(within(rowFor('ADJ-WAITING')).getByRole('button', { name: /approve/i }))
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Approve adjustment' }),
+    )
+
+    await expect.poll(() => fetch.calls.some((call) => call.path.endsWith('/approve'))).toBe(true)
+    await expect
+      .poll(() => queue.map((key) => queryClient.getQueryState(key)?.isInvalidated))
+      .toEqual([true, true])
   })
 
   it('warns that a posted adjustment cannot be deleted, then posts it', async () => {

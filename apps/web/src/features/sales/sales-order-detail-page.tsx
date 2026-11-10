@@ -635,17 +635,6 @@ export default function SalesOrderDetailPage() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
   }
 
-  /**
-   * A draft priced below cost, or discounted past the threshold, waits in the
-   * approvals inbox and the dashboard's preview of it. Approving or cancelling
-   * the draft closes that request, and re-pricing its lines opens, refreshes or
-   * withdraws it - so each of those drops the cached queue, which would
-   * otherwise list a request nobody can decide any more.
-   */
-  const invalidateApprovals = () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.audit.approvalsAll })
-  }
-
   const confirmOrder = useMutation({
     mutationFn: () =>
       api.post<ConfirmResult>(`/sales/${orderId}/confirm`, {
@@ -683,7 +672,6 @@ export default function SalesOrderDetailPage() {
       }),
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
-      invalidateApprovals()
       toast.success(success.approved('Sales order'), `${updated.code} may now be confirmed.`)
       setApproveOpen(false)
     },
@@ -694,7 +682,6 @@ export default function SalesOrderDetailPage() {
     mutationFn: (reason: string) => api.post<SalesOrderRow>(`/sales/${orderId}/cancel`, { reason }),
     onSuccess: (updated) => {
       invalidateOrderAndStock()
-      invalidateApprovals()
       toast.success(
         success.cancelled('Sales order'),
         `${updated.code} is cancelled and its reservations released.`,
@@ -717,7 +704,6 @@ export default function SalesOrderDetailPage() {
       api.patch<SalesOrderDetail>(`/sales/${orderId}`, { lines: renumber(lines) }),
     onSuccess: () => {
       invalidateOrderAndStock()
-      invalidateApprovals()
       toast.success(success.saved('Lines'), 'The order totals have been recalculated.')
       setLineEditor(null)
       setPendingLineDelete(null)

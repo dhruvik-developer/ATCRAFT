@@ -7,7 +7,12 @@
  * both is a rejection nobody sees.
  */
 
-import { partialMatchKey } from '@tanstack/react-query'
+import {
+  MutationObserver,
+  QueryObserver,
+  partialMatchKey,
+  type QueryClient,
+} from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { orgKeys } from '@/features/admin/admin-types'
@@ -365,6 +370,68 @@ describe('createQueryClient', () => {
 
   it('gives every caller a cache of its own', () => {
     expect(createQueryClient().getQueryCache()).not.toBe(queryClient.getQueryCache())
+  })
+})
+
+describe('the approvals queue after a write', () => {
+  // Ten modules open, decide or withdraw an approval request as a side effect
+  // of their own commands, and the queue is cached for a minute; an approver
+  // back from a document they had just decided still saw it waiting.
+  const inbox = queryKeys.audit.approvals({ page: 1, limit: 25 })
+  const preview = queryKeys.audit.approvals({ limit: 6 })
+  const elsewhere = queryKeys.sales.list({ page: 1 })
+
+  function seeded(client: QueryClient): QueryClient {
+    for (const key of [inbox, preview, elsewhere]) client.setQueryData(key, { data: [] })
+    return client
+  }
+
+  it.each([
+    ['the application policy', () => createQueryClient()],
+    ['a client with the nets off', () => createQueryClient({ errorNets: false })],
+  ])('drops the inbox and the preview after any successful write, under %s', async (_, build) => {
+    const client = seeded(build())
+
+    await new MutationObserver(client, { mutationFn: async () => 'posted' }).mutate(undefined)
+
+    expect(client.getQueryState(inbox)?.isInvalidated).toBe(true)
+    expect(client.getQueryState(preview)?.isInvalidated).toBe(true)
+    // Only the queue: every other cache entry is its own writers' to drop.
+    expect(client.getQueryState(elsewhere)?.isInvalidated).toBe(false)
+  })
+
+  it('leaves the queue alone when the write fails', async () => {
+    const client = seeded(createQueryClient({ errorNets: false }))
+    const refused = new ApiError(409, 'INVALID_STATE_TRANSITION', 'Already approved')
+
+    await expect(
+      new MutationObserver(client, {
+        mutationFn: () => Promise.reject(refused),
+      }).mutate(undefined),
+    ).rejects.toBe(refused)
+
+    expect(client.getQueryState(inbox)?.isInvalidated).toBe(false)
+  })
+
+  it('does not hold up the write’s own success handling while the queue refetches', async () => {
+    const client = seeded(createQueryClient({ errorNets: false }))
+    // An observed queue refetches at once; a write must not wait for it.
+    let release: (() => void) | undefined
+    const pending = new Promise<{ data: never[] }>((resolve) => {
+      release = () => resolve({ data: [] })
+    })
+    const observer = new QueryObserver(client, { queryKey: inbox, queryFn: () => pending })
+    const unsubscribe = observer.subscribe(() => {})
+    const handled = vi.fn()
+
+    await new MutationObserver(client, {
+      mutationFn: async () => 'posted',
+      onSuccess: handled,
+    }).mutate(undefined)
+
+    expect(handled).toHaveBeenCalledTimes(1)
+    release?.()
+    unsubscribe()
   })
 })
 

@@ -161,6 +161,28 @@ const announceMutationError: NonNullable<MutationCacheConfig['onError']> = (
   toast.error(meta?.errorTitle ?? errorTitle(error), errorDescription(error))
 }
 
+/**
+ * Drop the cached approvals queue - the inbox and the dashboard's preview of
+ * it - after any successful write.
+ *
+ * Ten modules open, decide or withdraw an approval request as a side effect of
+ * their own commands: submitting, approving, rejecting or cancelling a
+ * requisition, an order, a BOM, an adjustment, an internal issue, a vendor
+ * invoice or a payment; creating or re-pricing a sales order; approving,
+ * suspending or retiring a vendor; requesting or deciding a reallocation. Other
+ * writes reach the queue through those - an MRP conversion or a shortfall plan
+ * creates a production order that waits for approval. The queue is cached for
+ * a minute (`staleTimes.dashboard`), so an approver back from a document they
+ * had just decided still saw it waiting. Rather than every one of those
+ * mutations remembering the queue, the cache marks it stale after any write.
+ * Nothing is fetched unless the inbox or the preview is on screen; either reads
+ * afresh when it is next opened. Not awaited: a write's own success handling
+ * does not wait on the queue.
+ */
+function dropApprovalsQueue(client: QueryClient): void {
+  void client.invalidateQueries({ queryKey: queryKeys.audit.approvalsAll })
+}
+
 export interface QueryClientPolicy {
   /** Merged over the application's defaults above, one kind at a time. */
   defaultOptions?: DefaultOptions
@@ -172,30 +194,33 @@ export interface QueryClientPolicy {
 }
 
 /**
- * The application's cache policy - the defaults and the error nets - as a new
- * client.
+ * The application's cache policy - the defaults, the error nets and the
+ * approvals queue's refresh - as a new client.
  *
  * The one constructor of a `QueryClient`: the app mounts the `queryClient`
  * below, and the screen-test harness builds each test's client here too, so a
  * test that asks for the production policy (`cachePolicy: 'production'`) runs
  * on the staleTimes, gcTime and nets a person's browser does rather than on a
- * copy of them that can drift.
+ * copy of them that can drift. The queue's refresh is not a net, so it holds
+ * with the nets off as well.
  */
 export function createQueryClient({
   defaultOptions = {},
   errorNets = true,
 }: QueryClientPolicy = {}): QueryClient {
-  return new QueryClient({
+  const client: QueryClient = new QueryClient({
     defaultOptions: {
       ...defaultOptions,
       queries: { ...queryDefaults, ...defaultOptions.queries },
       mutations: { ...mutationDefaults, ...defaultOptions.mutations },
     },
-    ...(errorNets && {
-      queryCache: new QueryCache({ onError: announceQueryError }),
-      mutationCache: new MutationCache({ onError: announceMutationError }),
+    ...(errorNets && { queryCache: new QueryCache({ onError: announceQueryError }) }),
+    mutationCache: new MutationCache({
+      onSuccess: () => dropApprovalsQueue(client),
+      ...(errorNets && { onError: announceMutationError }),
     }),
   })
+  return client
 }
 
 export const queryClient = createQueryClient()
@@ -450,6 +475,7 @@ export const queryKeys = {
     job: (statusPath: string | null) => ['reports', 'job', statusPath] as const,
   },
   audit: {
+    /** The approvals queue's root, dropped after every successful write (`dropApprovalsQueue`). */
     approvalsAll: ['audit', 'approvals'] as const,
     approvalSettings: ['audit', 'approval-settings'] as const,
     logsAll: ['audit', 'logs'] as const,

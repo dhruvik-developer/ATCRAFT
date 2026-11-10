@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest'
 
 import { toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { queryKeys } from '@/lib/query-client'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import type { RequisitionRow } from './procurement-types'
@@ -523,6 +524,45 @@ describe('what the decision sends', () => {
     // sentence in its place. An empty string is a note that says nothing.
     expect(fetch.requestFor('POST', APPROVE_PATH)).toEqual({ reason: null })
   })
+
+  it.each([
+    ['approving', 'Approve', 'Approve requisition', APPROVE_PATH],
+    ['rejecting', 'Reject', 'Reject requisition', REJECT_PATH],
+  ] as const)(
+    'drops the cached approvals queue after %s, as every write does',
+    async (_, menuItem, confirm, path) => {
+      // The decision closes the requisition's request in the approvals inbox,
+      // which the production cache keeps for a minute - so the approver going
+      // back to it still saw the request they had just decided.
+      const queue = [
+        queryKeys.audit.approvals({ limit: 6 }),
+        queryKeys.audit.approvals({ page: 1, limit: 25 }),
+      ]
+      const { user, fetch, queryClient } = renderScreen(screenUnderTest, {
+        permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_REQUISITION_APPROVE],
+        routes: decisionRoutes,
+        cachePolicy: 'production',
+      })
+      for (const queryKey of queue) queryClient.setQueryData(queryKey, { data: [] })
+
+      const menu = await openActions(user, fetch, 'PR-0001')
+      await user.click(within(menu).getByRole('menuitem', { name: menuItem }))
+      if (menuItem === 'Reject') {
+        await user.type(
+          await stable(() => screen.getByRole('textbox', { name: 'Reason' })),
+          'Budget withdrawn',
+        )
+      }
+      await user.click(await stable(() => screen.getByRole('button', { name: confirm })))
+
+      await waitFor(() => fetch.requestFor('POST', path))
+      await waitFor(() => {
+        for (const queryKey of queue) {
+          expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true)
+        }
+      })
+    },
+  )
 
   it('sends the delete reason as a query parameter, not a body', async () => {
     // `DELETE /purchase-requisitions/{id}` takes its reason in the query string.
