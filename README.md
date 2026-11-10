@@ -231,7 +231,7 @@ not duplicate them.
 | `postman` | Regenerate only the Postman collection from the committed contract |
 | `check` | `contract-check` + `lint` + `test-cov` + `test-web` + `build-web`; application checks shared with CI |
 | `hooks` / `hooks-run` | Install the git hooks / run every hook on the whole tree |
-| `lock` | Regenerate the hash-locked Python requirements |
+| `lock` | Regenerate the hash-locked, Linux-resolved Python requirements (`make.ps1` resolves them in the backend image's dependency stage, so Windows keeps the `uvloop` pin CI expects) |
 | `backup` | `pg_dump` to `./backups` |
 | `shell-api` / `shell-db` | Shells inside the containers |
 | `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` / `deploy-verify` | `scripts/deploy.sh` wrappers, `D=main` or `D=dev` (Makefile only) |

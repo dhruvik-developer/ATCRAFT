@@ -147,7 +147,7 @@ function Show-Help {
         'check'            = 'contract-check + lint + test-cov + test-web + build-web'
         'hooks'            = 'Install the git pre-commit and pre-push hooks'
         'hooks-run'        = 'Run every hook against the whole tree, as a push would'
-        'lock'             = 'Regenerate reviewed Python dependency locks'
+        'lock'             = 'Regenerate the Linux-resolved Python dependency locks (in Docker)'
         'shell-api'        = 'Shell inside the backend container'
         'shell-db'         = 'psql inside the Postgres container'
         'backup'           = 'Dump the database to .\backups'
@@ -181,7 +181,15 @@ switch ($Target) {
     }
 
     'lock' {
-        $compile = '.\.venv\Scripts\pip-compile.exe --quiet --no-header --allow-unsafe --generate-hashes --strip-extras --resolver=backtracking'
+        # The locks are Linux-resolved. pip-compile evaluates environment markers
+        # for the platform it runs on, so on Windows it drops uvloop, and CI -
+        # which re-resolves both locks on Linux and diffs them - rejects the
+        # result. Resolve inside the backend Dockerfile's dependency stage
+        # instead: Linux, CI's Python and pip-tools from requirements-dev.lock.
+        # It gets its own tag, so the application image the stack runs is untouched.
+        $image = 'atcraft/api-lock:local'
+        Invoke-Step "docker build --target development-builder --tag $image ." $ApiDir
+        $compile = "docker run --rm --volume ${ApiDir}:/lock --workdir /lock $image /opt/venv/bin/pip-compile --quiet --no-header --allow-unsafe --generate-hashes --strip-extras --resolver=backtracking"
         Invoke-Step "$compile --output-file=requirements.lock pyproject.toml" $ApiDir
         Invoke-Step "$compile --extra=dev --output-file=requirements-dev.lock pyproject.toml" $ApiDir
     }

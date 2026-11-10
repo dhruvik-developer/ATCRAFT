@@ -14,6 +14,11 @@ command starts with ``npm`` (then ``cmd.exe /c``). Two defects hid in that:
   prints its usage and exits 0 - and ``dev``, ``up`` and ``down`` all
   "succeeded" without touching a container.
 
+And ``.\\make.ps1 lock`` ran the host's ``pip-compile.exe``. pip-compile resolves
+environment markers for the platform it runs on, so on Windows the locks lost
+the ``uvloop`` pin and CI, which re-resolves them on Linux and diffs, refused
+them. It now resolves inside the backend image's Linux dependency stage.
+
 These read the files statically: CI runs on Linux, with no PowerShell 5.1 to
 execute them. Every check is fed the defect it exists for.
 """
@@ -300,3 +305,82 @@ def test_the_parity_check_refuses_a_restated_owner() -> None:
     assert re.search(r"'atcraft(_erp)?'", OLD_BACKUP_STEP + " 'atcraft'")
     old_recipe = "\t$(DC_DEV) exec postgres psql -U $${POSTGRES_USER:-atcraft}\n"
     assert ":-atcraft" in make_recipe("shell-db", "shell-db: ## psql\n" + old_recipe)
+
+
+# --- The dependency locks ------------------------------------------------------
+
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+LOCK_FILES = ("requirements.lock", "requirements-dev.lock")
+
+# The lock case as it shipped: the host's pip-compile, resolving for Windows.
+OLD_LOCK_CASE = r"""    'lock' {
+        $compile = '.\.venv\Scripts\pip-compile.exe --quiet --no-header --allow-unsafe'
+        Invoke-Step "$compile --output-file=requirements.lock pyproject.toml" $ApiDir
+    }
+"""
+
+
+def host_pip_compiles(case: str) -> list[str]:
+    """Literals in a make.ps1 case that run pip-compile anywhere but a Linux container."""
+    found = []
+    index = 0
+    while index < len(case):
+        if case[index] in "'\"":
+            end = _string_end(case, index)
+            literal = _decode(case[index:end])
+            if "pip-compile" in literal and not literal.startswith("docker run "):
+                found.append(literal)
+            index = end
+        else:
+            index += 1
+    return found
+
+
+def _compile_arguments(command: str) -> tuple[str, frozenset[str]]:
+    """The output file a pip-compile command writes, and every argument it passes."""
+    arguments = command.split("pip-compile", 1)[1].split()
+    outputs = [a.split("=", 1)[1] for a in arguments if a.startswith("--output-file=")]
+    assert len(outputs) == 1, command
+    return outputs[0], frozenset(arguments)
+
+
+def _ps1_lock_commands(ps1: str) -> dict[str, frozenset[str]]:
+    case = ps_case("lock", ps1)
+    assignment = re.search(r"\$compile\s*=\s*(?=[\"'])", case)
+    assert assignment, "the lock case no longer builds its command in $compile"
+    start = assignment.end()
+    compile_command = _decode(case[start : _string_end(case, start)])
+    commands = [
+        command.replace("$compile", compile_command)
+        for command in _invoke_step_commands(case)
+        if "$compile" in command
+    ]
+    return dict(_compile_arguments(command) for command in commands)
+
+
+def _lines_with_pip_compile(text: str) -> dict[str, frozenset[str]]:
+    return dict(_compile_arguments(line) for line in text.splitlines() if "pip-compile " in line)
+
+
+def test_the_powershell_lock_resolves_on_linux() -> None:
+    case = ps_case("lock", MAKE_PS1.read_text(encoding="utf-8"))
+    assert "pip-compile" in case
+
+    assert host_pip_compiles(case) == []
+
+
+def test_the_lock_guard_refuses_the_host_pip_compile_that_shipped() -> None:
+    assert host_pip_compiles(ps_case("lock", OLD_LOCK_CASE)) == [
+        r".\.venv\Scripts\pip-compile.exe --quiet --no-header --allow-unsafe"
+    ]
+
+
+def test_ci_and_both_wrappers_resolve_each_lock_with_the_same_arguments() -> None:
+    """CI diffs its own resolution against the committed lock, so all three must agree."""
+    ci = _lines_with_pip_compile(CI_WORKFLOW.read_text(encoding="utf-8"))
+    makefile = _lines_with_pip_compile(MAKEFILE.read_text(encoding="utf-8"))
+    ps1 = _ps1_lock_commands(MAKE_PS1.read_text(encoding="utf-8"))
+
+    assert set(ci) == set(LOCK_FILES)
+    assert makefile == ci
+    assert ps1 == ci
