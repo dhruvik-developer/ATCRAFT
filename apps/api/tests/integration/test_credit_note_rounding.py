@@ -16,12 +16,12 @@ from src.modules.finance.models import (
     SalesInvoice,
     SalesInvoiceLine,
 )
-from tests.integration.test_sales_invoice_service import (
+from tests.sales_invoice_support import (
     _return_for_invoice,
     issue,
     make_dispatch,
 )
-from tests.integration.test_sales_invoice_service import bench as bench
+from tests.sales_invoice_support import bench as bench
 
 pytestmark = pytest.mark.integration
 

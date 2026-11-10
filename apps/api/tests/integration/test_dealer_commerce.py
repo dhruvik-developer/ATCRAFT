@@ -20,8 +20,8 @@ from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNote
 from src.modules.finance.models import CreditNoteReason
 from src.modules.products.models import PriceType
 from src.modules.sales_returns.models import SalesReturn, SalesReturnSource, SalesReturnStatus
-from tests.integration.test_sales_invoice_service import bench as bench
-from tests.integration.test_sales_invoice_service import issue, make_dispatch
+from tests.sales_invoice_support import bench as bench
+from tests.sales_invoice_support import issue, make_dispatch
 
 pytestmark = pytest.mark.integration
 

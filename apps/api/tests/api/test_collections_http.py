@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
-from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import today
 from src.core.deps import Principal
 from src.core.permissions import Permission
-from src.modules.collections.models import FollowUpStatus, PaymentFollowUp
+from src.modules.collections.models import FollowUpStatus
+from tests.collections_support import _follow_up
 from tests.seed_support import seed_customer
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
@@ -42,24 +40,6 @@ def _as(principal: Principal) -> None:
     from src.main import app
 
     app.dependency_overrides[get_current_principal] = lambda: principal
-
-
-async def _follow_up(
-    session: AsyncSession, *, company_id: uuid.UUID, customer_id: uuid.UUID
-) -> PaymentFollowUp:
-    follow = PaymentFollowUp(
-        company_id=company_id,
-        code=f"HTTP-FU-{uuid.uuid4().hex[:8].upper()}",
-        customer_id=customer_id,
-        currency="INR",
-        status=FollowUpStatus.OPEN,
-        opened_overdue_amount=Decimal("250"),
-        current_overdue_amount=Decimal("250"),
-        oldest_due_date=today() - timedelta(days=10),
-    )
-    session.add(follow)
-    await session.flush()
-    return follow
 
 
 async def test_collection_view_and_manage_are_separate_rights(

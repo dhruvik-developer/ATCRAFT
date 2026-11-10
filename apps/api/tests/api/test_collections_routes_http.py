@@ -54,9 +54,9 @@ from src.modules.finance.models import SalesInvoice
 from src.workers import celery_app as celery_module
 from tests import seed_support
 from tests.api.dealer_portal_support import sign_in
-from tests.api.test_collections_http import _follow_up
-from tests.integration.test_sales_invoice_service import bench as bench
-from tests.integration.test_sales_invoice_service import issue, make_dispatch
+from tests.collections_support import _follow_up
+from tests.sales_invoice_support import bench as bench
+from tests.sales_invoice_support import issue, make_dispatch
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 

@@ -83,18 +83,18 @@ from src.modules.sales.models import SalesOrderLine
 from src.workers import celery_app as celery_module
 from tests import seed_support
 from tests.api.dealer_portal_support import sign_in
-from tests.integration.test_finance_service import (
+from tests.finance_support import (
     approved_invoice,
     invoice_payload,
     posted_purchase_return,
     seed,
 )
-from tests.integration.test_sales_invoice_service import (
+from tests.sales_invoice_support import (
     _return_for_invoice,
     issue,
     make_dispatch,
 )
-from tests.integration.test_sales_invoice_service import bench as bench
+from tests.sales_invoice_support import bench as bench
 from tests.statement_support import counted, selects
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]

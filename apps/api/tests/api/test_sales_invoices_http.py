@@ -8,7 +8,7 @@ import pytest
 
 from src.core.deps import Principal, get_current_principal
 from src.modules.sales.models import SalesOrderStatus
-from tests.integration.test_sales_invoice_service import bench as bench  # fixture re-export
+from tests.sales_invoice_support import bench as bench  # fixture re-export
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 

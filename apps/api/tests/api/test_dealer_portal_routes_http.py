@@ -88,7 +88,7 @@ from tests.api.dealer_portal_support import (
     portal_user,
     sign_in,
 )
-from tests.integration.test_sales_invoice_service import bench as bench
+from tests.sales_invoice_support import bench as bench
 from tests.statement_support import counted
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
