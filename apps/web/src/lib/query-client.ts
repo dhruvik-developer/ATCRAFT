@@ -110,13 +110,15 @@ const announceQueryError: NonNullable<QueryCacheConfig['onError']> = (error, que
   // Background refetches fail silently; only surface an error the user is
   // actually waiting on.
   if (query.state.data !== undefined) return
+  // A query whose screen says its own failure opts out here - the UoM
+  // conversion check, where a 422 is the business answer, or a list drawn as
+  // LoadError in place of its rows. A refusal included: the panel already says
+  // what was refused, so a toast would say it twice, as the mutation net knows.
+  if (query.meta?.suppressErrorToast) return
   if (error.isPermissionError) {
     toast.error(errors.notPermitted, error.message)
     return
   }
-  // A query that renders its own expected rejection inline (the UoM
-  // conversion check, where a 422 is the business answer) opts out here.
-  if (query.meta?.suppressErrorToast) return
   toast.error(errors.loadFailed, errorDescription(error))
 }
 

@@ -202,6 +202,8 @@ export function UserFormDialog({
     queryFn: ({ signal }) => api.get<UserDetail>(`/users/${userId}`, { signal }),
     enabled: open && Boolean(userId),
     staleTime: staleTimes.master,
+    // Said in the dialog, with a retry, in place of the form it could not fill.
+    meta: { suppressErrorToast: true },
   })
   const user = detail.data ?? null
   // What the account held when the form opened; null while it does not exist.
@@ -394,10 +396,12 @@ export function UserFormDialog({
         >
           <DialogBody className="space-y-5">
             {isEdit && detail.error && (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load this user</AlertTitle>
-                <AlertDescription>{describeError(detail.error)}</AlertDescription>
-              </Alert>
+              <LoadError
+                title="Could not load this user"
+                error={detail.error}
+                onRetry={() => void detail.refetch()}
+                retrying={detail.isFetching}
+              />
             )}
 
             {/* Never a form while `isEdit && !user`: it would hold the blank
@@ -791,7 +795,10 @@ function VendorCategoryScope({
   value: string[]
   onChange: (ids: string[]) => void
 }) {
-  const categories = useVendorCategoryOptions(vendorId, readable)
+  // A failed read is drawn below, with its retry, so the shell does not toast it too.
+  const categories = useVendorCategoryOptions(vendorId, readable, {
+    meta: { suppressErrorToast: true },
+  })
   const rows = useMemo(
     () =>
       [...(categories.data ?? [])].sort((a, b) =>
@@ -872,6 +879,34 @@ function VendorCategoryScope({
 
 // ------------------------------------------------- warehouse assignment -----
 
+/** The API refusing a read for want of a right, as opposed to failing it. */
+function isPermissionDenied(error: unknown): boolean {
+  return error instanceof ApiError && error.code === 'PERMISSION_DENIED'
+}
+
+/**
+ * What the assignment says when its administrator cannot read the warehouse
+ * list (docs/assumptions.md §WH-1).
+ *
+ * The picker needs `warehouse.view`. An administrator assigned to some
+ * warehouses must give a new account at least one of them, so without that
+ * right they cannot create an account here at all - which the form says before
+ * Create is pressed, not as a "Choose at least one warehouse" they cannot meet.
+ */
+function withoutWarehouseView(limited: boolean, stored: readonly string[] | null): string {
+  const needs = 'Choosing warehouses needs the warehouse view right'
+  if (stored === null) {
+    return limited
+      ? `${needs}, so you cannot create an account until you hold it.`
+      : `${needs}, so a new account may use every warehouse.`
+  }
+  const held =
+    stored.length === 0
+      ? 'This account may use every warehouse.'
+      : `This account is limited to ${plural(stored.length, 'warehouse')}.`
+  return `${needs}, so you cannot change this assignment. ${held}`
+}
+
 /**
  * The warehouses an account may use; none ticked is every warehouse.
  *
@@ -907,7 +942,11 @@ function WarehouseAssignment({
   /** Where a refusal moves the focus: the first warehouse that can be ticked. */
   focusRef: RefCallBack
 }) {
-  const warehouses = useWarehouseOptions(readable)
+  // A failed read is drawn below, with its retry, so the shell does not toast it too.
+  const warehouses = useWarehouseOptions(readable, { meta: { suppressErrorToast: true } })
+  // Refused whether the form knows the right is missing or the API says so - a
+  // right taken away since this administrator signed in.
+  const refused = !readable || isPermissionDenied(warehouses.error)
   const rows = warehouses.data ?? []
   const listed = new Set(rows.map((row) => row.id))
   // Held but not offered. Read from what the account held, not from the
@@ -937,14 +976,9 @@ function WarehouseAssignment({
               : 'Tick none and the account may use every warehouse.'}
           </p>
 
-          {!readable ? (
+          {refused ? (
             <p className="mt-3 text-sm text-muted-foreground">
-              Reading the warehouse list needs the warehouse view right, so the assignment cannot be
-              changed from this account.
-              {stored !== null &&
-                (stored.length === 0
-                  ? ' This account may use every warehouse.'
-                  : ` This account is limited to ${plural(stored.length, 'warehouse')}.`)}
+              {withoutWarehouseView(limited, stored)}
             </p>
           ) : warehouses.isLoading ? (
             <p className="mt-3 text-sm text-muted-foreground">Loading warehouses...</p>
@@ -1039,6 +1073,8 @@ export function RoleAssignmentDialog({
     queryFn: ({ signal }) => api.get<UserDetail>(`/users/${userId}`, { signal }),
     enabled: open,
     staleTime: staleTimes.master,
+    // Said in the dialog, with a retry, in place of the checklist.
+    meta: { suppressErrorToast: true },
   })
   const user = detail.data ?? null
 
@@ -1116,17 +1152,21 @@ export function RoleAssignmentDialog({
         >
           <DialogBody className="space-y-4">
             {detail.error && !detail.isLoading && (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load this account&apos;s roles</AlertTitle>
-                <AlertDescription>{describeError(detail.error)}</AlertDescription>
-              </Alert>
+              <LoadError
+                title="Could not load this account's roles"
+                error={detail.error}
+                onRetry={() => void detail.refetch()}
+                retrying={detail.isFetching}
+              />
             )}
 
             {roles.error && (
-              <Alert variant="destructive">
-                <AlertTitle>Could not load the role list</AlertTitle>
-                <AlertDescription>{describeError(roles.error)}</AlertDescription>
-              </Alert>
+              <LoadError
+                title="Could not load the role list"
+                error={roles.error}
+                onRetry={() => void roles.refetch()}
+                retrying={roles.isFetching}
+              />
             )}
 
             {canSave && (

@@ -233,6 +233,43 @@ describe('the query error net', () => {
 
     expect(shown).toHaveBeenCalledWith(errors.loadFailed, 'Upstream timed out')
   })
+
+  // The opt-out was read after the 403 branch, so a list that drew its refusal
+  // in place of its rows was toasted "Not permitted" on top of it.
+  it('lets a query that says its own refusal opt out of the permission toast too', () => {
+    const shown = vi.spyOn(toast, 'error')
+
+    failQuery(
+      new ApiError(403, 'PERMISSION_DENIED', 'You need the warehouse.view permission to do this.'),
+      { suppressErrorToast: true },
+    )
+
+    expect(shown).not.toHaveBeenCalled()
+  })
+
+  it('still toasts a refused first load that did not opt out, as a refusal', () => {
+    const shown = vi.spyOn(toast, 'error')
+
+    failQuery(
+      new ApiError(403, 'PERMISSION_DENIED', 'You need the warehouse.view permission to do this.'),
+    )
+
+    expect(shown).toHaveBeenCalledTimes(1)
+    expect(shown).toHaveBeenCalledWith(
+      errors.notPermitted,
+      'You need the warehouse.view permission to do this.',
+    )
+  })
+
+  it('still ends a lost session for a query that opted out', () => {
+    const cleared = vi.spyOn(apiClient, 'clearTokens').mockImplementation(() => {})
+    const shown = vi.spyOn(toast, 'error')
+
+    failQuery(new ApiError(401, 'UNAUTHORIZED', 'Session expired'), { suppressErrorToast: true })
+
+    expect(cleared).toHaveBeenCalledTimes(1)
+    expect(shown).not.toHaveBeenCalled()
+  })
 })
 
 describe('query keys', () => {

@@ -10,7 +10,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { api } from '@/lib/api-client'
-import { queryKeys, staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes, type ErrorNetMeta } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
 
 /** Const tuples so one list drives the type, the options and the zod enum. */
@@ -94,12 +94,19 @@ export interface WarehouseOption {
   is_default: boolean
 }
 
-/** Active warehouses for the parent picker. */
-export function useWarehouseOptions(enabled: boolean) {
+/**
+ * Active warehouses for a picker.
+ *
+ * `meta` is for a caller that draws a failed read itself - `LoadError` in place
+ * of the list - so the shell does not toast it as well. Every other caller
+ * leaves the failure to the error net, which is the only place it is said.
+ */
+export function useWarehouseOptions(enabled: boolean, { meta }: { meta?: ErrorNetMeta } = {}) {
   return useQuery({
     queryKey: [...queryKeys.warehouses.all, 'options'],
     queryFn: ({ signal }) => api.get<WarehouseOption[]>('/warehouses/options', { signal }),
     staleTime: staleTimes.reference,
     enabled,
+    meta,
   })
 }

@@ -303,6 +303,71 @@ describe('what the dialogs do when the record behind them cannot be loaded', () 
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 
+  it('offers a retry for a user it could not load, says the failure once, and fills the form', async () => {
+    // The failure was a bare alert: closing and reopening the dialog was the
+    // only way to ask again, and the shell toasted the same failure on top.
+    const detail = {
+      ...userRow(),
+      phone: null,
+      mfa_enabled: false,
+      failed_login_attempts: 0,
+      password_changed_at: null,
+      updated_at: '2026-08-30T09:15:00Z',
+      roles: [STORES_ROLE],
+    }
+    let reads = 0
+    const { user } = renderScreen(
+      <>
+        <UsersPage />
+        <Toaster />
+      </>,
+      {
+        permissions: [...READ_ONLY, P.USER_UPDATE],
+        errorNets: true,
+        routes: {
+          ...baseRoutes(),
+          'GET /organization/departments': page([]),
+          'GET /users/u-priya': () => (++reads === 1 ? DIRECTORY_DOWN : ok(detail)),
+        },
+      },
+    )
+    await openActions(user, 'Priya Shah')
+    await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('Could not load this user')).toBeVisible()
+    const toasts = screen.getByRole('region', { name: 'Notifications' })
+    expect(within(toasts).queryAllByRole('alert')).toHaveLength(0)
+
+    await user.click(within(dialog).getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(/full name/i)).toHaveValue('Priya Shah'),
+    )
+    expect(within(dialog).queryByText('Could not load this user')).toBeNull()
+    expect(reads).toBe(2)
+  })
+
+  it('offers a retry for an account whose roles it could not read', async () => {
+    let reads = 0
+    const { user } = renderUsers([...READ_ONLY, P.PERMISSION_ASSIGN], {
+      ...baseRoutes(),
+      'GET /users/u-priya': () =>
+        ++reads === 1
+          ? DIRECTORY_DOWN
+          : ok({ ...userRow(), allowed_category_ids: [], roles: [STORES_ROLE] }),
+    })
+    await openActions(user, 'Priya Shah')
+    await user.click(screen.getByRole('menuitem', { name: /assign roles/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText("Could not load this account's roles")).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Try again' }))
+
+    expect(await within(dialog).findByRole('checkbox', { name: /stores/i })).toBeChecked()
+    expect(within(dialog).getByRole('button', { name: /save roles/i })).toBeEnabled()
+  })
+
   it('saves an edit with PATCH against the account it opened, never POST', async () => {
     const detail = {
       ...userRow(),
@@ -566,6 +631,118 @@ describe('the warehouses an account may use', () => {
     expect(fetch.requestFor('POST', '/users')).toMatchObject({
       email: 'ravi@atcraft.example',
       allowed_warehouse_ids: [NORTH],
+    })
+  })
+
+  it('says a failed warehouse read once, in place of the list, with its retry', async () => {
+    // The shared lookup declared no meta, so the shell toasted the failure the
+    // fieldset already showed.
+    const { user } = renderAssignment(LIMITED_ADMIN, {
+      'GET /warehouses/options': fail(503, 'SERVICE_UNAVAILABLE', 'Warehouses are unavailable'),
+    })
+    await settled()
+    await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
+    const group = within(await screen.findByRole('dialog')).getByRole('group', {
+      name: 'Warehouses',
+    })
+
+    expect(await within(group).findByText(/Warehouses are unavailable/)).toBeVisible()
+    expect(within(group).getByRole('button', { name: 'Try again' })).toBeVisible()
+    expect(toastAlerts()).toHaveLength(0)
+  })
+
+  describe('without the warehouse view right', () => {
+    const SENTENCE = /choosing warehouses needs the warehouse view right/i
+
+    async function openNewUser(user: ReturnType<typeof renderAssignment>['user']) {
+      await settled()
+      await user.click(screen.getAllByRole('button', { name: /new user/i })[0]!)
+      const dialog = await screen.findByRole('dialog')
+      return { dialog, group: within(dialog).getByRole('group', { name: 'Warehouses' }) }
+    }
+
+    it('tells a limited administrator they cannot create an account, and reads nothing', async () => {
+      // §WH-1: the picker needs warehouse.view, and a limited administrator must
+      // give a new account one of their own - so without the right there is no
+      // account they can create here. The form said only that the list could
+      // not be read, and Create then asked for a warehouse nothing offered.
+      const { user, fetch } = renderScreen(
+        <>
+          <UsersPage />
+          <Toaster />
+        </>,
+        {
+          permissions: [...READ_ONLY, P.USER_CREATE, P.USER_UPDATE],
+          user: LIMITED_ADMIN,
+          routes: { ...baseRoutes(), 'GET /organization/departments': page([]) },
+        },
+      )
+      const { group } = await openNewUser(user)
+
+      expect(
+        within(group).getByText(
+          'Choosing warehouses needs the warehouse view right, so you cannot create an account until you hold it.',
+        ),
+      ).toBeVisible()
+      expect(within(group).queryByRole('checkbox')).toBeNull()
+      expect(fetch.calls.some((call) => call.path === '/warehouses/options')).toBe(false)
+    })
+
+    it('says the same, once, when the API refuses the read the form expected to make', async () => {
+      // The right was taken away after this administrator signed in.
+      const { user } = renderAssignment(LIMITED_ADMIN, {
+        'GET /warehouses/options': fail(
+          403,
+          'PERMISSION_DENIED',
+          'You need the warehouse.view permission to do this.',
+        ),
+      })
+      const { group } = await openNewUser(user)
+
+      expect(await within(group).findByText(SENTENCE)).toBeVisible()
+      expect(
+        within(group).getByText(/you cannot create an account until you hold it/),
+      ).toBeVisible()
+      expect(within(group).queryByRole('button', { name: 'Try again' })).toBeNull()
+      expect(toastAlerts()).toHaveLength(0)
+    })
+
+    it('tells an unrestricted administrator a new account may use every warehouse', async () => {
+      const { user } = renderScreen(<UsersPage />, {
+        permissions: [...READ_ONLY, P.USER_CREATE],
+        user: { allowed_warehouse_ids: [] },
+        routes: { ...baseRoutes(), 'GET /organization/departments': page([]) },
+      })
+      const { group } = await openNewUser(user)
+
+      expect(
+        within(group).getByText(
+          'Choosing warehouses needs the warehouse view right, so a new account may use every warehouse.',
+        ),
+      ).toBeVisible()
+    })
+
+    it('keeps an edited account’s assignment, and says what it is', async () => {
+      const { user, fetch } = renderScreen(<UsersPage />, {
+        permissions: [...READ_ONLY, P.USER_UPDATE],
+        user: { allowed_warehouse_ids: [] },
+        routes: {
+          ...baseRoutes(),
+          'GET /organization/departments': page([]),
+          ...editRoutes([MAIN]),
+        },
+      })
+      const { dialog, group } = await openEdit(user)
+
+      expect(
+        within(group).getByText(
+          'Choosing warehouses needs the warehouse view right, so you cannot change this assignment. This account is limited to 1 warehouse.',
+        ),
+      ).toBeVisible()
+      await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+      await waitFor(() => fetch.requestFor('PATCH', '/users/u-ravi'))
+      expect(fetch.requestFor('PATCH', '/users/u-ravi')).not.toHaveProperty('allowed_warehouse_ids')
     })
   })
 

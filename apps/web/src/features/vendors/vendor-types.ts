@@ -13,7 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
-import { queryKeys, staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes, type ErrorNetMeta } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
@@ -293,9 +293,14 @@ export type VendorCategoryOption = SchemaOf<'VendorCategoryRead'>
  * the right the user dialog's own vendor picker already needs to bind the
  * account to a vendor at all - and is vendor-scoped for a portal principal. A
  * vendor's qualifications are reference-sized, so one page at the API's maximum
- * is the whole set.
+ * is the whole set. `meta` is for a caller that draws a failed read itself, as
+ * `useWarehouseOptions` takes it.
  */
-export function useVendorCategoryOptions(vendorId: string | null, enabled: boolean) {
+export function useVendorCategoryOptions(
+  vendorId: string | null,
+  enabled: boolean,
+  { meta }: { meta?: ErrorNetMeta } = {},
+) {
   return useQuery({
     queryKey: [...queryKeys.vendors.detail(vendorId ?? ''), 'categories', 'options'] as const,
     queryFn: async ({ signal }): Promise<VendorCategoryOption[]> =>
@@ -307,5 +312,6 @@ export function useVendorCategoryOptions(vendorId: string | null, enabled: boole
       ).data,
     staleTime: staleTimes.master,
     enabled: enabled && Boolean(vendorId),
+    meta,
   })
 }
