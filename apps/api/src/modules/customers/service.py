@@ -45,7 +45,6 @@ from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
-    InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
     ValidationError,
@@ -896,17 +895,15 @@ class CustomerService:
 
             assert_channel_write_allowed(principal, customer.customer_type)
 
-            current = lifecycle_state(customer)
             # The source state is asserted, not just the edge: the machine also
             # allows ACTIVE -> INACTIVE, so checking the edge alone would let
             # "restore" quietly deactivate a live account.
-            if current is not MasterLifecycleState.ARCHIVED:
-                raise InvalidStateTransitionError(
-                    entity="Customer",
-                    current=str(current),
-                    requested="RESTORED",
-                    allowed=[str(t) for t in CUSTOMER_LIFECYCLE.allowed_targets(current)],
-                )
+            CUSTOMER_LIFECYCLE.assert_transition(
+                lifecycle_state(customer),
+                MasterLifecycleState.INACTIVE,
+                source=MasterLifecycleState.ARCHIVED,
+                requested="RESTORED",
+            )
 
             customer.deleted_at = None
             customer.is_active = False

@@ -37,7 +37,6 @@ from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
-    InvalidStateTransitionError,
     NotFoundError,
 )
 from src.core.logging import get_logger
@@ -534,14 +533,12 @@ class WarehouseService:
             # Assert the *source* as well, not just the target edge: the machine
             # also allows ACTIVE -> INACTIVE, so checking the edge alone would
             # let "restore" quietly deactivate a warehouse that is still live.
-            if current is not MasterLifecycleState.ARCHIVED:
-                raise InvalidStateTransitionError(
-                    entity="Warehouse",
-                    current=str(current),
-                    requested="RESTORED",
-                    allowed=[str(t) for t in WAREHOUSE_LIFECYCLE.allowed_targets(current)],
-                )
-            WAREHOUSE_LIFECYCLE.assert_transition(current, MasterLifecycleState.INACTIVE)
+            WAREHOUSE_LIFECYCLE.assert_transition(
+                current,
+                MasterLifecycleState.INACTIVE,
+                source=MasterLifecycleState.ARCHIVED,
+                requested="RESTORED",
+            )
 
             # Another warehouse may have taken the code while this one was
             # retired; restoring it would violate the tenant unique constraint.

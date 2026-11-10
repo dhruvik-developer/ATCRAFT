@@ -87,7 +87,6 @@ from src.core.errors import (
     AuthorizationError,
     BusinessRuleError,
     ErrorCode,
-    InvalidStateTransitionError,
     NotFoundError,
     ValidationError,
 )
@@ -2988,16 +2987,11 @@ async def submit_invoice(
         invoice = await repo.lock_for_update(invoice_id)
         if invoice is None:
             raise NotFoundError("Vendor invoice", invoice_id)
-        current = VendorInvoiceStatus(invoice.status)
-        if current is not VendorInvoiceStatus.DRAFT:
-            raise InvalidStateTransitionError(
-                entity=VENDOR_INVOICE_LIFECYCLE.entity,
-                current=str(current),
-                requested=str(VendorInvoiceStatus.PENDING_APPROVAL),
-                allowed=[
-                    str(target) for target in VENDOR_INVOICE_LIFECYCLE.allowed_targets(current)
-                ],
-            )
+        VENDOR_INVOICE_LIFECYCLE.assert_transition(
+            VendorInvoiceStatus(invoice.status),
+            VendorInvoiceStatus.PENDING_APPROVAL,
+            source=VendorInvoiceStatus.DRAFT,
+        )
         await _transition_invoice(
             session, tenant, invoice, VendorInvoiceStatus.PENDING_APPROVAL, reason=reason
         )

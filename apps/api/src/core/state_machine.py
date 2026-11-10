@@ -61,14 +61,29 @@ class StateMachine(Generic[S]):
     def can_transition(self, current: S, target: S) -> bool:
         return self.find(current, target) is not None
 
-    def assert_transition(self, current: S, target: S) -> Transition[S]:
-        """Raise :class:`InvalidStateTransitionError` unless the edge exists."""
-        transition = self.find(current, target)
+    def assert_transition(
+        self,
+        current: S,
+        target: S,
+        *,
+        source: S | None = None,
+        requested: str | None = None,
+    ) -> Transition[S]:
+        """Raise :class:`InvalidStateTransitionError` unless the edge exists.
+
+        ``source`` pins the one state an operation leaves from, for an operation
+        whose target another edge also reaches: restore and deactivate both end
+        INACTIVE, so the edge alone would let "restore" quietly deactivate a live
+        record. ``requested`` names that operation in the refusal when it is not
+        the target status itself (``"RESTORED"``, ``"RECOUNT"``).
+        """
+        leaves_from_source = source is None or current == source
+        transition = self.find(current, target) if leaves_from_source else None
         if transition is None:
             raise InvalidStateTransitionError(
                 entity=self.entity,
                 current=str(current),
-                requested=str(target),
+                requested=str(target) if requested is None else requested,
                 allowed=[str(s) for s in self.allowed_targets(current)],
             )
         return transition

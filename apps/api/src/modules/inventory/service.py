@@ -104,7 +104,6 @@ from src.core.errors import (
     DuplicateError,
     ErrorCode,
     InsufficientStockError,
-    InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
     SelfApprovalError,
@@ -7461,14 +7460,12 @@ class PhysicalCountService:
             # DRAFT -> IN_PROGRESS start edge, so checking the edge alone let a
             # sheet nobody had counted be "reopened", in progress with no
             # started_at. Only a COUNTED sheet has a count to repeat.
-            if count.status is not PhysicalCountStatus.COUNTED:
-                raise InvalidStateTransitionError(
-                    entity=COUNT_FLOW.entity,
-                    current=str(count.status),
-                    requested="RECOUNT",
-                    allowed=[str(target) for target in COUNT_FLOW.allowed_targets(count.status)],
-                )
-            COUNT_FLOW.assert_transition(count.status, PhysicalCountStatus.IN_PROGRESS)
+            COUNT_FLOW.assert_transition(
+                count.status,
+                PhysicalCountStatus.IN_PROGRESS,
+                source=PhysicalCountStatus.COUNTED,
+                requested="RECOUNT",
+            )
             previous = count.status
             for line in await self.line_repo.all_for_count(count_id):
                 line.counted_quantity = None

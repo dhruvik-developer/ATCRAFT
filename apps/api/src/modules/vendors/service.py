@@ -50,7 +50,6 @@ from src.core.errors import (
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
-    InvalidStateTransitionError,
     NotFoundError,
     SelfApprovalError,
     ValidationError,
@@ -1172,14 +1171,12 @@ class VendorService:
             # Assert the *source* as well as the edge: the machine also allows
             # APPROVED -> SUSPENDED, so checking the edge alone would let
             # "restore" quietly suspend a vendor that is still live.
-            if current is not VendorState.ARCHIVED:
-                raise InvalidStateTransitionError(
-                    entity="Vendor",
-                    current=str(current),
-                    requested="RESTORED",
-                    allowed=[str(t) for t in VENDOR_LIFECYCLE.allowed_targets(current)],
-                )
-            VENDOR_LIFECYCLE.assert_transition(current, VendorState.SUSPENDED)
+            VENDOR_LIFECYCLE.assert_transition(
+                current,
+                VendorState.SUSPENDED,
+                source=VendorState.ARCHIVED,
+                requested="RESTORED",
+            )
 
             # Another vendor may have taken the code, or re-registered the
             # GSTIN, while this one was retired.
@@ -1878,14 +1875,12 @@ class TransporterService:
                 raise NotFoundError("Transporter", transporter_id)
 
             current = transporter_state(transporter)
-            if current is not TransporterState.ARCHIVED:
-                raise InvalidStateTransitionError(
-                    entity="Transporter",
-                    current=str(current),
-                    requested="RESTORED",
-                    allowed=[str(t) for t in TRANSPORTER_LIFECYCLE.allowed_targets(current)],
-                )
-            TRANSPORTER_LIFECYCLE.assert_transition(current, TransporterState.INACTIVE)
+            TRANSPORTER_LIFECYCLE.assert_transition(
+                current,
+                TransporterState.INACTIVE,
+                source=TransporterState.ARCHIVED,
+                requested="RESTORED",
+            )
 
             if await self.repo.code_taken(transporter.code, exclude_id=transporter.id):
                 raise DuplicateError(

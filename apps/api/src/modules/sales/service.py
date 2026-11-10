@@ -54,7 +54,6 @@ from src.core.errors import (
     ApprovalRequiredError,
     BusinessRuleError,
     ErrorCode,
-    InvalidStateTransitionError,
     NotFoundError,
     PermissionDeniedError,
     SelfApprovalError,
@@ -2938,14 +2937,9 @@ async def confirm_order(
         # ALLOCATED -> CONFIRMED for an allocation shortfall, so checking the
         # edge alone let a confirmed, fully reserved order be confirmed again -
         # re-audited, re-checked for credit and its dealer told twice.
-        if current is not SalesOrderStatus.DRAFT:
-            raise InvalidStateTransitionError(
-                entity=SALES_ORDER_LIFECYCLE.entity,
-                current=str(current),
-                requested=str(SalesOrderStatus.CONFIRMED),
-                allowed=[str(target) for target in SALES_ORDER_LIFECYCLE.allowed_targets(current)],
-            )
-        SALES_ORDER_LIFECYCLE.assert_transition(current, SalesOrderStatus.CONFIRMED)
+        SALES_ORDER_LIFECYCLE.assert_transition(
+            current, SalesOrderStatus.CONFIRMED, source=SalesOrderStatus.DRAFT
+        )
         assert_customer_currency(
             order.currency, await OrderPartyRepository(session, tenant).company_currency()
         )
