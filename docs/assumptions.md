@@ -4353,7 +4353,7 @@ module is used in production:
    §B2-*. Holidays and minimum rest stay as already recorded there.
 
 9. **Two-factor policy.** **Standing default:**
-   `MFA_REQUIRED_ROLES=SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER` (see §MFA-1).
+   `MFA_REQUIRED_ROLES=SUPER_ADMIN,ADMIN,ACCOUNTS` (see §MFA-1).
    Clear the list to leave MFA optional. Listed roles are locked out of business
    screens until they enrol at Profile → Security.
 
@@ -4552,23 +4552,32 @@ policy; do not send account reminders to users lacking the account right.
 ## §MFA-1. Privileged roles enrol TOTP by default
 
 **Assumed.** Deployed and template environments set
-`MFA_REQUIRED_ROLES=SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER`. Matching is
-case-insensitive. An empty value (the in-process Settings default, used by a
-fresh local seed before authenticators exist) leaves MFA optional for every
-role. Listed principals are refused authenticated business routes with
-`403 MFA_REQUIRED` until they enrol.
+`MFA_REQUIRED_ROLES=SUPER_ADMIN,ADMIN,ACCOUNTS` - the role preset codes of the
+platform administrator, the company administrator and finance. Matching is
+case-insensitive and against the codes of the roles a user holds, so the list
+must name role codes that exist: a code no role carries enforces nothing. An
+empty value (the in-process Settings default, used by a fresh local seed before
+authenticators exist) leaves MFA optional for every role. Listed principals are
+refused authenticated business routes with `403 MFA_REQUIRED` until they enrol.
 
 **Why.** Platform, company and finance administrators can move money and master
 data; optional MFA left those accounts unprotected after an upgrade unless an
 operator remembered to opt in. Clearing the list remains available for sites
-that have not issued authenticators yet.
+that have not issued authenticators yet. Until 10 Nov 2026 the shipped value
+named `COMPANY_ADMIN` and `FINANCE_MANAGER`, which no preset defines, so only
+`SUPER_ADMIN` was enforced; a deployment that keeps the shipped default now
+also requires `ADMIN` and `ACCOUNTS` users to enrol, and should tell them before
+the upgrade.
 
 **Where.** `.env.example`, `deploy/*.env.example`, `docker-compose.yml`
 (`${MFA_REQUIRED_ROLES:-SUPER_ADMIN,...}`); `src/core/config.py` -
-`mfa_required_roles`; authentication dependency that enforces the list.
+`mfa_required_roles`; authentication dependency that enforces the list;
+`tests/unit/test_mfa_required_roles_defaults.py` keeps every shipped source on
+preset codes and in agreement.
 
 **Impact if wrong.** Override or clear `MFA_REQUIRED_ROLES` per environment
-before go-live if a different population (or none) must enrol.
+before go-live if a different population (or none) must enrol. A client-created
+role is listed by its own code.
 
 ## §JW-batch-1. Batch SKU conversion is one-to-one lot lineage
 

@@ -111,8 +111,14 @@ restriction.
 - `mfa_secret` is on the log-redaction list in `core/logging.py`.
 
 **Enforcement by role.** `MFA_REQUIRED_ROLES` (comma-separated role codes;
-shipped default `SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER`) turns optional
-enrolment into a deployment policy. Clear the list to leave MFA optional. A
+shipped default `SUPER_ADMIN,ADMIN,ACCOUNTS` - the platform administrator, the
+company administrator and finance presets) turns optional enrolment into a
+deployment policy. Clear the list to leave MFA optional. The codes are matched
+against the codes of the roles a user holds, so a code no role carries
+enforces nothing and says nothing: the shipped default once named
+`COMPANY_ADMIN` and `FINANCE_MANAGER`, which no preset defines, and only
+`SUPER_ADMIN` was ever enforced. `tests/unit/test_mfa_required_roles_defaults.py`
+keeps every shipped source on preset codes. A
 principal whose roles intersect that list is refused every authenticated route
 with `403 MFA_REQUIRED` unless the account has MFA enrolled. The reachable surface is
 limited to `/auth/me`, `/auth/mfa/setup`, `/auth/mfa/confirm`, `/auth/sessions*`,

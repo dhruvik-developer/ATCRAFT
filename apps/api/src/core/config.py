@@ -230,13 +230,16 @@ class Settings(BaseSettings):
     # constants. What this budget bounds is *spraying* many accounts from one
     # address, which it still caps at 20 distinct attempts a minute.
     rate_limit_auth_per_minute: Annotated[int, Field(ge=1)] = 20
-    # Roles that must enrol a second factor before the shared authentication
-    # dependency lets them reach anything but the enrolment routes. Empty means
-    # MFA stays optional (safe for a fresh local seed before authenticators
-    # exist). Deploy templates and ``.env.example`` ship
-    # ``SUPER_ADMIN,COMPANY_ADMIN,FINANCE_MANAGER`` as the production default
-    # (docs/assumptions.md §MFA-1); Compose substitutes the same when the env
-    # key is unset.
+    # Role codes that must enrol a second factor before the shared
+    # authentication dependency lets them reach anything but the enrolment
+    # routes. Empty means MFA stays optional (safe for a fresh local seed before
+    # authenticators exist). Deploy templates and ``.env.example`` ship
+    # ``SUPER_ADMIN,ADMIN,ACCOUNTS`` - role preset codes from
+    # ``core/permissions.py`` - as the production default (docs/assumptions.md
+    # §MFA-1); Compose substitutes the same when the env key is unset. A code
+    # no role carries enforces nothing, which is how the shipped default once
+    # named two roles that did not exist; test_mfa_required_roles_defaults.py
+    # keeps every shipped source on preset codes.
     mfa_required_roles: str = ""
 
     # Comma-separated hostnames accepted by TrustedHostMiddleware.  Public

@@ -31,6 +31,20 @@ On macOS/Linux, use `make seed-local` and the normal `make dev` setup. Open
 password displayed by the seed, then change it when prompted. A repeated seed
 preserves the account's current password.
 
+The seeded administrator holds the `SUPER_ADMIN` role, which the template's
+`MFA_REQUIRED_ROLES=SUPER_ADMIN,ADMIN,ACCOUNTS` requires to enrol a second
+factor (docs/assumptions.md §MFA-1). After the password change every business
+screen answers "Your role requires two-factor authentication" until you open
+**Profile & sessions** from the user menu, choose **Set up two-factor**, add the
+key to any TOTP authenticator app and confirm with its six-digit code; later
+sign-ins ask for a code from the same app. The demonstration staff hold none of
+the listed roles and sign in with a password alone. To leave MFA optional on
+your own machine in hybrid mode, set `MFA_REQUIRED_ROLES=` (empty) in `.env`
+and restart the API. The full Docker stack cannot be cleared that way - its
+`${MFA_REQUIRED_ROLES:-...}` fallback also replaces an empty value - so enrol
+there; only the browser end-to-end overlay (`docker-compose.e2e.yml`) sets the
+literal empty value its fixture accounts need.
+
 To supply your own administrator details, run the same file from `apps/api`:
 
 ```powershell

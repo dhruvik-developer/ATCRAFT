@@ -203,7 +203,10 @@ an owner and evidence for every checked step.
 6. [ ] **Complete first-admin and role setup.** Change the one-time seeded
    administrator password immediately, enroll MFA according to client policy,
    verify password reset delivery, create named users and assign least-privilege
-   roles. Review the
+   roles. Under the shipped `MFA_REQUIRED_ROLES=SUPER_ADMIN,ADMIN,ACCOUNTS`
+   every holder of those three roles must enrol an authenticator before any
+   business screen opens (docs/assumptions.md §MFA-1); tell them before they
+   first sign in, or set the population the client chose. Review the
    [new-permission grant matrix](#programme-permissions-by-role-preset) before
    granting client-owned roles.
 7. [ ] **Prove off-box recovery.** Configure encrypted database and storage
