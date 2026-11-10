@@ -50,7 +50,6 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.messages import (
-    NO_FIELDS_TO_UPDATE,
     PRICE_QUANTITY_NOT_POSITIVE,
     date_before,
     inactive_record,
@@ -62,6 +61,7 @@ from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_factor, to_quantity, to_unit_price
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.organization.service import (
@@ -759,6 +759,7 @@ async def update_category(
     category_id: uuid.UUID,
     payload: CategoryUpdate,
 ) -> CategoryOut:
+    require_changes(payload)
     repo = ItemCategoryRepository(session, tenant)
 
     async with transaction(session):
@@ -968,6 +969,7 @@ async def create_uom(session: AsyncSession, tenant: TenantContext, payload: UomC
 async def update_uom(
     session: AsyncSession, tenant: TenantContext, uom_id: uuid.UUID, payload: UomUpdate
 ) -> UomOut:
+    require_changes(payload)
     repo = UnitOfMeasureRepository(session, tenant)
 
     async with transaction(session):
@@ -1545,6 +1547,7 @@ async def update_item(
     actually moves - the item form posts every field on every save, and
     refusing a no-op would turn an ordinary edit into a permission error.
     """
+    require_changes(payload)
     repo = ItemRepository(session, tenant)
 
     async with transaction(session):
@@ -1861,6 +1864,7 @@ async def update_item_attribute(
     attribute_id: uuid.UUID,
     payload: ItemAttributeUpdate,
 ) -> ItemAttributeOut:
+    require_changes(payload)
     repo = ItemAttributeRepository(session, tenant)
 
     async with transaction(session):
@@ -2071,9 +2075,8 @@ async def update_manufacturer(
     manufacturer_id: uuid.UUID,
     payload: ManufacturerUpdate,
 ) -> ManufacturerOut:
+    require_changes(payload)
     changes = payload.model_dump(exclude_unset=True)
-    if not changes:
-        raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
     repo = ManufacturerRepository(session, tenant)
 
@@ -2195,9 +2198,8 @@ async def create_brand(
 async def update_brand(
     session: AsyncSession, tenant: TenantContext, brand_id: uuid.UUID, payload: BrandUpdate
 ) -> BrandOut:
+    require_changes(payload)
     changes = payload.model_dump(exclude_unset=True)
-    if not changes:
-        raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
     repo = BrandRepository(session, tenant)
 
@@ -2379,6 +2381,7 @@ async def update_variant(
     *,
     include_cost: bool = False,
 ) -> VariantOut:
+    require_changes(payload)
     if not include_cost and "cost_delta" in payload.model_fields_set:
         raise PermissionDeniedError("The item.cost_view permission is required to set cost delta.")
 
@@ -2571,6 +2574,7 @@ async def create_price(
 async def update_price(
     session: AsyncSession, tenant: TenantContext, price_id: uuid.UUID, payload: PriceUpdate
 ) -> PriceOut:
+    require_changes(payload)
     repo = ItemPriceRepository(session, tenant)
     audited = ["price", "min_quantity", "valid_from", "valid_to", "is_active", "notes"]
 
@@ -2845,6 +2849,7 @@ VENDOR_LINK_CLEARABLE_FIELDS = frozenset({"manufacturer_id", "manufacturer_part_
 async def update_vendor_link(
     session: AsyncSession, tenant: TenantContext, link_id: uuid.UUID, payload: VendorLinkUpdate
 ) -> VendorLinkOut:
+    require_changes(payload)
     repo = ItemVendorLinkRepository(session, tenant)
     audited = [
         "vendor_item_code",

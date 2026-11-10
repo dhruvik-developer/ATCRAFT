@@ -17,10 +17,8 @@ hook.
 
 from __future__ import annotations
 
-import enum
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
-from datetime import date
 from typing import Any
 
 import pytest
@@ -32,7 +30,13 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal, require_superuser
 from src.core.errors import ErrorCode
-from tests.route_support import MountedRoute, assert_matches_contract, module_routes
+from tests.route_support import (
+    MountedRoute,
+    UntouchableSession,
+    assert_matches_contract,
+    module_routes,
+    route_url,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -150,51 +154,6 @@ def test_each_allowlist_entry_is_a_real_route_of_the_shape_it_claims() -> None:
 # -----------------------------------------------------------------------------
 
 
-class _DatabaseTouchedError(Exception):
-    pass
-
-
-class _UntouchableSession:
-    """Stands in for the request session and records every use of it."""
-
-    def __init__(self, touched: list[str]) -> None:
-        object.__setattr__(self, "_touched", touched)
-
-    def __getattr__(self, name: str) -> Any:
-        self._touched.append(name)
-        raise _DatabaseTouchedError(f"session.{name} used before the caller was authorised")
-
-
-def _sample(annotation: Any) -> str:
-    if isinstance(annotation, type):
-        if issubclass(annotation, uuid.UUID):
-            return str(uuid.uuid4())
-        if issubclass(annotation, enum.Enum):
-            return str(next(iter(annotation)).value)
-        if issubclass(annotation, bool):
-            return "false"
-        if issubclass(annotation, int):
-            return "1"
-        if issubclass(annotation, date):
-            return "2026-04-01"
-    return "sample"
-
-
-def _url(mounted: MountedRoute) -> str:
-    annotations: dict[str, Any] = {}
-    pending = [mounted.route.dependant]
-    while pending:
-        dependant = pending.pop()
-        for field in dependant.path_params:
-            annotations[field.alias] = field.field_info.annotation
-        pending.extend(dependant.dependencies)
-    path = mounted.path
-    for name, annotation in annotations.items():
-        path = path.replace("{" + name + "}", _sample(annotation))
-    assert "{" not in path, f"unfilled path parameter in {mounted.path}"
-    return path
-
-
 @pytest.fixture(scope="module")
 def app() -> FastAPI:
     from src.api.router import api_router, register_module_routers
@@ -218,8 +177,8 @@ async def client(
 ) -> AsyncIterator[AsyncClient]:
     monkeypatch.setattr(settings, "rate_limit_enabled", False)
 
-    async def _session() -> AsyncIterator[_UntouchableSession]:
-        yield _UntouchableSession(touched)
+    async def _session() -> AsyncIterator[UntouchableSession]:
+        yield UntouchableSession(touched)
 
     app.dependency_overrides[get_db] = _session
     transport = ASGITransport(app=app)
@@ -255,7 +214,7 @@ async def test_an_anonymous_caller_is_refused_before_anything_is_read(
     operation: Operation, mounted: MountedRoute, client: AsyncClient, touched: list[str]
 ) -> None:
     method, _ = operation
-    response = await client.request(method, settings.api_v1_prefix + _url(mounted))
+    response = await client.request(method, settings.api_v1_prefix + route_url(mounted))
     _assert_refused(response, 401, {ErrorCode.UNAUTHENTICATED}, touched)
 
 
@@ -281,7 +240,7 @@ async def test_a_caller_without_the_permission_is_refused_before_anything_is_rea
     )
     app.dependency_overrides[get_current_principal] = lambda: nobody
     method, _ = operation
-    response = await client.request(method, settings.api_v1_prefix + _url(mounted))
+    response = await client.request(method, settings.api_v1_prefix + route_url(mounted))
     _assert_refused(
         response,
         403,

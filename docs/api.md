@@ -282,7 +282,18 @@ the stored value. An explicit `null` on a field that cannot be empty is refused
 before any service runs, as a **422** naming the field (`reject_null` in
 `core/validation.py`), never written through to a NOT NULL column or handed to
 a calculation. Assembly and job-work draft edits instead ignore such a null and
-keep the stored value, as their services document.
+keep the stored value, as their services document. The two rules are kept
+apart on purpose: the assembly edit form sends `output_warehouse_id: null` to
+mean "keep the stored one", so refusing that null would break the screen.
+
+A `PATCH` that names no field at all (`{}`) is refused on every route before
+anything is read, as a **422** `BUSINESS_RULE_VIOLATION` with the message "No
+fields were supplied to update." (`require_changes` in `core/validation.py`,
+docs/assumptions.md §PATCH-1) - never applied as an edit that changed nothing,
+which would bump the record's version and write an empty audit row. A body
+that is a full replacement (an adjustment's header and lines, a consignment's
+details) fails on its required fields first, as `VALIDATION_ERROR`. `PUT`
+settings are whole records and keep their own rule.
 
 The body-size ceiling applies to bytes actually received, including chunked
 requests and bodies larger than their declared `Content-Length`. Exceeding it

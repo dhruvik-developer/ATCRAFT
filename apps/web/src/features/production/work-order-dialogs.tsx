@@ -249,8 +249,8 @@ export function WorkOrderAssignDialog({
 
   const submit = handleSubmit((values) => {
     if (!workOrder) return
-    // An empty PATCH is accepted and does nothing; saying so is more use than a
-    // success toast for a change that was never made.
+    // The API refuses an empty PATCH (docs/assumptions.md §PATCH-1); saying so
+    // here is more use than an error for a change that was never made.
     if (Object.keys(buildChanges(workOrder, values)).length === 0) {
       toast.show('Nothing to save', 'No field on this operation was changed.')
       return

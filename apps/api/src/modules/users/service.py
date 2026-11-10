@@ -80,6 +80,7 @@ from src.core.permissions import (
 from src.core.responses import OffsetPagination
 from src.core.security import hash_password_async, validate_password_policy
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.users.models import Role, User
@@ -1762,9 +1763,8 @@ class RoleService:
         configurable behaviour - with the single exception listed in
         :data:`IMMUTABLE_ROLE_CODES`.
         """
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         affected = 0
 

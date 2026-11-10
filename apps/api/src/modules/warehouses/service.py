@@ -41,11 +41,12 @@ from src.core.errors import (
     NotFoundError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, hierarchy_too_deep, own_parent, parent_below
+from src.core.messages import hierarchy_too_deep, own_parent, parent_below
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.warehouses.models import StorageLocation, Warehouse, WarehouseType
@@ -348,9 +349,8 @@ class WarehouseService:
     async def update_warehouse(
         self, warehouse_id: uuid.UUID, payload: WarehouseUpdate
     ) -> WarehouseRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             warehouse = await self.repo.get_or_404(warehouse_id)
@@ -727,9 +727,8 @@ class StorageLocationService:
     async def update_location(
         self, location_id: uuid.UUID, payload: StorageLocationUpdate
     ) -> StorageLocationRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             location = await self.repo.get_or_404(location_id)

@@ -99,6 +99,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import SerialStatus, TransactionType
@@ -1857,6 +1858,7 @@ async def update_order(
     orphan a physical box, which the RESTRICT foreign key on
     ``carton_contents.packing_order_line_id`` refuses anyway.
     """
+    require_changes(payload)
     repo = PackingOrderRepository(session, tenant)
     line_repo = PackingOrderLineRepository(session, tenant)
 

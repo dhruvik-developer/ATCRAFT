@@ -14,7 +14,7 @@ from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
 from src.core.pagination import PageParams
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
-from src.core.validation import bind_request_model
+from src.core.validation import bind_request_model, require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit
 from src.modules.dealer_portal.models import DealerBanner, DealerBannerStatus, DealerOffer
@@ -135,6 +135,7 @@ class PromotionService:
     async def update(
         self, resource: Resource, identity: uuid.UUID, patch: PromotionUpdate
     ) -> PromotionRead:
+        require_changes(patch)
         async with transaction(self.session):
             model = DealerBanner if resource == "banners" else DealerOffer
             row = await self.repo.lock(model, identity)

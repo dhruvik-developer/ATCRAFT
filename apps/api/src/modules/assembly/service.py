@@ -119,6 +119,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
+from src.core.validation import require_changes
 from src.modules.allocation.models import (
     DEFAULT_RESERVATION_PRIORITY,
     DemandType,
@@ -1630,6 +1631,7 @@ async def update_order(
     structure. Patching the requirements arithmetically instead would let the
     kitting list drift away from the recipe after two or three edits.
     """
+    require_changes(payload)
     repo = AssemblyOrderRepository(session, tenant)
     component_repo = AssemblyComponentRepository(session, tenant)
 

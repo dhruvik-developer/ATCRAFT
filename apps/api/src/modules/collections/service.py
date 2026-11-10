@@ -38,6 +38,7 @@ from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination, api_path
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.collections.models import (
@@ -431,6 +432,7 @@ async def create_follow_up(
 async def update_follow_up(
     session: AsyncSession, tenant: TenantContext, follow_up_id: uuid.UUID, payload: FollowUpUpdate
 ) -> FollowUpDetail:
+    require_changes(payload)
     repo = PaymentFollowUpRepository(session, tenant)
     async with transaction(session):
         follow = await repo.lock(follow_up_id)

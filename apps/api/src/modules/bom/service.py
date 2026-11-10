@@ -44,6 +44,7 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -663,6 +664,7 @@ async def update_bom(
     session: AsyncSession, tenant: TenantContext, bom_id: uuid.UUID, payload: BomUpdate
 ) -> tuple[Bom, list[BomLine], list[BomOperation]]:
     """Edit a DRAFT structure. Lines and operations are replaced wholesale."""
+    require_changes(payload)
     repo = BomRepository(session, tenant)
     items = ItemLookupRepository(session, tenant)
     line_repo = BomLineRepository(session, tenant)

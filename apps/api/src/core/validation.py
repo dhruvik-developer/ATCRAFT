@@ -8,8 +8,14 @@ from typing import Any, Literal, TypeVar
 from pydantic import BaseModel, ValidationInfo
 from pydantic import ValidationError as PydanticValidationError
 
-from src.core.errors import ValidationError
-from src.core.messages import FIELDS_NEED_ATTENTION, INVALID_VALUE, MALFORMED_JSON, cannot_be_null
+from src.core.errors import BusinessRuleError, ValidationError
+from src.core.messages import (
+    FIELDS_NEED_ATTENTION,
+    INVALID_VALUE,
+    MALFORMED_JSON,
+    NO_FIELDS_TO_UPDATE,
+    cannot_be_null,
+)
 
 _PYDANTIC_MESSAGE_PREFIXES = ("Value error, ", "Assertion failed, ")
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -72,6 +78,27 @@ def reject_null(value: object, info: ValidationInfo) -> object:
     return value
 
 
+def require_changes(payload: BaseModel) -> None:
+    """Refuse a partial update that names no field, before anything is read.
+
+    An empty body is no edit. Applied, it answered 200, bumped ``updated_at``
+    and the version another editor's save then conflicts with, and wrote an
+    UPDATE audit row whose before and after were the same - while half the
+    update routes already refused it. Every PATCH now refuses it the one way
+    those did: **422** ``BUSINESS_RULE_VIOLATION`` with ``NO_FIELDS_TO_UPDATE``.
+
+    ASSUMPTION: refused, not answered as a successful no-op. No screen sends an
+    empty PATCH - edit forms post every field, and the two forms that send a
+    diff stop an empty one before the request (docs/assumptions.md §PATCH-1).
+    Call it first, on the bound payload: ``model_fields_set`` is the set of
+    keys the client sent, which is what ``model_dump(exclude_unset=True)``
+    applies. A body of explicit nulls is not empty - what a null means is the
+    field's own rule (``reject_null``, or a service that ignores it).
+    """
+    if not payload.model_fields_set:
+        raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+
+
 def bind_request_model(
     model: type[ModelT],
     values: Mapping[str, object],
@@ -91,4 +118,4 @@ def bind_request_model(
         raise ValidationError(FIELDS_NEED_ATTENTION, details={"fields": fields}) from exc
 
 
-__all__ = ["bind_request_model", "reject_null", "validation_field_errors"]
+__all__ = ["bind_request_model", "reject_null", "require_changes", "validation_field_errors"]

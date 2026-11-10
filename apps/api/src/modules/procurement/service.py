@@ -70,6 +70,7 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission, resolve_role_grants
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO, to_money, to_quantity
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -1257,6 +1258,7 @@ async def update_requisition(
     payload: RequisitionUpdate,
 ) -> tuple[PurchaseRequisition, list[PurchaseRequisitionLine]]:
     """Edit a draft. Anything past DRAFT is re-raised rather than rewritten."""
+    require_changes(payload)
     repo = RequisitionRepository(session, tenant)
     line_repo = RequisitionLineRepository(session, tenant)
 
@@ -1650,6 +1652,7 @@ async def create_rfq(
 async def update_rfq(
     session: AsyncSession, tenant: TenantContext, rfq_id: uuid.UUID, payload: RfqUpdate
 ) -> tuple[Rfq, list[RfqLine]]:
+    require_changes(payload)
     repo = RfqRepository(session, tenant)
     line_repo = RfqLineRepository(session, tenant)
 
@@ -1956,6 +1959,7 @@ async def update_quotation(
     session: AsyncSession, tenant: TenantContext, quotation_id: uuid.UUID, payload: QuotationUpdate
 ) -> tuple[VendorQuotation, list[VendorQuotationLine]]:
     """Replace a quotation with the vendor's revised offer."""
+    require_changes(payload)
     repo = QuotationRepository(session, tenant)
     line_repo = QuotationLineRepository(session, tenant)
 
@@ -2969,6 +2973,7 @@ async def update_purchase_order(
     so the order is rejected here rather than silently rewritten under the
     approver's signature.
     """
+    require_changes(payload)
     line_repo = PurchaseOrderLineRepository(session, tenant)
 
     async with transaction(session):

@@ -28,6 +28,7 @@ from src.core.security import (
     generate_secret_token,
 )
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.courier_tracking.models import (
@@ -174,6 +175,7 @@ async def update_account(
     account_id: uuid.UUID,
     payload: CourierAccountUpdate,
 ) -> CourierAccountRead:
+    require_changes(payload)
     repo = CourierAccountRepository(session, tenant)
     async with transaction(session):
         account = await repo.get_account(account_id, lock=True)

@@ -238,9 +238,9 @@ class TemplateUpdate(BaseModel):
     ) = None
 
     @model_validator(mode="after")
-    def _at_least_one_change(self) -> Self:
-        if not self.model_fields_set:
-            raise ValueError("Nothing to update.")
+    def _a_consistent_change(self) -> Self:
+        # An empty body is refused by the service, through require_changes, the
+        # way every update route refuses it (docs/assumptions.md §PATCH-1).
         if self.item_id is not None and self.item_category_id is not None:
             raise ValueError("A template applies to one item or to one category, not both.")
         if self.parameters is not None and not self.parameters:

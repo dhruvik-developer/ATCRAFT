@@ -66,6 +66,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
+from src.core.validation import require_changes
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import DemandType, ReservationType, StockReservation
 from src.modules.audit.models import AuditAction
@@ -1599,6 +1600,7 @@ async def update_order(
     payload: ProductionOrderUpdate,
 ) -> ProductionOrder:
     """Edit a draft. After approval the order is a commitment, not a plan."""
+    require_changes(payload)
     async with transaction(session):
         order = await _lock_order(session, tenant, order_id)
         if not is_editable(ProductionOrderStatus(order.status)):
@@ -1609,8 +1611,6 @@ async def update_order(
             )
 
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            return order
 
         before = {key: getattr(order, key) for key in changes}
         item = await _validate_order_references(
@@ -4040,6 +4040,7 @@ async def update_work_order(
     machine in maintenance or an overlapping plan. Both are checked *before*
     anything is written, so a configured refusal leaves the row untouched.
     """
+    require_changes(payload)
     async with transaction(session):
         repo = WorkOrderRepository(session, tenant)
         # One projection read to learn which job owns this operation, then the
@@ -4065,8 +4066,6 @@ async def update_work_order(
             )
 
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            return work_order, []
         before = {key: getattr(work_order, key) for key in changes}
         warnings: list[str] = []
 

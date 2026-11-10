@@ -16,6 +16,7 @@ from src.core.errors import BusinessRuleError, DuplicateError, NotFoundError, Va
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.organization.service import (
@@ -277,6 +278,7 @@ class SpecificationService:
     async def update_attribute(
         self, attribute_id: uuid.UUID, payload: SpecificationAttributeUpdate
     ) -> SpecificationAttributeRead:
+        require_changes(payload)
         async with transaction(self.session):
             record = await self.attributes.lock(attribute_id)
             old = SpecificationAttributeRead.model_validate(record)
@@ -550,6 +552,7 @@ class SpecificationService:
     async def update_accessory(
         self, accessory_id: uuid.UUID, payload: ItemAccessoryUpdate
     ) -> ItemAccessoryRead:
+        require_changes(payload)
         async with transaction(self.session):
             original = await self.repo.accessory(accessory_id)
             if original is None:

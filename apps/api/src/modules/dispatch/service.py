@@ -86,6 +86,7 @@ from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
+from src.core.validation import require_changes
 from src.modules.allocation import service as allocation
 from src.modules.allocation.models import DemandType
 from src.modules.audit.models import AuditAction
@@ -1645,6 +1646,7 @@ async def update_dispatch(
     because a PATCH body cannot otherwise say "leave the tracking id alone"
     differently from "there is no tracking id".
     """
+    require_changes(payload)
     repo = DispatchRepository(session, tenant)
     line_repo = DispatchLineRepository(session, tenant)
 

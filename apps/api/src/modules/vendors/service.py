@@ -56,11 +56,12 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, plural
+from src.core.messages import plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -883,9 +884,8 @@ class VendorService:
         return self._to_read(vendor, 0, 0)
 
     async def update_vendor(self, vendor_id: uuid.UUID, payload: VendorUpdate) -> VendorRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             vendor = await self.repo.get_or_404(vendor_id)
@@ -1451,9 +1451,8 @@ class VendorContactService:
     async def update_contact(
         self, contact_id: uuid.UUID, payload: VendorContactUpdate
     ) -> VendorContactRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             contact = await self.repo.get_or_404(contact_id)
@@ -1629,9 +1628,8 @@ class VendorCategoryService:
         return self._to_read(link, labels)
 
     async def update(self, link_id: uuid.UUID, payload: VendorCategoryUpdate) -> VendorCategoryRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             link = await self.repo.get_or_404(link_id)
@@ -1775,9 +1773,8 @@ class TransporterService:
     async def update_transporter(
         self, transporter_id: uuid.UUID, payload: TransporterUpdate
     ) -> TransporterRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             transporter = await self.repo.get_or_404(transporter_id)

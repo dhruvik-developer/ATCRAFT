@@ -54,7 +54,6 @@ from src.core.errors import (
 )
 from src.core.logging import get_logger
 from src.core.messages import (
-    NO_FIELDS_TO_UPDATE,
     SHIFT_ASSIGNMENT_OVERLAP,
     date_before,
     inactive_record,
@@ -66,6 +65,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.organization.service import require_cost_centre
@@ -809,9 +809,8 @@ class WorkCenterService:
     async def update_work_center(
         self, work_center_id: uuid.UUID, payload: WorkCenterUpdate
     ) -> WorkCenterRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             work_center = await self.repo.get_or_404(work_center_id)
@@ -1011,9 +1010,8 @@ class MachineService:
         return MachineRead.model_validate(machine)
 
     async def update_machine(self, machine_id: uuid.UUID, payload: MachineUpdate) -> MachineRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             machine = await self.repo.get_or_404(machine_id)
@@ -1347,6 +1345,7 @@ class RoutingService:
 
     async def update_routing(self, routing_id: uuid.UUID, payload: RoutingUpdate) -> RoutingDetail:
         """Edit a DRAFT routing. Operations are replaced wholesale when supplied."""
+        require_changes(payload)
         async with transaction(self.session):
             routing = await self.repo.get_or_404(routing_id)
             if not is_editable(RoutingStatus(routing.status)):
@@ -1920,9 +1919,8 @@ class ShiftService:
         return ShiftRead.model_validate(shift)
 
     async def update_shift(self, shift_id: uuid.UUID, payload: ShiftUpdate) -> ShiftRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             shift = await self.repo.get_or_404(shift_id)
@@ -2202,9 +2200,8 @@ class ShiftRosterService:
         Re-validated exactly like a new row, and checked for overlaps against
         everything except itself.
         """
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             await advisory_xact_lock(self.session, ROSTER_LOCK, self.tenant.company_id)

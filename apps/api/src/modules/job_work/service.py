@@ -177,6 +177,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
+from src.core.validation import require_changes
 from src.modules.allocation.models import DemandType, ReservationType
 from src.modules.assembly.repository import AssemblyOrderRepository
 from src.modules.audit.models import AuditAction
@@ -1993,6 +1994,7 @@ async def update_order(
     Supplying ``lines`` replaces the whole set, so the estimated charge is always
     computed from the line set that is actually stored.
     """
+    require_changes(payload)
     repo = JobWorkOrderRepository(session, tenant)
     line_repo = JobWorkOrderLineRepository(session, tenant)
 

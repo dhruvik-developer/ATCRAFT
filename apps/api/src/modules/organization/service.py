@@ -67,6 +67,7 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.documents.service import DocumentService
@@ -466,9 +467,8 @@ class CompanyService:
         return CompanyRead.model_validate(await self._load())
 
     async def update_company(self, payload: CompanyUpdate) -> CompanyRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             company = await self._load()
@@ -590,9 +590,8 @@ class BranchService:
         return BranchRead.model_validate(branch)
 
     async def update_branch(self, branch_id: uuid.UUID, payload: BranchUpdate) -> BranchRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             branch = await self.repo.get_or_404(branch_id)
@@ -771,9 +770,8 @@ class PlantService:
         return PlantRead.model_validate(plant)
 
     async def update_plant(self, plant_id: uuid.UUID, payload: PlantUpdate) -> PlantRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             plant = await self.repo.get_or_404(plant_id)
@@ -944,9 +942,8 @@ class DepartmentService:
     async def update_department(
         self, department_id: uuid.UUID, payload: DepartmentUpdate
     ) -> DepartmentRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             department = await self.repo.get_or_404(department_id)
@@ -1555,9 +1552,8 @@ class FinancialYearService:
     async def update_year(
         self, year_id: uuid.UUID, payload: FinancialYearUpdate
     ) -> FinancialYearRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             year = await self.repo.get_or_404(year_id)

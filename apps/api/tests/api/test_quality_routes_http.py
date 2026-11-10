@@ -37,6 +37,7 @@ from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.schemas import DocumentUploadRequest
@@ -351,7 +352,6 @@ async def test_moving_a_template_onto_a_scope_another_one_owns_names_the_owner(
 @pytest.mark.parametrize(
     ("body", "field"),
     [
-        ({}, "_root"),
         ({"parameters": []}, "_root"),
         ({"sample_size": 0}, "sample_size"),
         ({"code": "RENAMED"}, "code"),
@@ -370,7 +370,7 @@ async def test_moving_a_template_onto_a_scope_another_one_owns_names_the_owner(
             "parameters.0",
         ),
     ],
-    ids=["nothing", "empty-sheet", "zero-sample", "unknown-field", "min-above-max"],
+    ids=["empty-sheet", "zero-sample", "unknown-field", "min-above-max"],
 )
 async def test_a_malformed_amendment_is_a_field_error(api_client, session, lab, body, field):
     fields = field_errors(
@@ -379,6 +379,22 @@ async def test_a_malformed_amendment_is_a_field_error(api_client, session, lab, 
 
     assert field in fields, fields
     assert len(await parameter_ids(session, lab.template_id)) == 2
+
+
+async def test_an_empty_amendment_is_refused_as_every_update_refuses_it(api_client, session, lab):
+    # Once a schema error of its own ("Nothing to update.", on _root); now the
+    # one refusal every PATCH answers an empty body with (docs/assumptions.md
+    # section PATCH-1), and still nothing changes.
+    trail = await audit_trail(session, quality.AUDIT_QC_TEMPLATE, lab.template_id)
+    error = refused(
+        await api_client.patch(f"/quality/templates/{lab.template_id}", json={}),
+        422,
+        "BUSINESS_RULE_VIOLATION",
+    )
+
+    assert error["message"] == NO_FIELDS_TO_UPDATE
+    assert len(await parameter_ids(session, lab.template_id)) == 2
+    assert await audit_trail(session, quality.AUDIT_QC_TEMPLATE, lab.template_id) == trail
 
 
 # -----------------------------------------------------------------------------

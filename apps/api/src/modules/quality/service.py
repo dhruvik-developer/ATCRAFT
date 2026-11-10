@@ -113,6 +113,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.documents.service import DocumentService
@@ -1120,6 +1121,7 @@ async def update_template(
     a new version through :func:`create_template_version`, so a past pass or fail
     stays reproducible against the specification it was judged by.
     """
+    require_changes(payload)
     repo = QcTemplateRepository(session, tenant)
     parameter_repo = QcTemplateParameterRepository(session, tenant)
     inspection_repo = QcInspectionRepository(session, tenant)

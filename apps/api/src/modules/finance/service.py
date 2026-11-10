@@ -99,6 +99,7 @@ from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -1393,6 +1394,7 @@ async def update_account(
     account_id: uuid.UUID,
     payload: LedgerAccountUpdate,
 ) -> LedgerAccountRead:
+    require_changes(payload)
     repo = LedgerAccountRepository(session, tenant)
 
     async with transaction(session):
@@ -2618,6 +2620,7 @@ async def update_invoice(
     longer the figures on the document, so ``match_status`` returns to
     NOT_MATCHED and the invoice has to be matched again before approval.
     """
+    require_changes(payload)
     repo = VendorInvoiceRepository(session, tenant)
     line_repo = VendorInvoiceLineRepository(session, tenant)
 
@@ -4030,6 +4033,7 @@ async def update_payment(
     payload: PaymentUpdate,
 ) -> PaymentDetail:
     """Amend a payment nobody has approved. After approval the money has moved."""
+    require_changes(payload)
     repo = PaymentRepository(session, tenant)
 
     async with transaction(session):

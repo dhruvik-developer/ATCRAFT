@@ -75,6 +75,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity, to_unit_price
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
 from src.modules.audit.schemas import ApprovalStatus
@@ -2097,6 +2098,7 @@ async def update_order(
     because a quantity moved would change what the customer owes without anybody
     deciding to.
     """
+    require_changes(payload)
     port = _allocation(allocation)
     repo = SalesOrderRepository(session, tenant)
     line_repo = SalesOrderLineRepository(session, tenant)

@@ -113,13 +113,14 @@ from src.core.errors import (
 )
 from src.core.ids import new_id, persisted_actor
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record, line_not_serial_tracked, plural
+from src.core.messages import inactive_record, line_not_serial_tracked, plural
 from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity, to_unit_price
+from src.core.validation import require_changes
 from src.modules.allocation.repository import ReallocationRequestRepository
 from src.modules.audit.models import AuditAction
 from src.modules.audit.query_service import close_approval, open_approval
@@ -5387,9 +5388,8 @@ class StockTransferService:
     async def update(
         self, transfer_id: uuid.UUID, payload: StockTransferUpdate
     ) -> StockTransferRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             transfer = await self._locked(transfer_id)

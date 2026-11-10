@@ -38,12 +38,12 @@ from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal, spend_budget
-from src.core.errors import AppError, ErrorCode
+from src.core.errors import ErrorCode
 from src.core.permissions import Permission
 from src.core.ratelimit import KEY_PREFIX, RateLimitPolicy
 from src.core.responses import AcceptedJobResponse
 from tests.redis_support import FakeRedis
-from tests.route_support import MountedRoute, iter_api_routes, module_routes
+from tests.route_support import MountedRoute, UntouchableSession, iter_api_routes, module_routes
 
 pytestmark = pytest.mark.unit
 
@@ -225,28 +225,6 @@ def test_the_usage_rule_sees_both_ways_of_spending_and_nothing_else() -> None:
 # -----------------------------------------------------------------------------
 
 
-class _DatabaseReachedError(AppError):
-    """The stand-in session's answer: the request got past every gate.
-
-    An ``AppError`` so the application answers it like any refusal. An
-    unhandled exception would be logged with its traceback and locals, which
-    the development renderer takes most of a minute to draw.
-    """
-
-    status_code = 503
-    code = ErrorCode.SERVICE_UNAVAILABLE
-    message = "The request reached the database."
-
-
-class _UntouchableSession:
-    def __init__(self, touched: list[str]) -> None:
-        object.__setattr__(self, "_touched", touched)
-
-    def __getattr__(self, name: str) -> Any:
-        self._touched.append(name)
-        raise _DatabaseReachedError()
-
-
 def _principal(path: str) -> Principal:
     """Whoever may call ``path`` at all: a vendor, a dealer or staff, holding everything."""
     return Principal(
@@ -300,8 +278,8 @@ def _exhaust(redis: FakeRedis, policy: Policy, principal: Principal) -> None:
 async def client(app: FastAPI) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
     touched: list[str] = []
 
-    async def _session() -> AsyncIterator[_UntouchableSession]:
-        yield _UntouchableSession(touched)
+    async def _session() -> AsyncIterator[UntouchableSession]:
+        yield UntouchableSession(touched)
 
     app.dependency_overrides[get_db] = _session
     transport = ASGITransport(app=app, raise_app_exceptions=False)

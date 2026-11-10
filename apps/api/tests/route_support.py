@@ -19,18 +19,23 @@ committed ``openapi.json``, which is generated from the running application.
 
 from __future__ import annotations
 
+import enum
 import importlib
 import json
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import date
 from functools import cache
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi.routing import APIRoute
 
 from src.api.router import MODULE_ORDER
 from src.core.config import settings
+from src.core.errors import AppError, ErrorCode
 
 #: The committed contract, generated from the application by
 #: ``scripts.export_openapi`` and kept current by ``make contract-check``.
@@ -121,3 +126,67 @@ def assert_matches_contract(routes: tuple[MountedRoute, ...]) -> None:
         f"check the wrong set. In the contract but not found: {missing[:10]}; "
         f"found but not in the contract: {extra[:10]}"
     )
+
+
+# -----------------------------------------------------------------------------
+# Driving a route over HTTP without a database
+# -----------------------------------------------------------------------------
+
+
+class DatabaseReachedError(AppError):
+    """The stand-in session's answer: the request reached for the database.
+
+    An ``AppError`` so the application answers it like any refusal (503). An
+    unhandled exception would be logged with its traceback and locals, which
+    the development renderer takes most of a minute to draw.
+    """
+
+    status_code = 503
+    code = ErrorCode.SERVICE_UNAVAILABLE
+    message = "The request reached the database."
+
+
+class UntouchableSession:
+    """Stands in for the request session: records every use of it, and refuses it.
+
+    Override ``get_db`` with it to prove a request is decided - refused, or
+    answered - before anything is read or written.
+    """
+
+    def __init__(self, touched: list[str]) -> None:
+        object.__setattr__(self, "_touched", touched)
+
+    def __getattr__(self, name: str) -> Any:
+        self._touched.append(name)
+        raise DatabaseReachedError()
+
+
+def _sample(annotation: Any) -> str:
+    if isinstance(annotation, type):
+        if issubclass(annotation, uuid.UUID):
+            return str(uuid.uuid4())
+        if issubclass(annotation, enum.Enum):
+            return str(next(iter(annotation)).value)
+        if issubclass(annotation, bool):
+            return "false"
+        if issubclass(annotation, int):
+            return "1"
+        if issubclass(annotation, date):
+            return "2026-04-01"
+    return "sample"
+
+
+def route_url(mounted: MountedRoute) -> str:
+    """The route's path below the API prefix, each path parameter a valid sample."""
+    annotations: dict[str, Any] = {}
+    pending = [mounted.route.dependant]
+    while pending:
+        dependant = pending.pop()
+        for field in dependant.path_params:
+            annotations[field.alias] = field.field_info.annotation
+        pending.extend(dependant.dependencies)
+    path = mounted.path
+    for name, annotation in annotations.items():
+        path = path.replace("{" + name + "}", _sample(annotation))
+    assert "{" not in path, f"unfilled path parameter in {mounted.path}"
+    return path

@@ -57,6 +57,7 @@ from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money
+from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.customers.models import (
@@ -994,9 +995,8 @@ class CustomerService:
         address_id: uuid.UUID,
         payload: AddressUpdate,
     ) -> AddressRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
@@ -1185,9 +1185,8 @@ class CustomerService:
         contact_id: uuid.UUID,
         payload: ContactUpdate,
     ) -> ContactRead:
+        require_changes(payload)
         changes = payload.model_dump(exclude_unset=True)
-        if not changes:
-            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)

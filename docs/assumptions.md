@@ -5014,3 +5014,35 @@ report task's own, reaches the bound.
 **Impact if wrong.** A reports queue whose backlog keeps a job waiting longer
 than two hours would see it failed and asked to run again; raise the constant.
 Raising Celery's time limit needs the constant raised with it.
+
+## §PATCH-1. A partial update that names no field is refused
+
+**Assumed.** A `PATCH` whose body names no field (`{}`) is refused with **422**
+`BUSINESS_RULE_VIOLATION` and the sentence "No fields were supplied to update."
+before anything is read, on every update route - `require_changes` in
+`src/core/validation.py`, called first by each update service. A body that
+names a field is applied as before, including one whose values are all the
+stored ones, and a body of explicit nulls is not empty: what a null means stays
+the field's own rule (refused with 422 by `reject_null`, or ignored by the
+assembly and job-work draft edits, as `docs/api.md` states). `PUT`-style
+settings (`PUT /sales/settings`, the approval settings) replace a whole record
+and are outside this rule.
+
+**Why.** Four outcomes had grown up: half the update routes refused `{}` with
+this sentence, the QC template update refused it with another, production
+answered 200 and did nothing, and the rest ran the whole update - answering
+200, bumping `updated_at` and the version another editor's save then conflicts
+with, and writing an UPDATE audit row whose before and after were the same.
+Refusing is what most routes already did, and no screen depends on the other
+answers: every edit form posts its fields, and the two forms that send only a
+diff (production work orders, QC templates) stop an empty one before the
+request.
+
+**Where.** `src/core/validation.py` - `require_changes`; every service
+function that applies `model_dump(exclude_unset=True)` from an update payload.
+`tests/unit/test_require_changes.py` fails if an update path applies such a
+payload without calling it, unless it is listed there with its reason.
+
+**Impact if wrong.** If a client must be able to send `{}` as a harmless
+"touch", answer it 200 from `require_changes` without reaching the service -
+never by running the update, which is what wrote the empty audit rows.
