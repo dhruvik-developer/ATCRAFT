@@ -165,13 +165,25 @@ check: contract-check lint test-cov test-web build-web ## Application contract, 
 shell-api: ## Shell inside the backend container
 	$(DC_DEV) exec backend bash
 
+# The owner and database are read inside the postgres container, which Compose
+# built from .env; make never loads .env, so a host-side $${POSTGRES_USER:-...}
+# fell back to the default whatever the container really used.
 shell-db: ## psql inside the Postgres container
-	$(DC_DEV) exec postgres psql -U $${POSTGRES_USER:-atcraft} -d $${POSTGRES_DB:-atcraft_erp}
+	$(DC_DEV) exec postgres sh -c 'exec psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
+# The archive is proven readable before it takes its final name - the check
+# scripts/deploy.sh makes of a deployment backup.
 backup: ## Dump the database to ./backups (never the only copy - section 45)
 	@mkdir -p backups
-	$(DC_DEV) exec -T postgres pg_dump -U $${POSTGRES_USER:-atcraft} -Fc $${POSTGRES_DB:-atcraft_erp} \
-	  > backups/atcraft-$$(date +%Y%m%d-%H%M%S).dump
+	@out="backups/atcraft-$$(date +%Y%m%d-%H%M%S).dump"; \
+	if $(DC_DEV) exec -T postgres sh -c 'pg_dump -U "$$POSTGRES_USER" -Fc "$$POSTGRES_DB"' > "$$out.partial" \
+	  && $(DC_DEV) exec -T postgres pg_restore --list < "$$out.partial" > /dev/null; then \
+	  mv "$$out.partial" "$$out" && echo "Wrote $$out"; \
+	else \
+	  rm -f "$$out.partial"; \
+	  echo "pg_dump did not produce an archive pg_restore can read; no backup was written." >&2; \
+	  exit 1; \
+	fi
 	@echo "Reminder: copy this dump to external storage. A backup is not reliable until a restore is tested."
 
 # --- Deployments (two independent stacks on one host) --------------------

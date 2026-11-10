@@ -67,12 +67,43 @@ function Invoke-Step {
     } finally { Pop-Location }
 }
 
-function Invoke-Docker { param([string[]]$Args) Invoke-Step "docker $($Args -join ' ')" }
+# Not `$Args`: a parameter by that name is shadowed by PowerShell's automatic
+# $args (the unbound arguments, empty here), so every target ran a bare
+# `docker`, which prints its usage and exits 0 - `dev`, `up` and `down` all
+# "succeeded" without touching a container.
+function Invoke-Docker { param([string[]]$DockerArgs) Invoke-Step "docker $($DockerArgs -join ' ')" }
 
 function Get-VenvPython {
     $candidate = Join-Path $ApiDir '.venv\Scripts\python.exe'
     if (Test-Path $candidate) { return $candidate }
     return 'python'
+}
+
+# The database's owner and name, read from the running postgres container rather
+# than restated here: Compose built that container from .env, so a checkout that
+# renamed either still dumps and opens the database it actually has.
+function Get-LocalDatabase {
+    $values = foreach ($name in @('POSTGRES_USER', 'POSTGRES_DB')) {
+        $value = (& docker @($DcDev + @('exec', '-T', 'postgres', 'printenv', $name)) | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $value) {
+            throw "Could not read $name from the postgres container. Is the local stack up (.\make.ps1 dev)?"
+        }
+        $value
+    }
+    return $values
+}
+
+# A custom-format archive starts with the five bytes 'PGDMP'. A dump that went
+# through a Windows PowerShell 5.1 redirect starts FF FE 50 00 instead (UTF-16),
+# and pg_restore cannot read it - so never trust a backup file unchecked.
+function Assert-PgDumpArchive {
+    param([string]$Path)
+    $head = New-Object byte[] 5
+    $stream = [System.IO.File]::OpenRead($Path)
+    try { $read = $stream.Read($head, 0, $head.Length) } finally { $stream.Dispose() }
+    if ($read -ne $head.Length -or [System.Text.Encoding]::ASCII.GetString($head) -ne 'PGDMP') {
+        throw "$Path is not a pg_dump custom-format archive (it does not start with PGDMP); pg_restore cannot read it."
+    }
 }
 
 function Show-Help {
@@ -243,14 +274,41 @@ switch ($Target) {
     'check' { & $PSCommandPath contract-check; & $PSCommandPath lint; & $PSCommandPath test-cov; & $PSCommandPath test-web; & $PSCommandPath build-web }
 
     'shell-api' { Invoke-Docker ($DcDev + @('exec', 'backend', 'bash')) }
-    'shell-db'  { Invoke-Docker ($DcDev + @('exec', 'postgres', 'psql', '-U', 'atcraft', '-d', 'atcraft_erp')) }
+    'shell-db'  {
+        $user, $db = Get-LocalDatabase
+        Invoke-Docker ($DcDev + @('exec', 'postgres', 'psql', '-U', $user, '-d', $db))
+    }
 
     'backup' {
         $dir = Join-Path $Root 'backups'
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $out = Join-Path $dir "atcraft-$stamp.dump"
-        Invoke-Step "docker $($DcDev -join ' ') exec -T postgres pg_dump -U atcraft -Fc atcraft_erp > `"$out`""
+        $name = "atcraft-$stamp.dump"
+        $out = Join-Path $dir $name
+        # Relative to $Root, where every docker step runs: Invoke-Docker joins its
+        # arguments with spaces, so an absolute path could split on one.
+        $partialName = "backups\$name.partial"
+        $partial = Join-Path $Root $partialName
+        $user, $db = Get-LocalDatabase
+        # pg_dump writes the archive inside the container and `compose cp` copies
+        # its bytes out untouched. Never redirect pg_dump's output here: the '>'
+        # would run in Windows PowerShell 5.1, which decodes a native command's
+        # output as text and writes it back as UTF-16, so the file cannot be
+        # restored. tests/unit/test_make_wrappers.py refuses such a redirect.
+        $archive = "/tmp/$name"
+        try {
+            Invoke-Docker ($DcDev + @('exec', '-T', 'postgres', 'pg_dump', '-U', $user, '-d', $db, '-Fc', '-f', $archive))
+            # The same proof scripts/deploy.sh asks of a deployment backup.
+            & docker @($DcDev + @('exec', '-T', 'postgres', 'pg_restore', '--list', $archive)) | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'pg_dump did not produce an archive pg_restore can read; no backup was written.' }
+            Invoke-Docker ($DcDev + @('cp', "postgres:$archive", $partialName))
+            Assert-PgDumpArchive $partial
+            Move-Item -LiteralPath $partial -Destination $out
+        } finally {
+            Invoke-Docker ($DcDev + @('exec', '-T', 'postgres', 'rm', '-f', $archive))
+            if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force }
+        }
+        Write-Host "Wrote $out" -ForegroundColor Green
         Write-Host "Reminder: copy this dump to EXTERNAL storage. A backup is not reliable until a restore is tested (section 46)." -ForegroundColor Yellow
     }
 
