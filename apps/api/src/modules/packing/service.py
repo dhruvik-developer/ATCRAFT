@@ -799,9 +799,12 @@ async def _transition(
 ) -> PackingOrder:
     """Move an order's status and record it.
 
-    Every status change funnels through here, so there is exactly one place that
-    writes ``packing_orders.status`` and exactly one place that writes the
-    matching audit row (master rules section 73).
+    Every single-order status change funnels through here, asserting the move
+    against the state machine and writing the matching audit row (master rules
+    section 73). The one other writer of ``packing_orders.status`` is
+    :func:`release_dispatch_claims`, which returns a cancelled lorry's orders to
+    PACKED as a set: it asserts and audits each order the same way, and stages
+    the audit rows to flush them once.
     """
     current = PackingOrderStatus(order.status)
     PACKING_ORDER_LIFECYCLE.assert_transition(current, target)
@@ -1002,7 +1005,7 @@ async def _validate_serials(
     if not wanted:
         return
 
-    facts = await SerialLookupRepository(session, tenant).load(wanted)
+    facts = await SerialLookupRepository(session, tenant).lock(wanted)
     already = await CartonContentRepository(session, tenant).already_packed(
         wanted, exclude_carton_id=carton_id
     )
@@ -1531,7 +1534,7 @@ async def create_order(
             )
 
         if payload.sales_order_id is not None:
-            header = await SalesOrderLookupRepository(session, tenant).get_header(
+            header = await SalesOrderLookupRepository(session, tenant).lock_header(
                 payload.sales_order_id
             )
             if header is None:
@@ -1792,7 +1795,7 @@ async def create_order_from_assembly(
 
         customer_id = payload.customer_id
         if customer_id is None and sales_order_id is not None:
-            header = await SalesOrderLookupRepository(session, tenant).get_header(sales_order_id)
+            header = await SalesOrderLookupRepository(session, tenant).lock_header(sales_order_id)
             if header is None:
                 raise NotFoundError("Sales order", sales_order_id)
             customer_id = header[1]
@@ -1902,7 +1905,7 @@ async def update_order(
 
         if new_lines is not None:
             if order.sales_order_id is not None:
-                header = await SalesOrderLookupRepository(session, tenant).get_header(
+                header = await SalesOrderLookupRepository(session, tenant).lock_header(
                     order.sales_order_id
                 )
                 if header is None:
@@ -2588,8 +2591,9 @@ async def carton_label(
 
     sales_order_code: str | None = None
     if order.sales_order_id is not None:
-        header = await SalesOrderLookupRepository(session, tenant).get_header(order.sales_order_id)
-        sales_order_code = header[0] if header is not None else None
+        sales_order_code = await SalesOrderLookupRepository(session, tenant).code(
+            order.sales_order_id
+        )
 
     items = await ItemLookupRepository(session, tenant).load([row.item_id for row in contents])
     batches = await BatchLookupRepository(session, tenant).load(
@@ -3491,8 +3495,9 @@ async def packing_list_data(
     customer = await CustomerLookupRepository(session, tenant).get_facts(order.customer_id)
     sales_order_code: str | None = None
     if order.sales_order_id is not None:
-        header = await SalesOrderLookupRepository(session, tenant).get_header(order.sales_order_id)
-        sales_order_code = header[0] if header is not None else None
+        sales_order_code = await SalesOrderLookupRepository(session, tenant).code(
+            order.sales_order_id
+        )
 
     item_ids = {line.item_id for line in lines}
     item_ids.update(row.item_id for rows in contents.values() for row in rows)

@@ -647,7 +647,7 @@ class ApprovalService:
             )
 
         async with transaction(self.session):
-            record = await self.approvals.get_for_decision(approval_id)
+            record = await self.approvals.lock_for_decision(approval_id)
             if record is None:
                 raise NotFoundError("Approval request", approval_id)
 

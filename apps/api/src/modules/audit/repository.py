@@ -187,7 +187,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
     """Persistence for the approval queue.
 
     Unlike the audit log this table *is* updated - once, when a decision is
-    recorded - so the row-level lock in :meth:`get_for_decision` matters: two
+    recorded - so the row-level lock in :meth:`lock_for_decision` matters: two
     approvers clicking at the same moment must not both pass the "still PENDING"
     check and produce two audit entries for one decision.
     """
@@ -259,7 +259,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         # non-unique sort key is how rows repeat or vanish between pages.
         return await self.list_page(params, stmt=stmt, order_by=ApprovalRequest.id.asc())
 
-    async def get_for_decision(self, approval_id: uuid.UUID) -> ApprovalRequest | None:
+    async def lock_for_decision(self, approval_id: uuid.UUID) -> ApprovalRequest | None:
         """Load one request with ``FOR UPDATE`` held for the rest of the transaction.
 
         The lock is taken before the status is read, so the check and the write

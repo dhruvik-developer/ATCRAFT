@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib
+import re
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import date
@@ -67,6 +68,7 @@ from src.modules.warehouses.models import WarehouseType
 from tests import seed_support
 from tests.dispatch_support import consignment_line, raise_consignment
 from tests.schema_support import report_database_setup_failure
+from tests.statement_support import counted
 
 pytestmark = pytest.mark.integration
 
@@ -1255,3 +1257,68 @@ async def test_item_packing_specs_are_validated_audited_and_defaulted_safely(
         )
     ).scalar_one()
     assert audit_count == 5
+
+
+# -----------------------------------------------------------------------------
+# A label and a packing list are reads: they take no row lock
+# -----------------------------------------------------------------------------
+
+
+async def test_a_label_and_a_packing_list_read_the_sales_order_without_locking_it(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    """Neither a label print nor the packing-list renderer may lock the sales order.
+
+    Both read the order's code through ``get_header``, which took ``FOR UPDATE``
+    and was called outside any ``transaction()`` block - so the label GET, and
+    the worker across the PDF render, the file write and the document insert,
+    held the order's row lock until the session closed, and every dispatch,
+    packing order and order edit on that sales order queued behind them.
+    """
+    session, tenant = ctx
+    sales_order = await seed_support.seed_sales_order(
+        session,
+        company_id=tenant.company_id,
+        customer_id=bench.customer_id,
+        warehouse_id=bench.warehouse_id,
+    )
+    sales_line = await seed_support.seed_sales_order_line(
+        session,
+        order=sales_order,
+        item_id=bench.goods_item_id,
+        uom_id=bench.uom_id,
+        line_number=1,
+        quantity=Decimal("100"),
+    )
+    order, _ = await service.create_order(
+        session,
+        tenant,
+        PackingOrderCreate(
+            customer_id=bench.customer_id,
+            warehouse_id=bench.warehouse_id,
+            planned_date=date(2026, 9, 1),
+            sales_order_id=sales_order.id,
+            lines=[
+                PackingOrderLineIn(
+                    item_id=bench.goods_item_id,
+                    quantity_to_pack=Decimal("40"),
+                    uom_id=bench.uom_id,
+                    sales_order_line_id=sales_line.id,
+                )
+            ],
+        ),
+    )
+    await service.start_packing(session, tenant, order.id, reason="Bench is free")
+    carton = await service.add_carton(session, tenant, order.id, bench.carton_payload())
+    connection = await session.connection()
+
+    with counted(connection.engine) as statements:
+        label = await service.carton_label(session, tenant, order.id, carton.id)
+        listing = await service.packing_list_data(session, tenant, order.id)
+
+    assert label.sales_order_code == sales_order.code
+    assert listing["sales_order_code"] == sales_order.code
+    # Every PostgreSQL row-lock clause: FOR [NO KEY] UPDATE and FOR [KEY] SHARE.
+    row_lock = re.compile(r"\bFOR (NO KEY )?UPDATE\b|\bFOR (KEY )?SHARE\b")
+    locking = [sql for sql in statements if row_lock.search(sql)]
+    assert locking == [], f"a read path took a row lock: {locking}"

@@ -377,7 +377,7 @@ async def _close_abandoned_runs(session: AsyncSession, tenant: TenantContext) ->
     requests arriving together serialise here and the second one sees the first
     one's row.
     """
-    runs = await MrpRunRepository(session, tenant).active_runs()
+    runs = await MrpRunRepository(session, tenant).lock_active_runs()
     cutoff = utcnow() - timedelta(seconds=RUN_STALE_AFTER_SECONDS)
 
     for run in runs:
@@ -1677,7 +1677,7 @@ async def bulk_ignore_suggestions(
         # writes: a conversion committing in between leaves the row IGNORED with
         # a converted_at still set, which the conversion_timestamp_implies_
         # converted check rejects as an integrity error the planner cannot act on.
-        found = await repository.load_for_bulk_decision(payload.suggestion_ids)
+        found = await repository.lock_for_bulk_decision(payload.suggestion_ids)
         by_id = {row.id: row for row in found}
 
         for suggestion_id in payload.suggestion_ids:

@@ -613,7 +613,7 @@ class VendorPortalService:
             if payload.invoice_document_id is not None:
                 attachment = await InboundDocumentRepository(
                     self.session, self.tenant
-                ).invoice_document(payload.invoice_document_id, payload.purchase_order_id)
+                ).lock_invoice_document(payload.invoice_document_id, payload.purchase_order_id)
                 if attachment is None:
                     raise NotFoundError("Invoice document", payload.invoice_document_id)
                 if attachment.vendor_invoice_id is not None:

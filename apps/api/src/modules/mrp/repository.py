@@ -1047,7 +1047,7 @@ class MrpRunRepository(BaseRepository[MrpRun]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def active_runs(self) -> list[MrpRun]:
+    async def lock_active_runs(self) -> list[MrpRun]:
         """Runs still holding the company's planning slot, locked for update.
 
         Loaded as entities rather than counted: the caller has to decide whether
@@ -1339,7 +1339,7 @@ class MrpSuggestionRepository(BaseRepository[MrpSuggestion]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def load_for_bulk_decision(
+    async def lock_for_bulk_decision(
         self, suggestion_ids: Sequence[uuid.UUID]
     ) -> list[MrpSuggestion]:
         """Lock several suggestions for a bulk decision, in one statement.

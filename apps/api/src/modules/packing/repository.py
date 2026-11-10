@@ -395,10 +395,28 @@ class SalesOrderLookupRepository(BaseRepository[SalesOrder]):
 
     model = SalesOrder
 
-    async def get_header(self, sales_order_id: uuid.UUID) -> tuple[str, uuid.UUID] | None:
-        """``(code, customer_id)`` - enough to prove the order is shippable to
-        the customer named on the packing order. The row lock serializes
-        quantity planning with dispatch and other packing-order creation."""
+    async def code(self, sales_order_id: uuid.UUID) -> str | None:
+        """The order's code, read without a lock - all a label or a document prints.
+
+        A read path must not take :meth:`lock_header`'s row lock: outside a
+        ``transaction()`` block it is held by the autobegun transaction until the
+        session closes, and every dispatch, packing order and order edit on that
+        sales order queues behind a label print.
+        """
+        return await self.session.scalar(
+            select(SalesOrder.code).where(
+                SalesOrder.company_id == self.tenant.company_id,
+                SalesOrder.id == sales_order_id,
+            )
+        )
+
+    async def lock_header(self, sales_order_id: uuid.UUID) -> tuple[str, uuid.UUID] | None:
+        """``(code, customer_id)`` under the order's row lock.
+
+        Enough to prove the order is shippable to the customer named on the
+        packing order. The lock serializes quantity planning with dispatch and
+        other packing-order creation, so call it inside a ``transaction()``.
+        """
         stmt = (
             select(SalesOrder.code, SalesOrder.customer_id)
             .where(
@@ -468,7 +486,8 @@ class SerialLookupRepository(BaseRepository[StockSerial]):
 
     model = StockSerial
 
-    async def load(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, SerialFacts]:
+    async def lock(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, SerialFacts]:
+        """The units about to go in a box, locked in id order until the carton is written."""
         if not serial_ids:
             return {}
         stmt = (

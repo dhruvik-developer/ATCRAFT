@@ -314,9 +314,10 @@ class InboundDocumentRepository(BaseRepository[PurchaseOrderDocument]):
             )
         ).first()
 
-    async def invoice_document(
+    async def lock_invoice_document(
         self, document_id: uuid.UUID, order_id: uuid.UUID
     ) -> PurchaseOrderDocument | None:
+        """The order's INVOICE file link, locked while a bill is attached to it."""
         return await self.session.scalar(
             self._scoped()
             .where(
