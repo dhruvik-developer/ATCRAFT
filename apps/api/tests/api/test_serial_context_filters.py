@@ -7,8 +7,8 @@ import pytest
 
 from src.core.deps import get_current_principal
 from src.modules.job_work import service as job_work
-from tests.integration.test_serial_job_work import _issued, _receive
-from tests.integration.test_serial_job_work import kit as kit
+from tests.serial_job_work_support import _issued, _receive
+from tests.serial_job_work_support import kit as kit
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
