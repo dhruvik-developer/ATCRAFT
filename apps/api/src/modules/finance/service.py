@@ -98,6 +98,7 @@ from src.core.logging import get_logger
 from src.core.messages import (
     CURRENCY_CODE_INVALID,
     date_before,
+    draft_only_delete,
     inactive_record,
     no_longer_editable,
     plural,
@@ -2793,8 +2794,7 @@ async def delete_draft_invoice(
         invoice = await repo.get_or_404(invoice_id)
         if VendorInvoiceStatus(invoice.status) is not VendorInvoiceStatus.DRAFT:
             raise BusinessRuleError(
-                f"{invoice.code} is {invoice.status}; only a draft may be deleted. Cancel it "
-                "instead so the trail survives.",
+                draft_only_delete(invoice.code, invoice.status),
                 details={"status": str(invoice.status)},
             )
 
@@ -4091,7 +4091,7 @@ async def delete_draft_payment(
         payment = await repo.get_or_404(payment_id)
         if PaymentStatus(payment.status) is not PaymentStatus.DRAFT:
             raise BusinessRuleError(
-                f"{payment.code} is {payment.status}; only a draft may be deleted.",
+                draft_only_delete(payment.code, payment.status),
                 details={"status": str(payment.status)},
             )
         await record_audit(

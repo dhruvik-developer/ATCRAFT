@@ -1027,7 +1027,7 @@ class TestTransferAndAdjustmentLines:
         assert position is not None
         assert (position.on_hand_quantity, position.stock_value) == (3, Decimal("57"))
 
-        with pytest.raises(BusinessRuleError, match="Only a draft"):
+        with pytest.raises(BusinessRuleError, match="is POSTED and can no longer be edited"):
             await adjustments.update(draft_id, StockAdjustmentUpdate.model_validate(payload))
 
     async def test_an_approver_rejects_and_the_raiser_cancels(

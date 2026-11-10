@@ -164,10 +164,12 @@ from src.core.errors import (
 from src.core.ids import persisted_actor
 from src.core.logging import get_logger
 from src.core.messages import (
-    cancel_not_delete,
     date_before,
+    draft_only_delete,
     held_for_inspection,
     inactive_record,
+    no_longer_editable,
+    not_tracked,
     plural,
     verdict_differs_from_inspection,
 )
@@ -1175,7 +1177,7 @@ async def _resolve_lines(
                 )
         elif line.batch_id is not None:
             raise BusinessRuleError(
-                f"{source.code} is not batch tracked; remove the batch selection.",
+                not_tracked(source.code, "batch", "batch selection"),
                 details={"item_code": source.code, "line_number": line.line_number},
             )
 
@@ -2000,7 +2002,7 @@ async def update_order(
         order = await repo.get_or_404(order_id)
         if JobWorkOrderStatus(order.status) is not JobWorkOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft job work order may be edited.",
+                no_longer_editable(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -2100,7 +2102,7 @@ async def delete_draft_order(
         order = await repo.get_or_404(order_id)
         if JobWorkOrderStatus(order.status) is not JobWorkOrderStatus.DRAFT:
             raise BusinessRuleError(
-                cancel_not_delete(order.code, order.status),
+                draft_only_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -2420,7 +2422,7 @@ async def issue_order(
                     )
             elif entry.batch_id is not None:
                 raise BusinessRuleError(
-                    f"Line {entry.line_number} is not batch tracked; remove the batch selection.",
+                    not_tracked(f"Line {entry.line_number}", "batch", "batch selection"),
                     details={"line_number": entry.line_number},
                 )
             overrides[entry.line_number] = (quantity, batch_id)
@@ -3438,7 +3440,7 @@ def _plan_receipt(
                 )
         elif entry.batch_id is not None:
             raise BusinessRuleError(
-                f"Line {line.line_number} is not batch tracked; remove the batch selection.",
+                not_tracked(f"Line {line.line_number}", "batch", "batch selection"),
                 details={"line_number": line.line_number},
             )
         planned.append(

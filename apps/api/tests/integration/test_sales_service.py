@@ -1408,7 +1408,7 @@ async def test_a_confirmed_order_cannot_be_deleted(ctx: Ctx):
         allocation=ctx.allocation,
     )
 
-    with pytest.raises(BusinessRuleError, match="cancelled rather than deleted"):
+    with pytest.raises(BusinessRuleError, match=r"only a draft may be deleted\. Cancel it instead"):
         await service.delete_draft_order(
             ctx.session, ctx.tenant, order.id, reason="Changed my mind"
         )

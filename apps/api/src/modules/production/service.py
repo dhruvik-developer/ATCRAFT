@@ -64,6 +64,9 @@ from src.core.messages import (
     date_before,
     draft_only_delete,
     inactive_record,
+    no_longer_editable,
+    not_for_this_item,
+    not_tracked,
     output_not_serial_tracked,
     plural,
 )
@@ -1383,14 +1386,14 @@ async def _validate_order_references(
         bom = await BomRepository(session, tenant).get_or_404(bom_id)
         if bom.item_id != item_id:
             raise BusinessRuleError(
-                "The named bill of materials does not belong to this item.",
+                not_for_this_item("bill of materials"),
                 details={"bom_id": str(bom_id), "item_id": str(item_id)},
             )
     if routing_id is not None:
         routing = await RoutingRepository(session, tenant).get_or_404(routing_id)
         if routing.item_id != item_id:
             raise BusinessRuleError(
-                "The named routing does not belong to this item.",
+                not_for_this_item("routing"),
                 details={"routing_id": str(routing_id), "item_id": str(item_id)},
             )
     return item
@@ -1611,8 +1614,7 @@ async def update_order(
         order = await _lock_order(session, tenant, order_id)
         if not is_editable(ProductionOrderStatus(order.status)):
             raise BusinessRuleError(
-                f"{order.code} is {order.status} and can no longer be edited. "
-                "Cancel it and raise a new order.",
+                no_longer_editable(order.code, order.status, "Cancel it and raise a new order."),
                 details={"status": str(order.status)},
             )
 
@@ -3740,7 +3742,7 @@ async def _post_output_receipt(
         )
     if not item.is_batch_tracked and batch_id is not None:
         raise BusinessRuleError(
-            f"{item.code} is not batch tracked; remove the output batch.",
+            not_tracked(item.code, "batch", "output batch"),
             details={"item_code": item.code, "order_code": order.code},
         )
     if not item.is_serial_tracked and serial_numbers:

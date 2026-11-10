@@ -811,7 +811,7 @@ async def test_an_approved_structure_cannot_be_deleted(ctx: Ctx) -> None:
     screw = await seed_item(ctx.session, ctx.author, "SCREW", uom)
     bom = await approved_bom(ctx, parent, {screw: Decimal("1")})
 
-    with pytest.raises(BusinessRuleError, match="Only a draft can be deleted"):
+    with pytest.raises(BusinessRuleError, match="only a draft may be deleted"):
         await service.delete_draft_bom(ctx.session, ctx.author, bom.id, reason="Oops")
 
 

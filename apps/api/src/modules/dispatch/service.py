@@ -80,7 +80,13 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, ValidationError
 from src.core.logging import get_logger
-from src.core.messages import inactive_record, other_customer_order, plural
+from src.core.messages import (
+    belongs_elsewhere,
+    inactive_record,
+    not_tracked,
+    other_customer_order,
+    plural,
+)
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -1129,7 +1135,7 @@ async def _validate_lines(
                 raise NotFoundError("Stock batch", line.batch_id)
             if batch.item_id != line.item_id:
                 raise BusinessRuleError(
-                    f"{label}: batch {batch.batch_number} belongs to a different item.",
+                    belongs_elsewhere(f"{label}: batch {batch.batch_number}", "item"),
                     details={"batch_id": str(line.batch_id), "item_code": item.code},
                 )
 
@@ -1143,7 +1149,7 @@ async def _validate_lines(
                 )
         elif line.serial_ids:
             raise BusinessRuleError(
-                f"{label}: {item.code} is not serial tracked and cannot carry serial numbers.",
+                not_tracked(f"{label}: {item.code}", "serial", "serial numbers"),
                 details={"item_code": item.code},
             )
 
@@ -1153,7 +1159,7 @@ async def _validate_lines(
                 raise NotFoundError("Stock serial", serial_id)
             if serial.item_id != line.item_id:
                 raise BusinessRuleError(
-                    f"{label}: serial {serial.serial_number} belongs to a different item.",
+                    belongs_elsewhere(f"{label}: serial {serial.serial_number}", "item"),
                     details={"serial_id": str(serial_id), "item_code": item.code},
                 )
             if serial.status is not SerialStatus.IN_STOCK:
@@ -1174,7 +1180,7 @@ async def _validate_lines(
                 raise NotFoundError("Sales order line", line.sales_order_line_id)
             if order_line.sales_order_id != sales_order_id:
                 raise ValidationError(
-                    f"{label}: that order line belongs to a different sales order.",
+                    belongs_elsewhere(f"{label}: that order line", "sales order"),
                     details={"sales_order_line_id": str(line.sales_order_line_id)},
                 )
             if order_line.item_id != line.item_id:

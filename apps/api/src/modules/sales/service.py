@@ -66,9 +66,10 @@ from src.core.messages import (
     LINE_QUANTITY_NOT_POSITIVE,
     LINE_UNIT_PRICE_NEGATIVE,
     TAX_RATE_NEGATIVE,
-    cancel_not_delete,
     date_before,
+    draft_only_delete,
     inactive_record,
+    no_longer_editable,
     no_price_configured,
     plural,
 )
@@ -2136,7 +2137,7 @@ async def update_order(
                 )
         else:
             raise BusinessRuleError(
-                f"{order.code} is {order.status} and can no longer be edited.",
+                no_longer_editable(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -2605,7 +2606,7 @@ async def delete_draft_order(
         order = await repo.get_or_404(order_id)
         if SalesOrderStatus(order.status) is not SalesOrderStatus.DRAFT:
             raise BusinessRuleError(
-                cancel_not_delete(order.code, order.status),
+                draft_only_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
         if order.source == SalesOrderSource.DEALER_PORTAL:

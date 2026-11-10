@@ -40,10 +40,11 @@ from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, SelfApprovalError
 from src.core.logging import get_logger
 from src.core.messages import (
+    OBSOLETE_INSTEAD,
     date_before,
+    draft_only_delete,
     inactive_record,
     no_longer_editable,
-    obsolete_not_delete,
     plural,
 )
 from src.core.pagination import PageParams, SortParams
@@ -1044,7 +1045,7 @@ async def delete_draft_bom(
         bom = await repo.get_or_404(bom_id)
         if BomStatus(bom.status) is not BomStatus.DRAFT:
             raise BusinessRuleError(
-                obsolete_not_delete(bom.code, bom.status),
+                draft_only_delete(bom.code, bom.status, OBSOLETE_INSTEAD),
                 details={"bom_id": str(bom.id), "status": str(bom.status)},
             )
         if await repo.has_alternates(bom.id):

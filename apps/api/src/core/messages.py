@@ -366,22 +366,24 @@ def no_longer_editable(subject: str, status: str, remedy: str | None = None) -> 
     return sentence if remedy is None else f"{sentence} {remedy}"
 
 
-def cancel_not_delete(code: str, status: str) -> str:
-    """A document past draft is cancelled, never deleted - its record survives."""
+#: What a BOM or a routing past draft is made instead of being deleted.
+OBSOLETE_INSTEAD = "Make it obsolete instead"
+
+
+def draft_only_delete(code: str, status: str, remedy: str = "Cancel it instead") -> str:
+    """``"SO-7 is CONFIRMED; only a draft may be deleted. Cancel it instead, so ..."``
+
+    A document past draft keeps its record: it is cancelled - a BOM or a routing
+    is made obsolete (:data:`OBSOLETE_INSTEAD`) - and never deleted.
+    """
     return (
-        f"{code} is {status} and must be cancelled rather than deleted, "
-        "so the record of it survives."
+        f"{code} is {status}; only a draft may be deleted. {remedy}, so the record of it survives."
     )
 
 
 def obsolete_not_delete(code: str, status: str) -> str:
-    """A BOM or routing past draft is made obsolete, never deleted."""
-    return f"{code} is {status}. Only a draft can be deleted; make it obsolete instead."
-
-
-def draft_only_delete(code: str, status: str) -> str:
-    """A packing or production order past draft is cancelled instead."""
-    return f"{code} is {status}; only a draft may be deleted. Cancel it instead."
+    """A BOM or a routing past draft is made obsolete - :func:`draft_only_delete`."""
+    return draft_only_delete(code, status, OBSOLETE_INSTEAD)
 
 
 # --- notification channels ------------------------------------------------------
@@ -436,6 +438,7 @@ __all__ = [
     "MFA_UNAVAILABLE",
     "NAME_BLANK",
     "NO_FIELDS_TO_UPDATE",
+    "OBSOLETE_INSTEAD",
     "OPERATION_COMPLETED",
     "PRICE_QUANTITY_NOT_POSITIVE",
     "RATE_LIMITED",
@@ -451,7 +454,6 @@ __all__ = [
     "VENDOR_ACCOUNT_REQUIRED",
     "SuccessAction",
     "belongs_elsewhere",
-    "cancel_not_delete",
     "cannot_be_null",
     "channel_not_enabled",
     "code_already_used",

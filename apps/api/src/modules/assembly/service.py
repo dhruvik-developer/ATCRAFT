@@ -108,10 +108,12 @@ from src.core.errors import (
 )
 from src.core.logging import get_logger
 from src.core.messages import (
-    cancel_not_delete,
     date_before,
+    draft_only_delete,
     held_for_inspection,
     inactive_record,
+    no_longer_editable,
+    not_tracked,
     output_not_serial_tracked,
     plural,
     verdict_differs_from_inspection,
@@ -473,8 +475,7 @@ def plan_consumption(
                 )
         elif serials:
             raise BusinessRuleError(
-                f"Component line {component.line_number} is not serial tracked, so it cannot "
-                "name serial numbers.",
+                not_tracked(f"Component line {component.line_number}", "serial", "serial numbers"),
                 details={"line_number": component.line_number},
             )
 
@@ -491,8 +492,7 @@ def plan_consumption(
                 )
         elif requested_batch is not None:
             raise BusinessRuleError(
-                f"Component line {component.line_number} is not batch tracked, so it cannot "
-                "name a batch.",
+                not_tracked(f"Component line {component.line_number}", "batch", "lot"),
                 details={"line_number": component.line_number},
             )
 
@@ -1640,7 +1640,7 @@ async def update_order(
         order = await repo.get_or_404(order_id)
         if AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft assembly order may be edited.",
+                no_longer_editable(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -1719,7 +1719,7 @@ async def delete_draft_order(
         order = await repo.get_or_404(order_id)
         if AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.DRAFT:
             raise BusinessRuleError(
-                cancel_not_delete(order.code, order.status),
+                draft_only_delete(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -1941,8 +1941,7 @@ async def issue_components(
             requested_batch = batches.get(component.line_number)
             if requested_batch is not None and not component.is_batch_tracked_component:
                 raise BusinessRuleError(
-                    f"Component line {component.line_number} is not batch tracked, so it "
-                    "cannot name a lot.",
+                    not_tracked(f"Component line {component.line_number}", "batch", "lot"),
                     details={"line_number": component.line_number},
                 )
             if requested_batch is not None:
@@ -2222,7 +2221,7 @@ async def complete_assembly(
                 )
             if not output_item.is_batch_tracked and payload.output_batch_id is not None:
                 raise BusinessRuleError(
-                    f"{output_item.code} is not batch tracked; remove the output lot.",
+                    not_tracked(output_item.code, "batch", "output lot"),
                     details={"item_code": output_item.code, "order_code": order.code},
                 )
             if output_item.is_serial_tracked:

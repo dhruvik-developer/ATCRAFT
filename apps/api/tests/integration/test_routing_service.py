@@ -560,7 +560,7 @@ async def test_only_a_draft_can_be_deleted(ctx: Ctx) -> None:
     centre = await seed_work_center(ctx)
     approved = await approved_routing(ctx, item, operation(centre))
 
-    with pytest.raises(BusinessRuleError, match="Only a draft"):
+    with pytest.raises(BusinessRuleError, match=r"only a draft may be deleted\. Make it obsolete"):
         await ctx.routings().delete_draft_routing(approved.id, reason="Mistake")
 
 

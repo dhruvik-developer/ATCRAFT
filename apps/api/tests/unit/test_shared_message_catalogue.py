@@ -166,13 +166,12 @@ def test_the_shared_builders_keep_each_module_s_wording() -> None:
     assert messages.no_longer_editable("ST-4", "DISPATCHED") == (
         "ST-4 is DISPATCHED and can no longer be edited."
     )
-    assert messages.cancel_not_delete("JW-2", "ISSUED") == (
-        "JW-2 is ISSUED and must be cancelled rather than deleted, so the record of it survives."
+    assert messages.draft_only_delete("JW-2", "ISSUED") == (
+        "JW-2 is ISSUED; only a draft may be deleted. Cancel it instead, "
+        "so the record of it survives."
     )
-    assert messages.obsolete_not_delete("BOM-4", "APPROVED") == (
-        "BOM-4 is APPROVED. Only a draft can be deleted; make it obsolete instead."
-    )
-    assert messages.draft_only_delete("PK-9", "PACKING") == (
-        "PK-9 is PACKING; only a draft may be deleted. Cancel it instead."
+    assert messages.draft_only_delete("BOM-4", "APPROVED", messages.OBSOLETE_INSTEAD) == (
+        "BOM-4 is APPROVED; only a draft may be deleted. Make it obsolete instead, "
+        "so the record of it survives."
     )
     assert messages.channel_not_enabled("WHATSAPP") == "WHATSAPP notifications are not enabled."
