@@ -171,10 +171,9 @@ class Customer(TenantMasterEntity):
     #: vendors module has not been migrated yet - the two are independent master
     #: modules with no ordering guarantee between them, and a hard link would
     #: force one to be deployed before the other forever. Referential integrity
-    #: is enforced in the service instead
-    #: (``CustomerService._assert_transporter_exists``), which probes for the
-    #: table before validating rather than failing a customer edit over a module
-    #: that is not present.
+    #: is enforced in the service instead (``CustomerService._assert_transporter``),
+    #: which probes for the table before validating rather than failing a
+    #: customer edit over a module that is not present.
     default_transporter_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

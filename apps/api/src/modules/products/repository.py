@@ -26,7 +26,6 @@ on a 50k-row item master. Three choices make that true:
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -163,16 +162,6 @@ class ItemCategoryRepository(BaseRepository[ItemCategory]):
                 )
             )
         )
-
-    async def list_children(self, parent_id: uuid.UUID | None) -> list[ItemCategory]:
-        """Direct children only - what a lazily-expanded tree control needs.
-
-        Bounded by the branching factor of the tree rather than by page size,
-        which is why it is not paginated: a category with thousands of direct
-        children is a data-entry error, not a use case.
-        """
-        stmt = self._scoped().where(ItemCategory.parent_id == parent_id).order_by(ItemCategory.code)
-        return list((await self.session.execute(stmt)).scalars().all())
 
     async def list_subtree(self, root: ItemCategory) -> list[ItemCategory]:
         """The root and everything beneath it, in path order.
@@ -763,16 +752,6 @@ class ItemRepository(BaseRepository[Item]):
         )
         return found.first() is not None
 
-    async def get_codes(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
-        """Batch id -> code map, for audit summaries and cross-module labelling."""
-        if not ids:
-            return {}
-        stmt = select(Item.id, Item.code).where(
-            Item.company_id == self.tenant.company_id,
-            Item.id.in_(list(ids)),
-        )
-        return {row.id: row.code for row in (await self.session.execute(stmt)).all()}
-
     # --- search --------------------------------------------------------------
 
     def _subtree_predicate(
@@ -887,26 +866,6 @@ class ItemRepository(BaseRepository[Item]):
         clients that scroll rather than page (section 31)."""
         stmt = self.build_search_statement(filters, include_cost=include_cost)
         return await self.list_keyset(params, stmt=stmt)
-
-    async def list_below_reorder_level(
-        self, params: PageParams
-    ) -> tuple[list[Item], OffsetPagination]:
-        """Items with a reorder policy configured.
-
-        Stock comparison is *not* done here: on-hand lives in the inventory
-        module and availability is never cached (section 34). This returns the
-        planning parameters; MRP joins them to live balances.
-        """
-        stmt = (
-            self._scoped()
-            .where(Item.is_active.is_(True), Item.reorder_level > 0)
-            .options(
-                load_only(
-                    *ITEM_SUMMARY_COLUMNS, Item.reorder_level, Item.reorder_quantity, raiseload=True
-                )
-            )
-        )
-        return await self.list_page(params, stmt=stmt, order_by=Item.code.asc())
 
 
 class ItemVariantRepository(BaseRepository[ItemVariant]):

@@ -55,14 +55,6 @@ UnitPriceIn = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
 Notes = Annotated[str, Field(max_length=2000)]
 
-#: Upper bound on a ledger statement page. A statement is read a page at a time
-#: and an unbounded one would be both a slow query and an unusable document.
-MAX_STATEMENT_ROWS = 200
-
-#: Upper bound on the rows one inventory-valuation page returns. The full
-#: company run goes to Celery instead - see ``reports.inventory_valuation``.
-MAX_VALUATION_ROWS = 200
-
 NONCASH_ADJUSTMENT_UNSUPPORTED = (
     "Noncash adjustments cannot be recorded as cash or bank payments. "
     "Choose an actual payment method or record an appropriate journal adjustment."
@@ -1382,8 +1374,6 @@ class PeriodFilters(BaseModel):
 
 __all__ = [
     "GSTR1_B2C_LARGE_THRESHOLD",
-    "MAX_STATEMENT_ROWS",
-    "MAX_VALUATION_ROWS",
     "AgeingCurrencyBlock",
     "AgeingReport",
     "AgeingRow",

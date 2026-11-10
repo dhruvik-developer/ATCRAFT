@@ -133,26 +133,6 @@ class PartyFacts:
 
 
 @dataclass(frozen=True, slots=True)
-class SalesLineFacts:
-    """What the partial-dispatch arithmetic needs from one sales-order line.
-
-    Read under a row lock by the dispatch path: ``dispatched_quantity`` is a
-    read-modify-write, and two consignments drawing on the same line without the
-    lock would each add their quantity to the value they read first.
-    """
-
-    id: uuid.UUID
-    sales_order_id: uuid.UUID
-    line_number: int
-    item_id: uuid.UUID
-    quantity: Any
-    allocated_quantity: Any
-    dispatched_quantity: Any
-    reservation_id: uuid.UUID | None
-    status: str
-
-
-@dataclass(frozen=True, slots=True)
 class SerialFacts:
     """Where one serialised unit is, and whether it is still in stock."""
 
@@ -592,26 +572,6 @@ class DispatchLineRepository(BaseRepository[DispatchLine]):
         )
         return list((await self.session.execute(stmt)).scalars().unique().all())
 
-    async def for_dispatches(
-        self, dispatch_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[DispatchLine]]:
-        """Lines for many consignments in one statement.
-
-        The answer to a loop of :meth:`for_dispatch` - a detail list that fetched
-        its lines per row would be the N+1 the rules forbid (section 32).
-        """
-        if not dispatch_ids:
-            return {}
-        stmt = (
-            self._scoped()
-            .where(DispatchLine.dispatch_id.in_(set(dispatch_ids)))
-            .order_by(DispatchLine.dispatch_id, DispatchLine.line_number)
-        )
-        grouped: dict[uuid.UUID, list[DispatchLine]] = {}
-        for line in (await self.session.execute(stmt)).scalars().unique().all():
-            grouped.setdefault(line.dispatch_id, []).append(line)
-        return grouped
-
     async def delete_for_dispatch(self, dispatch_id: uuid.UUID) -> int:
         """Clear a consignment's lines before rewriting them.
 
@@ -742,16 +702,6 @@ class DispatchRepository(BaseRepository[Dispatch]):
         """
         stmt = self._scoped().where(Dispatch.id == dispatch_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
-
-    async def claimed_by_packing_order(self, packing_order_id: uuid.UUID) -> uuid.UUID | None:
-        """Which consignment already carries these boxes, if any."""
-        stmt = select(Dispatch.id).where(
-            Dispatch.company_id == self.tenant.company_id,
-            Dispatch.packing_order_id == packing_order_id,
-            Dispatch.status != DispatchStatus.CANCELLED,
-        )
-        row = (await self.session.execute(stmt.limit(1))).first()
-        return row.id if row is not None else None
 
     # --- filtered list ------------------------------------------------------
 
@@ -1201,7 +1151,6 @@ __all__ = [
     "LedgerLookupRepository",
     "PackingOrderLookupRepository",
     "PartyFacts",
-    "SalesLineFacts",
     "SalesOrderLineRepository",
     "SalesOrderRepository",
     "SerialFacts",

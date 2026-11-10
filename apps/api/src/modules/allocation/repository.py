@@ -261,25 +261,6 @@ class StockReservationRepository(BaseRepository[StockReservation]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def reserved_total(
-        self, item_id: uuid.UUID, warehouse_id: uuid.UUID | None = None
-    ) -> Decimal:
-        """Sum of what open reservations still hold for one item.
-
-        A reconciliation read, not an availability read: availability comes from
-        ``inventory_balances.reserved_quantity``, which is the column the row
-        lock arbitrates. This is what an operator compares it against when the
-        two are suspected of disagreeing.
-        """
-        stmt = select(func.coalesce(func.sum(StockReservation.remaining_quantity), 0)).where(
-            StockReservation.company_id == self.tenant.company_id,
-            StockReservation.item_id == item_id,
-            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
-        )
-        if warehouse_id is not None:
-            stmt = stmt.where(StockReservation.warehouse_id == warehouse_id)
-        return Decimal(str((await self.session.execute(stmt)).scalar_one()))
-
     async def due_for_expiry(self, moment: datetime, *, limit: int) -> list[StockReservation]:
         """Open reservations whose expiry has passed, oldest first.
 

@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Generic, TypeVar
 
-from sqlalchemy import Select, delete, func, select, update
+from sqlalchemy import Select, delete, select, update
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
@@ -118,17 +118,20 @@ class BaseRepository(Generic[ModelT]):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def exists(self, **filters: Any) -> bool:
-        """EXISTS probe - never ``count() > 0``, which would scan the matches."""
-        stmt = (
-            select(func.count())
-            .select_from(self.model)
-            .where(
-                self.model.company_id == self.tenant.company_id  # type: ignore[attr-defined]
-            )
+        """Whether this tenant has a row matching ``filters``, as one ``EXISTS`` probe.
+
+        The probe stops at the first match, where ``count() > 0`` would count
+        them all. Retired rows match too, on purpose: the code-uniqueness callers
+        ask whether a code is taken, and their unique constraints
+        (``uq_item_categories_company_id_code``,
+        ``uq_units_of_measure_company_id_code``) cover retired rows as well.
+        """
+        stmt = select(self.model).where(
+            self.model.company_id == self.tenant.company_id  # type: ignore[attr-defined]
         )
         for key, value in filters.items():
             stmt = stmt.where(getattr(self.model, key) == value)
-        return bool((await self.session.execute(stmt.limit(1))).scalar_one())
+        return bool((await self.session.execute(select(stmt.exists()))).scalar_one())
 
     async def list_page(
         self,

@@ -51,11 +51,6 @@ Notes = Annotated[str, Field(max_length=2000)]
 #: (section 31) - a backlog larger than this is worked through over several runs.
 MAX_DELAY_SCAN = 500
 
-#: Upper bound on the tracking history returned for one consignment in a single
-#: read. A courier feed can produce dozens of scans; a pathological one must not
-#: be able to return an unbounded page.
-MAX_TRACKING_EVENTS_PAGE = 200
-
 
 class SalesOrderLineReference(Protocol):
     @property
@@ -505,7 +500,6 @@ class DispatchFilters(BaseModel):
 
 __all__ = [
     "MAX_DELAY_SCAN",
-    "MAX_TRACKING_EVENTS_PAGE",
     "DelayScanResult",
     "DelayedDispatchRow",
     "DeliveryConfirmation",

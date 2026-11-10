@@ -26,7 +26,6 @@ from typing import Annotated, Any
 
 from pydantic import BeforeValidator
 from sqlalchemy import CHAR, Numeric, String, TypeDecorator
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 
@@ -136,9 +135,6 @@ class CIText(TypeDecorator[str]):
         return value.strip().lower() if isinstance(value, str) else value
 
 
-# JSONB is used for audit payloads, QC parameter captures and MRP result blobs.
-JSONBType = JSONB(astext_type=String())
-
 __all__ = [
     "FACTOR_QUANTUM",
     "GUID",
@@ -148,7 +144,6 @@ __all__ = [
     "ZERO",
     "CIText",
     "ConversionFactor",
-    "JSONBType",
     "Money",
     "Percentage",
     "Quantity",

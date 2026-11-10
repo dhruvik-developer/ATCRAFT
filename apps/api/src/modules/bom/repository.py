@@ -181,17 +181,6 @@ class ItemLookupRepository(BaseRepository[Item]):
         )
         return {row.item_id: row.last_purchase_price for row in (await self.session.execute(stmt))}
 
-    async def uom_exists(self, uom_id: uuid.UUID) -> bool:
-        """Confirm a unit belongs to this tenant before it is written to a line."""
-        from src.modules.products.models import UnitOfMeasure
-
-        stmt = select(UnitOfMeasure.id).where(
-            UnitOfMeasure.company_id == self.tenant.company_id,
-            UnitOfMeasure.deleted_at.is_(None),
-            UnitOfMeasure.id == uom_id,
-        )
-        return (await self.session.execute(stmt.limit(1))).first() is not None
-
 
 class BomRepository(BaseRepository[Bom]):
     model = Bom

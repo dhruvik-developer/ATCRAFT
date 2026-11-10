@@ -835,23 +835,6 @@ class CartonRepository(BaseRepository[Carton]):
             net_weight=Decimal(str(row.net_weight)),
         )
 
-    async def counts_for_orders(self, order_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
-        """Carton counts for several orders in one statement."""
-        if not order_ids:
-            return {}
-        stmt = (
-            select(Carton.packing_order_id, func.count().label("carton_count"))
-            .where(
-                Carton.company_id == self.tenant.company_id,
-                Carton.packing_order_id.in_(list(dict.fromkeys(order_ids))),
-            )
-            .group_by(Carton.packing_order_id)
-        )
-        return {
-            row.packing_order_id: int(row.carton_count)
-            for row in (await self.session.execute(stmt)).all()
-        }
-
 
 class PackingOrderRepository(BaseRepository[PackingOrder]):
     model = PackingOrder

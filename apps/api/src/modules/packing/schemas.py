@@ -577,14 +577,6 @@ class PackingMaterialRow(BaseModel):
     available_quantity: Decimal
 
 
-class PackingListJobAccepted(BaseModel):
-    """Documented shape of the packing-list endpoint's ``data`` block."""
-
-    job_id: str
-    status: str
-    status_url: str
-
-
 __all__ = [
     "MAX_CARTONS_PER_ORDER",
     "MAX_SERIALS_PER_CONTENT",
@@ -602,7 +594,6 @@ __all__ = [
     "DispatchHandoverRequest",
     "PackingCompletionResult",
     "PackingFromAssemblyCreate",
-    "PackingListJobAccepted",
     "PackingMaterialRow",
     "PackingOrderCreate",
     "PackingOrderDetail",

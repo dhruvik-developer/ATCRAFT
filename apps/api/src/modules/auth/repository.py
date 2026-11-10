@@ -27,7 +27,6 @@ repository.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import Select, select, update
@@ -46,7 +45,6 @@ from src.modules.users.models import (
     PasswordResetToken,
     User,
     UserPhoneVerificationChallenge,
-    UserSession,
 )
 
 #: Columns of ``users`` the sign-in path actually needs. Selecting the whole row
@@ -322,18 +320,6 @@ class PhoneVerificationRepository:
         return challenge
 
 
-async def session_ids_for(
-    session: AsyncSession, company_id: uuid.UUID, ids: Sequence[uuid.UUID]
-) -> list[str]:
-    """Map session row ids to their ``session_id`` claims, tenant-scoped."""
-    if not ids:
-        return []
-    stmt = select(UserSession.session_id).where(
-        UserSession.company_id == company_id, UserSession.id.in_(list(ids))
-    )
-    return [row[0] for row in (await session.execute(stmt)).all()]
-
-
 __all__ = [
     "PasswordResetTokenRepository",
     "PhoneVerificationRepository",
@@ -343,5 +329,4 @@ __all__ = [
     "get_account_summary",
     "increment_failed_attempts",
     "record_login_attempt",
-    "session_ids_for",
 ]

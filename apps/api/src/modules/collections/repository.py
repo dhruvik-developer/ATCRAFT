@@ -506,14 +506,8 @@ class PaymentFollowUpRepository(BaseRepository[PaymentFollowUp]):
         ).scalar_one_or_none()
 
 
-class PaymentFollowUpNoteRepository(BaseRepository[PaymentFollowUpNote]):
-    model = PaymentFollowUpNote
-    entity_label = "Payment follow-up note"
-
-
 __all__ = [
     "OPEN_INVOICE_STATUSES",
-    "PaymentFollowUpNoteRepository",
     "PaymentFollowUpRepository",
     "bucket_columns",
 ]

@@ -56,10 +56,6 @@ Code = Annotated[str, Field(min_length=1, max_length=32)]
 Name = Annotated[str, Field(min_length=1, max_length=255)]
 
 
-def _optional_code(value: str | None) -> str | None:
-    return None if value is None else validate_code(value)
-
-
 def _upper_optional(value: str | None) -> str | None:
     stripped = strip_optional(value)
     return stripped.upper() if stripped else None

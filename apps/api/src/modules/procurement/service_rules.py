@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import Protocol
 
 from src.core.demand_provenance import DemandReference
 from src.core.errors import BusinessRuleError, ErrorCode, ValidationError
@@ -755,16 +754,6 @@ def requisition_auto_approval(
     return RequisitionAutoApproval(estimated_value=total, line_count=len(lines))
 
 
-class LineReceiptState(Protocol):
-    """The two numbers order-level status resolution needs from each line."""
-
-    @property
-    def quantity(self) -> Decimal: ...
-
-    @property
-    def received_quantity(self) -> Decimal: ...
-
-
 def order_is_fully_received(lines: list[tuple[Decimal, Decimal, bool]]) -> bool:
     """Whether every live line has had its full quantity delivered.
 
@@ -1053,25 +1042,6 @@ def demand_ref_keys(
             continue
         keys.add((ref.demand_type, ref.demand_id, ref.demand_line_id))
     return frozenset(keys)
-
-
-def same_requisition_line(
-    *,
-    candidate_requisition_line_id: uuid.UUID | None,
-    proposed_requisition_line_id: uuid.UUID | None,
-) -> bool:
-    """Whether both order lines claim the same pending requisition line.
-
-    The line-level form of :func:`same_source_demand`. A purchase order raised
-    from several requisitions carries no single header source, so the header
-    pair alone could never see that an open order already covers this exact
-    line of this exact requisition - which is the "same pending PR" rule of
-    master rules section 16.
-    """
-    return (
-        proposed_requisition_line_id is not None
-        and candidate_requisition_line_id == proposed_requisition_line_id
-    )
 
 
 def classify_candidate(
@@ -2051,7 +2021,6 @@ __all__ = [
     "DuplicateConfidence",
     "InspectionOutcome",
     "LineAmounts",
-    "LineReceiptState",
     "OfferInput",
     "PlannedConversionLine",
     "ProposedLine",
@@ -2094,7 +2063,6 @@ __all__ = [
     "resolve_procurement_category",
     "resolve_return_pool",
     "returnable_by_pool",
-    "same_requisition_line",
     "same_source_demand",
     "scope_covers_category",
     "score_offer",

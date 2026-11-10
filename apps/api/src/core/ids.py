@@ -72,13 +72,6 @@ def uuid7() -> uuid.UUID:
     return uuid.UUID(int=value)
 
 
-def uuid7_timestamp_ms(value: uuid.UUID) -> int:
-    """Extract the embedded creation timestamp (ms since epoch) from a UUIDv7."""
-    if value.version != 7:
-        raise ValueError(f"Not a UUIDv7: {value}")
-    return value.int >> 80
-
-
 def new_id() -> uuid.UUID:
     """Project-wide primary-key factory. Every model uses this."""
     return uuid7()
@@ -115,5 +108,4 @@ __all__ = [
     "new_id",
     "persisted_actor",
     "uuid7",
-    "uuid7_timestamp_ms",
 ]

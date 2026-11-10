@@ -15,7 +15,6 @@ route can forget them:
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Annotated
 
@@ -188,36 +187,10 @@ class Principal:
     def is_dealer_user(self) -> bool:
         return self.customer_id is not None
 
-    def can_access_category(self, category_id: uuid.UUID | None) -> bool:
-        """Vendor users restricted to specific categories (section 16).
-
-        An empty restriction list means unrestricted, which is why the check is
-        written this way rather than as a bare ``in``.
-        """
-        if not self.allowed_category_ids:
-            return True
-        return category_id is not None and category_id in self.allowed_category_ids
-
     def can_access_warehouse(self, warehouse_id: uuid.UUID | None) -> bool:
         if not self.allowed_warehouse_ids:
             return True
         return warehouse_id is not None and warehouse_id in self.allowed_warehouse_ids
-
-    def assert_same_tenant(self, company_id: uuid.UUID) -> None:
-        """Belt-and-braces check for code paths that load by primary key.
-
-        Repositories filter by ``company_id`` already; this catches a query that
-        was written without the filter before it can return another tenant's row.
-        """
-        if company_id != self.company_id:
-            from src.core.errors import TenantMismatchError
-
-            log.warning(
-                "tenant.mismatch_blocked",
-                principal_company=str(self.company_id),
-                record_company=str(company_id),
-            )
-            raise TenantMismatchError()
 
 
 # -----------------------------------------------------------------------------
@@ -533,11 +506,6 @@ def get_tenant_context(principal: CurrentUser) -> TenantContext:
 Tenant = Annotated[TenantContext, Depends(get_tenant_context)]
 
 
-def permissions_of(principal: Principal, subset: Sequence[Permission]) -> list[str]:
-    """Which of ``subset`` this principal holds - used to drive UI affordances."""
-    return [str(p) for p in subset if principal.has(p)]
-
-
 __all__ = [
     "CurrentUser",
     "DbSession",
@@ -550,7 +518,6 @@ __all__ = [
     "get_current_principal",
     "get_tenant_context",
     "password_change_route_allowed",
-    "permissions_of",
     "require_any_permission",
     "require_dealer_user",
     "require_permission",

@@ -611,22 +611,6 @@ class RoutingOperationRepository(BaseRepository[RoutingOperation]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def operations_for_routings(
-        self, routing_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[RoutingOperation]]:
-        """Steps for several routings in one statement."""
-        if not routing_ids:
-            return {}
-        stmt = (
-            self._scoped()
-            .where(RoutingOperation.routing_id.in_(list(dict.fromkeys(routing_ids))))
-            .order_by(RoutingOperation.routing_id, RoutingOperation.sequence)
-        )
-        grouped: dict[uuid.UUID, list[RoutingOperation]] = {}
-        for operation in (await self.session.execute(stmt)).scalars().all():
-            grouped.setdefault(operation.routing_id, []).append(operation)
-        return grouped
-
     def _costed_stmt(self, routing_ids: Sequence[uuid.UUID]) -> Select[Any]:
         """Operations joined to their work-centre rates, named columns only."""
         return (

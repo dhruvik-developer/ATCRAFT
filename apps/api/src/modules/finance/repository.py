@@ -1501,24 +1501,6 @@ class VendorInvoiceLineRepository(BaseRepository[VendorInvoiceLine]):
         )
         return list((await self.session.execute(stmt)).scalars().unique().all())
 
-    async def list_for_invoices(
-        self, invoice_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[VendorInvoiceLine]]:
-        """Lines for a page of invoices in one query - the answer to an N+1."""
-        if not invoice_ids:
-            return {}
-        stmt = (
-            self._scoped()
-            .where(VendorInvoiceLine.vendor_invoice_id.in_(set(invoice_ids)))
-            .order_by(
-                VendorInvoiceLine.vendor_invoice_id.asc(), VendorInvoiceLine.line_number.asc()
-            )
-        )
-        grouped: dict[uuid.UUID, list[VendorInvoiceLine]] = {}
-        for line in (await self.session.execute(stmt)).scalars().unique().all():
-            grouped.setdefault(line.vendor_invoice_id, []).append(line)
-        return grouped
-
     async def delete_for_invoice(self, invoice_id: uuid.UUID) -> int:
         """Drop the whole line set before rewriting it.
 

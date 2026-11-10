@@ -23,9 +23,6 @@ import re
 GSTIN_PATTERN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
 PAN_PATTERN = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
 
-GSTIN_LENGTH = 15
-PAN_LENGTH = 10
-
 #: Alphabet the GSTIN check digit is computed over: 0-9 then A-Z, value = index.
 _GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -116,10 +113,8 @@ def state_code_from_gstin(gstin: str) -> str:
 
 __all__ = [
     "GSTIN_CHECK_DIGIT_MESSAGE",
-    "GSTIN_LENGTH",
     "GSTIN_PATTERN",
     "GSTIN_SHAPE_MESSAGE",
-    "PAN_LENGTH",
     "PAN_PATTERN",
     "PAN_SHAPE_MESSAGE",
     "gstin_check_digit",

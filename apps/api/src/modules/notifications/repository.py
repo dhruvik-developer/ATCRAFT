@@ -838,10 +838,6 @@ class NotificationMessagingRepository(BaseRepository[NotificationChannelTemplate
         row = (await self.session.execute(stmt)).first()
         return tuple(row) if row is not None else None
 
-    async def add_delivery(self, delivery: NotificationDelivery) -> None:
-        self.session.add(delivery)
-        await self.session.flush()
-
     async def list_deliveries(
         self, params: CursorParams
     ) -> tuple[list[NotificationDelivery], CursorPagination]:

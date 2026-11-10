@@ -49,7 +49,7 @@ from src.modules.products.models import (
     ProductionType,
     UomCategory,
 )
-from src.modules.products.repository import ItemRepository
+from src.modules.products.repository import ItemCategoryRepository, ItemRepository
 from src.modules.products.schemas import (
     CategoryCreate,
     CategoryUpdate,
@@ -662,6 +662,32 @@ async def test_category_in_use_cannot_be_retired(
 
     with pytest.raises(BusinessRuleError):
         await service.delete_category(session, tenant, category.id)
+
+
+async def test_a_retired_category_still_holds_its_code_for_this_company_only(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """``BaseRepository.exists`` counts retired rows, as the unique constraint does.
+
+    The code check on create runs through it. Leaving retired rows out would let
+    the create pass the check and then fail on
+    ``uq_item_categories_company_id_code``, which covers them too.
+    """
+    session, tenant, _ = ctx
+    retired = await service.create_category(
+        session, tenant, CategoryCreate(code="GONE", name="Gone")
+    )
+    await service.delete_category(session, tenant, retired.id)
+    repo = ItemCategoryRepository(session, tenant)
+    elsewhere = TenantContext(company_id=uuid.uuid4(), user_id=tenant.user_id)
+
+    assert await repo.exists(code="GONE")
+    assert await repo.exists(code="GONE", name="Gone")
+    assert not await repo.exists(code="GONE", name="Another name")
+    assert not await repo.exists(code="NEVER-USED")
+    assert not await ItemCategoryRepository(session, elsewhere).exists(code="GONE")
+    with pytest.raises(DuplicateError):
+        await service.create_category(session, tenant, CategoryCreate(code="GONE", name="Again"))
 
 
 # -----------------------------------------------------------------------------

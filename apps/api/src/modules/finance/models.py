@@ -132,12 +132,6 @@ class LedgerAccountType(StrEnum):
     EQUITY = "EQUITY"
 
 
-#: Account classes whose normal balance is a debit. Used to present a balance in
-#: the direction an accountant expects rather than as a signed number.
-DEBIT_NORMAL_TYPES: frozenset[LedgerAccountType] = frozenset(
-    {LedgerAccountType.ASSET, LedgerAccountType.EXPENSE}
-)
-
 #: The account classes a ledger leg may carry a cost centre on. A cost centre
 #: answers "where was this earned or spent", which a payable, a bank balance or
 #: a tax credit has no answer to - allowing it there would put balance-sheet
@@ -290,12 +284,6 @@ class PaymentMethod(StrEnum):
     CARD = "CARD"
     #: A book entry with no cash movement: contra, write-off or set-off.
     ADJUSTMENT = "ADJUSTMENT"
-
-
-#: Methods that move money through a bank account rather than the cash box.
-BANK_METHODS: frozenset[PaymentMethod] = frozenset(
-    {PaymentMethod.BANK_TRANSFER, PaymentMethod.CHEQUE, PaymentMethod.UPI, PaymentMethod.CARD}
-)
 
 
 class PaymentStatus(StrEnum):
@@ -1471,10 +1459,8 @@ __all__ = [
     "AGEING_BUCKET_BOUNDARIES",
     "AGEING_BUCKET_LABELS",
     "ALLOCATABLE_PAYMENT_STATUSES",
-    "BANK_METHODS",
     "COST_CENTRE_ACCOUNT_TYPES",
     "CURRENCY_CODE_LENGTH",
-    "DEBIT_NORMAL_TYPES",
     "DEFAULT_CURRENCY",
     "EDITABLE_INVOICE_STATUSES",
     "INPUT_TAX_STATUSES",

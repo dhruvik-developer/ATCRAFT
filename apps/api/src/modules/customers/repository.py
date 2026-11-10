@@ -451,23 +451,6 @@ class CustomerContactRepository(BaseRepository[CustomerContact]):
         )
         return affected_rows(await self.session.execute(stmt))
 
-    async def count_for_customers(self, customer_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
-        """Contact counts for a whole page of customers in one query."""
-        if not customer_ids:
-            return {}
-        from sqlalchemy import func
-
-        stmt = (
-            select(CustomerContact.customer_id, func.count())
-            .where(
-                CustomerContact.company_id == self.tenant.company_id,
-                CustomerContact.customer_id.in_(list(customer_ids)),
-                CustomerContact.deleted_at.is_(None),
-            )
-            .group_by(CustomerContact.customer_id)
-        )
-        return {row[0]: int(row[1]) for row in (await self.session.execute(stmt)).all()}
-
 
 __all__ = [
     "CUSTOMER_SUMMARY_COLUMNS",

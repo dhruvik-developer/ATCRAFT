@@ -3,10 +3,10 @@
 Three shapes in this file exist for performance reasons, not convenience:
 
 * **Everything the pricing engine needs is batched.** ``ItemLookupRepository``,
-  ``price_candidates`` and ``variants`` all take a collection of ids and answer
-  in one statement. A twenty-line order priced with a lookup per line would be
-  sixty round trips on the write path (master rules section 32), which is
-  exactly the N+1 the rules forbid.
+  ``PriceListRepository.candidates_for_items`` and ``variants`` all take a
+  collection of ids and answer in one statement. A twenty-line order priced
+  with a lookup per line would be sixty round trips on the write path (master
+  rules section 32), which is exactly the N+1 the rules forbid.
 * **Availability is one grouped read, not one read per line.** The
   ``inventory`` module's ``get_available`` is the documented per-item contract;
   asking it in a loop is the same N+1. ``available_by_item`` answers for the

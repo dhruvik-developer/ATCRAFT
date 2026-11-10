@@ -956,19 +956,6 @@ class RfqLineRepository(BaseRepository[RfqLine]):
         stmt = self._scoped().where(RfqLine.rfq_id == rfq_id).order_by(RfqLine.line_number)
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def list_for_rfqs(self, rfq_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[RfqLine]]:
-        if not rfq_ids:
-            return {}
-        stmt = (
-            self._scoped()
-            .where(RfqLine.rfq_id.in_(list(rfq_ids)))
-            .order_by(RfqLine.rfq_id, RfqLine.line_number)
-        )
-        grouped: dict[uuid.UUID, list[RfqLine]] = {}
-        for line in (await self.session.execute(stmt)).scalars().all():
-            grouped.setdefault(line.rfq_id, []).append(line)
-        return grouped
-
     async def delete_for_rfq(self, rfq_id: uuid.UUID) -> int:
         stmt = delete(RfqLine).where(
             RfqLine.company_id == self.tenant.company_id, RfqLine.rfq_id == rfq_id
@@ -1476,15 +1463,6 @@ class GoodsReceiptLineRepository(BaseRepository[GoodsReceiptLine]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def lock_for_receipt(self, receipt_id: uuid.UUID) -> list[GoodsReceiptLine]:
-        stmt = (
-            self._scoped()
-            .where(GoodsReceiptLine.goods_receipt_id == receipt_id)
-            .order_by(GoodsReceiptLine.id)
-            .with_for_update()
-        )
-        return list((await self.session.execute(stmt)).scalars().all())
-
     async def list_for_receipts(
         self, receipt_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, list[GoodsReceiptLine]]:
@@ -1672,21 +1650,6 @@ class PurchaseReturnLineRepository(BaseRepository[PurchaseReturnLine]):
             .order_by(PurchaseReturnLine.line_number)
         )
         return list((await self.session.execute(stmt)).scalars().all())
-
-    async def list_for_returns(
-        self, return_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[PurchaseReturnLine]]:
-        if not return_ids:
-            return {}
-        stmt = (
-            self._scoped()
-            .where(PurchaseReturnLine.purchase_return_id.in_(list(return_ids)))
-            .order_by(PurchaseReturnLine.purchase_return_id, PurchaseReturnLine.line_number)
-        )
-        grouped: dict[uuid.UUID, list[PurchaseReturnLine]] = {}
-        for line in (await self.session.execute(stmt)).scalars().all():
-            grouped.setdefault(line.purchase_return_id, []).append(line)
-        return grouped
 
     async def posted_quantities_by_pool(
         self, receipt_line_ids: Sequence[uuid.UUID]

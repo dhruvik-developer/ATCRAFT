@@ -24,7 +24,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Select, and_, func, literal, or_, select, text, update
+from sqlalchemy import Select, func, literal, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -625,18 +625,12 @@ def vendor_type_predicate(*vendor_types: str) -> Any:
     return clauses[0] if len(clauses) == 1 else or_(*clauses)
 
 
-def approved_and_active() -> Any:
-    """The predicate procurement must apply before raising an order on a vendor."""
-    return and_(Vendor.is_approved.is_(True), Vendor.is_active.is_(True))
-
-
 __all__ = [
     "OPEN_PURCHASE_ORDER_STATUSES",
     "TransporterRepository",
     "VendorCategoryRepository",
     "VendorContactRepository",
     "VendorRepository",
-    "approved_and_active",
     "columns_present",
     "present_columns",
     "vendor_type_predicate",

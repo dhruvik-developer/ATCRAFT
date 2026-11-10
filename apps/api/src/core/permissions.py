@@ -870,22 +870,12 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
     },
 }
 
-VENDOR_ROLE_CODES: frozenset[str] = frozenset(
-    code for code, spec in ROLE_PRESETS.items() if spec.get("is_vendor_role")
-)
-
-DEALER_ROLE_CODES: frozenset[str] = frozenset(
-    code for code, spec in ROLE_PRESETS.items() if spec.get("is_dealer_role")
-)
-
 ALL_PERMISSIONS: tuple[Permission, ...] = tuple(Permission)
 
 __all__ = [
     "ALL_PERMISSIONS",
-    "DEALER_ROLE_CODES",
     "PERMISSION_GROUPS",
     "ROLE_PRESETS",
-    "VENDOR_ROLE_CODES",
     "VIEW_ONLY",
     "GrantingRole",
     "Permission",

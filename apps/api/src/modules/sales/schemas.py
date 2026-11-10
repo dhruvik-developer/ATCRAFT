@@ -47,7 +47,6 @@ from src.modules.sales.models import (
 NonNegativeUnitPrice = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6)]
 DiscountPercentage = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
-StateCode = Annotated[str, Field(min_length=2, max_length=4, pattern=r"^[0-9]{2}$")]
 Priority = Annotated[int, Field(ge=MIN_PRIORITY, le=MAX_PRIORITY)]
 
 #: An order with more lines than this is a data-entry accident or a bulk import
