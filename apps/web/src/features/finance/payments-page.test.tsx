@@ -44,6 +44,7 @@ import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
+import type { VendorInvoiceSummary } from './finance-types'
 import { PaymentCommandDialog, PaymentFormDialog } from './payment-dialogs'
 import type { PaymentDetail, PaymentRow } from './payment-model'
 import PaymentsPage from './payments-page'
@@ -710,6 +711,74 @@ describe('settling an approved payment', () => {
       { vendor_invoice_id: 'vi3', amount: '3594.81', notes: 'part settlement' },
     ])
     for (const line of body.allocations) expect(typeof line.amount).toBe('string')
+  })
+
+  it('gives a released invoice its own amount back when it is added again', async () => {
+    // `replace` releases what this payment put against SBW/4412 before applying
+    // the new set, so the invoice can take that amount again on top of the
+    // 3465.41 it owes now - as `allocate_payment` works it out under the row
+    // lock. Added back from the open-invoice table, the line used to be capped
+    // at the outstanding alone: it proposed 3465.41 and refused the payment's
+    // own 6534.59 with "owes 3465.41", so the settlement could not be restored.
+    const openInvoice: VendorInvoiceSummary = {
+      id: 'vi2',
+      code: 'VINV-2',
+      vendor_id: VENDOR.id,
+      vendor_invoice_number: 'SBW/4412',
+      invoice_date: '2026-08-01',
+      due_date: '2026-09-15',
+      status: 'PARTIALLY_PAID',
+      match_status: 'MATCHED',
+      currency: 'INR',
+      subtotal: '8474.58',
+      tax_amount: '1525.42',
+      total_amount: '10000.00',
+      paid_amount: '6534.59',
+      debit_allocated_amount: '0.00',
+      outstanding_amount: '3465.41',
+      purchase_order_id: null,
+      goods_receipt_id: null,
+      invoice_type: 'PURCHASE',
+      job_work_order_id: null,
+      cost_centre_id: null,
+      created_at: '2026-08-01T09:00:00Z',
+    }
+    const { user, fetch } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD, P.VENDOR_INVOICE_VIEW],
+      routes: {
+        'GET /finance/payments': page([settledRow]),
+        [`GET ${DETAIL_PATH}`]: ok(settled()),
+        'GET /finance/vendor-invoices': page([openInvoice]),
+        [`POST ${DETAIL_PATH}/allocate`]: ok(settled()),
+      },
+    })
+
+    const dialog = await openSettlement(user)
+    await user.click(
+      await within(dialog).findByRole('button', { name: 'Release SBW/4412 from this payment' }),
+    )
+    await user.click(
+      await within(dialog).findByRole('button', { name: 'Settle SBW/4412 from this payment' }),
+    )
+
+    expect(
+      within(dialog).getByRole('textbox', { name: 'Amount settled against SBW/4412' }),
+    ).toHaveValue('6534.59')
+    expect(within(dialog).getByText(/already from this payment/)).toHaveTextContent(
+      '+ ₹6,534.59 already from this payment',
+    )
+    expect(within(dialog).queryByText('Not ready to save')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Save settlement' }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    const body = fetch.requestFor('POST', `${DETAIL_PATH}/allocate`) as {
+      allocations: { vendor_invoice_id: string; amount: string; notes: string | null }[]
+    }
+    expect(body.allocations).toEqual([
+      { vendor_invoice_id: 'vi1', amount: '6408.52', notes: null },
+      { vendor_invoice_id: 'vi3', amount: '3594.81', notes: 'part settlement' },
+      { vendor_invoice_id: 'vi2', amount: '6534.59', notes: null },
+    ])
   })
 
   it('will not send a settlement worth more than the payment', async () => {

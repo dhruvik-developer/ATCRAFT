@@ -445,6 +445,48 @@ describe('sales invoices', () => {
       })
   })
 
+  it('caps a re-added invoice at what the receipt has left, with its own amount added back', async () => {
+    // The invoice now owes 68 and this receipt put 50 against it, so it can take
+    // 118 once the replace releases the 50 - but the receipt is only worth 100.
+    const payment = receipt({
+      amount: '100',
+      allocations: [
+        {
+          id: 'allocation',
+          sales_invoice_id: ID,
+          vendor_invoice_id: null,
+          invoice_code: 'SI/2026-27/00042',
+          amount: '50.00',
+          notes: null,
+        },
+      ],
+    })
+    const { user, fetch } = renderScreen(
+      <SalesReceiptAllocationDialog payment={payment} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_RECORD, P.SALES_INVOICE_VIEW],
+        routes: {
+          'GET /finance/sales-invoices': page([
+            invoice({ balance_amount: '68', paid_amount: '50', status: 'PARTIALLY_PAID' }),
+          ]),
+          'POST /finance/payments/payment/allocate': ok(payment),
+        },
+      },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Remove' }))
+    await user.click(await screen.findByRole('button', { name: 'Add invoice' }))
+    expect(screen.getByLabelText('SI/2026-27/00042')).toHaveValue('100.00')
+    // Filled to the receipt: nothing more can be added until a line comes out.
+    expect(screen.getByRole('button', { name: 'Add invoice' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Save allocation' }))
+    await expect
+      .poll(() => fetch.requestFor('POST', '/finance/payments/payment/allocate'))
+      .toEqual({
+        replace: true,
+        allocations: [{ sales_invoice_id: ID, amount: '100.00', notes: null }],
+      })
+  })
+
   it('allows preview readers to review without offering invoice creation', async () => {
     renderScreen(<RaiseSalesInvoiceDialog dispatchId={DISPATCH} onClose={() => {}} />, {
       permissions: [P.SALES_INVOICE_VIEW],

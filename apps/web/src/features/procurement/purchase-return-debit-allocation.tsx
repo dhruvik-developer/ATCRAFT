@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import Decimal from 'decimal.js'
 import { Loader2, Plus, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
@@ -21,6 +20,11 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { financeKeys, type VendorInvoiceSummary } from '@/features/finance/finance-types'
+import {
+  allocatedByInvoice,
+  allocationCeiling,
+  proposeAllocation,
+} from '@/features/finance/payment-model'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE } from '@/lib/constants'
@@ -116,15 +120,25 @@ export function PurchaseReturnDebitAllocation({
     (row) => !MONEY.test(row.amount.trim()) || toDecimal(row.amount).lessThanOrEqualTo(0),
   )
 
+  // What the debit note carried when it was read: an invoice taken out of the
+  // draft and added back is entitled to its own amount again.
+  const previousAmounts = useMemo(
+    () => allocatedByInvoice(allocations.data?.allocations),
+    [allocations.data],
+  )
+
   const addInvoice = () => {
     const invoice = invoices.data?.data.find((row) => row.id === selectedInvoiceId)
     if (!invoice || draft.some((row) => row.vendor_invoice_id === invoice.id)) return
-    const remaining = Decimal.max(0, creditLimit.minus(draftTotal))
     setDraft((current) => [
       ...current,
       {
         vendor_invoice_id: invoice.id,
-        amount: Decimal.min(toDecimal(invoice.outstanding_amount), remaining).toFixed(2),
+        amount: proposeAllocation(
+          allocationCeiling(invoice.outstanding_amount, previousAmounts.get(invoice.id)),
+          purchaseReturn.total_amount,
+          draftTotal,
+        ),
         notes: null,
         invoice_code: invoice.code,
         vendor_invoice_number: invoice.vendor_invoice_number,

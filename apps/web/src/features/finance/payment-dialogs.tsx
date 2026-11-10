@@ -70,6 +70,7 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import type { CustomerRow } from '@/features/customers/customer-types'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import type { VendorRow } from '@/features/vendors/vendor-types'
+import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatMoney, toDateInput, toDecimal } from '@/lib/format'
@@ -81,6 +82,8 @@ import { toast } from '@/lib/toast'
 
 import { financeKeys, type VendorInvoiceSummary } from './finance-types'
 import {
+  allocatedByInvoice,
+  allocationCeiling,
   canSettleInvoices,
   isPayableInvoice,
   MAX_ALLOCATIONS,
@@ -95,6 +98,7 @@ import {
   PAYMENT_TYPE_LABELS,
   PAYMENT_TYPE_SHORT,
   PAYMENT_TYPES,
+  proposeAllocation,
   sumAmounts,
   unallocatedAfter,
   usesInstrument,
@@ -883,12 +887,16 @@ interface DraftLine {
   code: string | null
   number: string | null
   /**
-   * The invoice's outstanding at the moment it was picked, and what this
-   * payment already puts against it. Both are null for a line seeded from an
-   * existing allocation: `PaymentAllocationRead` carries neither, so that line's
-   * ceiling is known only to the server.
+   * The invoice's outstanding at the moment it was picked; null for a line
+   * seeded from an existing allocation, because `PaymentAllocationRead` does
+   * not carry it, so that line's ceiling is known only to the server.
    */
   outstanding: string | null
+  /**
+   * What this payment already puts against the invoice, which a save with
+   * `replace` releases first - so the line's ceiling adds it back. Null when the
+   * payment has never settled this invoice.
+   */
   settled: string | null
   currency: string | null
 }
@@ -923,11 +931,7 @@ function seedDraft(payment: PaymentDetail): Draft {
 
 /** What this line may hold, or null when only the server knows. */
 function ceilingOf(line: DraftLine): Decimal | null {
-  if (line.outstanding === null) return null
-  // The invoice's outstanding already has this payment's own allocation taken
-  // off it, and that amount is about to stop counting - so it is added back,
-  // exactly as `allocate_payment` does under the row lock.
-  return toDecimal(line.outstanding).plus(toDecimal(line.settled ?? '0'))
+  return line.outstanding === null ? null : allocationCeiling(line.outstanding, line.settled)
 }
 
 /**
@@ -1021,6 +1025,13 @@ export function PaymentAllocationDialog({
     placeholderData: keepPreviousData,
   })
 
+  // What the payment carried when it was read: an invoice taken out of the
+  // draft and added back is entitled to its own amount again.
+  const previouslySettled = useMemo(
+    () => allocatedByInvoice(payment?.allocations),
+    [payment?.allocations],
+  )
+
   /**
    * Put an invoice into the draft, filled to whatever the payment has left.
    *
@@ -1033,27 +1044,27 @@ export function PaymentAllocationDialog({
       setDraft((current) => {
         if (current[invoice.id]) return current
         if (Object.keys(current).length >= MAX_ALLOCATIONS) return current
+        const settled = previouslySettled.get(invoice.id) ?? null
         const used = sumAmounts(Object.values(current).map((line) => line.amount))
-        const left = toDecimal(paymentAmount).minus(used)
-        const proposed = Decimal.max(
-          0,
-          Decimal.min(toDecimal(invoice.outstanding_amount), left),
-        ).toFixed(2)
         return {
           ...current,
           [invoice.id]: {
-            amount: proposed,
+            amount: proposeAllocation(
+              allocationCeiling(invoice.outstanding_amount, settled),
+              paymentAmount,
+              used,
+            ),
             notes: '',
             code: invoice.code,
             number: invoice.vendor_invoice_number,
             outstanding: invoice.outstanding_amount,
-            settled: null,
+            settled,
             currency: invoice.currency,
           },
         }
       })
     },
-    [paymentAmount],
+    [paymentAmount, previouslySettled],
   )
 
   const removeLine = useCallback((invoiceId: string) => {
@@ -1064,7 +1075,7 @@ export function PaymentAllocationDialog({
     })
   }, [])
 
-  const draftIds = useMemo(() => new Set(Object.keys(draft)), [draft])
+  const draftIds = useKeySet(draft)
   const draftEntries = Object.entries(draft)
   const payableEntries = draftEntries.filter(([, line]) => toDecimal(line.amount).greaterThan(0))
   const draftTotal = sumAmounts(draftEntries.map(([, line]) => line.amount))
@@ -1341,9 +1352,22 @@ export function PaymentAllocationDialog({
                                     Not reported
                                   </span>
                                 ) : (
-                                  formatMoney(line.outstanding, {
-                                    currency: line.currency ?? currency,
-                                  })
+                                  <>
+                                    {formatMoney(line.outstanding, {
+                                      currency: line.currency ?? currency,
+                                    })}
+                                    {/* Released by the save, so the line may hold it
+                                        again on top of what the invoice owes now. */}
+                                    {line.settled !== null && (
+                                      <span className="block text-2xs text-muted-foreground">
+                                        +{' '}
+                                        {formatMoney(line.settled, {
+                                          currency: line.currency ?? currency,
+                                        })}{' '}
+                                        already from this payment
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                               </td>
                               <td className="py-1.5 pr-2 text-right">

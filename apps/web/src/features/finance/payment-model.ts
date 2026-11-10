@@ -315,3 +315,62 @@ export function sumAmounts(amounts: string[]): Decimal {
 export function unallocatedAfter(payment: PaymentDetail, draftTotal: Decimal): Decimal {
   return toDecimal(payment.amount).minus(draftTotal)
 }
+
+// ------------------------------------------------------------ allocation ----
+
+/** One row of a document's allocation set: it names one invoice, vendor or sales. */
+interface InvoiceAllocationRow {
+  amount: string
+  vendor_invoice_id?: string | null
+  sales_invoice_id?: string | null
+}
+
+/**
+ * What a document already puts against each invoice, by invoice id.
+ *
+ * Read from the document's complete allocation set - a payment's or a vendor
+ * debit note's `allocations`. A row names a vendor invoice or a sales invoice,
+ * never both, so one map serves either side.
+ */
+export function allocatedByInvoice(
+  allocations: readonly InvoiceAllocationRow[] | null | undefined,
+): Map<string, string> {
+  const byInvoice = new Map<string, string>()
+  for (const row of allocations ?? []) {
+    const invoiceId = row.vendor_invoice_id ?? row.sales_invoice_id
+    if (invoiceId) byInvoice.set(invoiceId, row.amount)
+  }
+  return byInvoice
+}
+
+/**
+ * The most one invoice can take when a document's allocation set is replaced.
+ *
+ * The invoice's outstanding - `outstanding_amount` on a vendor invoice,
+ * `balance_amount` on a sales invoice - already has this document's own
+ * allocation against it taken off, and `replace: true` releases that allocation
+ * before the new set is applied. So it is added back, as `allocate_payment`,
+ * `allocate_sales_receipt` and the debit-note allocation each do under the row
+ * lock. Without it, an invoice taken out of the draft and added again could not
+ * be given its own amount back.
+ */
+export function allocationCeiling(
+  outstanding: string,
+  previous: string | null | undefined,
+): Decimal {
+  return toDecimal(outstanding).plus(toDecimal(previous))
+}
+
+/**
+ * What an invoice is filled to as it joins the draft: all it can take, capped
+ * at what the document has left once the lines already drafted are counted,
+ * and never below zero.
+ */
+export function proposeAllocation(
+  ceiling: Decimal,
+  documentAmount: string,
+  allocated: Decimal,
+): string {
+  const left = toDecimal(documentAmount).minus(allocated)
+  return Decimal.max(0, Decimal.min(ceiling, left)).toFixed(2)
+}

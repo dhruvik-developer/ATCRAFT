@@ -1,7 +1,6 @@
-import Decimal from 'decimal.js'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { DataTable } from '@/components/data-table'
 import { DescriptionList, FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
@@ -16,6 +15,7 @@ import {
 } from '@/components/ui/overlays'
 import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { useKeySet } from '@/hooks/use-key-set'
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, toDecimal } from '@/lib/format'
@@ -24,7 +24,15 @@ import { fieldErrorSummary } from '@/lib/form-errors'
 import { describeError, success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { financeKeys } from './finance-types'
-import { MAX_ALLOCATIONS, paymentKeys, type PaymentDetail } from './payment-model'
+import {
+  allocatedByInvoice,
+  allocationCeiling,
+  MAX_ALLOCATIONS,
+  paymentKeys,
+  proposeAllocation,
+  sumAmounts,
+  type PaymentDetail,
+} from './payment-model'
 import { salesInvoiceKeys, type SalesInvoiceSummary } from './sales-invoice-types'
 
 interface ReceiptAllocationDraft {
@@ -79,15 +87,11 @@ export function SalesReceiptAllocationDialog({
     enabled: can(P.SALES_INVOICE_VIEW),
     staleTime: 0,
   })
-  const total = Object.values(draft).reduce(
-    (sum, row) => sum.plus(toDecimal(row.amount)),
-    toDecimal('0'),
-  )
-  // A replacement releases this receipt's previous allocation before applying
-  // the new one. Its own amount must be added back to the displayed balance
-  // when a removed line is added again, just as the service checks under lock.
+  const total = sumAmounts(Object.values(draft).map((row) => row.amount))
+  // A removed invoice added back is entitled to its own amount again: see
+  // `allocationCeiling`.
   const previousAmounts = useMemo(
-    () => new Map((payment.allocations ?? []).map((row) => [row.sales_invoice_id, row.amount])),
+    () => allocatedByInvoice(payment.allocations),
     [payment.allocations],
   )
   const valid =
@@ -118,6 +122,35 @@ export function SalesReceiptAllocationDialog({
     // Said in the dialog, under the allocations; a toast would say it twice.
     meta: { suppressErrorToast: true },
   })
+  /**
+   * Put an invoice into the draft, filled to whatever the receipt has left.
+   *
+   * Through the functional updater, so the callback reads the draft it updates
+   * and never depends on it: typing an amount must not rebuild the candidate
+   * table's columns.
+   */
+  const addInvoice = useCallback(
+    (invoice: SalesInvoiceSummary) =>
+      setDraft((current) => {
+        if (current[invoice.id] || Object.keys(current).length >= MAX_ALLOCATIONS) return current
+        const ceiling = allocationCeiling(invoice.balance_amount, previousAmounts.get(invoice.id))
+        const used = sumAmounts(Object.values(current).map((row) => row.amount))
+        return {
+          ...current,
+          [invoice.id]: {
+            code: invoice.code,
+            notes: null,
+            ceiling: ceiling.toFixed(2),
+            amount: proposeAllocation(ceiling, payment.amount, used),
+          },
+        }
+      }),
+    [payment.amount, previousAmounts],
+  )
+  // Ids and one flag, not the draft: they change when a line joins, leaves or
+  // fills the receipt, not on every keystroke.
+  const draftIds = useKeySet(draft)
+  const receiptFull = total.greaterThanOrEqualTo(toDecimal(payment.amount))
   const columns = useMemo<ColumnDef<SalesInvoiceSummary, unknown>[]>(
     () => [
       { id: 'code', header: 'Invoice', enableSorting: false, cell: ({ row }) => row.original.code },
@@ -143,39 +176,19 @@ export function SalesReceiptAllocationDialog({
             variant="outline"
             size="sm"
             disabled={
-              Boolean(draft[row.original.id]) ||
+              draftIds.has(row.original.id) ||
               row.original.currency !== payment.currency ||
-              Object.keys(draft).length >= MAX_ALLOCATIONS ||
-              total.greaterThanOrEqualTo(payment.amount)
+              draftIds.size >= MAX_ALLOCATIONS ||
+              receiptFull
             }
-            onClick={() =>
-              setDraft((current) => ({
-                ...current,
-                [row.original.id]: {
-                  code: row.original.code,
-                  notes: null,
-                  ceiling: toDecimal(row.original.balance_amount)
-                    .plus(previousAmounts.get(row.original.id) ?? '0')
-                    .toFixed(2),
-                  amount: Decimal.max(
-                    0,
-                    Decimal.min(
-                      toDecimal(row.original.balance_amount).plus(
-                        previousAmounts.get(row.original.id) ?? '0',
-                      ),
-                      toDecimal(payment.amount).minus(total),
-                    ),
-                  ).toFixed(2),
-                },
-              }))
-            }
+            onClick={() => addInvoice(row.original)}
           >
             Add invoice
           </Button>
         ),
       },
     ],
-    [draft, payment.amount, payment.currency, previousAmounts, total],
+    [addInvoice, draftIds, payment.currency, receiptFull],
   )
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>

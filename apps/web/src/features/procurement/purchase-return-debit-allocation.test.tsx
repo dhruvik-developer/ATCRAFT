@@ -103,4 +103,38 @@ describe('purchase-return debit allocation', () => {
     })
     expect(await screen.findByText(/30\.00 applied of/)).toBeVisible()
   })
+
+  it('gives a removed invoice its own amount back when it is added again', async () => {
+    // The invoice owes 78 now because this debit note put 40 against it; the
+    // replace releases the 40, so the server lets it take up to 118 - and the
+    // note is worth 100. The proposal used to stop at the 78 outstanding.
+    const { user, fetch } = renderScreen(
+      <PurchaseReturnDebitAllocation purchaseReturn={purchaseReturn} />,
+      {
+        routes: {
+          [`GET ${ALLOCATIONS_PATH}`]: ok(existing),
+          'GET /finance/vendor-invoices': page([
+            { ...invoice, status: 'PARTIALLY_PAID', outstanding_amount: '78.00' },
+          ]),
+          [`POST ${ALLOCATIONS_PATH}`]: ok(existing),
+        },
+      },
+    )
+
+    await screen.findByRole('textbox', { name: `Amount for ${invoice.code}` })
+    await user.click(screen.getByRole('button', { name: `Remove ${invoice.code} allocation` }))
+    await user.click(screen.getByRole('combobox', { name: 'Choose vendor invoice' }))
+    await user.click(await screen.findByRole('option', { name: /SUP-2026-001/ }))
+    await user.click(screen.getByRole('button', { name: 'Add invoice' }))
+
+    expect(screen.getByRole('textbox', { name: `Amount for ${invoice.code}` })).toHaveValue(
+      '100.00',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save allocation' }))
+    await waitFor(() => fetch.requestFor('POST', ALLOCATIONS_PATH))
+    expect(fetch.requestFor('POST', ALLOCATIONS_PATH)).toEqual({
+      allocations: [{ vendor_invoice_id: INVOICE_ID, amount: '100.00', notes: null }],
+      replace: true,
+    })
+  })
 })
