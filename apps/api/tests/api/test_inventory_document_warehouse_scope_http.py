@@ -20,7 +20,7 @@ from src.modules.inventory.models import (
 from src.modules.inventory.schemas import StockSerialCreate
 from src.modules.inventory.service import TraceabilityService
 from tests import seed_support
-from tests.integration.test_inventory_operations import _bin
+from tests.inventory_support import _bin
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 

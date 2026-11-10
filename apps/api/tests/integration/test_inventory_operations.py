@@ -71,17 +71,16 @@ from src.modules.inventory.service import (
     ScrapDisposalService,
     StockAdjustmentService,
     StockTransferService,
-    change_stock_state,
     get_balance,
     post_movement,
 )
-from src.modules.organization.models import CostCentre, CostCentreType, Department
+from src.modules.organization.models import CostCentre, CostCentreType
 from src.modules.products.schemas import ItemUpdate
 from src.modules.products.service import update_item
 from src.modules.reports.repository import ReportQueryRepository
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
-from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from src.modules.warehouses.service import StorageLocationService, WarehouseService
+from tests.inventory_support import _bin, _department, _receive, _scrap, _stock
 from tests.seed_support import seed_item, seed_user, seed_warehouse
 
 pytestmark = pytest.mark.integration
@@ -155,69 +154,6 @@ async def test_default_bin_assignment_and_retirement_share_the_same_contract(
 
 PAGE = PageParams()
 UNSORTED = SortParams()
-
-
-async def _receive(
-    session,
-    tenant,
-    item,
-    warehouse,
-    quantity: str,
-    cost: str,
-    *,
-    location_id: uuid.UUID | None = None,
-    batch_id: uuid.UUID | None = None,
-) -> None:
-    await post_movement(
-        session,
-        tenant,
-        item_id=item.id,
-        warehouse_id=warehouse.id,
-        location_id=location_id,
-        batch_id=batch_id,
-        quantity=Decimal(quantity),
-        transaction_type=TransactionType.OPENING_BALANCE,
-        reference_type="test",
-        reference_id=None,
-        reference_code=None,
-        reason="Opening test stock",
-        unit_cost=Decimal(cost),
-    )
-
-
-async def _stock(session, tenant, unique_code, *, cost: str = "12", **item_fields):
-    """An item with 20 units at ``cost`` at the unbinned position of a new warehouse."""
-    item = await seed_item(
-        session,
-        company_id=tenant.company_id,
-        code=unique_code("IT"),
-        standard_cost=Decimal(cost),
-        **item_fields,
-    )
-    warehouse = await seed_warehouse(session, company_id=tenant.company_id, code=unique_code("WH"))
-    await _receive(session, tenant, item, warehouse, "20", cost)
-    return item, warehouse
-
-
-async def _bin(session, company_id: uuid.UUID, warehouse, unique_code, **fields) -> StorageLocation:
-    row = StorageLocation(
-        company_id=company_id,
-        warehouse_id=warehouse.id,
-        code=unique_code("BN"),
-        name="Test bin",
-        location_type=StorageLocationType.BIN,
-        **fields,
-    )
-    session.add(row)
-    await session.flush()
-    return row
-
-
-async def _department(session, tenant, unique_code, **fields) -> Department:
-    row = Department(company_id=tenant.company_id, code=unique_code("DP"), name="Maint", **fields)
-    session.add(row)
-    await session.flush()
-    return row
 
 
 async def _cost_centre(session, company_id: uuid.UUID, unique_code) -> CostCentre:
@@ -513,19 +449,6 @@ class TestBinMoves:
 # =============================================================================
 # Scrap
 # =============================================================================
-
-
-async def _scrap(session, tenant, item, warehouse, quantity: str) -> None:
-    await change_stock_state(
-        session,
-        tenant,
-        item_id=item.id,
-        warehouse_id=warehouse.id,
-        quantity=Decimal(quantity),
-        from_state=StockState.AVAILABLE,
-        to_state=StockState.SCRAP,
-        reason="Damaged beyond repair",
-    )
 
 
 def _dispose(warehouse, item, quantity: str, **header: object) -> ScrapDisposalCreate:

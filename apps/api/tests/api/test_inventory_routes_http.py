@@ -77,7 +77,7 @@ from src.modules.inventory.service import (
 )
 from src.workers import celery_app as celery_module
 from tests import seed_support
-from tests.integration.test_inventory_operations import _bin, _department
+from tests.inventory_support import _bin, _department
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 

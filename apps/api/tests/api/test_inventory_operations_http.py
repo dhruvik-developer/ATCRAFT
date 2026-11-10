@@ -24,7 +24,7 @@ from src.core.clock import today
 from src.core.deps import Principal, get_current_principal
 from src.core.permissions import Permission
 from src.main import app
-from tests.integration.test_inventory_operations import _bin, _department, _scrap, _stock
+from tests.inventory_support import _bin, _department, _scrap, _stock
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
