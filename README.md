@@ -309,8 +309,16 @@ These are the repository's core invariants and are enforced in code review:
 make test-unit          # fast, no database
 make test-integration   # needs Postgres + Redis
 make test-e2e           # Playwright, needs a running stack
-make test-load          # Locust
+make test-load          # Locust, against an isolated load target only
 ```
+
+`test-load` refuses to start until `LOAD_ACCOUNTS_FILE` names a JSON file of
+dedicated load accounts (one per virtual user, kept outside the repository) and
+`LOAD_BASE_URL` names an isolated, populated load environment - never the
+development stack, whose database is the shared one - and `locust` is installed
+(`pip install -r tests/load/requirements.txt`). See
+[`docs/performance.md`](./docs/performance.md). The harness's own tests need no
+target: `test-unit`, CI and the pre-push hook run them.
 
 The E2E TypeScript project declares its Node.js and browser types explicitly.
 Install its dependencies with `npm --prefix tests/e2e ci`; run
