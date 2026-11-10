@@ -37,7 +37,7 @@ from src.modules.mrp.engine import (
 )
 from src.modules.mrp.models import MrpDemandSource
 from src.modules.products.models import ProductionType
-from tests.unit.test_mrp_engine_merge import (
+from tests.mrp_support import (
     AS_OF,
     HORIZON_END,
     REQUIRED,

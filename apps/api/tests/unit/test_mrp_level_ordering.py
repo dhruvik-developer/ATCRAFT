@@ -29,7 +29,7 @@ import pytest
 
 from src.modules.mrp import engine
 from src.modules.mrp.engine import StockPosition
-from tests.unit.test_mrp_engine_merge import (
+from tests.mrp_support import (
     AS_OF,
     HORIZON_END,
     REQUIRED,

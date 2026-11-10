@@ -23,7 +23,7 @@ from src.modules.mrp.schemas import MrpSuggestionRead
 from src.modules.procurement.demand_provenance import canonical_demand_refs
 from src.modules.procurement.models import MAX_SOURCE_DEMAND_REFS
 from src.modules.procurement.schemas import SourceDemandRef
-from tests.unit.test_mrp_engine_merge import (
+from tests.mrp_support import (
     AS_OF,
     HORIZON_END,
     REQUIRED,
