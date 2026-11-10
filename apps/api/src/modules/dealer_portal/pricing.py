@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.deps import TenantContext
@@ -23,7 +22,8 @@ from src.modules.dealer_portal.models import (
     DealerOffer,
     OfferScopeKind,
 )
-from src.modules.products.models import ItemCategory, PriceType
+from src.modules.dealer_portal.repository import CatalogueRepository, DealerOfferRepository
+from src.modules.products.models import PriceType
 
 _SPECIFICITY: dict[str, int] = {
     OfferScopeKind.ITEM: 3,
@@ -191,26 +191,11 @@ async def load_pricing_offers(
     Two statements for a whole order. Quantity and the item's own category or
     brand are applied later, per line, in memory.
     """
-    channel = str(price_type)
-    offer_stmt = select(DealerOffer).where(
-        DealerOffer.company_id == tenant.company_id,
-        DealerOffer.deleted_at.is_(None),
-        DealerOffer.is_active.is_(True),
-        or_(DealerOffer.valid_from.is_(None), DealerOffer.valid_from <= on_date),
-        or_(DealerOffer.valid_to.is_(None), DealerOffer.valid_to >= on_date),
-        or_(
-            DealerOffer.audience_price_type.is_(None),
-            DealerOffer.audience_price_type == channel,
-        ),
-        or_(DealerOffer.customer_id.is_(None), DealerOffer.customer_id == customer_id),
+    rows = await DealerOfferRepository(session, tenant).active_for_channel(
+        price_type=str(price_type), customer_id=customer_id, on_date=on_date
     )
-    offers = tuple(facts_from(row) for row in (await session.execute(offer_stmt)).scalars().all())
-    category_stmt = select(ItemCategory.id, ItemCategory.parent_id).where(
-        ItemCategory.company_id == tenant.company_id,
-        ItemCategory.deleted_at.is_(None),
-    )
-    rows = list((await session.execute(category_stmt)).all())
-    return offers, ancestor_sets([(row.id, row.parent_id) for row in rows])
+    tree = await CatalogueRepository(session, tenant).category_tree()
+    return tuple(facts_from(row) for row in rows), ancestor_sets(tree)
 
 
 __all__ = [

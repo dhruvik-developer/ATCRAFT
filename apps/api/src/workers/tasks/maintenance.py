@@ -85,7 +85,7 @@ from src.modules.allocation.models import (
 )
 from src.modules.courier_tracking import service as courier_tracking_service
 from src.modules.courier_tracking.models import CourierAccount, CourierProvider
-from src.modules.inventory.models import BatchStatus, StockBatch
+from src.modules.inventory.repository import companies_with_expiring_batches
 from src.modules.inventory.service import BATCH_EXPIRY_WARN_DAYS, TraceabilityService
 from src.modules.job_work.models import (
     MATERIAL_AT_VENDOR_STATUSES,
@@ -793,20 +793,6 @@ async def poll_courier_tracking(request_id: str | None = None, **_: Any) -> dict
 # -----------------------------------------------------------------------------
 
 
-async def _companies_with_expiring_batches(session: AsyncSession) -> list[uuid.UUID]:
-    """Tenants with a lot at or near its expiry date."""
-    stmt = (
-        select(StockBatch.company_id)
-        .where(
-            StockBatch.status.in_((BatchStatus.ACTIVE, BatchStatus.QUARANTINED)),
-            StockBatch.expires_on.is_not(None),
-            StockBatch.expires_on <= today() + timedelta(days=BATCH_EXPIRY_WARN_DAYS),
-        )
-        .distinct()
-    )
-    return list((await session.execute(stmt)).scalars().all())
-
-
 @async_task(name="maintenance.expire_batches", queue="default")
 async def expire_batches(request_id: str | None = None, **_: Any) -> dict[str, Any]:
     """Expire lots whose date has passed and warn about the ones approaching.
@@ -817,7 +803,9 @@ async def expire_batches(request_id: str | None = None, **_: Any) -> dict[str, A
     never touched.
     """
     async with session_scope() as session:
-        companies = await _companies_with_expiring_batches(session)
+        companies = await companies_with_expiring_batches(
+            session, warn_before=today() + timedelta(days=BATCH_EXPIRY_WARN_DAYS)
+        )
 
     expired = warning = failed = 0
     for company_id in companies:

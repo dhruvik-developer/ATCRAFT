@@ -30,6 +30,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Select, and_, any_, case, func, or_, select, text, tuple_
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from src.common.repository import BaseRepository
@@ -1501,6 +1502,28 @@ class PhysicalCountRepository(BaseRepository[PhysicalCount]):
         return (await self.session.execute(stmt)).first() is not None
 
 
+async def companies_with_expiring_batches(
+    session: AsyncSession, *, warn_before: date
+) -> list[uuid.UUID]:
+    """Every company holding a live lot that has expired or expires by ``warn_before``.
+
+    Unscoped by necessity: the daily expiry sweep finds the companies it has work
+    for before it opens one session per company, and each sweep then reads its
+    own lots through :meth:`StockBatchRepository.expiring`, whose predicate this
+    repeats - so a company is visited exactly when its sweep will find a lot.
+    """
+    stmt = (
+        select(StockBatch.company_id)
+        .where(
+            StockBatch.status.in_((BatchStatus.ACTIVE, BatchStatus.QUARANTINED)),
+            StockBatch.expires_on.is_not(None),
+            StockBatch.expires_on <= warn_before,
+        )
+        .distinct()
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
 class StockBatchRepository(BaseRepository[StockBatch]):
     model = StockBatch
     searchable_fields = ("batch_number", "supplier_batch_number")
@@ -1573,18 +1596,6 @@ class StockBatchRepository(BaseRepository[StockBatch]):
             StockBatch.received_on.asc(),
             StockBatch.id.asc(),
         )
-
-    async def companies_with_batches(self) -> list[uuid.UUID]:
-        """Companies the expiry sweep has work for, without a tenant scope."""
-        rows = await self.session.execute(
-            select(StockBatch.company_id)
-            .where(
-                StockBatch.status.in_([BatchStatus.ACTIVE, BatchStatus.QUARANTINED]),
-                StockBatch.expires_on.is_not(None),
-            )
-            .distinct()
-        )
-        return [row[0] for row in rows]
 
     async def expiring(
         self, *, as_of: date, warn_before: date, limit: int = 500
@@ -2138,5 +2149,6 @@ __all__ = [
     "StockTransferLineRepository",
     "StockTransferRepository",
     "WarehouseFacts",
+    "companies_with_expiring_batches",
     "warehouse_scope",
 ]

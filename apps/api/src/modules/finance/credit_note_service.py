@@ -135,16 +135,7 @@ async def _lines(
 async def get_credit_note(
     session: AsyncSession, tenant: TenantContext, note_id: uuid.UUID
 ) -> CreditNoteDetail:
-    row = (
-        await session.execute(
-            select(CreditNote).where(
-                CreditNote.company_id == tenant.company_id,
-                CreditNote.id == note_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        raise NotFoundError("Credit note", note_id)
+    row = await CreditNoteRepository(session, tenant).get_or_404(note_id)
     return await _detail(session, tenant, row, await _lines(session, tenant, row.id))
 
 
@@ -155,14 +146,7 @@ async def queue_credit_note_pdf(
     from src.modules.reports.models import ReportKey
     from src.modules.reports.repository import ReportSnapshotRepository
 
-    note = await session.scalar(
-        select(CreditNote).where(
-            CreditNote.company_id == tenant.company_id,
-            CreditNote.id == note_id,
-        )
-    )
-    if note is None:
-        raise NotFoundError("Credit note", note_id)
+    note = await CreditNoteRepository(session, tenant).get_or_404(note_id)
     async with transaction(session):
         job = reports_service.new_job_snapshot(
             ReportKey.CREDIT_NOTE, {"credit_note_id": str(note.id)}, now=utcnow()
