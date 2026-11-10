@@ -39,7 +39,13 @@ from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, SelfApprovalError
 from src.core.logging import get_logger
-from src.core.messages import date_before, inactive_record, obsolete_not_delete, plural
+from src.core.messages import (
+    date_before,
+    inactive_record,
+    no_longer_editable,
+    obsolete_not_delete,
+    plural,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -674,8 +680,12 @@ async def update_bom(
         bom = await repo.get_or_404(bom_id)
         if not is_editable(BomStatus(bom.status)):
             raise BusinessRuleError(
-                f"{bom.code} is {bom.status} and can no longer be edited. Create a new "
-                "version instead, so documents planned against this one still resolve.",
+                no_longer_editable(
+                    bom.code,
+                    bom.status,
+                    "Create a new version instead, so documents planned against this one "
+                    "still resolve.",
+                ),
                 details={"bom_id": str(bom.id), "status": str(bom.status)},
             )
 

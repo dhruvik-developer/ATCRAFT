@@ -160,6 +160,12 @@ def test_the_shared_builders_keep_each_module_s_wording() -> None:
     assert messages.other_customer_order("SO-7") == (
         "Sales order SO-7 belongs to a different customer."
     )
+    assert messages.no_longer_editable("Purchase order PO-1", "SENT", "Cancel it.") == (
+        "Purchase order PO-1 is SENT and can no longer be edited. Cancel it."
+    )
+    assert messages.no_longer_editable("ST-4", "DISPATCHED") == (
+        "ST-4 is DISPATCHED and can no longer be edited."
+    )
     assert messages.cancel_not_delete("JW-2", "ISSUED") == (
         "JW-2 is ISSUED and must be cancelled rather than deleted, so the record of it survives."
     )

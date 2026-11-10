@@ -116,6 +116,7 @@ from src.core.messages import (
     belongs_elsewhere,
     inactive_record,
     line_not_serial_tracked,
+    no_longer_editable,
     not_tracked,
     plural,
 )
@@ -5401,7 +5402,7 @@ class StockTransferService:
             transfer = await self._locked(transfer_id)
             if transfer.status is not TransferStatus.DRAFT:
                 raise BusinessRuleError(
-                    "Only a draft transfer can be edited.",
+                    no_longer_editable(transfer.code, transfer.status),
                     details={"status": str(transfer.status)},
                 )
             before = snapshot(transfer, ["reason", "expected_date", "notes"])
@@ -6105,7 +6106,7 @@ class StockAdjustmentService:
                 raise NotFoundError("Stock adjustment", adjustment_id)
             if adjustment.status is not AdjustmentStatus.DRAFT:
                 raise BusinessRuleError(
-                    "Only a draft adjustment can be edited.",
+                    no_longer_editable(adjustment.code, adjustment.status),
                     details={"status": str(adjustment.status)},
                 )
             assert_warehouse_scope(self.tenant, adjustment.warehouse_id, payload.warehouse_id)

@@ -356,6 +356,16 @@ def other_customer_order(code: str) -> str:
     return belongs_elsewhere(f"Sales order {code}", "customer")
 
 
+def no_longer_editable(subject: str, status: str, remedy: str | None = None) -> str:
+    """``"SO-7 is CONFIRMED and can no longer be edited."``, then what to do instead.
+
+    ``subject`` is the document's code, prefixed with its kind where the code
+    alone does not say it (``"Purchase order PO-1"``).
+    """
+    sentence = f"{subject} is {status} and can no longer be edited."
+    return sentence if remedy is None else f"{sentence} {remedy}"
+
+
 def cancel_not_delete(code: str, status: str) -> str:
     """A document past draft is cancelled, never deleted - its record survives."""
     return (
@@ -456,6 +466,7 @@ __all__ = [
     "line_not_serial_tracked",
     "listed",
     "needs_time_zone",
+    "no_longer_editable",
     "no_price_configured",
     "not_for_this_item",
     "not_tracked",

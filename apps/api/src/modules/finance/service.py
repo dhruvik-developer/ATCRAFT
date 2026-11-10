@@ -95,7 +95,13 @@ from src.core.errors import (
 from src.core.fields import currency_code
 from src.core.ids import new_id
 from src.core.logging import get_logger
-from src.core.messages import CURRENCY_CODE_INVALID, date_before, inactive_record, plural
+from src.core.messages import (
+    CURRENCY_CODE_INVALID,
+    date_before,
+    inactive_record,
+    no_longer_editable,
+    plural,
+)
 from src.core.pagination import (
     DateCursor,
     DateCursorParams,
@@ -2628,8 +2634,7 @@ async def update_invoice(
         status = VendorInvoiceStatus(invoice.status)
         if status not in EDITABLE_INVOICE_STATUSES:
             raise BusinessRuleError(
-                f"{invoice.code} is {status} and can no longer be edited. Dispute or cancel it "
-                "instead.",
+                no_longer_editable(invoice.code, status, "Dispute or cancel it instead."),
                 details={"invoice_id": str(invoice.id), "status": str(status)},
             )
 

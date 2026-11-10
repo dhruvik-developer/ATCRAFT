@@ -65,7 +65,13 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import date_before, inactive_record, line_not_serial_tracked, plural
+from src.core.messages import (
+    date_before,
+    inactive_record,
+    line_not_serial_tracked,
+    no_longer_editable,
+    plural,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission, resolve_role_grants
 from src.core.responses import OffsetPagination
@@ -1268,8 +1274,7 @@ async def update_requisition(
             raise NotFoundError("Purchase requisition", requisition_id)
         if RequisitionStatus(requisition.status) is not RequisitionStatus.DRAFT:
             raise BusinessRuleError(
-                f"Requisition {requisition.code} is {requisition.status} and can no longer "
-                "be edited.",
+                no_longer_editable(f"Requisition {requisition.code}", requisition.status),
                 details={"status": str(requisition.status)},
             )
 
@@ -2986,8 +2991,11 @@ async def update_purchase_order(
         )
         if PurchaseOrderStatus(order.status) not in EDITABLE_PO_STATUSES:
             raise BusinessRuleError(
-                f"Purchase order {order.code} is {order.status} and can no longer be edited; "
-                "cancel it and raise an amended order.",
+                no_longer_editable(
+                    f"Purchase order {order.code}",
+                    order.status,
+                    "Cancel it and raise an amended order.",
+                ),
                 details={"status": str(order.status)},
             )
         if await has_receipt_history(session, tenant, order.id):
