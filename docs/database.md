@@ -74,12 +74,13 @@ This makes an accidental N+1 a loud error in development rather than a silent
 |---|---|
 | `organization` | `companies`, `branches`, `plants`, `departments`, `cost_centres`, `financial_years` |
 | `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `user_phone_verification_challenges`, `login_attempts` |
+| `auth` | none - sign-in, refresh sessions, MFA and password reset over the `users` tables |
 | `audit` | `audit_logs`, `approval_requests`, `company_approval_settings` |
 | `warehouses` | `warehouses`, `storage_locations` |
 | `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links`, `specification_attributes`, `category_specifications`, `item_specifications`, `item_accessories` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
-| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines`, `bin_moves`, `bin_move_lines`, `scrap_disposals`, `scrap_disposal_lines`, `internal_issues`, `internal_issue_lines` |
+| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines`, `bin_moves`, `bin_move_lines`, `scrap_disposals`, `scrap_disposal_lines`, `internal_issues`, `internal_issue_lines`, `stock_serial_conversions`, `stock_batch_conversions` |
 | `allocation` | `stock_reservations`, `reallocation_requests` |
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
@@ -93,7 +94,8 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results`, `qc_inspection_decisions`, `qc_rework_records` |
 | `packing` | `item_packing_specs`, `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
-| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations` |
+| `courier_tracking` | `courier_accounts`, `courier_tracking_events` - a company's courier connections and the provider events read from them; an event moves a consignment only through dispatch's own service - a tracking event, or a delivery confirmation where the account opts in (`docs/assumptions.md` §D3-n, §G1-4) |
+| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations`, `credit_note_cost_allocations` |
 | `collections` | `payment_follow_ups`, `payment_follow_up_notes` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |

@@ -113,18 +113,24 @@ Cross-cutting concerns every module depends on and none of them owns.
 |---|---|
 | `config` | typed settings from the environment; refuses weak production secrets |
 | `database` | async engine, bounded pool, session lifecycle, advisory locks |
+| `database_errors` | keeps a failed statement's row and values out of logs, Celery lines and error reports (`database_error_redactor`) |
 | `models` | declarative base, mixins, constraint naming convention |
 | `types` | `Money`, `UnitPrice`, `Quantity`, `GUID` — the numeric contract |
 | `ids` | UUIDv7 |
 | `clock` | one source of "now", always UTC, freezable in tests |
+| `actors` | the system actor a beat sweep acts as: its stamps come out NULL and its audit rows name no person |
 | `security` | Argon2id hashing, JWT issue/verify, password policy |
 | `permissions` | the permission registry and baseline roles |
 | `deps` | `Principal`, `TenantContext`, `require_permission` |
+| `middleware` | pure-ASGI correlation id, access logging, security headers, body-size and rate limits |
 | `errors` | the exception hierarchy and stable error codes |
 | `exception_handlers` | shared safe error envelopes, status mapping and correlation references |
 | `validation` | sanitized field errors and validation for manually assembled request models |
+| `fields` | request field types every module's schemas share, so a field rule is written once |
 | `messages` | user-facing sentences raised from more than one module, so wording is decided once |
 | `constants` | schema-level decisions shared by models and schemas (default currency, code widths) |
+| `currency` | the company-currency boundary for the customer credit balance |
+| `demand_provenance` | typed causal demand identities shared by planning and procurement |
 | `responses` | the response envelope |
 | `pagination` | offset and keyset pagination |
 | `cache` | tenant-scoped Redis cache-aside with explicit invalidation |
@@ -132,7 +138,15 @@ Cross-cutting concerns every module depends on and none of them owns.
 | `state_machine` | declarative transition graphs |
 | `logging` | structured JSON logs with request-scoped context |
 | `observability` | Prometheus metrics, OpenTelemetry, Sentry |
+| `readiness` | why a readiness probe is false, logged once per change of state |
+| `queue_monitoring` | broker-backed Celery queue and worker status probes |
+| `mail` | outbound e-mail construction and SMTP transport |
+| `messaging` | allow-listed HTTPS transports for the WhatsApp Cloud API and DLT SMS gateways |
+| `webpush` | Web Push (RFC 8030/8291/8292) on the existing cryptography and PyJWT stack |
+| `malware_scan` | offers every stored upload to an anti-virus engine (none by default) before its row is committed |
 | `registry` | imports every module's models so Alembic sees the whole schema |
+| `seed` | the baseline every install needs - company, roles, administrator, units, warehouses - idempotent |
+| `demo_data` | demonstration data for a development or evaluation database, written through the services |
 
 ## Modules
 
@@ -154,7 +168,7 @@ the way the business reads.
 ### Dependency direction
 
 ```
-masters      warehouses · products · vendors · customers · organization · users
+masters      warehouses · products · vendors · customers · organization · users · auth
    ↓
 engines      inventory  ·  bom  ·  routing
    ↓
@@ -164,7 +178,7 @@ planning     mrp · procurement
    ↓
 execution    production · assembly · job_work
    ↓
-downstream   quality · packing · dispatch · sales_returns · finance · collections · reports
+downstream   quality · packing · dispatch · courier_tracking · sales_returns · finance · collections · reports
    ↓
 portals      vendor_portal · dealer_portal
 ```

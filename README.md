@@ -1,9 +1,10 @@
 # Atcraft Manufacturing ERP
 
 Manufacturing ERP for architectural hardware: raw-material planning, multi-level
-BOM, inventory with reservation and allocation, MRP, procurement, production,
-assembly, job work, quality control, packing, dispatch and finance — on one
-auditable ledger.
+BOM, inventory with reservation and allocation, sales, MRP, procurement,
+production, assembly, job work, quality control, packing, dispatch with courier
+tracking, sales returns, finance and collections, with vendor and dealer
+portals — on one auditable ledger.
 
 Repository-wide engineering rules live in [`CLAUDE.md`](./CLAUDE.md); the
 architecture and operational decisions are recorded under [`docs/`](./docs).
@@ -180,11 +181,12 @@ apps/
   api/                  FastAPI modular monolith
     src/core/           config, database, security, permissions, errors,
                         responses, pagination, cache, logging, deps, middleware
-    src/common/         base repository, document numbering
+    src/common/         base repository, document numbering, approvals, document
+                        access, hierarchy, tax ids, banking, warehouse scope
     src/modules/<name>/ models · schemas · repository · service · router
     src/workers/        Celery app and tasks
     migrations/         Alembic
-    tests/              unit · integration · api
+    tests/              unit · integration · api, and the *_support modules
   web/                  React + TypeScript + Vite
     src/app/            shell, routing, navigation
     src/components/     design system and shared components
