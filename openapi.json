@@ -38028,7 +38028,6 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
-                "maximum": 99999999999999.0,
                 "type": "number"
               },
               {
@@ -72035,7 +72034,6 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
-                "maximum": 99999999999999.0,
                 "type": "number"
               },
               {
