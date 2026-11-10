@@ -173,6 +173,14 @@ export function useListQuery<T>({
      * that way clears exactly one filter and looks like it did nothing.
      */
     setParams: (next: Record<string, string | number | undefined>) => update({ ...next, page: 1 }),
+    /**
+     * The URL key this list keeps its page under: `page`, or `<namespace>_page`.
+     *
+     * For a screen that writes a filter key of its own into the URL and must
+     * send *this* list back to its first page in the same navigation - not
+     * another list on the same screen, whose page lives under another key.
+     */
+    pageParam: `${prefix}page`,
     params,
   }
 }

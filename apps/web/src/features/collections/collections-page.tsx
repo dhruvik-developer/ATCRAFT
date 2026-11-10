@@ -145,13 +145,25 @@ export default function CollectionsPage() {
     enabled: can(P.COLLECTION_VIEW) && view === 'follow-ups',
   })
 
-  const setFilter = (key: string, value: string | undefined) => {
+  /**
+   * Set or clear one filter and send the list it narrows back to its first
+   * page, in one navigation. The worklist keeps its page under `page` and the
+   * register under its own namespaced key, so a register filter names the
+   * register's: resetting the worklist's instead left the register on a page
+   * the narrower result did not have, drawn as "No records". The filter keys
+   * themselves stay as they were, so a bookmarked view still opens.
+   */
+  const setFilter = (
+    key: string,
+    value: string | undefined,
+    pageParam: string = worklist.pageParam,
+  ) => {
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current)
         if (value) next.set(key, value)
         else next.delete(key)
-        next.delete('page')
+        next.delete(pageParam)
         return next
       },
       { replace: true },
@@ -573,7 +585,11 @@ export default function CollectionsPage() {
                 <Select
                   value={registerStatus || SELECT_ALL}
                   onValueChange={(next) =>
-                    setFilter('followup_status', next === SELECT_ALL ? undefined : next)
+                    setFilter(
+                      'followup_status',
+                      next === SELECT_ALL ? undefined : next,
+                      followUps.pageParam,
+                    )
                   }
                 >
                   <SelectTrigger aria-label="Register status" className="w-full sm:w-44">
@@ -592,7 +608,11 @@ export default function CollectionsPage() {
                   <Checkbox
                     checked={registerLiveOnly}
                     onCheckedChange={(checked) =>
-                      setFilter('live_only', checked === true ? undefined : 'false')
+                      setFilter(
+                        'live_only',
+                        checked === true ? undefined : 'false',
+                        followUps.pageParam,
+                      )
                     }
                   />
                   Live only
@@ -601,7 +621,11 @@ export default function CollectionsPage() {
                   <Checkbox
                     checked={registerAssignedToMe}
                     onCheckedChange={(checked) =>
-                      setFilter('followup_assigned_to_me', checked === true ? 'true' : undefined)
+                      setFilter(
+                        'followup_assigned_to_me',
+                        checked === true ? 'true' : undefined,
+                        followUps.pageParam,
+                      )
                     }
                   />
                   Assigned to me

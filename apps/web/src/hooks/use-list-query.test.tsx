@@ -24,6 +24,7 @@ function IndependentLists() {
       <p>Register page {register.page}</p>
       <p>Lines page {lines.page}</p>
       <p>Orders page {orders.page}</p>
+      <p>Page keys {[register.pageParam, lines.pageParam, orders.pageParam].join(' ')}</p>
       <output aria-label="URL parameters">{params.toString()}</output>
       <button onClick={() => lines.setPage(lines.page + 1)}>Next lines</button>
       <button onClick={() => orders.setSearch('late')}>Find orders</button>
@@ -68,6 +69,13 @@ describe('independent list URL state', () => {
       expect(requests[0]?.get('sort_dir')).toBe(expectedDir)
     },
   )
+
+  it('names the URL key each list keeps its page under', async () => {
+    renderScreen(<IndependentLists />, {
+      routes: { 'GET /register': page([]), 'GET /lines': page([]), 'GET /orders': page([]) },
+    })
+    expect(await screen.findByText('Page keys page lines_page orders_page')).toBeVisible()
+  })
 
   it('cancels a pending list request when its screen unmounts', async () => {
     const { unmount } = renderScreen(<IndependentLists />, {

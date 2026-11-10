@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
@@ -62,6 +63,74 @@ function followUpDetail(): FollowUpDetail {
     invoices: [],
   }
 }
+
+/**
+ * The follow-up register's own filters.
+ *
+ * The register is a second list on the screen, so its page lives under its own
+ * URL key (`followups_page`) beside the worklist's (`page`). Its status select
+ * and its two checkboxes used to reset the worklist's page instead: narrowing
+ * the register on page 2 kept asking for page 2 of a result that might have
+ * only one, which the table drew as "No records" - and it moved the worklist
+ * the planner was not looking at back to page 1.
+ */
+describe('the follow-up register', () => {
+  const FOLLOW_UPS_PATH = '/collections/follow-ups'
+
+  it.each<[string, (user: UserEvent) => Promise<void>, string, string]>([
+    [
+      'ticking Assigned to me',
+      (user) => user.click(screen.getByRole('checkbox', { name: 'Assigned to me' })),
+      'assigned_to_me',
+      'true',
+    ],
+    [
+      'clearing Live only',
+      (user) => user.click(screen.getByRole('checkbox', { name: 'Live only' })),
+      'live_only',
+      'false',
+    ],
+    [
+      'choosing a status',
+      async (user) => {
+        await user.click(screen.getByRole('combobox', { name: 'Register status' }))
+        await user.click(await screen.findByRole('option', { name: 'Promised' }))
+      },
+      'status',
+      'PROMISED',
+    ],
+  ])(
+    'sends the register back to its first page on %s, and leaves the worklist where it was',
+    async (_label, narrow, param, value) => {
+      const worklistReads: URLSearchParams[] = []
+      const registerReads: URLSearchParams[] = []
+      const { user } = renderScreen(<CollectionsPage />, {
+        permissions: [P.COLLECTION_VIEW],
+        route: '/finance/collections?view=follow-ups&page=3&followups_page=2',
+        routes: {
+          [`GET ${WORKLIST_PATH}`]: ({ url }) => {
+            worklistReads.push(url.searchParams)
+            return page([worklistRow()])
+          },
+          [`GET ${FOLLOW_UPS_PATH}`]: ({ url }) => {
+            registerReads.push(url.searchParams)
+            return page([])
+          },
+        },
+      })
+      await waitFor(() => expect(registerReads.at(-1)?.get('page')).toBe('2'))
+      await waitFor(() => expect(worklistReads.at(-1)?.get('page')).toBe('3'))
+      const worklistReadCount = worklistReads.length
+
+      await narrow(user)
+
+      await waitFor(() => expect(registerReads.at(-1)?.get(param)).toBe(value))
+      expect(registerReads.at(-1)?.get('page')).toBe('1')
+      // Nothing asked the worklist to move, so it was not read again.
+      expect(worklistReads).toHaveLength(worklistReadCount)
+    },
+  )
+})
 
 describe('collections worklist', () => {
   it('passes bookmarked filters to the server and renders the overdue position', async () => {
