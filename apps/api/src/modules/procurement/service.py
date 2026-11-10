@@ -678,7 +678,7 @@ async def _assert_suggested_vendors(
     """A vendor a requisition line suggests must be a live vendor of this tenant.
 
     The requisition split reads the suggestion as its second vendor source
-    (docs/assumptions.md Â§51), and a foreign key to ``vendors.id`` is
+    (docs/assumptions.md §51), and a foreign key to ``vendors.id`` is
     satisfied by another company's vendor - so the tenant check is made here,
     once, in one statement. Approval is not required: a suggestion is the
     requester's hint, and the conversion checks the vendor can take orders when
@@ -901,7 +901,7 @@ async def _order_category(
     Each line resolves against the order's vendor exactly as a converted line
     does (:func:`resolve_procurement_category`); the order carries the result
     when every line agrees and NULL when they do not (docs/assumptions.md
-    Â§50). Two statements whatever the line count.
+    §50). Two statements whatever the line count.
     """
     item_categories = [items[item_id].category_id for item_id in item_ids]
     known = sorted({c for c in item_categories if c is not None}, key=str)
@@ -3340,7 +3340,7 @@ async def transition_purchase_order(
             PURCHASE_ORDER_LIFECYCLE.assert_transition(PurchaseOrderStatus(order.status), target)
             if order.status == PurchaseOrderStatus.VENDOR_DECLINED:
                 # ASSUMPTION: a declined order waits for the buyer, who re-sends
-                # or cancels it (docs/assumptions.md Â§C1-10). A re-send goes back
+                # or cancels it (docs/assumptions.md §C1-10). A re-send goes back
                 # to a vendor that may have been suspended since approval.
                 _assert_orderable(await _load_vendor(session, tenant, order.vendor_id))
                 # The refusal is history now (its audit row keeps the reason);
@@ -3786,7 +3786,7 @@ async def vendor_recipients_for_order(
     """The order's vendor users who hold ``permission`` and can see the order.
 
     ASSUMPTION: a vendor-facing notification reaches only users who could act on
-    it (docs/assumptions.md Â§C1-11).
+    it (docs/assumptions.md §C1-11).
 
     "Can see" is ``PurchaseOrderRepository._scoped``'s rule, restated over the
     same facts: an unrestricted user, a user whose category scope covers the
@@ -4027,7 +4027,7 @@ def _unorderable_item_reasons(item: PurchasableItem | None, item_code: str) -> l
     per line: a requisition approved last month can name an item retired,
     deactivated or unflagged for purchase since. Refusing the whole proposal for
     it would leave the buyer nothing to act on; an unresolved line is shown,
-    with this reason, and can be left out (docs/assumptions.md Â§51).
+    with this reason, and can be left out (docs/assumptions.md §51).
     """
     if item is None:
         return [f"Item {item_code} has been retired and can no longer be ordered."]
@@ -4335,7 +4335,7 @@ def _conversion_order_payload(
         priority=_group_priority(group, payload),
         # ASSUMPTION: a converted order is in the company's currency. Its prices
         # come from a requisition estimate or a last purchase price, and a
-        # requisition carries no currency of its own (docs/assumptions.md Â§52).
+        # requisition carries no currency of its own (docs/assumptions.md §52).
         currency=DEFAULT_CURRENCY,
         delivery_address=payload.delivery_address,
         terms=payload.terms,
@@ -4510,9 +4510,9 @@ async def convert_requisitions_to_orders(
     APPROVED to CONVERTED.
 
     ASSUMPTION: a line that cannot be resolved refuses the whole conversion and
-    nothing is written (docs/assumptions.md Â§51), and the orders are raised as
+    nothing is written (docs/assumptions.md §51), and the orders are raised as
     DRAFT, going through submit, approve and send like any other
-    (docs/assumptions.md Â§53).
+    (docs/assumptions.md §53).
     """
     async with transaction(session):
         plan = await _plan_conversion(session, tenant, requisition_ids, payload, lock=True)
@@ -4765,7 +4765,7 @@ async def create_goods_receipt(
             # of its own and moves stock at the unbinned position, so a lot held
             # in a bin could never be decided ('Only 0 of X is in QC hold').
             # Released stock is put away into its bin afterwards with a bin move
-            # (docs/assumptions.md Â§E8-7).
+            # (docs/assumptions.md §E8-7).
             if requires_qc and payload_line.location_id is not None:
                 raise BusinessRuleError(
                     f"Line {payload_line.line_number}: {item.code} is held for incoming "

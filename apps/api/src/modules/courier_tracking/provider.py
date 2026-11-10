@@ -223,7 +223,7 @@ def _parse_provider_time(value: Any) -> datetime:
         except ValueError as exc:
             raise CourierProviderError("Courier provider returned an invalid event time.") from exc
     else:
-        # ASSUMPTION (?D3-n): when Shiprocket omits an event time, timestamp it
+        # ASSUMPTION (§D3-n): when Shiprocket omits an event time, timestamp it
         # at observation time; malformed timestamps are rejected.
         moment = datetime.now(UTC)
     if moment.tzinfo is None:
