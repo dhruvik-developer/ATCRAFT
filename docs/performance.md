@@ -126,7 +126,7 @@ Slowest endpoints in run 2 by p95: `GET /mrp/runs` and `GET /inventory/ledger`
 `GET /inventory/balances` and `GET /notifications/unread-count` (1 100 ms),
 `GET /reports/dashboard` (710 ms). Every other endpoint's p95 is under 700 ms,
 and every endpoint's median is under 150 ms except `POST /auth/login` (430 ms,
-one bcrypt verification per virtual user per run).
+one Argon2id verification per virtual user per run).
 
 **These are indicative numbers, not capacity evidence.** They were taken on a
 shared developer workstation - CPU at 88-91% from the IDE and an unrelated
@@ -296,10 +296,11 @@ structurally impossible.
 | `report`     | 5 min  | completed report payloads                                            |
 
 These are the active server-side readers in `core/deps.py`, product services
-and report services. `CacheNamespace.PERMISSIONS` remains an invalidation
-compatibility namespace; permissions are currently resolved from database
-roles and direct grants/denials on every request. General master/list caching
-is not implemented on the server. The frontend has its own cache policy below.
+and report services. There is no permission cache: permissions are resolved
+from database roles and direct grants/denials on every request, and every
+`CacheNamespace` is read by something (`tests/unit/test_cache_namespaces.py`).
+General master/list caching is not implemented on the server. The frontend has
+its own cache policy below.
 
 **Never cached:** inventory availability, reservation state, and anything an
 allocation decision reads. A stale available-quantity that lets two orders

@@ -196,9 +196,16 @@ Every route is gated:
 **Privilege escalation guard.** A user cannot grant a permission they do not
 themselves hold. Superusers are exempt; the check is unit-tested.
 
-**Segregation of duties.** The approver of a BOM or an approval request may not
-be its creator unless they are a superuser. Recorded as an assumption in
-`docs/assumptions.md` because the master document did not fix the rule.
+**Segregation of duties.** The person who raised a document may not approve it.
+BOM, routing, sales-order, production-order, requisition and purchase-order
+approval share one predicate, `can_approve` in `apps/api/src/common/approvals.py`,
+which exempts a platform superuser and the `SUPER_ADMIN` role; every approving
+module refuses with `SelfApprovalError` (403 `APPROVAL_REQUIRED`). Who is exempt
+differs by module - reallocation, stock adjustment, internal issue and
+approval-inbox decisions exempt only a superuser, vendor approval nobody, and the
+second signature on a dual-approval purchase order must come from a different
+user whoever they are. Recorded in `docs/assumptions.md` section 2 because the
+master document did not fix the rule.
 
 **Frontend permissions are UX only.** They hide controls a user cannot use. The
 API re-checks every request. Anyone can edit the browser's copy; the server does
@@ -219,8 +226,8 @@ record exists in another tenant is itself a disclosure.
 A foreign key to a UUID is **not** a tenant check: it is satisfied by another
 company's row. Every reference a write names is therefore read through the
 tenant-scoped repository before the row is written. Cost centres are the
-widest-reaching case - eight tables carry one - so every carrier goes through
-one seam, `organization.service.require_cost_centre` / `require_cost_centres`,
+widest-reaching case - nine tables carry one - so every write that names one goes
+through one seam, `organization.service.require_cost_centre` / `require_cost_centres`,
 which answers another company's id exactly as it answers an unknown one (404).
 
 The application is single-company today. Nothing in the schema prevents adding
@@ -337,9 +344,10 @@ unexpected exceptions use the shared public messages. See
 [API conventions](api.md) for status codes and response contracts.
 
 Beyond that, the database carries the invariants that must hold regardless of
-which code path writes: non-negative stock, `reserved <= on_hand`,
-`allocated <= reserved`, balanced journal entries, quantity dispositions summing
-to the inspected quantity.
+which code path writes: non-negative stock, `reserved <= on_hand`, a ledger leg
+that is exactly one of a debit or a credit, quantity dispositions summing to the
+inspected quantity. A journal's legs balancing is checked by the posting service
+(`assert_balanced`), and each journal's sum can be re-checked by `journal_id`.
 
 SQL injection is structurally excluded: all queries go through SQLAlchemy with
 bound parameters. The handful of raw `text()` statements (advisory locks,

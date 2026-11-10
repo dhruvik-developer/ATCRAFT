@@ -266,9 +266,9 @@ The answer is PostgreSQL, not application code:
 5. One COMMIT.
 
 Plus a defence that does not depend on anyone remembering: `CHECK` constraints on
-`inventory_balances` enforcing `on_hand >= 0`, `reserved <= on_hand` and
-`allocated <= reserved`, and `available_quantity` as a generated column that
-cannot drift from its inputs.
+`inventory_balances` enforcing `on_hand >= 0` and `reserved <= on_hand` (there is
+no separate allocated balance), and `available_quantity` as a generated column
+that cannot drift from its inputs.
 
 A Redis lock is not a substitute. It cannot make a stock update atomic; it can
 only decide who *tries*.
