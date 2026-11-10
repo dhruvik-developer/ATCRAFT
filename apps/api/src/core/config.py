@@ -292,8 +292,6 @@ class Settings(BaseSettings):
 
     # ----------------------------------------------------------- business --
     default_currency: str = DEFAULT_CURRENCY
-    money_decimal_places: Annotated[int, Field(ge=0, le=6)] = 2
-    quantity_decimal_places: Annotated[int, Field(ge=0, le=6)] = 4
     # Above this many demand lines an MRP run is dispatched to Celery rather
     # than executed inline (section 14: never hold HTTP open for minutes).
     mrp_sync_threshold_demand_lines: Annotated[int, Field(ge=1)] = 50
