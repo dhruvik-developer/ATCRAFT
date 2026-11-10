@@ -21,7 +21,7 @@
  *    rather than inventing a lookup per line.
  */
 
-import type { DecimalString } from '@/types/api'
+import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -195,17 +195,11 @@ export interface BomCostComponent {
   cost_source: string
 }
 
-/** One parent assembly from `GET /bom/where-used/{itemId}` (`WhereUsedRead`). */
-export interface BomWhereUsedRow {
-  bom_id: string
-  bom_code: string
-  bom_version: number
-  bom_status: BomStatus
-  is_default: boolean
-  parent_item_id: string
-  parent_item_code: string
-  parent_item_name: string
-  line_number: number
-  quantity_per: DecimalString
-  level: number
-}
+/**
+ * One parent assembly from `GET /bom/where-used/{itemId}` (`WhereUsedRead`).
+ *
+ * Derived from the contract, not written out: the endpoint declares the model,
+ * so a field the API drops or renames fails the build here and on the item
+ * screen's where-used panel, which reads the same rows.
+ */
+export type WhereUsedRow = SchemaOf<'WhereUsedRead'>

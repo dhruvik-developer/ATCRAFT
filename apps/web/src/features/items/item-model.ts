@@ -337,21 +337,6 @@ export interface ItemStockSummary {
   warehouses: ItemWarehouseStockRow[]
 }
 
-/** One parent assembly from `GET /bom/where-used/{itemId}` (`WhereUsedRead`). */
-export interface WhereUsedRow {
-  bom_id: string
-  bom_code: string
-  bom_version: number
-  bom_status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'OBSOLETE'
-  is_default: boolean
-  level: number
-  line_number: number
-  parent_item_id: string
-  parent_item_code: string
-  parent_item_name: string
-  quantity_per: DecimalString
-}
-
 /** `GET /products/items/{id}/prices`. */
 export interface ItemPrice {
   id: string

@@ -108,8 +108,8 @@ import {
   type BomExplosion,
   type BomOperation,
   type BomRow,
-  type BomWhereUsedRow,
   type ExplodedComponent,
+  type WhereUsedRow,
 } from './bom-model'
 import { BomStructure } from './bom-tree'
 
@@ -812,7 +812,7 @@ function WhereUsedPanel({ itemId }: { itemId: string }) {
   const query = useQuery({
     queryKey: [...queryKeys.bom.whereUsed(itemId), page],
     queryFn: ({ signal }) =>
-      api.getPage<BomWhereUsedRow>(`/bom/where-used/${itemId}`, {
+      api.getPage<WhereUsedRow>(`/bom/where-used/${itemId}`, {
         params: { page, limit: LOOKUP_LIST_LIMIT },
         signal,
       }),
@@ -820,7 +820,7 @@ function WhereUsedPanel({ itemId }: { itemId: string }) {
     staleTime: staleTimes.master,
   })
 
-  const columns = useMemo<ColumnDef<BomWhereUsedRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<WhereUsedRow, unknown>[]>(
     () => [
       {
         id: 'parent_item_code',

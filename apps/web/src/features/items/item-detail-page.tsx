@@ -39,6 +39,7 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import type { WhereUsedRow } from '@/features/bom/bom-model'
 import { ItemImagesPanel } from '@/features/dealer-portal/item-images-panel'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
@@ -80,7 +81,6 @@ import {
   type ItemVariant,
   type ItemVendorLink,
   type ItemWarehouseStockRow,
-  type WhereUsedRow,
 } from './item-model'
 import { RetireItemDialog, RetireVariantDialog } from './item-retire-dialogs'
 

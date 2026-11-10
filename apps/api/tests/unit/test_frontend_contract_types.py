@@ -188,9 +188,6 @@ def test_every_hand_written_mirror_of_an_item_shape_is_registered() -> None:
     #: Shapes that mirror no single response and so cannot be compared here.
     #: Named rather than skipped by a pattern, so adding one is a decision.
     not_a_response_mirror = {
-        # The where-used answer is assembled by the BOM module from several
-        # queries; there is no one model that is its shape.
-        "WhereUsedRow",
         # A line of a larger response rather than a response, and the response
         # that carries it is already checked through its own mirror.
         "ItemPrice",

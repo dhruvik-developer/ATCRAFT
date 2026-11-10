@@ -41,6 +41,7 @@ import { useNavigate } from 'react-router-dom'
 import { ConfirmDialog } from '@/components/shared'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import type { WhereUsedRow } from '@/features/bom/bom-model'
 import { mastersKeys } from '@/features/masters/masters-model'
 import { api } from '@/lib/api-client'
 import { formatQuantity, toDecimal } from '@/lib/format'
@@ -49,7 +50,7 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import type { ItemDetail, ItemStockSummary, ItemVariant, WhereUsedRow } from './item-model'
+import type { ItemDetail, ItemStockSummary, ItemVariant } from './item-model'
 
 /**
  * The consequence checks want a yes/no, not a page. One row is enough to know
