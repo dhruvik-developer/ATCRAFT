@@ -86,6 +86,14 @@ describe('the shared validation vocabulary', () => {
     )
   })
 
+  it("words a date order as the API's date_before does, naming both dates", () => {
+    // The inbound shipment form said 'Expected delivery cannot precede
+    // dispatch' while the API refused the same keying in this sentence.
+    expect(validation.dateBefore('expected delivery date', 'dispatch date')).toBe(
+      'The expected delivery date cannot be before the dispatch date.',
+    )
+  })
+
   it('says a positive quantity the same way on the dispatch dialog as on every form', () => {
     expect(fulfilment.quantityInvalid).toBe(validation.decimals('a quantity above zero', 4))
     expect(validation.positive('Quantity')).toBe('Quantity must be greater than zero.')

@@ -479,7 +479,7 @@ const orderSchema = z
   })
   // ISO dates compare correctly as strings, so no Date object is needed here.
   .refine((values) => values.planned_end_date >= values.planned_start_date, {
-    message: 'The planned end cannot be before the planned start',
+    message: validation.dateBefore('planned end', 'planned start'),
     path: ['planned_end_date'],
   })
 

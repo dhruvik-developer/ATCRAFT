@@ -86,7 +86,10 @@ const assignSchema = z
       !values.planned_start_at ||
       !values.planned_end_at ||
       values.planned_end_at >= values.planned_start_at,
-    { message: 'The planned finish cannot be before the planned start', path: ['planned_end_at'] },
+    {
+      message: validation.dateBefore('planned finish', 'planned start'),
+      path: ['planned_end_at'],
+    },
   )
 
 type AssignFormValues = z.infer<typeof assignSchema>

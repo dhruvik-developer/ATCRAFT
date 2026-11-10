@@ -194,6 +194,12 @@ export const validation = {
   maxLength: (limit: number) => `At most ${limit} characters`,
   /** A decimal's precision: `decimals('a quantity', 4)`, `decimals('an amount of zero or more', 2)`. */
   decimals: (what: string, places: number) => `Enter ${what} with up to ${places} decimal places`,
+  /**
+   * One date keyed before the date it must follow, worded as the API's
+   * `core.messages.date_before` words it so a refusal reads the same whether
+   * the form or the server catches it: `dateBefore('due date', 'invoice date')`.
+   */
+  dateBefore: (later: string, earlier: string) => `The ${later} cannot be before the ${earlier}.`,
 } as const
 
 export const fileMessages = {

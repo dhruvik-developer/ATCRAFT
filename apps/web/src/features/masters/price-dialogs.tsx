@@ -99,7 +99,7 @@ const priceSchema = z
   })
   .refine((values) => values.valid_to === '' || values.valid_to >= values.valid_from, {
     path: ['valid_to'],
-    message: 'The end date cannot be before the start date',
+    message: validation.dateBefore('end date', 'start date'),
   })
 
 type PriceFormValues = z.infer<typeof priceSchema>

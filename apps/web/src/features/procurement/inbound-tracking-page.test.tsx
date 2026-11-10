@@ -270,7 +270,9 @@ describe('purchase order inbound controls', () => {
         },
       )
       await user.click(await screen.findByRole('button', { name: 'Save shipment' }))
-      expect(await screen.findByText('Expected delivery cannot precede dispatch')).toBeVisible()
+      expect(
+        await screen.findByText('The expected delivery date cannot be before the dispatch date.'),
+      ).toBeVisible()
       expect(patch).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllEnvs()

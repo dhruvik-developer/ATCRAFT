@@ -1,4 +1,4 @@
-import { describeError } from '@/lib/messages'
+import { describeError, validation } from '@/lib/messages'
 /**
  * Report catalogue.
  *
@@ -398,7 +398,7 @@ function buildSchema(requiresPeriod: boolean) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['date_to'],
-          message: 'The end date cannot be before the start date',
+          message: validation.dateBefore('end date', 'start date'),
         })
       } else if (
         differenceInCalendarDays(new Date(data.date_to), new Date(data.date_from)) + 1 >

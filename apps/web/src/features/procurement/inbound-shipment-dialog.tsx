@@ -89,7 +89,7 @@ const shipmentSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['expected_delivery_date'],
-        message: 'Expected delivery cannot precede dispatch',
+        message: validation.dateBefore('expected delivery date', 'dispatch date'),
       })
   })
 type ShipmentValues = z.infer<typeof shipmentSchema>

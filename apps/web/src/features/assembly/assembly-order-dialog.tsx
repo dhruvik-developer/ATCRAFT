@@ -105,7 +105,7 @@ const schema = z
       values.planned_start === '' ||
       values.planned_end === '' ||
       values.planned_end >= values.planned_start,
-    { message: 'The planned end cannot be before the planned start', path: ['planned_end'] },
+    { message: validation.dateBefore('planned end', 'planned start'), path: ['planned_end'] },
   )
 
 type FormValues = z.infer<typeof schema>

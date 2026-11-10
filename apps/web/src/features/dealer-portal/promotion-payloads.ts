@@ -19,7 +19,7 @@ function promotionFields(fields: FormData) {
   if ([validFrom, validTo].some((value) => value && !isIsoCalendarDate(value)))
     throw new Error('Enter a valid promotion date.')
   if (validFrom && validTo && validTo < validFrom)
-    throw new Error('The validity end date must be on or after the start date.')
+    throw new Error(validation.dateBefore('validity end date', 'validity start date'))
   const sort = Number(text('sort_order'))
   if (!Number.isSafeInteger(sort) || sort < 0 || sort > 100000)
     throw new Error('Sort order must be a whole number between 0 and 100000.')

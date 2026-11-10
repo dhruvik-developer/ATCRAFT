@@ -74,7 +74,7 @@ const schema = z
       ctx.addIssue({
         code: 'custom',
         path: ['due_date'],
-        message: 'Due date cannot precede the invoice date',
+        message: validation.dateBefore('due date', 'invoice date'),
       })
   })
 type Values = z.infer<typeof schema>
