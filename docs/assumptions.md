@@ -262,6 +262,12 @@ the refusals were unified, because widening or narrowing who may approve their
 own work is a control decision, not a wording one. If one rule is wanted
 everywhere, change it here first and then in the three places the table names.
 
+A separate rule exempts nobody: above the company's dual-approval limit a
+purchase order needs two signatures, and the second must come from a different
+user than the first - a superuser or `SUPER_ADMIN` included
+(`src/modules/procurement/service.py`; `docs/database.md`, configurable approval
+rules).
+
 **Impact if wrong.** A small plant with one buyer cannot approve their own
 purchase orders and needs a second account. Easy to relax; harder to add later
 once people are used to its absence.
