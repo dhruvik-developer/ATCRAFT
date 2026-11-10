@@ -8,6 +8,11 @@ gate added on one of them would not be exercised.
 
 ``/change-password`` is absent on purpose: once the temporary password has been
 replaced the page redirects to the dashboard, so a signed-in sweep never sees it.
+
+docs/ui-readiness.md states how many routes the registry defines and how many
+static screens the accessibility sweep derives from it. Those figures went
+stale - 79 and 65 while the registry held 87 and 72 - and so implied browser
+evidence for eight routes that had none; they are read from the registry here.
 """
 
 from __future__ import annotations
@@ -22,6 +27,11 @@ pytestmark = pytest.mark.unit
 
 SWEEPS = REPO_ROOT / "tests" / "e2e" / "scripts"
 WEB = REPO_ROOT / "apps" / "web" / "src"
+READINESS_DOC = REPO_ROOT / "docs" / "ui-readiness.md"
+
+#: The two present-tense counts ui-readiness.md states, each read across a line wrap.
+ROUTE_COUNT_SENTENCE = r"defines\s+(\d+)\s+application\s+routes"
+STATIC_SCREEN_COUNT_SENTENCE = r"derives\s+its\s+(\d+)\s+static\s+application\s+screens"
 
 # Reached only while a temporary password is still in force, and it redirects
 # home the moment that is no longer true.
@@ -39,10 +49,32 @@ def _array_body(text: str, const: str) -> str:
     return match.group(1)
 
 
-def _static_screens() -> set[str]:
+def _registered_routes() -> set[str]:
     text = (WEB / "app" / "route-loaders.ts").read_text(encoding="utf-8")
-    routes = set(re.findall(r"'(/[^']*)':", text))
+    return set(re.findall(r"'(/[^']*)':", text))
+
+
+def _static_screens() -> set[str]:
+    routes = _registered_routes()
     return {route for route in routes if ":" not in route} - NOT_A_SIGNED_IN_SCREEN
+
+
+def readiness_count_faults(document: str, *, routes: int, static_screens: int) -> list[str]:
+    """Where ui-readiness.md's route and static-screen counts disagree with the registry."""
+    faults: list[str] = []
+    for sentence, count in (
+        (ROUTE_COUNT_SENTENCE, routes),
+        (STATIC_SCREEN_COUNT_SENTENCE, static_screens),
+    ):
+        stated = [int(number) for number in re.findall(sentence, document)]
+        if not stated:
+            faults.append(f"no sentence matches {sentence!r}")
+        faults += [
+            f"says {number} where the registry gives {count}"
+            for number in stated
+            if number != count
+        ]
+    return faults
 
 
 def _route_permissions() -> dict[str, set[str]]:
@@ -127,3 +159,32 @@ def test_permission_sweep_names_a_real_gate_for_every_screen() -> None:
         if named not in permissions:
             problems.append(f"{path} sweep says {named}, route allows {sorted(permissions)}")
     assert problems == []
+
+
+def test_the_readiness_page_states_the_registrys_counts() -> None:
+    faults = readiness_count_faults(
+        READINESS_DOC.read_text(encoding="utf-8"),
+        routes=len(_registered_routes()),
+        static_screens=len(_static_screens()),
+    )
+    assert faults == [], (
+        "docs/ui-readiness.md must state the route registry as it is - and name any route "
+        "that has no recorded browser evidence yet: " + "; ".join(faults)
+    )
+
+
+def test_the_count_rule_finds_stale_and_missing_counts() -> None:
+    stale = (
+        "The current loader registry defines 79 application routes, including the portals.\n"
+        "The accessibility sweep derives its 65 static application\nscreens from it.\n"
+    )
+
+    assert readiness_count_faults(stale, routes=87, static_screens=72) == [
+        "says 79 where the registry gives 87",
+        "says 65 where the registry gives 72",
+    ]
+    assert readiness_count_faults(stale, routes=79, static_screens=65) == []
+    assert readiness_count_faults("No counts at all.", routes=1, static_screens=1) == [
+        f"no sentence matches {ROUTE_COUNT_SENTENCE!r}",
+        f"no sentence matches {STATIC_SCREEN_COUNT_SENTENCE!r}",
+    ]

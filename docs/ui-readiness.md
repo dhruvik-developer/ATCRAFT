@@ -17,7 +17,8 @@ The D5 candidate adds four documented views on existing routes:
 `/masters?tab=specifications`,
 `/masters?tab=specifications&view=templates`,
 `/items/:itemId?tab=specifications` and
-`/items/:itemId?tab=accessories`. The maintained handbook now has 97 entries.
+`/items/:itemId?tab=accessories`. The maintained handbook then had 97 entries;
+it has grown since, and `docs/handbook/content.json` lists the current views.
 The 93-view capture below predates these additions; a text update does not
 establish fresh browser or screenshot evidence for D5.
 
@@ -58,26 +59,33 @@ the full checks, then use populated D5 demo data for these browser checks at
   price-on-request optional items cannot be added. A browse-only dealer sees
   descriptions without order actions.
 
-Refresh all 97 handbook captures on that candidate before describing its images
+Refresh every handbook capture on that candidate before describing its images
 as current. Follow the existing capture guard and preserve the dated release
 evidence below rather than attributing it to these new views.
 
 ## Current code and the latest recorded browser evidence
 
-The current loader registry defines 79 application routes, including the vendor
-and dealer portals and inbound tracking, plus three public authentication pages.
-The readiness sweep discovers every route at runtime. The accessibility sweep
-derives its 65 static application screens from the same registry and also checks
-the login page per theme. Dynamic detail screens and the restricted password
-change screen are covered separately by the readiness sweep.
+The loader registry (`apps/web/src/app/route-loaders.ts`) defines 87 application
+routes, including the vendor and dealer portals and inbound tracking, plus three
+public authentication pages. The readiness sweep discovers every route at
+runtime. The accessibility sweep derives its 72 static application screens from
+the same registry (`staticScreenRoutes` in `tests/e2e/lib/screen-registry.mjs`)
+and also checks the login page per theme. Dynamic detail screens and the
+restricted password change screen are covered separately by the readiness sweep.
 
-The latest populated checks cover all 79 registered application routes:
-474 screen/tab/viewport checks and 213 opened forms across 375, 768 and 1440
-pixels, with no overflow, clipping, render/API failures or blocked business
-writes. Each accessibility theme checked 66 screens with zero violations.
-All 24 browser journeys passed again after publishing the patched web and edge
-images. Portal checks use populated, bound vendor/dealer principals and verify
+The latest recorded populated checks, on 26 October, covered the 79 routes
+registered then: 474 screen/tab/viewport checks and 213 opened forms across
+375, 768 and 1440 pixels, with no overflow, clipping, render/API failures or
+blocked business writes. Each accessibility theme checked 66 screens with zero
+violations. All 24 browser journeys passed again after publishing the patched
+web and edge images. Portal checks use populated, bound vendor/dealer principals and verify
 cookie-backed restoration and staff-route isolation.
+
+Eight routes registered since have no recorded populated readiness or
+accessibility evidence: `/vendor/job-work`, `/vendor/job-work/:orderId`,
+`/finance/collections`, `/finance/trial-balance`, `/approvals`,
+`/admin/alerts`, `/admin/messaging` and `/admin/courier-integration`. Run both
+sweeps against a populated stack before describing them as checked.
 
 CI runs the browser journeys against the production-style Docker stack and runs
 the static accessibility sweep in both themes, retaining its reports. It also
