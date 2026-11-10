@@ -38,7 +38,8 @@ lifecycle cannot safely post.
 
 **Where.** `src/modules/mrp/engine.py` and `repository.py` perform the
 warehouse-grain netting; `src/modules/inventory/service.py` creates the DRAFT
-transfer through the stock-transfer lifecycle; migration `20261106_0100`.
+transfer through the stock-transfer lifecycle; the schema is in baseline
+`20261127_0100` (formerly migration `20261106_0100`).
 
 **Impact if wrong.** Item-level supply feeds cannot distinguish a receipt that
 will arrive at the source warehouse from one that will arrive at the target.
@@ -74,7 +75,7 @@ flow.
 **Where.** The line attribution and shortage adjustment live in
 `src/modules/mrp/engine.py`; the batched donor query and existing E2 policy live
 in `src/modules/allocation/repository.py` and `service.py`; route persistence is
-migration `20261107_0100`.
+in baseline `20261127_0100` (formerly migration `20261107_0100`).
 
 **Impact if wrong.** Eligible lines may receive fewer automatic suggestions
 than a more permissive attribution model would produce. Their remaining
@@ -108,7 +109,8 @@ plan for one approved revision into an order for another.
 .open_output_by_item`, called through `assembly.service.open_assembly_output`.
 Conversion uses `assembly.service.create_order_from_mrp`; the persisted MRP
 fields are `mrp_requirements.assembly_quantity` and the per-feed late interval,
-plus `mrp_suggestions.bom_id`. Migration `20261108_0100`.
+plus `mrp_suggestions.bom_id`, in baseline `20261127_0100` (formerly migration
+`20261108_0100`).
 
 **Impact if wrong.** Excluding an undated or QC-held order may leave a larger
 shortage in the plan than the plant expects to fulfil; the source order remains
@@ -134,8 +136,8 @@ useful without configuration; explicit settings allow plants with a separate
 planning scope to avoid netting against one another.
 
 **Where.** `mrp_schedule_settings` is owned by MRP. The task is
-`mrp.scheduled_run`; its schedule is controlled by `MRP_SCHEDULE_CRON`.
-Migration `20261109_0100`.
+`mrp.scheduled_run`; its schedule is controlled by `MRP_SCHEDULE_CRON`. The
+table is in baseline `20261127_0100` (formerly migration `20261109_0100`).
 
 **Impact if wrong.** A company that does not want automatic planning must
 explicitly disable it. Review its warehouse scope before relying on scheduled
@@ -178,9 +180,9 @@ packing demand; `src/modules/mrp/engine.py` nets it and carries its root provena
 `src/modules/procurement/service.py` writes a purchase as
 `PurchaseSourceType.REORDER` only when its sole root is the purchased item
 itself. BOM-component and mixed-root purchases remain `MRP_SUGGESTION`.
-Migrations `20261110_0100` and `20261113_0100` allow the persisted `REORDER` and
-`PACKING_ORDER` demand sources; migration `20261113_0100` creates
-`item_packing_specs`.
+The baseline `20261127_0100` allows the persisted `REORDER` and `PACKING_ORDER`
+demand sources and holds `item_packing_specs` (formerly migrations
+`20261110_0100` and `20261113_0100`).
 
 **Impact if wrong.** If `reorder_quantity` is intended as a target on-hand
 level rather than a replenishment amount, the demand calculation must change
@@ -795,7 +797,8 @@ building.
 **Where.** `src/modules/job_work/repository.py` - `open_output_by_item`;
 `src/modules/job_work/service.py` - `open_job_work_output`;
 `src/modules/mrp/repository.py` - `job_work_supply`; `src/modules/mrp/engine.py` -
-`supply_split`, `net_after_supply`, `plan()`; migration `20261026_0100`.
+`supply_split`, `net_after_supply`, `plan()`; baseline `20261127_0100` (formerly
+migration `20261026_0100`).
 
 **Impact if wrong.** If vendors routinely return less than the frozen ratio, MRP
 will under-order and the shortage will surface at receipt. If a vendor's date is
@@ -1385,7 +1388,7 @@ single order - the same day-one reasoning that has the finance module provision
 its control accounts on first use (`DEFAULT_CHART`).
 
 **Where.** The `cost_centre_id` columns (now part of baseline migration
-`20261021_0100`);
+`20261127_0100`, and of the October baseline `20261021_0100` before it);
 `src/modules/finance/service.py` - `_post_invoice_journal`, where a line with no
 centre on an invoice with none posts the unallocated leg.
 
@@ -1627,8 +1630,9 @@ manager scoped to Handles sees and is assigned Lever Handles orders.
 **Where.** `src/modules/procurement/service_rules.py` -
 `resolve_procurement_category`, `single_order_category`, `scope_covers_category`;
 `src/modules/procurement/service.py` - `_order_category`, `_plan_conversion`;
-the schema is part of baseline migration `20261021_0100`. The historical data
-backfill (`159ffb5b9cb4`) is preserved at tag `pre-migration-squash-20261019`
+the schema is part of baseline migration `20261127_0100` (the October baseline
+`20261021_0100` before it). The historical data backfill (`159ffb5b9cb4`) is
+preserved at tag `pre-migration-squash-20261019`
 and is not replayed, because existing databases are stamped and fresh databases
 have no rows to backfill.
 
@@ -1855,7 +1859,8 @@ it from a later receipt would invent a cost the ledger never charged.
 
 **Where.** `src/modules/inventory/service.py` - scrap layer draw and
 `ScrapDisposalService`; the schema is part of baseline migration
-`20261021_0100`. The historical data backfill
+`20261127_0100` (the October baseline `20261021_0100` before it). The historical
+data backfill
 (`20261012_1703_backfill_scrap_cost_layers`) is preserved at tag
 `pre-migration-squash-20261019` and is not replayed.
 
@@ -2875,7 +2880,8 @@ The serial-disposition migration backfills those serials into
 and could issue the corresponding credit immediately. Reclassifying that
 history as pending QC would contradict both the ledger and existing credits.
 
-**Where.** Baseline migration `20261021_0100` (historically
+**Where.** Baseline migration `20261127_0100` (the October baseline
+`20261021_0100` before it, and historically
 `20261018_0100_sales_return_unit_dispositions`; its data backfill is preserved
 at tag `pre-migration-squash-20261019`).
 
@@ -4071,7 +4077,8 @@ charge-back would invent a commercial rule the contract does not state.
 and append the progress events; `job_work.service._validate_rework_sources`,
 `_lock_rework_sources_for_issue`, and `issue_order` validate and post rework;
 `JobWorkOrder.vendor_overdue_notified_at` and the scheduled maintenance worker
-send one overdue reminder per order. Migration `20261115_0100`.
+send one overdue reminder per order. The column is in baseline `20261127_0100`
+(formerly migration `20261115_0100`).
 
 **Impact if wrong.** An unissued rework draft does not protect its source
 quantity; the first approved issue wins under the source-row lock and later
@@ -4112,7 +4119,8 @@ unit from being received twice or releasing a different held unit.
 `batch_id` is selected on order entry and passed to the allocation reservation,
 challan/receipt lines and inventory movements. Serial tracking snapshots,
 per-disposition receipt arrays, `stock_serial_conversions`, and QC serial sets
-and decision history are added by migration `20261028_0100`. QC decisions name
+and decision history are in baseline `20261127_0100` (added by migration
+`20261028_0100` before the squash). QC decisions name
 every inspected unit; accepted, rejected and scrapped units are final, while
 held and rework units can be decided in a later cycle.
 
@@ -4275,7 +4283,8 @@ and exclusive master-change locks make concurrent checks meaningful.
 
 **Where.** `SpecificationAttributeRepository.for_assignment`,
 `SpecificationService.update_attribute`/`retire_attribute`, and the typed
-database foreign key/CHECK in revision `20261101_0100`.
+database foreign key/CHECK in baseline `20261127_0100` (formerly revision
+`20261101_0100`).
 
 **Impact if wrong.** A conversion/migration workflow must explicitly transform
 the existing values and preserve their audit history; bypassing the lifecycle
