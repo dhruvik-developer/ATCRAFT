@@ -268,6 +268,7 @@ LOCK_TIMEOUT_MS = 5_000
 # through 20,000 lines in one session, and building the sheet would hold a
 # transaction open long enough to matter. Narrow the scope by location or item
 # instead - which is what cycle counting means.
+# docs/assumptions.md §INV-1.
 MAX_COUNT_LINES = 5_000
 
 

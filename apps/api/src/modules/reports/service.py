@@ -162,6 +162,7 @@ REPORT_CALCULATION_VERSION_PARAMETER = "calculation_version"
 #: of six months is used and is overridable per request via ``min_days``. It is a
 #: named constant rather than a literal precisely because it is a policy choice
 #: somebody will want to change.
+#: docs/assumptions.md §REP-2.
 DEAD_STOCK_DAYS = 180
 
 #: Celery task name. Must match the ``@async_task(name=...)`` in
@@ -357,6 +358,7 @@ def vendor_performance_score(on_time: Decimal, quality: Decimal) -> Decimal:
     accused of hiding one dimension behind the other. It is a named function so
     changing the policy is one edit with one test, not a formula copied into
     three screens.
+    docs/assumptions.md §REP-2.
     """
     return ((Decimal(on_time) + Decimal(quality)) / 2).quantize(
         PERCENT_QUANTUM, rounding=ROUND_HALF_UP

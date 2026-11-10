@@ -249,6 +249,7 @@ def _stable_order(stmt: Select[Any]) -> Select[Any]:
         # subquery) are legitimate uses that have to order themselves. The
         # warning is deliberately loud enough to find in the logs. No current
         # caller reaches this branch: every one selects a single mapped entity.
+        # docs/assumptions.md §PAGE-1.
         log.warning(
             "pagination.offset_order_not_total",
             reason="no mapped primary key on the paged selectable",
