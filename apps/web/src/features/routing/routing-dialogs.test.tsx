@@ -12,9 +12,14 @@ import { describe, expect, it } from 'vitest'
 
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen, type RouteTable } from '@/test/harness'
+import { ok, page, renderScreen, type RouteResponder, type RouteTable } from '@/test/harness'
 
-import { RoutingDetailDialog, RoutingFormDialog, WorkCenterFormDialog } from './routing-dialogs'
+import {
+  MachineFormDialog,
+  RoutingDetailDialog,
+  RoutingFormDialog,
+  WorkCenterFormDialog,
+} from './routing-dialogs'
 import {
   workableMachinesOf,
   type Machine,
@@ -154,7 +159,7 @@ const ITEM = { id: 'it000000-0000-7000-8000-000000000002', code: 'BRACKET', name
 
 function renderRoutingForm() {
   return renderScreen(<RoutingFormDialog open onOpenChange={() => {}} />, {
-    permissions: [P.ROUTING_VIEW, P.ROUTING_MANAGE, P.MACHINE_VIEW],
+    permissions: [P.ROUTING_VIEW, P.ROUTING_MANAGE, P.MACHINE_VIEW, P.WORK_CENTER_VIEW],
     routes: {
       'GET /routing/work-centers': page([MILL, PRESS]),
       'GET /routing/machines': page([LATHE, RETIRED, PRESS_MACHINE]),
@@ -236,6 +241,161 @@ describe('the operation machine picker', () => {
 
     await user.click(within(dialog).getByRole('checkbox', { name: 'Job work' }))
     expect(within(dialog).getByRole('combobox', { name: 'Machine' })).toBeDisabled()
+  })
+})
+
+/**
+ * The work centres a picker offers.
+ *
+ * The API refuses an operation planned on an inactive centre and a machine
+ * moved onto one, so both pickers offer active centres only - the register read
+ * with `is_active=true`, as production's pickers read it - where they used to
+ * list every centre alike and let the save be refused. A record saved before its
+ * centre was deactivated still holds it, and shows it labelled and disabled
+ * rather than as an empty select.
+ */
+const IDLE: WorkCenter = {
+  ...CNC,
+  id: 'wc-idle',
+  code: 'WC-IDLE',
+  name: 'Idle cell',
+  cost_centre_id: null,
+  is_active: false,
+}
+
+/** `GET /routing/work-centers` as the API answers it: `is_active=true` leaves IDLE out. */
+function centreRegister(reads: URLSearchParams[] = []): RouteResponder {
+  return ({ url }) => {
+    reads.push(url.searchParams)
+    const activeOnly = url.searchParams.get('is_active') === 'true'
+    return page(activeOnly ? [MILL, PRESS] : [MILL, PRESS, IDLE])
+  }
+}
+
+/** A draft routing whose one operation is planned on `centre`. */
+function draftOn(centre: WorkCenter): RoutingDetail {
+  return {
+    ...routing('DRAFT'),
+    id: 'rt-idle',
+    operations: [
+      {
+        id: 'op-10',
+        routing_id: 'rt-idle',
+        sequence: 10,
+        operation_code: 'OP10',
+        operation_name: 'Turn the body',
+        work_center_id: centre.id,
+        machine_id: null,
+        setup_time_minutes: '10.0000',
+        run_time_per_unit_minutes: '1.0000',
+        queue_time_minutes: '0.0000',
+        move_time_minutes: '0.0000',
+        process_cost: '0.0000',
+        is_outsourced: false,
+        job_work_vendor_id: null,
+        qc_required: false,
+        notes: null,
+      },
+    ],
+  }
+}
+
+describe('the work centres a picker offers', () => {
+  it('offers an operation only the active centres, and reads nothing more for a new routing', async () => {
+    const reads: URLSearchParams[] = []
+    const { user } = renderScreen(<RoutingFormDialog open onOpenChange={() => {}} />, {
+      permissions: [P.ROUTING_VIEW, P.ROUTING_MANAGE, P.WORK_CENTER_VIEW],
+      routes: {
+        'GET /routing/work-centers': centreRegister(reads),
+        'GET /routing/machines': page([]),
+      },
+    })
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Work centre' }))
+    expect(await screen.findByRole('option', { name: /WC-MILL/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /WC-IDLE/ })).not.toBeInTheDocument()
+    expect(reads.map((params) => params.get('is_active'))).toEqual(['true'])
+  })
+
+  it("shows a saved operation's inactive centre, labelled, and does not offer it again", async () => {
+    const reads: URLSearchParams[] = []
+    const saved = draftOn(IDLE)
+    const { user } = renderScreen(
+      <RoutingFormDialog open onOpenChange={() => {}} routing={saved} />,
+      {
+        permissions: [P.ROUTING_VIEW, P.ROUTING_MANAGE, P.WORK_CENTER_VIEW],
+        routes: {
+          'GET /routing/rt-idle': ok(saved),
+          'GET /routing/work-centers': centreRegister(reads),
+          'GET /routing/machines': page([]),
+          'GET /products/items/item-1': ok({ id: 'item-1', code: 'HINGE', name: 'Hinge body' }),
+        },
+      },
+    )
+    const dialog = await screen.findByRole('dialog')
+
+    const picker = await within(dialog).findByRole('combobox', { name: 'Work centre' })
+    await waitFor(() => expect(picker).toHaveTextContent('WC-IDLE - Idle cell (inactive)'))
+    await user.click(picker)
+    expect(
+      await screen.findByRole('option', { name: 'WC-IDLE - Idle cell (inactive)' }),
+    ).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('option', { name: /WC-MILL/ })).toBeInTheDocument()
+    // The whole register is read once, only to name what the active list leaves out.
+    expect(reads.filter((params) => params.get('is_active') === null)).toHaveLength(1)
+  })
+
+  it("keeps a machine's inactive centre on an edit, and offers only active centres to move to", async () => {
+    const parked = machine('mc-parked', 'MC-PARKED', IDLE.id, 'AVAILABLE')
+    const { user, fetch } = renderScreen(
+      <MachineFormDialog open onOpenChange={() => {}} machine={parked} />,
+      {
+        permissions: [P.MACHINE_VIEW, P.MACHINE_MANAGE, P.WORK_CENTER_VIEW],
+        routes: {
+          'GET /routing/work-centers': centreRegister(),
+          'PATCH /routing/machines/mc-parked': ok(parked),
+        },
+      },
+    )
+    const dialog = await screen.findByRole('dialog')
+
+    const picker = within(dialog).getByRole('combobox', { name: 'Work centre' })
+    await waitFor(() => expect(picker).toHaveTextContent('WC-IDLE - Idle cell (inactive)'))
+    await user.click(picker)
+    expect(
+      await screen.findByRole('option', { name: 'WC-IDLE - Idle cell (inactive)' }),
+    ).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('option', { name: 'WC-MILL - Milling' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    // Unchanged, the centre is accepted: the API checks it only on a move.
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    const body = (await waitFor(() =>
+      fetch.requestFor('PATCH', '/routing/machines/mc-parked'),
+    )) as { work_center_id: string }
+    expect(body.work_center_id).toBe(IDLE.id)
+  })
+
+  it('says choosing a centre needs the work-centre right, and reads nothing without it', async () => {
+    const reads: URLSearchParams[] = []
+    const { fetch } = renderScreen(<RoutingFormDialog open onOpenChange={() => {}} />, {
+      permissions: [P.ROUTING_VIEW, P.ROUTING_MANAGE],
+      routes: {
+        'GET /routing/work-centers': centreRegister(reads),
+        'GET /routing/machines': page([]),
+      },
+    })
+    const dialog = await screen.findByRole('dialog')
+
+    expect(await within(dialog).findByRole('combobox', { name: 'Work centre' })).toHaveTextContent(
+      'Viewing work centres is required',
+    )
+    // The dialog's other lookup has gone out, so the centre read would have too.
+    await waitFor(() =>
+      expect(fetch.calls.some((call) => call.path === '/routing/machines')).toBe(true),
+    )
+    expect(reads).toHaveLength(0)
   })
 })
 

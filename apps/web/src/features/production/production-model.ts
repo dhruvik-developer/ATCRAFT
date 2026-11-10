@@ -431,12 +431,12 @@ export interface CloseResult {
   released_reservation_count: number
 }
 
-/** Lookup row behind the machine select on a production booking. */
-export interface MachineOption {
-  id: string
-  code: string
-  name: string
-}
+/**
+ * Lookup row behind the machine select on a production booking, and behind the
+ * routing operation's machine picker, which shares the cache entry - so the
+ * whole `MachineRead` row, not the three fields the booking draws.
+ */
+export type MachineOption = SchemaOf<'MachineRead'>
 
 /** Lookup row behind the operator select on a production booking. */
 export interface OperatorOption {

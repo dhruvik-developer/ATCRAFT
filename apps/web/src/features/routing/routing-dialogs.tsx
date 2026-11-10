@@ -60,7 +60,9 @@ import {
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
-import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { useMachineOptions } from '@/features/production/production-model'
+import { useWorkCentreOptions } from '@/features/production/work-order-model'
+import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
@@ -94,6 +96,12 @@ import {
 
 const DECIMAL = /^\d{1,10}(\.\d{1,4})?$/
 
+/**
+ * The whole work-centre register, inactive centres included - for naming a
+ * centre, never for offering one: the API refuses an operation planned on an
+ * inactive centre and a machine moved onto one. The pickers read the active
+ * list through {@link useCentrePicker}.
+ */
 function useWorkCenterOptions(enabled: boolean) {
   const params = { limit: LOOKUP_LIST_LIMIT, sort_by: 'code', sort_dir: 'asc', with_total: false }
   return useQuery({
@@ -114,41 +122,55 @@ function useWorkCenterIndex(enabled: boolean) {
   }, [query.data])
 }
 
-/**
- * The machine register for the per-operation picker.
- *
- * One bounded fetch, filtered per row by work centre: machines only make sense
- * inside their own cell, and the API refuses a machine from any other. The key
- * is built from the same parameters the production booking's machine lookup
- * uses, so the two share one cached page rather than fetching the register
- * twice. Retired and inactive machines never reach a picker - the API refuses
- * them on the way in, so offering them would only produce a 422.
- */
-const MACHINE_REGISTER_PARAMS = {
-  limit: LOOKUP_LIST_LIMIT,
-  is_active: true,
-  with_total: false,
-  sort_by: 'code',
-  sort_dir: 'asc',
-} as const
+const NO_CENTRES: readonly WorkCenter[] = []
 
-function useMachineRegister(enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
-    queryFn: async ({ signal }): Promise<Machine[]> => {
-      try {
-        const page = await api.getPage<Machine>('/routing/machines', {
-          params: { ...MACHINE_REGISTER_PARAMS },
-          signal,
-        })
-        return page.data
-      } catch (error) {
-        return emptyOnPermissionError<Machine>(error)
-      }
-    },
-    staleTime: staleTimes.reference,
-    enabled,
-  })
+/**
+ * What a work-centre picker offers, and how to name a value it does not.
+ *
+ * Only active centres are offered - production's own lookup, so the pickers
+ * here and on the production and BOM screens share one cache entry - because
+ * the API refuses an operation planned on an inactive centre and a machine
+ * moved onto one. A record saved before its centre was deactivated still holds
+ * it, though, and a select whose value has no option shows an empty trigger. So
+ * when a saved id is missing from the list, the unfiltered register is read to
+ * name it, and the picker draws it as a disabled item.
+ *
+ * Nothing is read without `work_center.view`; the picker says so instead.
+ */
+function useCentrePicker(open: boolean, savedCentreIds: readonly string[]) {
+  const { can } = useAuth()
+  const readable = can(P.WORK_CENTER_VIEW)
+  const options = useWorkCentreOptions(open && readable)
+  const rows = options.data ?? NO_CENTRES
+  const offered = useMemo(() => new Set(rows.map((row) => row.id)), [rows])
+  const listed = options.isSuccess
+  const needsNames = listed && savedCentreIds.some((id) => Boolean(id) && !offered.has(id))
+  const register = useWorkCenterIndex(open && readable && needsNames)
+  return {
+    readable,
+    rows,
+    isLoading: options.isLoading,
+    /** A value the record holds that the active list does not offer. */
+    isUnoffered: (id: string) => listed && Boolean(id) && !offered.has(id),
+    nameOf: (id: string) => register.get(id),
+  }
+}
+
+/** A centre a record holds but the picker does not offer: shown, never chosen again. */
+function UnofferedCentreItem({ id, centre }: { id: string; centre: WorkCenter | undefined }) {
+  return (
+    <SelectItem value={id} disabled>
+      {centre
+        ? `${centre.code} - ${centre.name}${centre.is_active ? '' : ' (inactive)'}`
+        : 'A work centre no longer offered'}
+    </SelectItem>
+  )
+}
+
+/** The placeholder of a work-centre picker, which may not be able to read the list. */
+function centrePlaceholder(centres: ReturnType<typeof useCentrePicker>, prompt: string): string {
+  if (!centres.readable) return 'Viewing work centres is required'
+  return centres.isLoading ? 'Loading...' : prompt
 }
 
 /**
@@ -175,7 +197,9 @@ function OperationMachineSelect({
 }) {
   const workCenterId = useWatch({ control, name: `operations.${index}.work_center_id` })
   const outsourced = useWatch({ control, name: `operations.${index}.is_outsourced` })
-  const register = useMachineRegister(enabled)
+  // The active register - the production booking's own lookup and cache entry.
+  // Retired and inactive machines never reach a picker: the API refuses them.
+  const register = useMachineOptions(enabled)
   const options = useMemo(
     () => (workCenterId ? workableMachinesOf(register.data ?? [], workCenterId) : []),
     [register.data, workCenterId],
@@ -268,7 +292,7 @@ export function RoutingDetailDialog({
   })
 
   const centres = useWorkCenterIndex(open)
-  const machineRegister = useMachineRegister(open)
+  const machineRegister = useMachineOptions(open)
   const machines = useMemo(() => {
     const map = new Map<string, Machine>()
     for (const machine of machineRegister.data ?? []) map.set(machine.id, machine)
@@ -730,8 +754,6 @@ export function RoutingFormDialog({
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(routing)
-  const workCenters = useWorkCenterOptions(open)
-  const centreRows = workCenters.data?.data ?? []
 
   const {
     control,
@@ -769,6 +791,12 @@ export function RoutingFormDialog({
   const loadedId = loaded?.id ?? null
   // An edit has nothing it can safely send until its operations have arrived.
   const awaitingRecord = isEdit && !loaded
+  // A saved operation may sit on a centre deactivated since it was planned.
+  const savedCentreIds = useMemo(
+    () => (loaded?.operations ?? []).map((operation) => operation.work_center_id),
+    [loaded],
+  )
+  const centres = useCentrePicker(open, savedCentreIds)
   const readFailed = awaitingRecord && existing.isError
 
   // Seeded once per opening and keyed on the id of the record that arrived: a
@@ -1054,9 +1082,11 @@ export function RoutingFormDialog({
                             name={`operations.${index}.work_center_id`}
                             render={({ field: centre }) => (
                               <Select
-                                value={centre.value || SELECT_NONE}
+                                // Required, so no "none" item: an empty value is
+                                // what lets the trigger show its placeholder.
+                                value={centre.value}
                                 onValueChange={(value) => {
-                                  centre.onChange(value === SELECT_NONE ? '' : value)
+                                  centre.onChange(value)
                                   // A machine belongs to exactly one cell, so the
                                   // choice cannot outlive a change of work centre.
                                   setValue(`operations.${index}.machine_id`, null)
@@ -1068,13 +1098,17 @@ export function RoutingFormDialog({
                                   aria-label="Work centre"
                                 >
                                   <SelectValue
-                                    placeholder={
-                                      workCenters.isLoading ? 'Loading...' : 'Choose one'
-                                    }
+                                    placeholder={centrePlaceholder(centres, 'Choose one')}
                                   />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {centreRows.map((row) => (
+                                  {centres.isUnoffered(centre.value) && (
+                                    <UnofferedCentreItem
+                                      id={centre.value}
+                                      centre={centres.nameOf(centre.value)}
+                                    />
+                                  )}
+                                  {centres.rows.map((row) => (
                                     <SelectItem key={row.id} value={row.id}>
                                       {row.code} - {row.name} ({formatMoney(row.cost_per_hour)}/h)
                                     </SelectItem>
@@ -1583,7 +1617,10 @@ export function MachineFormDialog({
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(machine)
-  const workCenters = useWorkCenterOptions(open)
+  // A machine may sit on a centre deactivated since; an edit that keeps it is
+  // accepted, so the picker must still show it.
+  const savedCentreIds = useMemo(() => (machine ? [machine.work_center_id] : []), [machine])
+  const centres = useCentrePicker(open, savedCentreIds)
 
   const {
     control,
@@ -1684,16 +1721,24 @@ export function MachineFormDialog({
                 name="work_center_id"
                 render={({ field }) => (
                   <Select
-                    value={field.value || SELECT_NONE}
-                    onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
+                    // Required, so no "none" item: an empty value is what lets
+                    // the trigger show its placeholder.
+                    value={field.value}
+                    onValueChange={field.onChange}
                   >
                     <SelectTrigger id="machine-wc" className="mt-1.5" aria-label="Work centre">
                       <SelectValue
-                        placeholder={workCenters.isLoading ? 'Loading...' : 'Choose a work centre'}
+                        placeholder={centrePlaceholder(centres, 'Choose a work centre')}
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {(workCenters.data?.data ?? []).map((center) => (
+                      {centres.isUnoffered(field.value) && (
+                        <UnofferedCentreItem
+                          id={field.value}
+                          centre={centres.nameOf(field.value)}
+                        />
+                      )}
+                      {centres.rows.map((center) => (
                         <SelectItem key={center.id} value={center.id}>
                           {center.code} - {center.name}
                         </SelectItem>
