@@ -248,6 +248,8 @@ class CompanyRead(BaseModel):
 class BranchCreate(BaseModel):
     """Payload for creating a branch."""
 
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     gstin: str | None = Field(default=None, max_length=15)
@@ -323,6 +325,8 @@ class BranchRead(BaseModel):
 
 
 class PlantCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     branch_id: uuid.UUID | None = None
@@ -373,6 +377,8 @@ class PlantRead(BaseModel):
 
 
 class DepartmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     plant_id: uuid.UUID | None = None
@@ -500,6 +506,8 @@ class FinancialYearCreate(BaseModel):
     audits it. Accepting it here would let a create bypass both.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=16)]
     start_date: date
     end_date: date
@@ -600,6 +608,8 @@ class ReasonRequest(BaseModel):
     an audit trail useless six months later, when nobody remembers why a branch
     was switched off (section 83).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=3, max_length=255)
 

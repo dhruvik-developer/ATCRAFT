@@ -383,6 +383,8 @@ class CartonScanResult(BaseModel):
 
 
 class CartonScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     barcode: str = Field(min_length=8, max_length=64, pattern=r"^[0-9A-Za-z-]+$")
 
 

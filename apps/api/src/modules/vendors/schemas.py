@@ -188,6 +188,8 @@ class VendorCreate(_StatutoryConsistency):
     their own permission-gated endpoints.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     legal_name: str | None = Field(default=None, max_length=255)
@@ -425,6 +427,8 @@ class VendorOption(BaseModel):
 class VendorContactCreate(BaseModel):
     """A person at the vendor. ``vendor_id`` comes from the path, not the body."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: Annotated[str, Field(min_length=1, max_length=160)]
     contact_role: VendorContactRole
     designation: str | None = Field(default=None, max_length=120)
@@ -496,6 +500,8 @@ class VendorContactRead(BaseModel):
 class VendorCategoryAssign(BaseModel):
     """Qualify a vendor for one item category."""
 
+    model_config = ConfigDict(extra="forbid")
+
     item_category_id: uuid.UUID
     is_preferred: bool = False
     notes: Notes | None = None
@@ -557,6 +563,8 @@ class VendorRatingRequest(BaseModel):
     client would let a buyer type their own vendor's score.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     window_days: int = Field(
         default=DEFAULT_RATING_WINDOW_DAYS, ge=MIN_RATING_WINDOW_DAYS, le=MAX_RATING_WINDOW_DAYS
     )
@@ -568,6 +576,8 @@ class VendorRatingRequest(BaseModel):
 
 
 class TransporterCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     transporter_type: TransporterType
@@ -764,11 +774,15 @@ class StatusChangeRequest(BaseModel):
     was blocked (section 83).
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     reason: str = Field(min_length=3, max_length=255)
 
 
 class ApprovalRequest(BaseModel):
     """Reason and optional note captured when a vendor is approved or blocked."""
+
+    model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=3, max_length=255)
 

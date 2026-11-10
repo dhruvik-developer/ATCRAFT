@@ -89,6 +89,8 @@ def _not_cleared(value: object) -> object:
 
 
 class CategoryCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=32)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
     description: Description | None = None
@@ -102,6 +104,8 @@ class CategoryCreate(_Base):
 
 
 class CategoryUpdate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
     description: Description | None = None
     parent_id: uuid.UUID | None = None
@@ -130,6 +134,8 @@ class CategoryOut(_Base):
 
 
 class UomCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=16)]
     name: Annotated[str, Field(min_length=1, max_length=64)]
     uom_category: UomCategory
@@ -144,6 +150,8 @@ class UomCreate(_Base):
 
 
 class UomUpdate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     name: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     decimal_places: Annotated[int, Field(ge=0, le=6)] | None = None
     is_active: bool | None = None
@@ -161,6 +169,8 @@ class UomOut(_Base):
 
 
 class ItemAttributeCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     attribute: ItemAttributeType
     code: Annotated[str, Field(min_length=1, max_length=32)]
     name: Annotated[str, Field(min_length=1, max_length=64)]
@@ -181,6 +191,8 @@ class ItemAttributeUpdate(_Base):
     unique per kind, so the move could also collide. Retire it and make a new
     one instead.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: Annotated[str, Field(min_length=1, max_length=64)] | None = None
     sort_order: Annotated[int, Field(ge=0, le=9999)] | None = None
@@ -213,6 +225,8 @@ BrandSortOrder = Annotated[int, Field(ge=0, le=MAX_BRAND_SORT_ORDER)]
 
 
 class ManufacturerCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=32)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
     legal_name: Annotated[str, Field(max_length=255)] | None = None
@@ -266,6 +280,8 @@ class ManufacturerOut(_Base):
 
 
 class BrandCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=32)]
     name: Annotated[str, Field(min_length=1, max_length=120)]
     description: Description | None = None
@@ -317,6 +333,8 @@ class BrandOut(_Base):
 
 
 class UomConversionCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     from_uom_id: uuid.UUID
     to_uom_id: uuid.UUID
     factor: FactorField
@@ -370,6 +388,8 @@ class CapabilityFlags(_Base):
 
 
 class ItemCreate(CapabilityFlags):
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=64)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
     description: Description | None = None
@@ -427,6 +447,8 @@ class ItemCreate(CapabilityFlags):
 
 class ItemUpdate(CapabilityFlags):
     """Every field optional; only what is present is written."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
     description: Description | None = None
@@ -575,6 +597,8 @@ class ItemStatusChange(_Base):
     master data lifecycle changes too, and "who turned this item off and why"
     is the first question asked when an order line stops validating."""
 
+    model_config = ConfigDict(extra="forbid")
+
     is_active: bool
     reason: Annotated[str, Field(min_length=3, max_length=255)]
 
@@ -703,6 +727,8 @@ def item_filters(
 
 
 class VariantCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     code: Annotated[str, Field(min_length=1, max_length=64)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
     finish_id: uuid.UUID | None = None
@@ -728,6 +754,8 @@ class VariantCreate(_Base):
 
 
 class VariantUpdate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
     finish_id: uuid.UUID | None = None
     size_id: uuid.UUID | None = None
@@ -758,6 +786,8 @@ class VariantOut(_Base):
 
 
 class PriceCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     variant_id: uuid.UUID | None = None
     price_type: PriceType
     currency: Annotated[
@@ -777,6 +807,8 @@ class PriceCreate(_Base):
 
 
 class PriceUpdate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     price: PriceField | None = None
     min_quantity: QuantityField | None = None
     valid_from: date | None = None
@@ -823,6 +855,8 @@ class ResolvedPrice(_Base):
 
 
 class VendorLinkCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     vendor_id: uuid.UUID
     vendor_item_code: Annotated[str, Field(max_length=64)] | None = None
     vendor_item_name: Annotated[str, Field(max_length=255)] | None = None
@@ -852,6 +886,8 @@ class VendorLinkUpdate(_Base):
     against the wrong source is a value a person genuinely removes, so an
     explicit ``null`` clears it rather than being silently skipped.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     vendor_item_code: Annotated[str, Field(max_length=64)] | None = None
     vendor_item_name: Annotated[str, Field(max_length=255)] | None = None

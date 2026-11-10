@@ -306,6 +306,8 @@ class AvailabilityRead(BaseModel):
 
 
 class StockBatchCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     batch_number: Annotated[str, Field(min_length=1, max_length=64)]
     supplier_batch_number: str | None = Field(default=None, max_length=64)
@@ -371,6 +373,8 @@ class StockBatchAction(BaseModel):
 
 
 class StockSerialCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     serial_number: Annotated[str, Field(min_length=1, max_length=64)]
     batch_id: uuid.UUID | None = None
@@ -473,6 +477,8 @@ class StockSerialDetail(BaseModel):
 
 
 class StockTransferLineCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     quantity: PositiveQuantity
     batch_id: uuid.UUID | None = None
@@ -510,6 +516,8 @@ class StockTransferLineCreate(BaseModel):
 
 
 class StockTransferCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     from_warehouse_id: uuid.UUID
     to_warehouse_id: uuid.UUID
     reason: Reason
@@ -626,6 +634,8 @@ class TransferFilters(BaseModel):
 
 
 class StockAdjustmentLineCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     #: Signed: positive writes stock up, negative writes it down.
     quantity: NonZeroQuantity
@@ -668,6 +678,8 @@ class StockAdjustmentLineCreate(BaseModel):
 
 
 class StockAdjustmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     warehouse_id: uuid.UUID
     reason_code: AdjustmentReason
     reason: Reason
@@ -755,6 +767,8 @@ class AdjustmentFilters(BaseModel):
 class DecisionRequest(BaseModel):
     """Approval note, recorded on the document and in the audit log."""
 
+    model_config = ConfigDict(extra="forbid")
+
     note: str | None = Field(default=None, max_length=255)
 
     _clean = field_validator("note")(clean_text)
@@ -767,6 +781,8 @@ class RejectionRequest(BaseModel):
     person who raised it can only act on the refusal if it says what was wrong
     (section 83 - a reason for every irreversible action).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     note: Reason
 
@@ -782,6 +798,8 @@ class RejectionRequest(BaseModel):
 class ReasonRequest(BaseModel):
     """A mandatory reason for an irreversible action (section 83)."""
 
+    model_config = ConfigDict(extra="forbid")
+
     reason: Reason
 
 
@@ -792,6 +810,8 @@ class ReasonRequest(BaseModel):
 
 class PhysicalCountCreate(BaseModel):
     """Creates the sheet and snapshots system quantities for its scope."""
+
+    model_config = ConfigDict(extra="forbid")
 
     warehouse_id: uuid.UUID
     reason: Reason
@@ -807,6 +827,8 @@ class PhysicalCountCreate(BaseModel):
 
 
 class PhysicalCountEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     line_id: uuid.UUID
     counted_quantity: NonNegativeQuantity
     serial_numbers: list[str] | None = Field(
@@ -822,6 +844,8 @@ class PhysicalCountEntry(BaseModel):
 
 
 class PhysicalCountEntryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     entries: Annotated[list[PhysicalCountEntry], Field(min_length=1)]
 
     @model_validator(mode="after")

@@ -35,6 +35,7 @@ from tests.route_support import (
     UntouchableSession,
     assert_matches_contract,
     module_routes,
+    mounted_application,
     route_url,
 )
 
@@ -156,14 +157,7 @@ def test_each_allowlist_entry_is_a_real_route_of_the_shape_it_claims() -> None:
 
 @pytest.fixture(scope="module")
 def app() -> FastAPI:
-    from src.api.router import api_router, register_module_routers
-    from src.main import app as application
-
-    # Same guard as tests/api/conftest.py: the process-global router must be
-    # filled once, never twice.
-    if not api_router.routes:
-        register_module_routers()
-    return application
+    return mounted_application()
 
 
 @pytest.fixture

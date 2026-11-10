@@ -357,6 +357,8 @@ class BomStatusChange(BaseModel):
     obsolete for no recorded reason is unanswerable six months later.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     reason: Annotated[str, Field(min_length=3, max_length=255)]
 
 

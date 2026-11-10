@@ -126,9 +126,11 @@ class TestWarehouseCreateDefaults:
             WarehouseCreate(**_warehouse_payload(email="not-an-address"))
 
     def test_company_id_cannot_be_supplied_by_the_client(self) -> None:
-        """Tenant comes from the token; a body field of that name is ignored."""
-        payload = WarehouseCreate(**_warehouse_payload(company_id=str(uuid.uuid4())))
-        assert not hasattr(payload, "company_id")
+        """Tenant comes from the token; a body field of that name is refused, never read."""
+        assert "company_id" not in WarehouseCreate.model_fields
+        with pytest.raises(ValidationError) as refused:
+            WarehouseCreate(**_warehouse_payload(company_id=str(uuid.uuid4())))
+        assert [error["loc"] for error in refused.value.errors()] == [("company_id",)]
 
 
 class TestPartialUpdateSemantics:

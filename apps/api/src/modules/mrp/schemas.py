@@ -114,6 +114,8 @@ class ManualDemandIn(BaseModel):
     ``MANUAL``.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     quantity: PositiveQuantity
     required_date: date
@@ -137,6 +139,8 @@ class MrpRunRequest(BaseModel):
     client cannot ask for a four-minute calculation to be held open on an HTTP
     connection.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     horizon_days: Annotated[int, Field(ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)] = (
         DEFAULT_HORIZON_DAYS
@@ -192,6 +196,8 @@ class MrpScheduleSettingsRead(BaseModel):
 
 class MrpScheduleSettingsUpdate(BaseModel):
     """Replace the company's scheduled-planning configuration."""
+
+    model_config = ConfigDict(extra="forbid")
 
     mrp_scheduled_enabled: bool = True
     horizon_days: Annotated[int, Field(ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)] = (
@@ -555,6 +561,8 @@ class SuggestionConvertRequest(BaseModel):
     the approved vendor, process, return date and issuing warehouse.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     target: ConversionTarget | None = None
     quantity: PositiveQuantity | None = None
     required_date: date | None = None
@@ -629,6 +637,8 @@ class SuggestionConversionResult(BaseModel):
 
 class BulkIgnoreRequest(BaseModel):
     """Dismiss several suggestions at once, with one shared reason."""
+
+    model_config = ConfigDict(extra="forbid")
 
     suggestion_ids: Annotated[list[uuid.UUID], Field(min_length=1)]
     reason: Reason

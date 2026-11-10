@@ -159,6 +159,8 @@ class UserCreate(_Base):
     into a chat window or read out over a telephone.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     full_name: Name
     password: str = PasswordField
@@ -308,6 +310,8 @@ class StatusChangeRequest(BaseModel):
     recorded reason is what makes an audit trail useless six months later, when
     nobody remembers why an account was switched off.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     reason: Reason
 
@@ -464,6 +468,8 @@ class RoleCreate(_Base):
     :data:`src.core.permissions.ROLE_PRESETS`. A client-created role that
     claimed to be one would be undeletable for a reason nobody could trace.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     code: Annotated[str, Field(min_length=2, max_length=48)]
     name: RoleName

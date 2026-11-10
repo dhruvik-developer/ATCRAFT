@@ -277,6 +277,13 @@ their transport prefix (`query.search`, `path.item_id`). Whole-body failures
 use `_root`. Raw submitted values, parser offsets and validator context are not
 copied into error metadata.
 
+Every request body refuses a key it does not define: a misspelt or retired
+field is a **422** `VALIDATION_ERROR` naming that key, never dropped while the
+rest of the body is saved with its defaults. Each body model sets
+`model_config = ConfigDict(extra="forbid")`, and
+`tests/unit/test_request_bodies_refuse_unknown_keys.py` fails for one that does
+not.
+
 A partial update applies only the keys a request sends: an omitted key keeps
 the stored value. An explicit `null` on a field that cannot be empty is refused
 before any service runs, as a **422** naming the field (`reject_null` in

@@ -62,6 +62,8 @@ class ReservationFilters(BaseModel):
 class ReservationCreate(BaseModel):
     """Ask for a quantity of stock to be held for a demand line."""
 
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     warehouse_id: uuid.UUID
     quantity: PositiveQuantity
@@ -140,6 +142,8 @@ class ReleaseRequest(BaseModel):
     leaves the rest standing.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     reason: Reason
     quantity: PositiveQuantity | None = None
 
@@ -200,6 +204,8 @@ class ReallocationRequestCreate(BaseModel):
     should give way.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     item_id: uuid.UUID
     warehouse_id: uuid.UUID
     quantity: PositiveQuantity
@@ -235,6 +241,8 @@ class ReallocationFilters(BaseModel):
 
 class ReallocationDecision(BaseModel):
     """Approve or reject a request. The note is what the requester will read."""
+
+    model_config = ConfigDict(extra="forbid")
 
     decision_note: str | None = Field(default=None, max_length=1000)
 

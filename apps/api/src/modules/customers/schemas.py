@@ -67,6 +67,8 @@ class _Base(BaseModel):
 class CustomerCreate(_Base):
     """Payload for creating a customer, dealer, distributor or OEM account."""
 
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     legal_name: str | None = Field(default=None, max_length=255)
@@ -209,11 +211,15 @@ class StatusChangeRequest(BaseModel):
     nobody remembers why an account was switched off.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     reason: Reason
 
 
 class BlockRequest(BaseModel):
     """Put an account on credit hold."""
+
+    model_config = ConfigDict(extra="forbid")
 
     reason: Reason
 
@@ -280,6 +286,8 @@ class AddressCreate(_Base):
     domestic address; the service reports that as a business-rule error naming
     the field rather than letting a constraint violation surface as a 500.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     address_type: AddressType
     label: str | None = Field(default=None, max_length=120)
@@ -367,6 +375,8 @@ class AddressRead(_Base):
 
 
 class ContactCreate(_Base):
+    model_config = ConfigDict(extra="forbid")
+
     name: Annotated[str, Field(min_length=1, max_length=160)]
     designation: str | None = Field(default=None, max_length=120)
     email: EmailStr | None = None

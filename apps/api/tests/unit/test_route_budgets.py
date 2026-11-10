@@ -43,7 +43,13 @@ from src.core.permissions import Permission
 from src.core.ratelimit import KEY_PREFIX, RateLimitPolicy
 from src.core.responses import AcceptedJobResponse
 from tests.redis_support import FakeRedis
-from tests.route_support import MountedRoute, UntouchableSession, iter_api_routes, module_routes
+from tests.route_support import (
+    MountedRoute,
+    UntouchableSession,
+    iter_api_routes,
+    module_routes,
+    mounted_application,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -246,12 +252,7 @@ def _url(path: str) -> str:
 
 @pytest.fixture(scope="module")
 def app() -> FastAPI:
-    from src.api.router import api_router, register_module_routers
-    from src.main import app as application
-
-    if not api_router.routes:
-        register_module_routers()
-    return application
+    return mounted_application()
 
 
 @pytest.fixture

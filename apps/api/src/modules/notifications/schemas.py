@@ -112,6 +112,8 @@ class NotificationPreferenceRead(BaseModel):
 class NotificationPreferenceUpdate(BaseModel):
     """One checkbox row of the preferences matrix."""
 
+    model_config = ConfigDict(extra="forbid")
+
     notification_type: NotificationType
     in_app_enabled: bool
     email_enabled: bool
@@ -138,6 +140,8 @@ class NotificationAlertRuleRead(BaseModel):
 class NotificationAlertRuleUpdate(BaseModel):
     """A complete override for one changed alert rule."""
 
+    model_config = ConfigDict(extra="forbid")
+
     key: AlertRuleKey
     is_enabled: bool
     threshold_minutes: int = Field(ge=0, le=MAX_ALERT_WINDOW_MINUTES)
@@ -146,6 +150,8 @@ class NotificationAlertRuleUpdate(BaseModel):
 
 class NotificationAlertRulesUpdate(BaseModel):
     """Only touched alert rows are submitted by the administration screen."""
+
+    model_config = ConfigDict(extra="forbid")
 
     rules: Annotated[
         list[NotificationAlertRuleUpdate],
@@ -173,6 +179,8 @@ class PreferencesUpdateRequest(BaseModel):
     - and is not rejected here. CRITICAL alerts still reach the bell regardless;
     that override lives in the service, next to the constant that names it.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     preferences: Annotated[
         list[NotificationPreferenceUpdate],
@@ -216,6 +224,8 @@ class NotificationChannelTemplateRead(BaseModel):
 
 
 class NotificationChannelTemplateUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     channel: MessagingChannel
     notification_type: NotificationType
     template_name: str | None = Field(default=None, max_length=128)
@@ -244,6 +254,8 @@ class NotificationChannelTemplateUpdate(BaseModel):
 
 
 class NotificationChannelTemplatesUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     templates: Annotated[
         list[NotificationChannelTemplateUpdate], Field(min_length=1, max_length=100)
     ]
@@ -260,6 +272,8 @@ class NotificationChannelTemplatesUpdate(BaseModel):
 
 
 class NotificationChannelTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     channel: MessagingChannel
     notification_type: NotificationType
 

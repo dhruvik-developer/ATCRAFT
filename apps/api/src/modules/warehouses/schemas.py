@@ -62,6 +62,8 @@ class WarehouseCreate(WarehouseAddress):
     principal's tenant context and is never accepted from a client (section 40).
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     warehouse_type: WarehouseType
@@ -203,6 +205,8 @@ class StorageLocationCreate(BaseModel):
     into a warehouse other than the one addressed by the URL.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     code: Code
     name: Name
     location_type: StorageLocationType
@@ -310,6 +314,8 @@ class StatusChangeRequest(BaseModel):
     without a recorded reason is what makes an audit trail useless six months
     later, when nobody remembers why a warehouse was switched off.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=3, max_length=255)
 

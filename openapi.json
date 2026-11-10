@@ -364,6 +364,7 @@
         "type": "object"
       },
       "AddressCreate": {
+        "additionalProperties": false,
         "description": "A billing or shipping address.\n\n``state_code`` is optional in the schema but mandatory in the database for a\ndomestic address; the service reports that as a business-rule error naming\nthe field rather than letting a constraint violation surface as a 500.",
         "properties": {
           "address_line1": {
@@ -7641,6 +7642,7 @@
         "type": "object"
       },
       "ApprovalDecisionRequest": {
+        "additionalProperties": false,
         "description": "Body of ``POST /audit/approvals/{id}/approve`` and ``.../reject``.\n\nOne shape for both decisions so the note is validated identically; whether a\nnote is *required* depends on the decision and is therefore a service rule,\nnot a schema rule.",
         "properties": {
           "note": {
@@ -7660,6 +7662,7 @@
         "type": "object"
       },
       "ApprovalRequest": {
+        "additionalProperties": false,
         "description": "Reason and optional note captured when a vendor is approved or blocked.",
         "properties": {
           "reason": {
@@ -10904,6 +10907,7 @@
         "type": "string"
       },
       "BlockRequest": {
+        "additionalProperties": false,
         "description": "Put an account on credit hold.",
         "properties": {
           "reason": {
@@ -12012,6 +12016,7 @@
         "type": "string"
       },
       "BomStatusChange": {
+        "additionalProperties": false,
         "description": "Reason capture for a lifecycle transition.\n\nRequired, not optional: master rules section 83. A structure that went\nobsolete for no recorded reason is unanswerable six months later.",
         "properties": {
           "reason": {
@@ -12325,6 +12330,7 @@
         "type": "object"
       },
       "BranchCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating a branch.",
         "properties": {
           "address_line1": {
@@ -12747,6 +12753,7 @@
         "type": "object"
       },
       "BrandCreate": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "maxLength": 32,
@@ -12988,6 +12995,7 @@
         "type": "object"
       },
       "BulkIgnoreRequest": {
+        "additionalProperties": false,
         "description": "Dismiss several suggestions at once, with one shared reason.",
         "properties": {
           "reason": {
@@ -13672,6 +13680,7 @@
         "type": "object"
       },
       "CartonScanRequest": {
+        "additionalProperties": false,
         "properties": {
           "barcode": {
             "maxLength": 64,
@@ -13718,6 +13727,7 @@
         "type": "string"
       },
       "CategoryCreate": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "maxLength": 32,
@@ -13946,6 +13956,7 @@
         "type": "object"
       },
       "CategoryUpdate": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "anyOf": [
@@ -14187,6 +14198,7 @@
         "type": "object"
       },
       "ChangePasswordRequest": {
+        "additionalProperties": false,
         "properties": {
           "current_password": {
             "maxLength": 128,
@@ -15690,6 +15702,7 @@
         "type": "object"
       },
       "ContactCreate": {
+        "additionalProperties": false,
         "properties": {
           "designation": {
             "anyOf": [
@@ -18262,6 +18275,7 @@
         "type": "string"
       },
       "CustomerCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating a customer, dealer, distributor or OEM account.",
         "properties": {
           "assigned_sales_user_id": {
@@ -23759,6 +23773,7 @@
         "type": "object"
       },
       "DecisionRequest": {
+        "additionalProperties": false,
         "description": "Approval note, recorded on the document and in the audit log.",
         "properties": {
           "note": {
@@ -24215,6 +24230,7 @@
         "type": "string"
       },
       "DepartmentCreate": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "maxLength": 32,
@@ -26867,6 +26883,7 @@
         "type": "object"
       },
       "FinancialYearCreate": {
+        "additionalProperties": false,
         "description": "Payload for opening a financial year.\n\n``is_closed`` is absent by design: a year is closed through\n``POST /financial-years/{id}/close``, which validates the transition and\naudits it. Accepting it here would let a create bypass both.",
         "properties": {
           "code": {
@@ -32558,6 +32575,7 @@
         "type": "object"
       },
       "ItemAttributeCreate": {
+        "additionalProperties": false,
         "properties": {
           "attribute": {
             "$ref": "#/components/schemas/ItemAttributeType"
@@ -32644,6 +32662,7 @@
         "type": "string"
       },
       "ItemAttributeUpdate": {
+        "additionalProperties": false,
         "description": "``None`` means \"leave alone\" on every field.\n\n``attribute`` is absent on purpose: moving a value from FINISH to COLOUR\nwould silently retarget every item that references it, and the two are\nunique per kind, so the move could also collide. Retire it and make a new\none instead.",
         "properties": {
           "is_active": {
@@ -32688,6 +32707,7 @@
         "type": "object"
       },
       "ItemCreate": {
+        "additionalProperties": false,
         "properties": {
           "base_uom_id": {
             "format": "uuid",
@@ -34389,6 +34409,7 @@
         "type": "object"
       },
       "ItemStatusChange": {
+        "additionalProperties": false,
         "description": "Activate/deactivate. The reason is mandatory - section 83 applies to\nmaster data lifecycle changes too, and \"who turned this item off and why\"\nis the first question asked when an order line stops validating.",
         "properties": {
           "is_active": {
@@ -34860,6 +34881,7 @@
         "type": "object"
       },
       "ItemUpdate": {
+        "additionalProperties": false,
         "description": "Every field optional; only what is present is written.",
         "properties": {
           "base_uom_id": {
@@ -37473,6 +37495,7 @@
         "type": "object"
       },
       "LoginRequest": {
+        "additionalProperties": false,
         "properties": {
           "company_code": {
             "anyOf": [
@@ -37979,6 +38002,7 @@
         "type": "object"
       },
       "ManualDemandIn": {
+        "additionalProperties": false,
         "description": "Demand a planner adds on top of the order book.\n\nA forecast line, a spares top-up, an internal build. It carries no source\ndocument, which is why ``mrp_demands`` allows a null ``source_id`` only for\n``MANUAL``.",
         "properties": {
           "item_id": {
@@ -38039,6 +38063,7 @@
         "type": "object"
       },
       "ManufacturerCreate": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "maxLength": 32,
@@ -39511,6 +39536,7 @@
         "type": "object"
       },
       "MessagingConsentRequest": {
+        "additionalProperties": false,
         "properties": {
           "channel": {
             "enum": [
@@ -39576,6 +39602,7 @@
         "type": "object"
       },
       "MfaCodeRequest": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "pattern": "^[0-9]{6}$",
@@ -39590,6 +39617,7 @@
         "type": "object"
       },
       "MfaDisableRequest": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "pattern": "^[0-9]{6}$",
@@ -39611,6 +39639,7 @@
         "type": "object"
       },
       "MfaSetupRequest": {
+        "additionalProperties": false,
         "properties": {
           "current_password": {
             "maxLength": 128,
@@ -39644,6 +39673,7 @@
         "type": "object"
       },
       "MfaVerifyRequest": {
+        "additionalProperties": false,
         "properties": {
           "challenge_token": {
             "maxLength": 4096,
@@ -40273,6 +40303,7 @@
         "type": "object"
       },
       "MrpRunRequest": {
+        "additionalProperties": false,
         "description": "Start a planning run.\n\nNothing here says how the run should execute. That is the service's decision,\ntaken from the demand-line count against\n``settings.mrp_sync_threshold_demand_lines`` (database.md section 6): a\nclient cannot ask for a four-minute calculation to be held open on an HTTP\nconnection.",
         "properties": {
           "horizon_days": {
@@ -40458,6 +40489,7 @@
         "type": "object"
       },
       "MrpScheduleSettingsUpdate": {
+        "additionalProperties": false,
         "description": "Replace the company's scheduled-planning configuration.",
         "properties": {
           "horizon_days": {
@@ -41025,6 +41057,7 @@
         "type": "object"
       },
       "NotificationAlertRuleUpdate": {
+        "additionalProperties": false,
         "description": "A complete override for one changed alert rule.",
         "properties": {
           "is_enabled": {
@@ -41057,6 +41090,7 @@
         "type": "object"
       },
       "NotificationAlertRulesUpdate": {
+        "additionalProperties": false,
         "description": "Only touched alert rows are submitted by the administration screen.",
         "properties": {
           "rules": {
@@ -41159,6 +41193,7 @@
         "type": "object"
       },
       "NotificationChannelTemplateUpdate": {
+        "additionalProperties": false,
         "properties": {
           "channel": {
             "enum": [
@@ -41244,6 +41279,7 @@
         "type": "object"
       },
       "NotificationChannelTemplatesUpdate": {
+        "additionalProperties": false,
         "properties": {
           "templates": {
             "items": {
@@ -41262,6 +41298,7 @@
         "type": "object"
       },
       "NotificationChannelTestRequest": {
+        "additionalProperties": false,
         "properties": {
           "channel": {
             "enum": [
@@ -41413,6 +41450,7 @@
         "type": "object"
       },
       "NotificationPreferenceUpdate": {
+        "additionalProperties": false,
         "description": "One checkbox row of the preferences matrix.",
         "properties": {
           "email_enabled": {
@@ -47319,6 +47357,7 @@
         "type": "string"
       },
       "PasswordResetConfirmPayload": {
+        "additionalProperties": false,
         "properties": {
           "new_password": {
             "maxLength": 128,
@@ -47371,6 +47410,7 @@
         "type": "object"
       },
       "PasswordResetRequestPayload": {
+        "additionalProperties": false,
         "properties": {
           "company_code": {
             "anyOf": [
@@ -48327,6 +48367,7 @@
         "type": "object"
       },
       "PhoneUpdateRequest": {
+        "additionalProperties": false,
         "properties": {
           "phone": {
             "anyOf": [
@@ -48345,6 +48386,7 @@
         "type": "object"
       },
       "PhoneVerificationRequest": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "pattern": "^[0-9]{6}$",
@@ -48372,6 +48414,7 @@
         "type": "object"
       },
       "PhysicalCountCreate": {
+        "additionalProperties": false,
         "description": "Creates the sheet and snapshots system quantities for its scope.",
         "properties": {
           "count_date": {
@@ -48443,6 +48486,7 @@
         "type": "object"
       },
       "PhysicalCountEntry": {
+        "additionalProperties": false,
         "properties": {
           "counted_quantity": {
             "anyOf": [
@@ -48499,6 +48543,7 @@
         "type": "object"
       },
       "PhysicalCountEntryRequest": {
+        "additionalProperties": false,
         "properties": {
           "entries": {
             "items": {
@@ -48910,6 +48955,7 @@
         "type": "object"
       },
       "PlantCreate": {
+        "additionalProperties": false,
         "properties": {
           "address_line1": {
             "anyOf": [
@@ -49166,6 +49212,7 @@
         "type": "object"
       },
       "PreferencesUpdateRequest": {
+        "additionalProperties": false,
         "description": "The rows the user changed.\n\nPartial by design: sending only the touched rows keeps an old client from\nsilently resetting a type it does not know about yet.\n\nTurning every channel off for a type is allowed - it is the user's own inbox\n- and is not rejected here. CRITICAL alerts still reach the bell regardless;\nthat override lives in the service, next to the constant that names it.",
         "properties": {
           "preferences": {
@@ -49185,6 +49232,7 @@
         "type": "object"
       },
       "PriceCreate": {
+        "additionalProperties": false,
         "properties": {
           "currency": {
             "default": "INR",
@@ -49374,6 +49422,7 @@
         "type": "string"
       },
       "PriceUpdate": {
+        "additionalProperties": false,
         "properties": {
           "is_active": {
             "anyOf": [
@@ -57880,6 +57929,7 @@
         "type": "object"
       },
       "ReallocationDecision": {
+        "additionalProperties": false,
         "description": "Approve or reject a request. The note is what the requester will read.",
         "properties": {
           "decision_note": {
@@ -57899,6 +57949,7 @@
         "type": "object"
       },
       "ReallocationRequestCreate": {
+        "additionalProperties": false,
         "description": "Ask for stock currently promised elsewhere.\n\n``from_reservation_id`` is optional: leave it out and the engine ranks the\ndonors and picks the best one, which is the normal path from a shortage\nscreen. Name one explicitly when a planner has already decided which demand\nshould give way.",
         "properties": {
           "from_reservation_id": {
@@ -59170,6 +59221,7 @@
         "type": "string"
       },
       "RejectionRequest": {
+        "additionalProperties": false,
         "description": "Why an approver refused a document.\n\nRequired, unlike an approval note: a rejection ends the document, and the\nperson who raised it can only act on the refusal if it says what was wrong\n(section 83 - a reason for every irreversible action).",
         "properties": {
           "note": {
@@ -61208,6 +61260,7 @@
         "type": "string"
       },
       "ReservationCreate": {
+        "additionalProperties": false,
         "description": "Ask for a quantity of stock to be held for a demand line.",
         "properties": {
           "batch_id": {
@@ -62854,6 +62907,7 @@
         "type": "object"
       },
       "RoleCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating a role.\n\n``is_system`` is absent: system roles are seeded from\n:data:`src.core.permissions.ROLE_PRESETS`. A client-created role that\nclaimed to be one would be undeletable for a reason nobody could trace.",
         "properties": {
           "code": {
@@ -69478,6 +69532,7 @@
         "type": "object"
       },
       "StockAdjustmentCreate": {
+        "additionalProperties": false,
         "properties": {
           "adjustment_date": {
             "anyOf": [
@@ -69548,6 +69603,7 @@
         "type": "object"
       },
       "StockAdjustmentLineCreate": {
+        "additionalProperties": false,
         "properties": {
           "batch_id": {
             "anyOf": [
@@ -69956,6 +70012,7 @@
         "type": "object"
       },
       "StockAdjustmentUpdate": {
+        "additionalProperties": false,
         "description": "Replace a draft adjustment; posted and submitted documents are immutable.",
         "properties": {
           "adjustment_date": {
@@ -70143,6 +70200,7 @@
         "type": "object"
       },
       "StockBatchCreate": {
+        "additionalProperties": false,
         "properties": {
           "batch_number": {
             "maxLength": 64,
@@ -70561,6 +70619,7 @@
         "type": "object"
       },
       "StockSerialCreate": {
+        "additionalProperties": false,
         "properties": {
           "batch_id": {
             "anyOf": [
@@ -70868,6 +70927,7 @@
         "type": "string"
       },
       "StockTransferCreate": {
+        "additionalProperties": false,
         "properties": {
           "expected_date": {
             "anyOf": [
@@ -70956,6 +71016,7 @@
         "type": "object"
       },
       "StockTransferLineCreate": {
+        "additionalProperties": false,
         "properties": {
           "batch_id": {
             "anyOf": [
@@ -71448,6 +71509,7 @@
         "type": "object"
       },
       "StorageLocationCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating a storage location.\n\n``warehouse_id`` comes from the path, not the body - a bin cannot be created\ninto a warehouse other than the one addressed by the URL.",
         "properties": {
           "barcode": {
@@ -71927,6 +71989,7 @@
         "type": "object"
       },
       "SuggestionConvertRequest": {
+        "additionalProperties": false,
         "description": "Turn one suggestion into a document.\n\n``target`` may be omitted, in which case it is derived from the suggestion\ntype. ``quantity`` may be omitted, in which case the suggested quantity is\nused; a planner raising a *smaller* order than suggested is knowingly leaving\na shortage, so the value is accepted but the suggestion still records what\nwas planned. Job-work conversions additionally require the planner to name\nthe approved vendor, process, return date and issuing warehouse.",
         "properties": {
           "expected_return_date": {
@@ -73266,6 +73329,7 @@
         "type": "string"
       },
       "TransporterCreate": {
+        "additionalProperties": false,
         "properties": {
           "address_line1": {
             "anyOf": [
@@ -74153,6 +74217,7 @@
         "type": "string"
       },
       "UomConversionCreate": {
+        "additionalProperties": false,
         "properties": {
           "factor": {
             "anyOf": [
@@ -74224,6 +74289,7 @@
         "type": "object"
       },
       "UomCreate": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "maxLength": 16,
@@ -74310,6 +74376,7 @@
         "type": "object"
       },
       "UomUpdate": {
+        "additionalProperties": false,
         "properties": {
           "decimal_places": {
             "anyOf": [
@@ -74364,6 +74431,7 @@
         "type": "object"
       },
       "UserCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating an internal staff or vendor-portal account.\n\n``is_superuser`` is deliberately absent - see the ASSUMPTION note in the\nservice. ``must_change_password`` defaults to True because an administrator\nchoosing someone else's first password means that password has been typed\ninto a chat window or read out over a telephone.",
         "properties": {
           "allowed_category_ids": {
@@ -75194,6 +75262,7 @@
         "type": "object"
       },
       "VariantCreate": {
+        "additionalProperties": false,
         "properties": {
           "barcode": {
             "anyOf": [
@@ -75400,6 +75469,7 @@
         "type": "object"
       },
       "VariantUpdate": {
+        "additionalProperties": false,
         "properties": {
           "barcode": {
             "anyOf": [
@@ -75593,6 +75663,7 @@
         "type": "string"
       },
       "VendorCategoryAssign": {
+        "additionalProperties": false,
         "description": "Qualify a vendor for one item category.",
         "properties": {
           "is_preferred": {
@@ -75775,6 +75846,7 @@
         "type": "object"
       },
       "VendorContactCreate": {
+        "additionalProperties": false,
         "description": "A person at the vendor. ``vendor_id`` comes from the path, not the body.",
         "properties": {
           "contact_role": {
@@ -76090,6 +76162,7 @@
         "type": "object"
       },
       "VendorCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating a vendor.\n\n``company_id`` is absent by design: it comes from the authenticated\nprincipal and is never accepted from a client (section 40). So are\n``is_approved``, ``approved_by_id``, ``approved_at`` and ``rating`` - a\nvendor is created unapproved and unrated, and both are changed only through\ntheir own permission-gated endpoints.",
         "properties": {
           "address_line1": {
@@ -78266,6 +78339,7 @@
         "type": "object"
       },
       "VendorLinkCreate": {
+        "additionalProperties": false,
         "properties": {
           "currency": {
             "default": "INR",
@@ -78558,6 +78632,7 @@
         "type": "object"
       },
       "VendorLinkUpdate": {
+        "additionalProperties": false,
         "description": "``None`` means \"leave alone\" - except on the two manufacturer fields.\n\nThose two are the exception the variant attributes make: a maker recorded\nagainst the wrong source is a value a person genuinely removes, so an\nexplicit ``null`` clears it rather than being silently skipped.",
         "properties": {
           "is_active": {
@@ -81236,6 +81311,7 @@
         "type": "object"
       },
       "VendorRatingRequest": {
+        "additionalProperties": false,
         "description": "Parameters for a rating recomputation.\n\nDeliberately carries no performance figures. The metrics are read from\ngoods receipts and QC inspections on the server; accepting them from the\nclient would let a buyer type their own vendor's score.",
         "properties": {
           "window_days": {
@@ -82060,6 +82136,7 @@
         "type": "object"
       },
       "WarehouseCreate": {
+        "additionalProperties": false,
         "description": "Payload for creating a warehouse.\n\n``company_id`` is absent by design: it comes from the authenticated\nprincipal's tenant context and is never accepted from a client (section 40).",
         "properties": {
           "address_line1": {
@@ -84101,6 +84178,7 @@
         "type": "object"
       },
       "src__modules__allocation__schemas__ReleaseRequest": {
+        "additionalProperties": false,
         "description": "Give back part or all of a reservation.\n\n``quantity`` omitted means \"release whatever is left\", which is what\ncancelling a demand document does. A number releases exactly that much and\nleaves the rest standing.",
         "properties": {
           "quantity": {
@@ -84362,6 +84440,7 @@
         "type": "object"
       },
       "src__modules__customers__schemas__StatusChangeRequest": {
+        "additionalProperties": false,
         "description": "Reason capture for a lifecycle change.\n\nRequired, not optional: section 83 is explicit that a state change with no\nrecorded reason is what makes an audit trail useless six months later, when\nnobody remembers why an account was switched off.",
         "properties": {
           "reason": {
@@ -84476,6 +84555,7 @@
         "type": "object"
       },
       "src__modules__inventory__schemas__ReasonRequest": {
+        "additionalProperties": false,
         "description": "A mandatory reason for an irreversible action (section 83).",
         "properties": {
           "reason": {
@@ -84547,6 +84627,7 @@
         "type": "object"
       },
       "src__modules__organization__schemas__ReasonRequest": {
+        "additionalProperties": false,
         "description": "Reason capture for a lifecycle change.\n\nRequired, not optional: a state change with no recorded reason is what makes\nan audit trail useless six months later, when nobody remembers why a branch\nwas switched off (section 83).",
         "properties": {
           "reason": {
@@ -85168,6 +85249,7 @@
         "type": "object"
       },
       "src__modules__users__schemas__StatusChangeRequest": {
+        "additionalProperties": false,
         "description": "Reason capture for a lifecycle change.\n\nRequired, not optional: section 83 is explicit that a state change with no\nrecorded reason is what makes an audit trail useless six months later, when\nnobody remembers why an account was switched off.",
         "properties": {
           "reason": {
@@ -85184,6 +85266,7 @@
         "type": "object"
       },
       "src__modules__vendors__schemas__StatusChangeRequest": {
+        "additionalProperties": false,
         "description": "Reason capture for a lifecycle change.\n\nRequired, not optional: a state change with no recorded reason is what makes\nan audit trail useless six months later, when nobody remembers why a vendor\nwas blocked (section 83).",
         "properties": {
           "reason": {
@@ -85200,6 +85283,7 @@
         "type": "object"
       },
       "src__modules__warehouses__schemas__StatusChangeRequest": {
+        "additionalProperties": false,
         "description": "Reason capture for a lifecycle change.\n\nRequired, not optional: section 83 is explicit that a change of state\nwithout a recorded reason is what makes an audit trail useless six months\nlater, when nobody remembers why a warehouse was switched off.",
         "properties": {
           "reason": {

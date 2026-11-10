@@ -23,18 +23,22 @@ import enum
 import importlib
 import json
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
+from httpx import ASGITransport, AsyncClient
 
 from src.api.router import MODULE_ORDER
 from src.core.config import settings
+from src.core.database import get_db
+from src.core.deps import Principal, get_current_principal
 from src.core.errors import AppError, ErrorCode
 
 #: The committed contract, generated from the application by
@@ -190,3 +194,54 @@ def route_url(mounted: MountedRoute) -> str:
         path = path.replace("{" + name + "}", _sample(annotation))
     assert "{" not in path, f"unfilled path parameter in {mounted.path}"
     return path
+
+
+#: A portal account's routes answer a staff principal with SCOPE_DENIED before
+#: the body is read; ``tests/api`` drives them with a portal principal.
+PORTAL_PREFIXES = ("/dealer-portal/", "/vendor-portal/")
+
+
+def mounted_application() -> FastAPI:
+    """The application with every module's router mounted, as a request meets it."""
+    from src.api.router import api_router, register_module_routers
+    from src.main import app
+
+    # Same guard as tests/api/conftest.py: the process-global router must be
+    # filled once, never twice.
+    if not api_router.routes:
+        register_module_routers()
+    return app
+
+
+@asynccontextmanager
+async def superuser_without_database(
+    app: FastAPI,
+) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
+    """A client signed in as a superuser whose request session refuses every use.
+
+    Yields the client and the names of the session attributes requests reached
+    for: an empty list proves a request was decided before anything was read.
+    """
+    touched: list[str] = []
+    administrator = Principal(
+        user_id=uuid.uuid4(),
+        company_id=uuid.uuid4(),
+        email="route.guard@example.com",
+        full_name="Route Guard",
+        is_superuser=True,
+        permissions=frozenset(),
+        role_codes=(),
+    )
+
+    async def _session() -> AsyncIterator[UntouchableSession]:
+        yield UntouchableSession(touched)
+
+    app.dependency_overrides[get_db] = _session
+    app.dependency_overrides[get_current_principal] = lambda: administrator
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
+        ) as http:
+            yield http, touched
+    finally:
+        app.dependency_overrides.clear()

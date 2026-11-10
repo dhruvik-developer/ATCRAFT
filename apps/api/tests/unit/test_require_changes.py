@@ -16,22 +16,25 @@ sent fields without the call, which is the line to fix.
 from __future__ import annotations
 
 import ast
-import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from pydantic import BaseModel
 
 from src.core.config import API_ROOT, settings
-from src.core.database import get_db
-from src.core.deps import Principal, get_current_principal
 from src.core.errors import BusinessRuleError, ErrorCode
 from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.validation import require_changes
-from tests.route_support import MountedRoute, UntouchableSession, module_routes, route_url
+from tests.route_support import (
+    PORTAL_PREFIXES,
+    MountedRoute,
+    module_routes,
+    mounted_application,
+    route_url,
+    superuser_without_database,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -196,10 +199,6 @@ def test_the_guard_reads_real_files() -> None:
 # HTTP: every PATCH route, through the real application
 # -----------------------------------------------------------------------------
 
-#: A portal account's routes answer a staff principal with SCOPE_DENIED before
-#: the body is read; ``tests/api`` drives them with a portal principal.
-PORTAL_PREFIXES = ("/dealer-portal/", "/vendor-portal/")
-
 
 def _patch_routes() -> list[MountedRoute]:
     return [
@@ -209,44 +208,11 @@ def _patch_routes() -> list[MountedRoute]:
     ]
 
 
-@pytest.fixture(scope="module")
-def app() -> FastAPI:
-    from src.api.router import api_router, register_module_routers
-    from src.main import app as application
-
-    if not api_router.routes:
-        register_module_routers()
-    return application
-
-
 @pytest.fixture
-async def client(
-    app: FastAPI, monkeypatch: pytest.MonkeyPatch
-) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
+async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[AsyncClient, list[str]]]:
     monkeypatch.setattr(settings, "rate_limit_enabled", False)
-    touched: list[str] = []
-    administrator = Principal(
-        user_id=uuid.uuid4(),
-        company_id=uuid.uuid4(),
-        email="empty.patch@example.com",
-        full_name="Empty Patch",
-        is_superuser=True,
-        permissions=frozenset(),
-        role_codes=(),
-    )
-
-    async def _session() -> AsyncIterator[UntouchableSession]:
-        yield UntouchableSession(touched)
-
-    app.dependency_overrides[get_db] = _session
-    app.dependency_overrides[get_current_principal] = lambda: administrator
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://test"
-        ) as http:
-            yield http, touched
-    finally:
-        app.dependency_overrides.clear()
+    async with superuser_without_database(mounted_application()) as pair:
+        yield pair
 
 
 def test_the_http_guard_sees_the_update_routes() -> None:

@@ -239,6 +239,8 @@ class ApprovalDecisionRequest(BaseModel):
     not a schema rule.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     note: Annotated[str | None, Field(default=None, max_length=MAX_DECISION_NOTE_LENGTH)] = None
 
     @field_validator("note")

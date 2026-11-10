@@ -81,6 +81,8 @@ def _optional_text(value: str | None) -> str | None:
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     password: str = PasswordField
     #: Required only when the same address has accounts in several companies.
@@ -167,6 +169,8 @@ class MfaChallengeResponse(BaseModel):
 
 
 class MfaVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     challenge_token: str = Field(min_length=20, max_length=4096)
     code: str = Field(pattern=r"^[0-9]{6}$")
 
@@ -211,6 +215,8 @@ class MeResponse(BaseModel):
 
 
 class PhoneUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     phone: str | None = Field(default=None, max_length=32)
 
     @field_validator("phone", mode="before")
@@ -223,6 +229,8 @@ class PhoneUpdateRequest(BaseModel):
 
 
 class PhoneVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str = Field(pattern=r"^[0-9]{6}$")
 
 
@@ -231,6 +239,8 @@ class PhoneVerificationStarted(BaseModel):
 
 
 class MessagingConsentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     channel: Literal["WHATSAPP", "SMS"]
     opt_in: bool
 
@@ -246,6 +256,8 @@ class MessagingConsentRead(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     current_password: str = PasswordField
     new_password: str = PasswordField
 
@@ -270,6 +282,8 @@ class ChangePasswordResult(BaseModel):
 
 
 class MfaSetupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     current_password: str = PasswordField
 
 
@@ -279,6 +293,8 @@ class MfaSetupResponse(BaseModel):
 
 
 class MfaCodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str = Field(pattern=r"^[0-9]{6}$")
 
 
@@ -292,6 +308,8 @@ class MfaChangeResult(BaseModel):
 
 
 class PasswordResetRequestPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     company_code: str | None = Field(default=None, max_length=32)
 
@@ -308,6 +326,8 @@ class PasswordResetRequestPayload(BaseModel):
 
 
 class PasswordResetConfirmPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     token: str = ResetTokenField
     new_password: str = PasswordField
 

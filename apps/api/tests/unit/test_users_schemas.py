@@ -60,8 +60,10 @@ class TestUserCreate:
 
     def test_superuser_cannot_be_requested(self) -> None:
         # The flag bypasses every permission check in the system; it is not part
-        # of this contract at all, so a client asking for it is simply ignored.
+        # of this contract at all, so a client asking for it is refused.
         assert not hasattr(_user(), "is_superuser")
+        with pytest.raises(ValidationError):
+            _user(is_superuser=True)
 
     def test_unknown_permission_is_refused_with_the_offending_value(self) -> None:
         with pytest.raises(ValidationError) as excinfo:
@@ -145,8 +147,10 @@ class TestRoleContracts:
 
     def test_system_flag_is_not_part_of_the_contract(self) -> None:
         # System roles are seeded; a client-created role claiming the flag would
-        # be undeletable for a reason nobody could trace.
+        # be undeletable for a reason nobody could trace, so the claim is refused.
         assert not hasattr(RoleCreate(code="X_ROLE", name="X"), "is_system")
+        with pytest.raises(ValidationError):
+            RoleCreate.model_validate({"code": "X_ROLE", "name": "X", "is_system": True})
 
     def test_code_cannot_be_patched(self) -> None:
         with pytest.raises(ValidationError):
