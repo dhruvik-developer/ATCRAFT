@@ -263,6 +263,7 @@ QC_RETURN_ROLE_CODES: tuple[str, ...] = ("PURCHASE_MANAGER", "PURCHASE_EXECUTIVE
 
 #: ASSUMPTION: severity order used to break a tie when two dispositions hold
 #: equal quantity - see the module's Assumptions.
+#: docs/assumptions.md §QC-1.
 #:
 #: Later is more severe: a lot split evenly between accepted and rejected reads
 #: REJECTED, because the optimistic reading of an even split is the one that puts
@@ -631,6 +632,7 @@ def evaluate_reading(spec: ParameterSpec, reading: Reading) -> bool:
         # ASSUMPTION: a parameter with neither bound is informational, never a
         # failure. A target with no tolerance band cannot be met by a real
         # measurement, so judging against it would reject every lot.
+        # docs/assumptions.md §QC-1.
         value = Decimal(reading.numeric)
         if spec.min_value is not None and value < spec.min_value:
             return False
@@ -645,6 +647,7 @@ def evaluate_reading(spec: ParameterSpec, reading: Reading) -> bool:
         # ASSUMPTION: a BOOLEAN parameter passes on true. No column says which
         # way round the check reads, and "conforms / does not conform" is how
         # every check sheet in the master rules is worded.
+        # docs/assumptions.md §QC-1.
         return reading.boolean
 
     if reading.text is None:
@@ -1446,6 +1449,7 @@ async def _prepare(
         # ASSUMPTION: no specification on file means inspect the lot in full
         # rather than sample it. A sample size invented for an unknown
         # specification is a guess presented as a statistic.
+        # docs/assumptions.md §QC-1.
         sample = to_quantity(Decimal(quantity))
     else:
         sample = compute_sample_size(

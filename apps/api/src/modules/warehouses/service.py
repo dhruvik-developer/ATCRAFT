@@ -90,6 +90,7 @@ register_document_entity_resolver(
 # already four. The limit is a named constant so it can be raised deliberately
 # if a site genuinely needs more; it is not a database constraint because
 # loosening it must not require a migration.
+# docs/assumptions.md §WH-2.
 MAX_HIERARCHY_DEPTH = 5
 
 #: Fields captured before and after an edit so the audit entry records exactly
