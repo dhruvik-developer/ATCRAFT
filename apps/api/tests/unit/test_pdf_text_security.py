@@ -13,8 +13,8 @@ from src.workers.tasks.reports import (
     render_packing_list_pdf,
     render_purchase_order_pdf,
 )
-from tests.unit.test_job_work_challan_pdf import document as challan_document
-from tests.unit.test_packing_list_render import document as packing_document
+from tests.job_work_challan_support import document as challan_document
+from tests.packing_list_support import document as packing_document
 
 
 @pytest.fixture
