@@ -2544,6 +2544,211 @@ leaves the late set while keeping its badge.
 
 ---
 
+## §E2-1. A reservation closed elsewhere is no reservation
+
+**Assumed.** Allocation closes a reservation on its own: someone releases it
+from the Reservations screen, it expires, or an approved reallocation takes it.
+A document that later hands back what it holds re-reads its open reservations in
+one statement and releases only those; a closed one is skipped - never released
+a second time, and never a reason to refuse. An assembly order completing or
+cancelling, and a job-work order issuing or cancelling, also give back any
+reservation an approved reallocation granted *to* them, then draw on free stock
+like any unreserved movement. The stock engine still refuses that movement when
+free stock cannot cover a line: the order lost its promise, it did not gain a
+right to stock promised to another document since. A sales line counts a closed
+reservation as nothing - neither reserved nor dispatchable - so an order-linked
+dispatch is refused for want of a live reservation (§E1-1), the next reservation
+pass reserves the line afresh (§E1-2), and cancelling the order succeeds without
+releasing the closed one again.
+
+**Why.** Asking allocation to release a closed reservation is refused, and the
+documents asked on every exit: an approved job-work order leaves only by issuing
+or cancelling, both released its reservations, so one released from the screen
+left the order unable to do either. Treating the closed reservation as still
+owed instead would let the order take stock that is now someone else's.
+
+**Where.** `src/modules/assembly/service.py` and `src/modules/job_work/service.py`
+- `_release_reservations`; `src/modules/sales/service.py` - `live_reservations`,
+`_reserve_available_lines` and `cancel_order`; `src/modules/sales/repository.py`
+- `SalesOrderLineRepository.open_reservations_by_line`.
+`tests/integration/test_assembly_service.py`, `test_job_work_service.py` and
+`test_sales_fulfilment.py` prove each document still completes, issues or
+cancels after a release elsewhere, and cannot take stock promised since.
+
+**Impact if wrong.** If a released reservation should instead hold the document
+until someone re-reserves it, `_release_reservations` must refuse it again, and
+the order then needs another way out of the status that holds stock. If an order
+should keep a claim on the stock it lost, that is a reallocation decision (§10,
+§11), not a release rule.
+
+---
+
+## §E2-2. A demand line is held by one reservation per position
+
+**Assumed.** A reservation is held at one balance position - a warehouse, bin and
+lot - so a demand line whose stock sits in two bins or two lots is held by one
+reservation per position, and the line's promise is the sum of its open
+reservations; its `reservation_id` names only one of them. `reserve_from_stock`
+reads the positions holding available stock at the warehouse - for a
+batch-tracked item, only `ACTIVE`, unexpired lots - and `plan_positions` holds the
+demand in as few positions as it can, in a fixed order. Lots are taken in the
+movement engine's FEFO order (§E8b-1), and the first lot whose positions together
+cover the whole quantity is used on its own. Within that lot, or across the
+warehouse for an untracked item, the first position that covers the quantity is
+used: the unbinned position first, then bins by code. Only when no single lot or
+position can cover it is the quantity split, in that same order; what the
+positions cannot hold is a shortfall for the caller to report, never an error.
+
+Every reader sums a line's open reservations: the fulfilment view, the allocation
+status and the top-up's shortage test. A dispatch draws the line down position by
+position (`consume_demand_line`), taking only reservations in the lot its line
+names. A quantity change releases every position and reserves afresh; a top-up
+adds reservations for newly free stock and leaves the existing ones where they
+are.
+
+**Why.** A sales line names no bin or lot, and goods receipts put stock wherever
+it was received. One lot-less, unbinned reservation of stock that sits in a bin or
+a lot is refused by the engine, and that failed the whole confirmation; refusing
+stock that is plainly in the warehouse because it sits on two shelves is what this
+exists to stop. Holding as few positions as possible, in FEFO order, keeps a line
+in one lot - and so on one dispatch line - whenever one lot can cover it. A top-up
+leaves held stock where it is because that promise may already be on a packing
+bench.
+
+**Where.** `src/modules/allocation/service.py` - `plan_positions`,
+`reserve_from_stock`, `consume_demand_line`; `src/modules/sales/service.py` -
+`live_reservations`, `_reserve_available_lines`, `_rereserve_changed_lines`;
+`src/modules/sales/repository.py` -
+`SalesOrderLineRepository.open_reservations_by_line`;
+`src/workers/tasks/maintenance.py` - `_has_short_line`.
+`tests/unit/test_allocation_position_plan.py` pins the order.
+
+**Impact if wrong.** If a line must be held by one reservation, stock has to be
+consolidated into one position - a putaway or a transfer - before it can be
+promised, and stock split across shelves is refused until then. If FEFO should not
+decide which lot is promised, change `_lot_order`, knowing the promise then stops
+matching the lot an issue naming none would take.
+
+---
+
+## §G1-1. Dispatch ships sales consignments only
+
+**Assumed.** The dispatch module ships `SALES` consignments only
+(`SHIPPABLE_DISPATCH_TYPES`). Raising, amending, staging, loading boxes and
+releasing refuse any other type before reading a line, and the refusal names the
+module that books that movement instead (`NON_SALES_MOVEMENT_OWNERS`): a stock
+transfer for `TRANSFER`, a job-work issue for `JOB_WORK`, a purchase return for
+`PURCHASE_RETURN`. The `DispatchType` enum keeps all four values, so historical
+rows and filters still read, and a non-sales plan raised before this rule can
+still be cancelled, or deleted while it is a draft.
+
+**Why.** Releasing a consignment posts `DISPATCH` - goods that stopped being ours -
+for every unreserved line. None of the other three is that: a transfer must land
+in its destination warehouse, job-work material stays on the books in the
+job-work pool as `JOB_WORK_ISSUE`, and a purchase return must raise the return and
+its debit note. Released through dispatch, each of them wrote the goods off.
+
+**Where.** `src/modules/dispatch/service.py` - `SHIPPABLE_DISPATCH_TYPES`,
+`NON_SALES_MOVEMENT_OWNERS`, `assert_sales_consignment`.
+`tests/unit/test_dispatch_sales_only.py`.
+
+**Impact if wrong.** Shipping another type through dispatch needs a release that
+posts that type's own movement - a transfer out and its arrival, a job-work issue,
+a purchase return - never `DISPATCH`; adding the type to the shippable set alone
+would write the stock off again.
+
+---
+
+## §G1-2. A consignment that takes a packing order takes all of it
+
+**Assumed.** A consignment claims a whole packing order, when it is raised or
+amended with it or handed the boxes from the packing screen - one claim for all
+three paths. The claim is refused for an order another consignment holds, one that
+is not `PACKED`, one whose final inspection is not accepted, and one packed for a
+different customer or sales order. The consignment's lines are then reconciled
+with the order's sealed cartons: lines that name cartons against those cartons,
+and a consignment that names none has them assigned by item, lot and sales-order
+line (`assign_cartons`). Packed goods that no line carries are refused rather than
+left in the warehouse marked as handed over, and two lines carrying the same item,
+lot and order line are refused because the boxes cannot tell them apart. On the
+hand-over, the consignment's box count and gross weight become the packing
+order's (`total_cartons`, `total_gross_weight`); a consignment that also carries
+loose goods is corrected by amending it afterwards.
+
+**Why.** The ready-for-dispatch feed exists so two dispatchers cannot plan around
+the same boxes, so the claim cannot wait until loading, and a partial claim would
+mark goods handed over that never left. The cartons' count and weight are what
+the transporter counts and weighs, frozen when packing completed; what was typed
+on the plan was a guess made before the boxes existed. Each carton also ships
+whole, with all its contents (§ADDITIONAL11-5).
+
+**Where.** `src/modules/dispatch/service.py` - `_claim_packing_order`,
+`_validate_carton_contents`, `assign_cartons`, `load_packing_order`;
+`src/modules/packing/service.py` - `record_dispatch_claim`.
+`tests/unit/test_dispatch_carton_matching.py`.
+
+**Impact if wrong.** Splitting a packing order across consignments needs a claim
+per carton rather than per order, and a hand-over state a packing order can be
+partly in.
+
+---
+
+## §G1-3. A consignment cancelled before it leaves gives its boxes back
+
+**Assumed.** A consignment can be cancelled only from `NOT_DISPATCHED` or
+`READY_FOR_DISPATCH`, and not while it has a live sales invoice, so nothing in its
+cartons has shipped. In the same transaction, every packing order still
+`HANDED_OVER` to it returns to `PACKED` through the packing state machine, its
+claim cleared and the change audited, so it is back on the ready-for-dispatch
+feed for another consignment to claim. A packing order closed by hand in the
+meantime is left as it is, and the cancelled consignment keeps its own
+`packing_order_id` as the record of what it had planned to carry. Nothing else
+takes the `HANDED_OVER -> PACKED` edge.
+
+**Why.** Leaving the order `HANDED_OVER` to a consignment that will never move would
+strand sealed, paid-for cartons where no other consignment could take them.
+
+**Where.** `src/modules/dispatch/service.py` - `cancel_dispatch`;
+`src/modules/packing/service.py` - `release_dispatch_claims` and the
+`HANDED_OVER -> PACKED` transition. `tests/unit/test_packing_lifecycle.py` and
+`tests/integration/test_dispatch_service.py`.
+
+**Impact if wrong.** If a cancelled consignment's boxes must be re-inspected or
+repacked before they ship again, the release must lead to that check rather than
+straight back to `PACKED`.
+
+---
+
+## §G1-4. A tracking event never stands in for our own action
+
+**Assumed.** A tracking event - entered by hand or read from a courier feed - whose
+status differs from the consignment's moves it there through the state machine,
+but never into `READY_FOR_DISPATCH`, `DISPATCHED` or `CANCELLED`
+(`ACTION_ONLY_STATUSES`). Those are reached only by our own actions - marking it
+ready, releasing it, cancelling it - and each does more than move the status:
+staging checks the lines, releasing consumes the reservations and posts the stock
+movements, and cancelling checks the invoice and gives packed boxes back (§G1-3).
+An event repeating the current status is a position update and changes only the
+history. The statuses after `DISPATCHED` - in transit, delivered, and the
+receiver's inspection and booking-in - are reported to us, which is why an event
+may reach them.
+
+**Why.** An event jumping from `READY_FOR_DISPATCH` to `DISPATCHED` would mark the
+goods gone with no stock moved, and one jumping to `CANCELLED` would skip the
+invoice check and leave its packed boxes claimed.
+
+**Where.** `src/modules/dispatch/service.py` - `ACTION_ONLY_STATUSES`,
+`add_tracking_event`; a courier feed reaches it through
+`src/modules/courier_tracking/service.py` (§D3-n).
+`tests/unit/test_dispatch_sales_only.py` and
+`tests/integration/test_dispatch_service.py`.
+
+**Impact if wrong.** If a courier's pickup scan should count as the release, the
+feed must perform the release - consume the reservations and post `DISPATCH` -
+never set the status.
+
+---
+
 ## §A2-1. An invoice may precede removal
 
 **Assumed.** A SALES dispatch may issue a tax invoice once ready, or afterwards. Invoice date defaults to dispatch date and cannot precede the SO date or enter a closed year.
@@ -4339,8 +4544,9 @@ module is used in production:
 6. **Serial number format.** **Standing default: operator- or vendor-supplied
    labels**, normalised (whitespace stripped, upper-cased) at receipt. The
    system adopts a matching pre-registered label or mints the missing one; it
-   does not invent a vendor-specific pattern. See §20 and §MFA-adjacent serial
-   notes; change generation only with an explicit pattern rule.
+   does not invent a vendor-specific pattern. See §20 for the receipt and §25
+   for labels typed on a transfer; change generation only with an explicit
+   pattern rule.
 7. **Partial dispatch.** **Standing default: any number of instalments, no
    minimum quantity beyond one positive movement.** A sales-order line may be
    dispatched in as many instalments as stock and reservations allow; there is
