@@ -22,12 +22,13 @@ the database schema matches this baseline, mark it with::
 resolve the previous head now that the historical files are gone. That keeps
 every historical data backfill, permission grant, report-key cleanup and CHECK
 swap already applied without replaying them. A fresh database runs
-``alembic upgrade head`` once.
+``alembic upgrade head`` once. Later revisions revise this one, so after a stamp
+the normal release still applies them.
 
 The pre-squash chain remains recoverable at git tag
-``pre-migration-squash-20261127``. See
-``docs/implementation/migration-squash-20261127.md`` for the stamp runbook and
-recovery plan.
+``pre-migration-squash-20261127`` (commit 904df1b2, an ancestor of main and
+develop). See ``docs/implementation/migration-squash-20261127.md`` for the stamp
+runbook and recovery plan.
 """
 
 from __future__ import annotations

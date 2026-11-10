@@ -905,14 +905,20 @@ path; new code is never served against the old schema.
 The standalone `migrate` command is for recovery and operator inspection. A
 normal release must not split `up` and `migrate` into separate steps.
 
-**Pre-squash databases (before 2026-10-19).** The first release onto a database
-that still records revision `20261020_0100` must not use the normal `upgrade`
-path: the 58-revision chain was replaced by a single baseline, and replaying it
-against populated data is destructive. Confirm the target's `alembic_version` is
-exactly `20261126_0100`; an earlier revision must first be upgraded through the
-old chain at tag `pre-migration-squash-20261127`. Then verify a clone and run
+**Pre-squash databases (before 8 November 2026).** The first release onto a
+database that still records a revision of the retired chain must not use the
+normal `upgrade` path: on 8 November 2026 the 38-revision chain was replaced by a
+single baseline, `20261127_0100`, and replaying it against populated data is
+destructive. Confirm the target's `alembic_version` is exactly `20261126_0100`;
+an earlier revision must first be upgraded through the old chain at tag
+`pre-migration-squash-20261127` (commit `904df1b2`, an ancestor of `main`, so it
+can be checked out by hash where the tag has not been fetched). The October tag
+`pre-migration-squash-20261019` (commit `af1186b4`) remains available for a
+database that never reached the November chain; its own procedure is
+`docs/implementation/migration-squash-20261021.md`. Then verify a clone and run
 `alembic stamp --purge 20261127_0100` in the maintenance window before starting
-the new release. The normal `up` then sees head and performs no schema work. See
+the new release. Stamping is only the bridge: the normal `up` then applies the
+revisions after the baseline (currently `20261128_0100`). See
 `docs/implementation/migration-squash-20261127.md` for the verification,
 stamp and recovery procedure.
 

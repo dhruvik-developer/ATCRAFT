@@ -8,11 +8,19 @@ This document records the repository's database contract. Where it and
 `CLAUDE.md` disagree, `CLAUDE.md` wins.
 
 The migration chain and ORM metadata must agree under an unfiltered
-`alembic check`. Revision `20261027_0100` reconciles the historical timestamp
-defaults, tenant foreign keys, indexes and equivalent CHECK names without
-rewriting the baseline. It preserves the existing chronological QC-decision
-index. Fresh-upgrade, enforcement and downgrade tests live in
-`tests/integration/test_schema_contract_migration.py` under `apps/api`.
+`alembic check`. The chain starts from one baseline, `20261127_0100`, squashed on
+8 November 2026 from a `pg_dump --schema-only` of the former head
+`20261126_0100`; later revisions follow it (currently `20261128_0100`). Every
+timestamp default, tenant foreign key, index and CHECK the retired revisions
+reconciled is part of that baseline. Its downgrade drops every table with
+`CASCADE`, unconditionally: it exists for disposable databases and tests only,
+and a populated database is rolled back by restoring its backup. Fresh upgrade,
+model agreement and the downgrade/rebuild round trip are proved by
+`tests/integration/test_migration_baseline.py` under `apps/api`. Where a section
+below names a retired revision, it says what that revision did before the
+squash; its lock bounds, backfills and downgrade refusals are history,
+recoverable at tag `pre-migration-squash-20261127` (commit `904df1b2`) - see
+`docs/implementation/migration-squash-20261127.md`.
 
 User placement and portal-binding foreign keys use SQLAlchemy `use_alter=True`
 so table creation can precede those named constraints. Their targets also refer
@@ -96,19 +104,12 @@ This makes an accidental N+1 a loud error in development rather than a silent
 
 ### Company approval settings
 
-Audit owns the sparse `company_approval_settings` table introduced by revision
-`20261124_0100`. It has one row per company, four nullable `NUMERIC(18,4)`
-thresholds, and creation provenance. An absent row or a NULL threshold uses the
-application default; the migration inserts no overrides and changes no existing
-stock, documents or audit records. The company foreign key uses `RESTRICT`, and
-the optional creator foreign key uses `SET NULL`.
-
-Upgrade and downgrade bound lock acquisition to five seconds and roll back
-atomically on failure. Downgrade takes an exclusive table lock and refuses if
-any settings row exists, preserving company configuration against concurrent
-writes. An empty table can be downgraded and recreated. The migration and
-application reads on the migrated schema are verified in
-`tests/integration/test_approval_settings_migration.py` under `apps/api`.
+Audit owns the sparse `company_approval_settings` table (added by retired
+revision `20261124_0100`, now part of the baseline). It has one row per company,
+four nullable `NUMERIC(18,4)` thresholds, and creation provenance. An absent row
+or a NULL threshold uses the application default, so a new company starts with
+no overrides. The company foreign key uses `RESTRICT`, and the optional creator
+foreign key uses `SET NULL`.
 
 ### Cost centres
 
@@ -264,10 +265,8 @@ is no delete.
 
 ### Specifications and accessories
 
-Revision `20261101_0100` adds four descriptive product tables. It creates new
-tables and indexes without rewriting existing item or inventory rows. Its
-five-second lock timeout bounds DDL waiting; downgrade refuses while any of
-these tables contains data, so it cannot silently discard operator descriptions.
+Products owns four descriptive tables (added by retired revision
+`20261101_0100`, now part of the baseline).
 
 `specification_attributes` is a `TenantMasterEntity` vocabulary with a normalized,
 company-unique `code`, `name`, `value_type` (`TEXT | NUMBER | BOOLEAN | OPTION`),
@@ -644,9 +643,10 @@ uses DAMAGED when material must remain identifiable.
 `inventory_cost_layers.pool` separates `ON_HAND` and `SCRAP` FIFO queues at the
 same grain. Scrapping preserves the original receipt costs in the scrap queue;
 disposal consumes that queue, independently of later on-hand receipts.
-`stock_value` and average cost describe the on-hand queue. The legacy backfill
-uses recorded scrap costs, with standard cost only for uncovered history, and
-verifies that the queue covers the current scrap quantity. Ordinary valuation
+`stock_value` and average cost describe the on-hand queue. The legacy backfill,
+done by a retired revision before the squash, used recorded scrap costs, with
+standard cost only for uncovered history, and verified that the queue covered
+the scrap quantity then held. Ordinary valuation
 and layer reconciliation exclude the scrap queue.
 
 `internal_issues` names a department and/or cost centre and posts
@@ -970,10 +970,10 @@ existing `source_demands` fact. The roots are canonical
 and line; manual demand names its persisted `mrp_demands.id` as `MRP_DEMAND`.
 They propagate through every BOM level and deduplicate across branches. A
 parent item ID is never substituted for a demand ID. Both read DTOs expose the
-typed aggregate as `demand_provenance`. Revision `20261102_0100` adds the GIN
-index on `mrp_suggestions.source_demands` for direct and nested-root containment
-lookups without rewriting planning rows. Its transactional build bounds lock
-acquisition to five seconds and needs a maintenance window for large histories.
+typed aggregate as `demand_provenance`. A GIN index on
+`mrp_suggestions.source_demands` (`ix_mrp_suggestions_source_demands`, added by
+retired revision `20261102_0100`) serves direct and nested-root containment
+lookups.
 
 The displayed contribution list remains capped at fifty. Distinct roots have
 their own fifty-reference bound; exceeding it marks provenance incomplete
@@ -1246,14 +1246,11 @@ authoritative even when all have been released. Existing unmapped imports can
 still use the scalar fallback. Source counters are recomputed from these facts,
 not decremented with a zero clamp. Releasing a PO never reopens cancelled demand.
 
-Revision `20261103_0100` backfills scalar links without changing existing
-counters, marking cancelled/rejected order links inactive. It refuses legacy
-counter or tenant inconsistencies before DDL. The migration holds procurement
-table locks with a five-second acquisition limit; use a maintenance window for
-large histories. Downgrade refuses revisions, duplicate-confirmation evidence
-or allocations that scalar links cannot represent. `20261104_0100` only renames
-the composite foreign keys to explicit names within PostgreSQL's identifier
-bound, preserving their validation and every allocation identity.
+Retired revision `20261103_0100` backfilled these rows from the scalar links
+without changing existing counters, marking cancelled/rejected order links
+inactive, and `20261104_0100` gave the composite foreign keys explicit names
+within PostgreSQL's identifier bound (`fk_po_source_allocations_line_tenant`,
+`fk_po_source_allocations_requisition_tenant`); both are part of the baseline.
 
 PO revision evidence includes `amendment_number`, `last_amended_at`,
 `last_amended_by_id`, `duplicate_confirmed_by_id`, `duplicate_confirmed_at` and
@@ -1271,8 +1268,8 @@ deferred D4 signer setup is decided.
 `po_dual_approval_amount` and `requisition_auto_approve_limit`; a value at or
 below zero disables the corresponding rule. Above the dual-approval limit a
 purchase order needs two different approvers. The first signature is written to
-`purchase_orders.first_approved_by_id` / `first_approved_at` (revision
-`20261125_0100`, CHECK `first_approval_evidence_complete`), audited as
+`purchase_orders.first_approved_by_id` / `first_approved_at` (CHECK
+`first_approval_evidence_complete`), audited as
 `purchase_order_dual_approval_first_signature` with the amount and limit, and
 leaves the order in `PENDING_APPROVAL`. The same user cannot complete it - the
 superuser exemption does not apply to this distinctness rule. Editing a pending
@@ -1622,10 +1619,10 @@ before all serial rows in the inventory engine's fixed order, batches evidence
 reads and flushes status changes and audits together. A withdrawn check cannot
 later decide stock, and a fresh order can inspect the same available units.
 
-Revision `20261030_0100` backfills line selections only from matching named-unit
-inspections. It never invents identities for quantity-only history. Before
-upgrading an existing installation, identify active serial FINAL orders whose
-line selection remains empty. Their sealed cartons can use the reasoned
+Retired revision `20261030_0100` backfilled line selections only from matching
+named-unit inspections and never invented identities for quantity-only history,
+so an installation upgraded through it may still hold active serial FINAL orders
+whose line selection is empty. Their sealed cartons can use the reasoned
 `POST /packing/{id}/cartons/{carton_id}/recover-legacy` operation before dispatch
 claims the order: physically recover reusable packing material first, then the
 service posts MATERIAL_RETURN at the original matching issue's quantity and cost,
@@ -1633,11 +1630,6 @@ preserves both immutable ledger rows and audits their IDs. A PACKED legacy order
 returns to IN_PROGRESS with its completion totals cleared. Recover every sealed
 carton, cancel, and repack with actual scanned units and fresh FINAL QC. Normal
 named-unit sealed cartons and handed-over history cannot use this exception.
-
-Revisions 30 and 31 refuse downgrades that would discard populated selections or
-WITHDRAWN history. A downgrade across several revisions may roll back a newer
-empty revision before an older protected one refuses; run `alembic upgrade head`
-to restore that newer DDL. Review the refusal and retain the recorded history.
 
 ### Partial credit-note rounding
 

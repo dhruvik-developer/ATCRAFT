@@ -16,8 +16,9 @@ preserve their original planning and audit evidence.
 
 ## Current checkpoint
 
-Updated 8 November 2026. Alembic history is again a **single** revision,
-`20261127_0100`, covering the former head `20261126_0100` (see
+Updated 8 November 2026. Alembic history again starts from a **single**
+baseline revision, `20261127_0100`, covering the former head `20261126_0100`;
+later revisions follow it, starting with `20261128_0100` (see
 [migration-squash-20261127.md](migration-squash-20261127.md); the October squash
 note remains historical). The owner's
 [single-checkout policy](../../AGENTS.md) supersedes the historical lane/worktree
