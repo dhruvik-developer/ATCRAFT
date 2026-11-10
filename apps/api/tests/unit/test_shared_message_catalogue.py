@@ -139,6 +139,9 @@ def test_the_shared_builders_keep_each_module_s_wording() -> None:
     assert messages.line_not_serial_tracked(3, "HNG-1") == (
         "Line 3: HNG-1 is not serial tracked; remove the serial numbers."
     )
+    assert messages.not_tracked("Component line 2", "batch", "lot") == (
+        "Component line 2 is not batch tracked; remove the lot."
+    )
     assert messages.output_not_serial_tracked("HNG-1") == (
         "HNG-1 is not serial tracked; remove the output serials."
     )

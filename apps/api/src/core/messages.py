@@ -181,9 +181,19 @@ def no_price_configured(price_type: str, item_code: str) -> str:
     )
 
 
+def not_tracked(subject: str, tracking: Literal["serial", "batch"], remove: str) -> str:
+    """``"Line 3: HNG-1 is not serial tracked; remove the serial numbers."``
+
+    The one sentence for a serial or a lot keyed against an item that does not
+    track one. ``subject`` names what was keyed - an item code, or a line and
+    its item - and ``remove`` what has to come off the request.
+    """
+    return f"{subject} is not {tracking} tracked; remove the {remove}."
+
+
 def line_not_serial_tracked(line_number: int, item_code: str) -> str:
-    """Serial numbers keyed against an item that has none."""
-    return f"Line {line_number}: {item_code} is not serial tracked; remove the serial numbers."
+    """Serial numbers keyed on a document line against an item that has none."""
+    return not_tracked(f"Line {line_number}: {item_code}", "serial", "serial numbers")
 
 
 def duplicate_line_numbers(numbers: Sequence[int], document: str | None = None) -> str:
@@ -318,7 +328,7 @@ OUTPUT_SERIAL_REPEATED = "An output serial is repeated."
 
 def output_not_serial_tracked(item_code: str) -> str:
     """Output serials named for an item that tracks none - assembly and production."""
-    return f"{item_code} is not serial tracked; remove the output serials."
+    return not_tracked(item_code, "serial", "output serials")
 
 
 def other_customer_order(code: str) -> str:
@@ -427,6 +437,7 @@ __all__ = [
     "listed",
     "needs_time_zone",
     "no_price_configured",
+    "not_tracked",
     "obsolete_not_delete",
     "other_customer_order",
     "output_not_serial_tracked",

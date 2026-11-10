@@ -112,7 +112,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id, persisted_actor
 from src.core.logging import get_logger
-from src.core.messages import inactive_record, line_not_serial_tracked, plural
+from src.core.messages import inactive_record, line_not_serial_tracked, not_tracked, plural
 from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
 from src.core.permissions import Permission
@@ -4557,7 +4557,7 @@ class TraceabilityService:
                 raise NotFoundError("Item", payload.item_id)
             if not item.is_serial_tracked:
                 raise BusinessRuleError(
-                    f"{item.code} is not serial tracked, so it has no serial numbers to record.",
+                    not_tracked(item.code, "serial", "serial numbers"),
                     details={"item_code": item.code, "item_id": str(item.id)},
                 )
             existing = await self.serials.by_number(payload.item_id, payload.serial_number)
@@ -4614,7 +4614,7 @@ class TraceabilityService:
                 raise NotFoundError("Item", payload.item_id)
             if not item.is_serial_tracked:
                 raise BusinessRuleError(
-                    f"{item.code} is not serial tracked, so it has no serial numbers to record.",
+                    not_tracked(item.code, "serial", "serial numbers"),
                     details={"item_code": item.code, "item_id": str(item.id)},
                 )
             serials = await self._register_serials(
@@ -4740,7 +4740,7 @@ class TraceabilityService:
             raise NotFoundError("Item", item_id)
         if not item.is_serial_tracked:
             raise BusinessRuleError(
-                f"{item.code} is not serial tracked; remove the serial numbers.",
+                not_tracked(item.code, "serial", "serial numbers"),
                 details={"item_code": item.code, "source": source},
             )
         cleaned = ["".join(value.split()).upper() for value in serial_numbers]
@@ -5205,7 +5205,7 @@ async def _adopt_named_serials(
         item = items[line.item_id]
         if not item.is_serial_tracked:
             raise BusinessRuleError(
-                f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                line_not_serial_tracked(number, item.code),
                 details={"line_number": number, "item_code": item.code},
             )
         resolved: list[uuid.UUID] = []
@@ -5799,7 +5799,7 @@ class StockTransferService:
                 )
             if not item.is_serial_tracked and line.serial_ids:
                 raise BusinessRuleError(
-                    f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                    line_not_serial_tracked(number, item.code),
                     details={"line_number": number, "item_code": item.code},
                 )
             for serial_id in line.serial_ids:
@@ -6206,7 +6206,7 @@ class StockAdjustmentService:
                 )
             if not item.is_serial_tracked and line.serial_ids:
                 raise BusinessRuleError(
-                    f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                    line_not_serial_tracked(number, item.code),
                     details={"line_number": number, "item_code": item.code},
                 )
             if line.serial_ids:
@@ -7683,7 +7683,7 @@ async def _assert_document_lines(
                     )
         elif position.serial_ids:
             raise BusinessRuleError(
-                f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                line_not_serial_tracked(number, item.code),
                 details={"line_number": number, "item_code": item.code},
             )
         if position.batch_id is None:

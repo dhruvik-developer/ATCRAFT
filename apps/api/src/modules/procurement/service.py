@@ -4930,9 +4930,7 @@ async def _resolve_serials(
             )
         if not item.is_serial_tracked:
             if numbers:
-                raise BusinessRuleError(
-                    f"Line {line.line_number}: {item.code} is not serial tracked."
-                )
+                raise BusinessRuleError(line_not_serial_tracked(line.line_number, item.code))
             continue
         if Decimal(len(numbers)) != accepted:
             raise BusinessRuleError(
