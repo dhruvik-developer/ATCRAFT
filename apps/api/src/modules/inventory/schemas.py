@@ -41,8 +41,9 @@ from src.core.constants import (
     MAX_NOTES_LENGTH,
     MAX_SERIAL_BULK,
     REASON_MIN_LENGTH,
+    SERIAL_LABEL_LENGTH,
 )
-from src.core.fields import NonNegativeMoney, Reason
+from src.core.fields import NonNegativeMoney, Reason, normalise_serial_labels
 from src.core.messages import REASON_TOO_SHORT, date_before
 from src.core.validation import reject_null
 from src.modules.inventory.models import (
@@ -85,21 +86,6 @@ UnitCost = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
 #: would hold row locks on an unbounded number of balances for an unbounded
 #: time, which is how one careless import stalls every other stock movement.
 MAX_DOCUMENT_LINES = 500
-
-
-def _normalise_serial_labels(values: list[str]) -> list[str]:
-    """Strip whitespace, upper-case and de-duplicate a captured label run.
-
-    Shared by bulk registration and document lines so a scanner that appends a
-    newline behaves the same whichever field received it, and so a line's count
-    is checked against the labels the database will actually match.
-    """
-    cleaned = ["".join(value.split()).upper() for value in values]
-    if any(not value or len(value) > 64 for value in cleaned):
-        raise ValueError("Every serial number must be between 1 and 64 characters.")
-    if len(set(cleaned)) != len(cleaned):
-        raise ValueError("A serial number cannot appear twice in the same request.")
-    return cleaned
 
 
 # -----------------------------------------------------------------------------
@@ -379,7 +365,7 @@ class StockSerialCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: uuid.UUID
-    serial_number: Annotated[str, Field(min_length=1, max_length=64)]
+    serial_number: Annotated[str, Field(min_length=1, max_length=SERIAL_LABEL_LENGTH)]
     batch_id: uuid.UUID | None = None
     warehouse_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
@@ -438,7 +424,7 @@ class StockSerialBulkCreate(BaseModel):
     @field_validator("serial_numbers")
     @classmethod
     def _normalise_and_unique(cls, values: list[str]) -> list[str]:
-        return _normalise_serial_labels(values)
+        return normalise_serial_labels(values)
 
 
 class StockSerialLabelRequest(BaseModel):
@@ -503,7 +489,7 @@ class StockTransferLineCreate(BaseModel):
     @field_validator("serial_numbers")
     @classmethod
     def _normalise_serials(cls, values: list[str]) -> list[str]:
-        return _normalise_serial_labels(values)
+        return normalise_serial_labels(values)
 
     @model_validator(mode="after")
     def _serials_are_whole_units(self) -> StockTransferLineCreate:
@@ -665,7 +651,7 @@ class StockAdjustmentLineCreate(BaseModel):
     @field_validator("serial_numbers")
     @classmethod
     def _normalise_serials(cls, values: list[str]) -> list[str]:
-        return _normalise_serial_labels(values)
+        return normalise_serial_labels(values)
 
     @model_validator(mode="after")
     def _serials_are_whole_units(self) -> StockAdjustmentLineCreate:
@@ -841,7 +827,7 @@ class PhysicalCountEntry(BaseModel):
     @field_validator("serial_numbers")
     @classmethod
     def _serial_labels(cls, value: list[str] | None) -> list[str] | None:
-        return None if value is None else _normalise_serial_labels(value)
+        return None if value is None else normalise_serial_labels(value)
 
     notes: LineNotes | None = None
 

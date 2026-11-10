@@ -20,7 +20,7 @@ from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from typing import Literal
 
-from src.core.constants import REASON_MIN_LENGTH
+from src.core.constants import REASON_MIN_LENGTH, SERIAL_LABEL_LENGTH
 
 # --- counts and lists -----------------------------------------------------------
 
@@ -324,8 +324,16 @@ def self_approval_refused(
 SOURCE_DOCUMENT_REQUIRED = (
     "Name the source document this order covers, or leave the source type MANUAL."
 )
-OUTPUT_SERIAL_LENGTH = "Every output serial must be 1-64 characters."
-OUTPUT_SERIAL_REPEATED = "An output serial is repeated."
+
+
+def serial_label_length(noun: str, where: str = "") -> str:
+    """``"Every output serial must be 1-64 characters."``; ``where`` places it: ``" (line 3)"``."""
+    return f"Every {noun} must be 1-{SERIAL_LABEL_LENGTH} characters{where}."
+
+
+def serial_label_repeated(noun: str, where: str = "") -> str:
+    """``"The same serial number is named twice (line 3)."``"""
+    return f"The same {noun} is named twice{where}."
 
 
 def output_not_serial_tracked(item_code: str) -> str:
@@ -419,8 +427,6 @@ __all__ = [
     "NAME_BLANK",
     "NO_FIELDS_TO_UPDATE",
     "OPERATION_COMPLETED",
-    "OUTPUT_SERIAL_LENGTH",
-    "OUTPUT_SERIAL_REPEATED",
     "PRICE_QUANTITY_NOT_POSITIVE",
     "RATE_LIMITED",
     "REASON_TOO_SHORT",
@@ -460,6 +466,8 @@ __all__ = [
     "parent_below",
     "plural",
     "self_approval_refused",
+    "serial_label_length",
+    "serial_label_repeated",
     "success_message",
     "too_long",
     "verdict_differs_from_inspection",

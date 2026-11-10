@@ -25,10 +25,13 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.core.fields import NonNegativeQuantity, PositiveQuantity, Reason
+from src.core.fields import (
+    NonNegativeQuantity,
+    PositiveQuantity,
+    Reason,
+    normalise_serial_labels,
+)
 from src.core.messages import (
-    OUTPUT_SERIAL_LENGTH,
-    OUTPUT_SERIAL_REPEATED,
     date_before,
     duplicate_line_numbers,
 )
@@ -326,11 +329,7 @@ class CompleteRequest(BaseModel):
     def _rejection_has_a_reason(self) -> CompleteRequest:
         if self.rejected_quantity > 0 and not self.rejection_reason:
             raise ValueError("Give a rejection reason when rejecting output.")
-        cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
-        if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError(OUTPUT_SERIAL_LENGTH)
-        if len(set(cleaned)) != len(cleaned):
-            raise ValueError(OUTPUT_SERIAL_REPEATED)
+        cleaned = normalise_serial_labels(self.output_serial_numbers, "output serial")
         if cleaned and Decimal(len(cleaned)) != self.produced_quantity:
             raise ValueError("Name one output serial per produced unit.")
         self.output_serial_numbers = cleaned
@@ -604,11 +603,7 @@ class ProductionEntryCreate(BaseModel):
             )
         if self.rejected_quantity > 0 and not self.rejection_reason:
             raise ValueError("Give a rejection reason when rejecting output.")
-        cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
-        if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError(OUTPUT_SERIAL_LENGTH)
-        if len(set(cleaned)) != len(cleaned):
-            raise ValueError(OUTPUT_SERIAL_REPEATED)
+        cleaned = normalise_serial_labels(self.output_serial_numbers, "output serial")
         if cleaned and Decimal(len(cleaned)) != self.produced_quantity:
             raise ValueError("Name one output serial per produced unit.")
         self.output_serial_numbers = cleaned

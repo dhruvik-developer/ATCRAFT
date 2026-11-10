@@ -34,8 +34,13 @@ from src.core.fields import (
     PositiveQuantity,
     Reason,
     currency_code,
+    normalise_serial_labels,
 )
-from src.core.messages import CURRENCY_CODE_INVALID
+from src.core.messages import (
+    CURRENCY_CODE_INVALID,
+    serial_label_length,
+    serial_label_repeated,
+)
 from src.modules.finance.service import normalise_currency
 from tests.route_support import module_routes
 
@@ -162,6 +167,37 @@ def test_a_figure_finer_or_larger_than_its_column_is_refused_not_rounded(
     for value in refused:
         with pytest.raises(PydanticValidationError):
             adapter.validate_python(value)
+
+
+# -----------------------------------------------------------------------------
+# Serial labels
+# -----------------------------------------------------------------------------
+
+
+def test_a_serial_label_is_kept_as_the_database_holds_it() -> None:
+    """A scanner's trailing newline and a lower-case label still name the unit."""
+    assert normalise_serial_labels([" sn-001\n", "sn 002", "SN-003"]) == [
+        "SN-001",
+        "SN002",
+        "SN-003",
+    ]
+    assert normalise_serial_labels([]) == []
+
+
+@pytest.mark.parametrize("label", ["", "   ", "S" * 65])
+def test_a_blank_or_over_long_serial_label_is_refused(label: str) -> None:
+    with pytest.raises(ValueError, match=r"^Every output serial must be 1-64 characters\.$"):
+        normalise_serial_labels(["SN-1", label], "output serial")
+
+
+def test_a_label_named_twice_once_cleaned_is_refused_where_it_was_keyed() -> None:
+    with pytest.raises(ValueError) as refused:
+        normalise_serial_labels(["sn-1", " SN-1 "], where=" (line 3)")
+
+    assert str(refused.value) == serial_label_repeated("serial number", " (line 3)")
+    assert str(refused.value) == "The same serial number is named twice (line 3)."
+    assert normalise_serial_labels(["S" * 64]) == ["S" * 64]
+    assert serial_label_length("serial number") == ("Every serial number must be 1-64 characters.")
 
 
 # -----------------------------------------------------------------------------

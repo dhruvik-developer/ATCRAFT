@@ -46,6 +46,9 @@ MAX_NOTES_LENGTH = 4000
 MAX_LINE_NOTES_LENGTH = 2000
 MAX_DESCRIPTION_LENGTH = 2000
 
+#: The width of a serial label - ``stock_serials.serial_number`` is VARCHAR(64).
+SERIAL_LABEL_LENGTH = 64
+
 #: The largest value a PostgreSQL ``INTEGER`` column holds. A request integer
 #: stored in one is bounded by it, so a larger value is a 422 naming the field
 #: instead of an encoding error from the driver - a 500 that names nothing. It
@@ -76,4 +79,5 @@ __all__ = [
     "MAX_SPECIFICATION_FILTERS",
     "MAX_SPECIFICATION_OPTIONS",
     "REASON_MIN_LENGTH",
+    "SERIAL_LABEL_LENGTH",
 ]

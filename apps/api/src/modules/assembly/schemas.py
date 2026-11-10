@@ -24,10 +24,13 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.fields import NonNegativeQuantity, PositiveQuantity, Reason
+from src.core.fields import (
+    NonNegativeQuantity,
+    PositiveQuantity,
+    Reason,
+    normalise_serial_labels,
+)
 from src.core.messages import (
-    OUTPUT_SERIAL_LENGTH,
-    OUTPUT_SERIAL_REPEATED,
     SOURCE_DOCUMENT_REQUIRED,
     date_before,
 )
@@ -313,11 +316,7 @@ class CompleteRequest(BaseModel):
         seen = {line.line_number for line in self.components}
         if len(seen) != len(self.components):
             raise ValueError("A component line may only be given one serial set.")
-        cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
-        if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError(OUTPUT_SERIAL_LENGTH)
-        if len(set(cleaned)) != len(cleaned):
-            raise ValueError(OUTPUT_SERIAL_REPEATED)
+        cleaned = normalise_serial_labels(self.output_serial_numbers, "output serial")
         if cleaned and Decimal(len(cleaned)) != self.assembled_quantity:
             raise ValueError("Name one output serial per assembled unit.")
         self.output_serial_numbers = cleaned

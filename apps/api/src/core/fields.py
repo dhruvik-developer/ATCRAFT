@@ -16,13 +16,14 @@ names for itself.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import Annotated
 
 from pydantic import BeforeValidator, Field
 
-from src.core.constants import CURRENCY_CODE_LENGTH, REASON_MIN_LENGTH
-from src.core.messages import CURRENCY_CODE_INVALID
+from src.core.constants import CURRENCY_CODE_LENGTH, REASON_MIN_LENGTH, SERIAL_LABEL_LENGTH
+from src.core.messages import CURRENCY_CODE_INVALID, serial_label_length, serial_label_repeated
 
 
 def currency_code(value: object) -> object:
@@ -41,6 +42,25 @@ def currency_code(value: object) -> object:
     if len(code) != CURRENCY_CODE_LENGTH or not (code.isascii() and code.isalpha()):
         raise ValueError(CURRENCY_CODE_INVALID)
     return code
+
+
+def normalise_serial_labels(
+    values: Iterable[str], noun: str = "serial number", *, where: str = ""
+) -> list[str]:
+    """Serial labels as the database holds them: no spaces, upper case, each once.
+
+    A scanner that appends a newline, or a label typed in lower case, must still
+    name the unit on file, so every request that names serials cleans them this
+    way before counting them against a quantity. A label outside 1-64
+    characters, or one named twice, is refused; ``noun`` and ``where`` say
+    which list and which line, e.g. ``"output serial"`` or ``" (line 3)"``.
+    """
+    cleaned = ["".join(value.split()).upper() for value in values]
+    if any(not label or len(label) > SERIAL_LABEL_LENGTH for label in cleaned):
+        raise ValueError(serial_label_length(noun, where))
+    if len(set(cleaned)) != len(cleaned):
+        raise ValueError(serial_label_repeated(noun, where))
+    return cleaned
 
 
 #: An ISO 4217 alphabetic code, normalised to upper case on the way in.
@@ -85,4 +105,5 @@ __all__ = [
     "PositiveQuantity",
     "Reason",
     "currency_code",
+    "normalise_serial_labels",
 ]

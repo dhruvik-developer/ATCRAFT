@@ -40,6 +40,7 @@ from src.core.fields import (
     NonNegativeQuantity,
     PositiveQuantity,
     Reason,
+    normalise_serial_labels,
 )
 from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, date_before, duplicate_line_numbers, listed
 from src.core.validation import reject_null
@@ -1469,11 +1470,7 @@ class GoodsReceiptLineIn(BaseModel):
             raise ValueError(
                 f"Line {self.line_number}: " + date_before("expiry date", "manufacturing date")
             )
-        cleaned = ["".join(value.split()).upper() for value in self.serial_numbers]
-        if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError(f"Every serial must be 1-64 characters (line {self.line_number}).")
-        if len(set(cleaned)) != len(cleaned):
-            raise ValueError(f"A serial is repeated (line {self.line_number}).")
+        cleaned = normalise_serial_labels(self.serial_numbers, where=f" (line {self.line_number})")
         if cleaned and Decimal(len(cleaned)) != self.accepted_quantity:
             raise ValueError(
                 "A serialised receipt line must name one unit per accepted quantity "
