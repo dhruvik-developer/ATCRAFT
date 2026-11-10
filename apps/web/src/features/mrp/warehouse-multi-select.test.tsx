@@ -44,6 +44,13 @@ function render(rows = WAREHOUSES, maxSelections?: number) {
 }
 
 describe('the MRP warehouse choice', () => {
+  it('reads no warehouse list without warehouse.view, and says the run plans across all', async () => {
+    const { fetch } = renderScreen(<Scope />, { permissions: [P.MRP_VIEW] })
+
+    expect(await screen.findByText(/your role cannot read the warehouse list/i)).toBeVisible()
+    expect(fetch.calls.some((call) => call.path === '/warehouses')).toBe(false)
+  })
+
   it('opens on ArrowDown and ticks warehouses from the keyboard in one Tab stop', async () => {
     const { user } = render()
     const trigger = await screen.findByRole('combobox', { name: 'Warehouses' })

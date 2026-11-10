@@ -84,12 +84,6 @@ export const MAX_BULK_IGNORE = 500
 
 // ----------------------------------------------------------- wire shapes ----
 
-export interface WarehouseOption {
-  id: string
-  code: string
-  name: string
-}
-
 /**
  * `parameters` on the run: the inputs the service recorded verbatim when the run
  * row was built (`mrp/service.py`). JSONB, so every key is optional - a run

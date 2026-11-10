@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
 import { ChevronsUpDown, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
@@ -7,15 +6,11 @@ import { Button } from '@/components/ui/button'
 import { MultiSelectList } from '@/components/ui/multi-select-list'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
-import { WAREHOUSE_LOOKUP_PARAMS } from '@/features/inventory/types'
-import { api } from '@/lib/api-client'
+import { useWarehouseLookup } from '@/features/inventory/use-warehouse-lookup'
 import { plural } from '@/lib/format'
 import { describeError } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
-
-import type { WarehouseOption } from './mrp-types'
 
 /**
  * An empty selection means all active warehouses. The lookup is optional:
@@ -40,13 +35,7 @@ export function WarehouseMultiSelect({
   const { can } = useAuth()
   const canReadWarehouses = can(P.WAREHOUSE_VIEW)
   const [open, setOpen] = useState(false)
-  const params = WAREHOUSE_LOOKUP_PARAMS
-  const warehouses = useQuery({
-    queryKey: queryKeys.warehouses.list(params),
-    queryFn: ({ signal }) => api.getPage<WarehouseOption>('/warehouses', { params, signal }),
-    enabled: canReadWarehouses,
-    staleTime: staleTimes.master,
-  })
+  const warehouses = useWarehouseLookup(canReadWarehouses)
 
   const rows = useMemo(() => warehouses.data?.data ?? [], [warehouses.data])
   const chosen = useMemo(() => new Set(value), [value])

@@ -79,7 +79,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
-import { WAREHOUSE_LOOKUP_PARAMS } from '@/features/inventory/types'
+import { useWarehouseLookup } from '@/features/inventory/use-warehouse-lookup'
 import { JOB_WORK_PROCESSES, jobWorkKeys } from '@/features/job-work/job-work-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { ShortageReportTab } from '@/features/mrp/shortage-report-tab'
@@ -125,7 +125,6 @@ import {
   type MrpSourceDemand,
   type MrpSuggestionRow,
   type SuggestionType,
-  type WarehouseOption,
 } from './mrp-types'
 
 const POLL_INTERVAL_MS = 3000
@@ -353,18 +352,12 @@ export default function MrpRunDetailPage() {
   )
   // The one spelling of the lookup, so this and `WarehouseSelect` share a
   // cache entry rather than fetching the same bounded list twice.
-  const warehouseParams = WAREHOUSE_LOOKUP_PARAMS
-  const warehouses = useQuery({
-    queryKey: queryKeys.warehouses.list(warehouseParams),
-    queryFn: ({ signal }) =>
-      api.getPage<WarehouseOption>('/warehouses', { params: warehouseParams, signal }),
-    enabled:
-      (scopedWarehouseIds.length > 0 ||
-        convertOpen ||
-        suggestions.data.some((row) => row.suggestion_type === 'TRANSFER')) &&
+  const warehouses = useWarehouseLookup(
+    (scopedWarehouseIds.length > 0 ||
+      convertOpen ||
+      suggestions.data.some((row) => row.suggestion_type === 'TRANSFER')) &&
       can(P.WAREHOUSE_VIEW),
-    staleTime: staleTimes.master,
-  })
+  )
   const warehouseById = useMemo(
     () => new Map((warehouses.data?.data ?? []).map((warehouse) => [warehouse.id, warehouse])),
     [warehouses.data],

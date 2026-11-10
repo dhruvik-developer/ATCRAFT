@@ -1422,6 +1422,28 @@ describe('editing the lines of an order', () => {
 })
 
 describe('what the detail screen shows', () => {
+  it.each([
+    ['with', [P.SALES_ORDER_VIEW, P.WAREHOUSE_VIEW], 'WH-MAIN'],
+    ['without', [P.SALES_ORDER_VIEW], '-'],
+  ] as const)(
+    'names the dispatch warehouse %s the warehouse right, and never by its id',
+    async (_, permissions, shown) => {
+      // The label fell back to the warehouse's id while the list was unread,
+      // and for good without warehouse.view, which asks for no list at all.
+      const { fetch } = renderDetail({
+        order: orderDetail(),
+        permissions: [...permissions],
+        routes: { 'GET /warehouses': page([WAREHOUSE]) },
+      })
+
+      const label = await screen.findByText('Dispatch from', { selector: 'dt' })
+      await waitFor(() => expect(label.nextElementSibling).toHaveTextContent(shown))
+      expect(label.nextElementSibling).toHaveTextContent(new RegExp(`^${shown}$`))
+      expect(screen.queryByText(WAREHOUSE_ID)).toBeNull()
+      expect(fetch.calls.some((call) => call.path === '/warehouses')).toBe(shown === 'WH-MAIN')
+    },
+  )
+
   it('states the totals the API calculated rather than re-adding them', async () => {
     renderDetail({
       order: orderDetail(),

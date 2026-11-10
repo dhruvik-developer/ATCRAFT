@@ -60,7 +60,7 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import type { CustomerDetail } from '@/features/customers/customer-types'
 import { ReallocationRequestDialog } from '@/features/inventory/reallocation-request-dialog'
-import { WAREHOUSE_LOOKUP_PARAMS, type WarehouseOption } from '@/features/inventory/types'
+import { useWarehouseLookup } from '@/features/inventory/use-warehouse-lookup'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { reportFieldErrors } from '@/lib/form-errors'
@@ -613,20 +613,12 @@ export default function SalesOrderDetailPage() {
     staleTime: staleTimes.master,
   })
 
-  // Warehouses are a bounded reference list, shared with every warehouse select.
-  const warehouses = useQuery({
-    // The one spelling of the lookup, shared with `WarehouseSelect`, so the
-    // two read one cache entry rather than fetching the same list twice.
-    queryKey: queryKeys.warehouses.list(WAREHOUSE_LOOKUP_PARAMS),
-    queryFn: ({ signal }) =>
-      api.getPage<WarehouseOption>('/warehouses', { params: WAREHOUSE_LOOKUP_PARAMS, signal }),
-    enabled: can(P.WAREHOUSE_VIEW),
-    staleTime: staleTimes.master,
-  })
+  // Warehouses are a bounded reference list, read through the one spelling
+  // `WarehouseSelect` uses, so the two share a cache entry. Without the list -
+  // no warehouse.view, or not read yet - the warehouse is a blank, not its id.
+  const warehouses = useWarehouseLookup(can(P.WAREHOUSE_VIEW))
   const warehouseLabel =
-    warehouses.data?.data.find((row) => row.id === order?.warehouse_id)?.code ??
-    order?.warehouse_id ??
-    '-'
+    warehouses.data?.data.find((row) => row.id === order?.warehouse_id)?.code ?? EMPTY_VALUE
 
   /** Confirming reserves stock, so every reservation-shaped cache is dropped. */
   const invalidateOrderAndStock = () => {
