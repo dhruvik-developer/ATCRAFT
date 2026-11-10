@@ -53,6 +53,7 @@ from src.core.errors import (
 from src.core.ids import new_id
 from src.core.messages import (
     PRICE_QUANTITY_NOT_POSITIVE,
+    RETIRED_CODE_NOT_REUSED,
     date_before,
     inactive_record,
     listed,
@@ -1930,11 +1931,6 @@ async def list_item_attributes(
 # same terms; and a retired code is never reissued. docs/assumptions.md §39.
 
 
-#: Why a manufacturer or brand code the list does not show is still taken: a
-#: retired code is never reissued (the ASSUMPTION above).
-RETIRED_CODE_NOTE = "Codes of retired records are not reused."
-
-
 def _target_state(
     machine: StateMachine[MasterLifecycleState],
     record: Brand | Manufacturer,
@@ -2034,7 +2030,7 @@ async def create_manufacturer(
 
     async with transaction(session):
         if await repo.code_taken(payload.code):
-            raise duplicate_code(MANUFACTURER_ENTITY, payload.code, note=RETIRED_CODE_NOTE)
+            raise duplicate_code(MANUFACTURER_ENTITY, payload.code, note=RETIRED_CODE_NOT_REUSED)
 
         manufacturer = Manufacturer(**payload.model_dump())
         repo.add(manufacturer)
@@ -2159,7 +2155,7 @@ async def create_brand(
 
     async with transaction(session):
         if await repo.code_taken(payload.code):
-            raise duplicate_code(BRAND_ENTITY, payload.code, note=RETIRED_CODE_NOTE)
+            raise duplicate_code(BRAND_ENTITY, payload.code, note=RETIRED_CODE_NOT_REUSED)
         await _require_manufacturer(session, tenant, payload.manufacturer_id)
 
         brand = Brand(**payload.model_dump())

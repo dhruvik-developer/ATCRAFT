@@ -62,6 +62,7 @@ from src.core.errors import (
 from src.core.messages import (
     NO_FIELDS_TO_UPDATE,
     inactive_record,
+    no_longer_editable,
 )
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -1424,7 +1425,7 @@ class FinancialYearService:
             year = await self.repo.get_or_404(year_id)
             if year.is_closed:
                 raise BusinessRuleError(
-                    f"Financial year {year.code} is closed and can no longer be edited.",
+                    no_longer_editable(f"Financial year {year.code}", "closed"),
                     details={"code": year.code},
                 )
 

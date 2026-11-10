@@ -18,9 +18,13 @@ from src.core.errors import (
     DuplicateError,
     NotFoundError,
     ValidationError,
+    duplicate_code,
     referenced_in_use,
 )
-from src.core.messages import inactive_record
+from src.core.messages import (
+    RETIRED_CODE_NOT_REUSED,
+    inactive_record,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -233,9 +237,8 @@ class SpecificationService:
                 self.session, "specification_attribute_code", self.tenant.company_id, payload.code
             )
             if await self.attributes.code_exists(payload.code):
-                raise DuplicateError(
-                    f"Specification attribute code '{payload.code}' is already used "
-                    "in this company. Codes of retired records are not reused."
+                raise duplicate_code(
+                    "Specification attribute", payload.code, note=RETIRED_CODE_NOT_REUSED
                 )
             record = self.attributes.add(SpecificationAttribute(**payload.model_dump()))
             await self.session.flush()

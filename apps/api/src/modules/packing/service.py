@@ -94,9 +94,12 @@ from src.core.errors import (
 )
 from src.core.logging import get_logger
 from src.core.messages import (
+    belongs_elsewhere,
     draft_only_delete,
     inactive_record,
     listed,
+    no_longer_editable,
+    not_tracked,
     other_customer_order,
     plural,
 )
@@ -605,7 +608,7 @@ def plan_contents(
             )
         if not item.is_batch_tracked and request.batch_id is not None:
             raise BusinessRuleError(
-                f"Item {item.code} is not batch tracked and cannot carry a batch.",
+                not_tracked(f"Item {item.code}", "batch", "batch"),
                 details={"line_number": line.line_number, "item_id": str(item.id)},
             )
 
@@ -623,7 +626,7 @@ def plan_contents(
                 )
         elif request.serial_ids:
             raise BusinessRuleError(
-                f"Item {item.code} is not serial tracked and cannot carry serial numbers.",
+                not_tracked(f"Item {item.code}", "serial", "serial numbers"),
                 details={"line_number": line.line_number, "item_id": str(item.id)},
             )
 
@@ -903,7 +906,7 @@ async def _validate_lines(
             raise NotFoundError("Sales order line", line.sales_order_line_id)
         if found.sales_order_id != sales_order_id:
             raise BusinessRuleError(
-                "That sales order line belongs to a different sales order.",
+                belongs_elsewhere("That sales order line", "sales order"),
                 details={"sales_order_line_id": str(line.sales_order_line_id)},
             )
         if found.item_id != line.item_id:
@@ -1875,7 +1878,7 @@ async def update_order(
         order = await _lock_order(repo, order_id)
         if PackingOrderStatus(order.status) is not PackingOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft may be edited.",
+                no_longer_editable(order.code, order.status),
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 

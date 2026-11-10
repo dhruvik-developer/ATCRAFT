@@ -14,6 +14,7 @@ from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError
+from src.core.messages import not_tracked
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
@@ -339,7 +340,7 @@ async def create_return(
                         f"A serial on line {dispatch_line.line_number} has already been returned."
                     )
             elif serial_ids:
-                raise BusinessRuleError(f"Item {item.code} is not serial tracked.")
+                raise BusinessRuleError(not_tracked(f"Item {item.code}", "serial", "serials"))
             session.add(
                 SalesReturnLine(
                     company_id=tenant.company_id,

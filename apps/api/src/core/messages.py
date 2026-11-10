@@ -241,6 +241,10 @@ SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operat
 # --- masters ------------------------------------------------------------------
 
 NAME_BLANK = "Name cannot be blank."
+#: Why a code the list no longer shows is still taken: a retired code is never
+#: reissued (docs/assumptions.md §39). Products' manufacturers, brands and
+#: specification attributes say it after ``code_already_used``.
+RETIRED_CODE_NOT_REUSED = "Codes of retired records are not reused."
 #: A customer's or a vendor's contact promoted to primary while inactive.
 INACTIVE_PRIMARY_CONTACT = "An inactive contact cannot be made the primary contact."
 
@@ -381,11 +385,6 @@ def draft_only_delete(code: str, status: str, remedy: str = "Cancel it instead")
     )
 
 
-def obsolete_not_delete(code: str, status: str) -> str:
-    """A BOM or a routing past draft is made obsolete - :func:`draft_only_delete`."""
-    return draft_only_delete(code, status, OBSOLETE_INSTEAD)
-
-
 # --- notification channels ------------------------------------------------------
 
 
@@ -444,6 +443,7 @@ __all__ = [
     "RATE_LIMITED",
     "REASON_TOO_SHORT",
     "RECORD_REFERENCE_PAIR",
+    "RETIRED_CODE_NOT_REUSED",
     "SERVICE_UNAVAILABLE",
     "SESSION_ENDED_FOR_SECURITY",
     "SESSION_REVOKED",
@@ -472,7 +472,6 @@ __all__ = [
     "no_price_configured",
     "not_for_this_item",
     "not_tracked",
-    "obsolete_not_delete",
     "other_customer_order",
     "output_not_serial_tracked",
     "own_parent",

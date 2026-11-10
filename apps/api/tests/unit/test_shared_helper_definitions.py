@@ -41,6 +41,7 @@ OWNERS: dict[str, str] = {
     "belongs_elsewhere": "core/messages.py",
     "not_for_this_item": "core/messages.py",
     "no_longer_editable": "core/messages.py",
+    "draft_only_delete": "core/messages.py",
     "currency_code": "core/fields.py",
     "normalise_serial_labels": "core/fields.py",
 }

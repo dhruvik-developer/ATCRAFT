@@ -54,10 +54,12 @@ from src.core.errors import (
 )
 from src.core.logging import get_logger
 from src.core.messages import (
+    OBSOLETE_INSTEAD,
     SHIFT_ASSIGNMENT_OVERLAP,
     date_before,
+    draft_only_delete,
     inactive_record,
-    obsolete_not_delete,
+    no_longer_editable,
     plural,
 )
 from src.core.pagination import PageParams, SortParams, paginate
@@ -1243,9 +1245,12 @@ class RoutingService:
             routing = await self.repo.get_or_404(routing_id)
             if not is_editable(RoutingStatus(routing.status)):
                 raise BusinessRuleError(
-                    f"{routing.code} is {routing.status} and can no longer be edited. "
-                    "Create a new version instead, so orders planned against this one "
-                    "still resolve.",
+                    no_longer_editable(
+                        routing.code,
+                        routing.status,
+                        "Create a new version instead, so orders planned against this "
+                        "one still resolve.",
+                    ),
                     details={"routing_id": str(routing.id), "status": str(routing.status)},
                 )
 
@@ -1398,7 +1403,7 @@ class RoutingService:
             routing = await self.repo.get_or_404(routing_id)
             if RoutingStatus(routing.status) is not RoutingStatus.DRAFT:
                 raise BusinessRuleError(
-                    obsolete_not_delete(routing.code, routing.status),
+                    draft_only_delete(routing.code, routing.status, OBSOLETE_INSTEAD),
                     details={"routing_id": str(routing.id), "status": str(routing.status)},
                 )
 
