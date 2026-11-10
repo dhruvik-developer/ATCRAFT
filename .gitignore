@@ -36,9 +36,10 @@ apps/web/.eslintcache
 # --- Storage (runtime artefacts, not source) ---
 storage/**
 !storage/**/.gitkeep
-# The API also defaults to an app-local storage directory when it is run from
-# apps/api. Runtime documents must never enter source control from either
-# launch location.
+# Until November 2026 a relative STORAGE_PATH resolved against the working
+# directory, so the hybrid API, worker and seed (run from apps/api) wrote here;
+# it now resolves against the repository root. Kept so a checkout that still
+# holds those runtime documents never commits them.
 apps/api/storage/**
 !apps/api/storage/**/.gitkeep
 

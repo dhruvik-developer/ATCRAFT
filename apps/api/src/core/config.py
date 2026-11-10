@@ -377,7 +377,19 @@ class Settings(BaseSettings):
     @field_validator("storage_path")
     @classmethod
     def _resolve_storage(cls, v: Path) -> Path:
-        return v.expanduser().resolve()
+        """Anchor a relative path at the repository root, never the working directory.
+
+        The hybrid API, worker and seed run from ``apps/api`` while the Docker
+        development stack mounts the repository root's ``storage/``. Resolving
+        the template's ``./storage`` against the working directory split one
+        database's files between ``apps/api/storage`` and ``storage/``, so a
+        download in one mode found nothing the other had written. In the image
+        ``REPO_ROOT`` is ``/``, and deployments set an absolute ``/storage``.
+        """
+        path = v.expanduser()
+        if not path.is_absolute():
+            path = REPO_ROOT / path
+        return path.resolve()
 
     @model_validator(mode="after")
     def _validate_malware_scanner(self) -> Settings:

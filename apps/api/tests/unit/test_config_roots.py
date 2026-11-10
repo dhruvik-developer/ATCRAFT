@@ -19,11 +19,11 @@ re-check the checkout - the case that already worked.
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
-from src.core.config import API_ROOT, REPO_ROOT, _api_root, _repo_root
+from src.core.config import API_ROOT, REPO_ROOT, AppEnv, Settings, _api_root, _repo_root
 
 # (description, path to config.py, expected api root, expected repo root)
 LAYOUTS = [
@@ -101,3 +101,44 @@ def test_the_real_constants_still_point_at_this_checkout() -> None:
     assert (API_ROOT / "pyproject.toml").is_file()
     assert (API_ROOT / "alembic.ini").is_file()
     assert (REPO_ROOT / "docker-compose.yml").is_file()
+
+
+# --- Where files are stored ------------------------------------------------------
+#
+# The template's STORAGE_PATH=./storage used to resolve against the working
+# directory. The hybrid API, worker and seed start from apps/api, the Docker
+# development stack mounts the repository root's storage/, and both use one
+# database - so every seeded PDF and upload was recorded in it and written to a
+# directory the other mode never reads.
+
+
+def _settings(**overrides: object) -> Settings:
+    return Settings(_env_file=None, app_env=AppEnv.test, jwt_secret="test", **overrides)
+
+
+@pytest.mark.parametrize("start_in", ["apps/api", "the repository root", "elsewhere"])
+def test_a_relative_storage_path_means_the_repository_root_from_any_working_directory(
+    start_in: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    working_directory = {"apps/api": API_ROOT, "the repository root": REPO_ROOT}.get(
+        start_in, tmp_path
+    )
+    monkeypatch.chdir(working_directory)
+    monkeypatch.delenv("STORAGE_PATH", raising=False)
+    repository_storage = (REPO_ROOT / "storage").resolve()
+
+    assert _settings(storage_path=Path("./storage")).storage_path == repository_storage
+    assert (
+        _settings(storage_path=Path("data/files")).storage_path
+        == (REPO_ROOT / "data" / "files").resolve()
+    )
+    # The template's value and the default agree, so dropping the line changes nothing.
+    assert _settings().storage_path == repository_storage
+
+
+def test_an_absolute_or_home_storage_path_is_kept(tmp_path: Path) -> None:
+    assert _settings(storage_path=tmp_path / "files").storage_path == (tmp_path / "files").resolve()
+    assert (
+        _settings(storage_path=Path("~/atcraft-files")).storage_path
+        == (Path.home() / "atcraft-files").resolve()
+    )
