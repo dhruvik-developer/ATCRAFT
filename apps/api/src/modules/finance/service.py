@@ -96,7 +96,13 @@ from src.core.fields import currency_code
 from src.core.ids import new_id
 from src.core.logging import get_logger
 from src.core.messages import CURRENCY_CODE_INVALID, date_before, inactive_record, plural
-from src.core.pagination import DateCursor, DateCursorParams, PageParams, SortParams
+from src.core.pagination import (
+    DateCursor,
+    DateCursorParams,
+    PageParams,
+    SortParams,
+    paginate_rows,
+)
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
@@ -168,7 +174,6 @@ from src.modules.finance.repository import (
     VendorInvoiceRepository,
     VendorLookupRepository,
     ageing_totals_by_currency,
-    paginate_projection,
     ranked_ageing_rows_stmt,
 )
 from src.modules.finance.schemas import (
@@ -1757,7 +1762,7 @@ async def party_statement(
         date_from=filters.date_from,
         date_to=date_to,
     )
-    rows, pagination = await paginate_projection(session, stmt, params)
+    rows, pagination = await paginate_rows(session, stmt, params)
 
     statement = LedgerStatement(
         party_type=party_type,
@@ -5324,7 +5329,7 @@ async def list_outstanding(
         overdue_only=overdue_only,
         currency=normalise_currency(currency),
     )
-    rows, pagination = await paginate_projection(session, stmt, params)
+    rows, pagination = await paginate_rows(session, stmt, params)
 
     return [
         OutstandingRow(
@@ -5511,7 +5516,7 @@ async def inventory_valuation(
     :func:`queue_inventory_valuation`.
     """
     repo = InventoryValuationRepository(session, tenant)
-    rows, pagination = await paginate_projection(session, repo.valuation_page_stmt(filters), params)
+    rows, pagination = await paginate_rows(session, repo.valuation_page_stmt(filters), params)
     count, quantity, value = await repo.valuation_totals(filters)
 
     return (

@@ -93,7 +93,7 @@ from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.database import affected_rows
-from src.core.pagination import PageParams, SortParams, paginate_rows
+from src.core.pagination import PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO
 from src.modules.customers.models import Customer
@@ -2796,16 +2796,6 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
         )
 
 
-# -----------------------------------------------------------------------------
-# Pagination for projected rows
-# -----------------------------------------------------------------------------
-
-
-#: Projections page through the shared row paginator. The finance service still
-#: imports it under this name; the logic is not copied here.
-paginate_projection = paginate_rows
-
-
 __all__ = [
     "AGEING_TOTAL_COLUMNS",
     "MAX_CHART_DEPTH",
@@ -2838,6 +2828,5 @@ __all__ = [
     "VendorInvoiceRepository",
     "VendorLookupRepository",
     "ageing_totals_by_currency",
-    "paginate_projection",
     "ranked_ageing_rows_stmt",
 ]
