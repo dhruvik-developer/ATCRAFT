@@ -66,14 +66,14 @@ from src.modules.production.schemas import (
 )
 from src.workers import celery_app as celery_module
 from tests import seed_support
-from tests.integration.test_production_service import (
+from tests.production_support import (
     approve,
     issue_everything,
     make_order,
     release,
 )
-from tests.integration.test_production_service import masters as masters
-from tests.integration.test_production_service import stocked as stocked
+from tests.production_support import masters as masters
+from tests.production_support import stocked as stocked
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
