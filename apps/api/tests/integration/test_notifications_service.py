@@ -50,6 +50,7 @@ from src.modules.notifications.service import (
     notify_many,
     notify_role,
 )
+from tests.notification_support import _make_user
 
 pytestmark = pytest.mark.integration
 
@@ -57,39 +58,6 @@ pytestmark = pytest.mark.integration
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
-
-
-async def _make_user(
-    session: AsyncSession,
-    company_id: uuid.UUID,
-    *,
-    is_active: bool = True,
-    roles: tuple = (),
-    customer_id: uuid.UUID | None = None,
-    extra_permissions: list[str] | None = None,
-    denied_permissions: list[str] | None = None,
-):
-    from src.core.security import hash_password
-    from src.modules.users.models import User
-
-    record = User(
-        company_id=company_id,
-        email=f"n-{uuid.uuid4().hex[:10]}@test.local",
-        full_name="Notified Person",
-        password_hash=hash_password("TestPassword!2026"),
-        is_active=is_active,
-        customer_id=customer_id,
-        extra_permissions=extra_permissions,
-        denied_permissions=denied_permissions,
-    )
-    # Roles are attached before the object is persisted: appending to the
-    # collection of an already-flushed instance would trigger a lazy load from a
-    # synchronous context.
-    for role in roles:
-        record.roles.append(role)
-    session.add(record)
-    await session.flush()
-    return record
 
 
 async def _make_customer(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:

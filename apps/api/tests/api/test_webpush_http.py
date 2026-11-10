@@ -5,15 +5,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 from sqlalchemy import select
 
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.deps import get_current_principal
 from src.core.security import decrypt_push_subscription
-from src.core.webpush import b64url
 from src.main import app
 from src.modules.auth.repository import UserSessionRepository
 from src.modules.notifications import service as notification_service
@@ -21,6 +18,7 @@ from src.modules.notifications.models import NotificationType, PushSubscription
 from src.modules.notifications.schemas import PreferencesUpdateRequest
 from src.modules.notifications.service import NotificationService, notify, queue_push_delivery
 from tests.api.vendor_portal_support import approved_vendor, sign_in, vendor_principal
+from tests.notification_support import _make_user, _payload
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -31,24 +29,10 @@ def push_enabled(monkeypatch):
     monkeypatch.setattr(notification_service, "_send_push_tasks", lambda rows: len(rows))
 
 
-def _payload() -> dict:
-    key = (
-        ec.generate_private_key(ec.SECP256R1())
-        .public_key()
-        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-    )
-    return {
-        "endpoint": f"https://fcm.googleapis.com/send/{uuid.uuid4()}",
-        "keys": {"p256dh": b64url(key), "auth": b64url(b"0123456789abcdef")},
-        "device_label": "Plant PC",
-    }
-
-
 async def test_subscribe_list_foreign_delete_takeover(
     api_client, session, tenant, principal, push_enabled
 ):
     from src.core.deps import Principal
-    from tests.integration.test_notifications_service import _make_user
 
     payload = _payload()
     response = await api_client.post("/notifications/push/subscriptions", json=payload)

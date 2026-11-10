@@ -17,6 +17,7 @@ from src.core.webpush import PushOutcome, PushRetryableError
 from src.modules.notifications.models import Notification, NotificationType, PushSubscription
 from src.modules.users.models import UserSession
 from src.workers.tasks import notifications as worker
+from tests.notification_support import _make_user
 
 pytestmark = pytest.mark.integration
 
@@ -147,8 +148,6 @@ async def test_worker_claims_releases_and_updates_real_rows(
 async def test_recovery_filters_abandoned_users_before_the_batch_limit(
     session, tenant, user, monkeypatch
 ):
-    from tests.integration.test_notifications_service import _make_user
-
     monkeypatch.setattr(settings, "web_push_enabled", True)
     monkeypatch.setattr(settings, "email_provider", EmailProvider.smtp)
     inactive = await _make_user(session, tenant.company_id, is_active=False)

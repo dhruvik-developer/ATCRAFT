@@ -51,7 +51,7 @@ from src.modules.notifications.models import (
 from src.modules.notifications.service import notify
 from src.workers import celery_app as celery_module
 from tests import seed_support
-from tests.api.test_webpush_http import _payload as push_subscription
+from tests.notification_support import _payload as push_subscription
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
