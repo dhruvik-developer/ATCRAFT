@@ -37,6 +37,7 @@ from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
+from src.core.state_machine import StateMachine
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import (
     DemandType,
@@ -2012,6 +2013,108 @@ async def test_a_bulk_dismissal_writes_its_audit_rows_in_one_statement(ctx: Ctx)
         AuditLog.entity_id.in_([first, *rest]),
     )
     assert (await ctx.session.execute(audited)).scalar_one() == 3
+
+
+@pytest.mark.asyncio
+async def test_a_second_dismissal_skips_an_ignored_suggestion_and_audits_nothing(
+    ctx: Ctx,
+) -> None:
+    """IGNORED is terminal: the lifecycle refuses the move, and the bulk call skips it.
+
+    The first dismissal's reason and its one status-change row stand; a planner
+    re-selecting the page neither rewrites why the row was dismissed nor adds a
+    second OPEN -> IGNORED entry that never happened.
+    """
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.screw, "100")])
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    suggestion_id = suggestion.id
+
+    await service.bulk_ignore_suggestions(
+        ctx.session,
+        ctx.tenant,
+        BulkIgnoreRequest(suggestion_ids=[suggestion_id], reason="Obsolete design"),
+    )
+    again = await service.bulk_ignore_suggestions(
+        ctx.session,
+        ctx.tenant,
+        BulkIgnoreRequest(suggestion_ids=[suggestion_id], reason="Second thoughts"),
+    )
+
+    assert again.ignored_count == 0
+    assert again.skipped_ids == [suggestion_id]
+    refreshed = await suggestion_for(ctx, run.id, ctx.screw)
+    assert refreshed is not None
+    assert refreshed.status is MrpSuggestionStatus.IGNORED
+    assert refreshed.ignored_reason == "Obsolete design"
+    rows = (
+        await ctx.session.execute(
+            select(AuditLog.action, AuditLog.old_values, AuditLog.new_values).where(
+                AuditLog.company_id == ctx.tenant.company_id,
+                AuditLog.entity_type == "mrp_suggestion",
+                AuditLog.entity_id == suggestion_id,
+            )
+        )
+    ).all()
+    assert [tuple(row) for row in rows] == [
+        (
+            AuditAction.STATUS_CHANGE,
+            {"status": str(MrpSuggestionStatus.OPEN)},
+            {"status": str(MrpSuggestionStatus.IGNORED)},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_bulk_dismissal_moves_only_what_the_lifecycle_allows(
+    ctx: Ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The suggestion lifecycle, not a check of the bulk path's own, decides each row.
+
+    With the OPEN -> IGNORED edge taken out of the graph an open suggestion is
+    skipped like a converted one: no status write and no audit row. Whatever the
+    machine refuses, the bulk call refuses too - row by row, as documented.
+    """
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.screw, "100")])
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+    suggestion_id = suggestion.id
+    lifecycle = service.SUGGESTION_LIFECYCLE
+    monkeypatch.setattr(
+        service,
+        "SUGGESTION_LIFECYCLE",
+        StateMachine(
+            entity=lifecycle.entity,
+            initial=lifecycle.initial,
+            transitions=tuple(
+                edge
+                for edge in lifecycle.transitions
+                if edge.target is not MrpSuggestionStatus.IGNORED
+            ),
+            terminal=lifecycle.terminal,
+        ),
+    )
+
+    result = await service.bulk_ignore_suggestions(
+        ctx.session,
+        ctx.tenant,
+        BulkIgnoreRequest(suggestion_ids=[suggestion_id], reason="Obsolete design"),
+    )
+
+    assert result.ignored_count == 0
+    assert result.skipped_ids == [suggestion_id]
+    refreshed = await suggestion_for(ctx, run.id, ctx.screw)
+    assert refreshed is not None
+    assert refreshed.status is MrpSuggestionStatus.OPEN
+    assert refreshed.ignored_reason is None
+    audited = select(func.count(AuditLog.id)).where(
+        AuditLog.company_id == ctx.tenant.company_id,
+        AuditLog.entity_type == "mrp_suggestion",
+        AuditLog.entity_id == suggestion_id,
+    )
+    assert (await ctx.session.execute(audited)).scalar_one() == 0
 
 
 @pytest.mark.asyncio

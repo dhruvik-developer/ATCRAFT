@@ -62,6 +62,7 @@ from src.core.errors import (
     AppError,
     BusinessRuleError,
     ErrorCode,
+    InvalidStateTransitionError,
     NotFoundError,
     failure_message,
     is_refusal,
@@ -1681,13 +1682,21 @@ async def bulk_ignore_suggestions(
 
         for suggestion_id in payload.suggestion_ids:
             suggestion = by_id.get(suggestion_id)
-            if suggestion is None or not SUGGESTION_LIFECYCLE.can_transition(
-                MrpSuggestionStatus(suggestion.status), MrpSuggestionStatus.IGNORED
-            ):
+            if suggestion is None:
+                skipped.append(suggestion_id)
+                continue
+            previous = str(suggestion.status)
+            try:
+                # The machine decides, as it does for every other status write;
+                # a refusal is this call's documented "skipped", not a failure of
+                # the whole selection.
+                SUGGESTION_LIFECYCLE.assert_transition(
+                    MrpSuggestionStatus(suggestion.status), MrpSuggestionStatus.IGNORED
+                )
+            except InvalidStateTransitionError:
                 skipped.append(suggestion_id)
                 continue
 
-            previous = str(suggestion.status)
             suggestion.status = MrpSuggestionStatus.IGNORED
             suggestion.ignored_reason = payload.reason
             repository.touch(suggestion)
