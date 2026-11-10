@@ -24,7 +24,7 @@ import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { ConfirmDialog, DescriptionList, FieldError } from '@/components/shared'
+import { ConfirmDialog, DescriptionList, FieldError, LoadError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -264,9 +264,14 @@ export function TransporterFormDialog({
     queryFn: ({ signal }) => api.get<Transporter>(`/transporters/${transporterId}`, { signal }),
     enabled: open && Boolean(transporterId),
     staleTime: staleTimes.master,
+    // Said in the dialog, with a retry, in place of the form it could not fill.
+    meta: { suppressErrorToast: true },
   })
 
-  const loaded = detail.data
+  // The transporter this opening edits and no other: the form is filled only
+  // from a payload whose id is the one asked for.
+  const loaded = detail.data?.id === transporterId ? detail.data : undefined
+  const loadedId = loaded?.id ?? null
 
   const {
     register,
@@ -280,14 +285,17 @@ export function TransporterFormDialog({
     defaultValues: emptyValues(),
   })
 
-  // Keyed on the id and on whether its payload has arrived, so a background
-  // refetch cannot resolve mid-edit and wipe what is being typed.
+  // Seeded once per opening, keyed on the id of the record that arrived, so a
+  // background refetch cannot resolve mid-edit and wipe what is being typed.
+  // An edit whose record has not arrived - still loading, or its read failed -
+  // is reset to blank rather than skipped: this dialog stays mounted between
+  // openings, and skipping left the transporter edited last in the form, where
+  // Save wrote it onto this one. The form is not drawn until the record arrives.
   useEffect(() => {
     if (!open) return
-    if (transporterId && !loaded) return
-    reset(loaded && transporterId ? valuesFrom(loaded) : emptyValues())
+    reset(loaded ? valuesFrom(loaded) : emptyValues())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, transporterId, Boolean(loaded), reset])
+  }, [open, transporterId, loadedId, reset])
 
   const save = useMutation({
     mutationFn: (values: TransporterFormValues) =>
@@ -307,7 +315,10 @@ export function TransporterFormDialog({
     onError: (error) => applyFieldErrors(error, setError),
   })
 
-  const detailsBusy = isEdit && detail.isLoading
+  // An edit has nothing to save until the record it edits has arrived: a
+  // skeleton while it loads, the failure with a retry when it could not be read.
+  const detailFailed = isEdit && !loaded && detail.isError
+  const detailsBusy = isEdit && !loaded && !detail.isError
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -323,7 +334,14 @@ export function TransporterFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {detailsBusy ? (
+        {detailFailed ? (
+          <LoadError
+            title="Could not load this transporter"
+            error={detail.error}
+            onRetry={() => void detail.refetch()}
+            retrying={detail.isFetching}
+          />
+        ) : detailsBusy ? (
           <div className="space-y-3" aria-hidden>
             <Skeleton className="h-9 w-full" />
             <Skeleton className="h-9 w-full" />

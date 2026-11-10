@@ -27,6 +27,7 @@ import {
   DescriptionList,
   EmptyState,
   FieldError,
+  LoadError,
   ReasonDialog,
   StatusBadge,
 } from '@/components/shared'
@@ -757,31 +758,43 @@ export function RoutingFormDialog({
     queryFn: ({ signal }) => api.get<RoutingDetail>(`/routing/${routing?.id}`, { signal }),
     enabled: open && Boolean(routing?.id),
     staleTime: staleTimes.master,
+    // Said in the dialog, with a retry, in place of the fields it could not fill.
+    meta: { suppressErrorToast: true },
   })
 
-  // Seeded once per opening and keyed on the record's id: a background refetch
-  // must not rewrite what the user is typing.
+  // The routing this opening edits and no other: the form is filled only from
+  // a payload whose id is the one asked for.
   const editingId = routing?.id ?? null
-  const loadedId = existing.data?.id ?? null
+  const loaded = editingId !== null && existing.data?.id === editingId ? existing.data : undefined
+  const loadedId = loaded?.id ?? null
+  // An edit has nothing it can safely send until its operations have arrived.
+  const awaitingRecord = isEdit && !loaded
+  const readFailed = awaitingRecord && existing.isError
+
+  // Seeded once per opening and keyed on the id of the record that arrived: a
+  // background refetch must not rewrite what the user is typing. An edit whose
+  // record has not arrived - still loading, or its read failed - is reset to its
+  // own list row, with no operations, rather than skipped: this dialog stays
+  // mounted between openings, and skipping left the routing edited last in the
+  // form, where Save sent its name and its operations to this one, replacing
+  // this one's wholesale.
   useEffect(() => {
     if (!open) return
-    if (!editingId) {
-      reset(routingDefaults(null))
+    if (!loaded) {
+      reset(routingDefaults(routing))
       return
     }
-    if (loadedId !== editingId) return
-    const detail = existing.data
     reset({
-      code: detail?.code ?? routing?.code ?? '',
-      name: detail?.name ?? '',
-      item_id: detail?.item_id ?? routing?.item_id ?? '',
-      notes: detail?.notes ?? '',
-      effective_from: detail?.effective_from?.slice(0, 10) ?? '',
-      effective_to: detail?.effective_to?.slice(0, 10) ?? '',
-      is_default: detail?.is_default ?? false,
+      code: loaded.code,
+      name: loaded.name ?? '',
+      item_id: loaded.item_id,
+      notes: loaded.notes ?? '',
+      effective_from: loaded.effective_from?.slice(0, 10) ?? '',
+      effective_to: loaded.effective_to?.slice(0, 10) ?? '',
+      is_default: loaded.is_default,
       operations:
-        detail && detail.operations.length > 0
-          ? [...detail.operations]
+        loaded.operations.length > 0
+          ? [...loaded.operations]
               .sort((a, b) => a.sequence - b.sequence)
               .map((operation) => ({
                 operation_code: operation.operation_code,
@@ -865,7 +878,12 @@ export function RoutingFormDialog({
         </DialogHeader>
 
         <form
-          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          onSubmit={handleSubmit((values) => {
+            // The disabled Save says so; this holds it for any other way the
+            // form submits while the fields on screen are still the list row's.
+            if (awaitingRecord) return
+            mutation.mutate(values)
+          })}
           className="flex min-h-0 flex-col gap-4"
           noValidate
         >
@@ -879,352 +897,374 @@ export function RoutingFormDialog({
               </Alert>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="routing-code" required>
-                  Code
-                </Label>
-                <Input
-                  id="routing-code"
-                  {...register('code')}
-                  disabled={isEdit}
-                  autoComplete="off"
-                  aria-invalid={Boolean(errors.code)}
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.code?.message} />
-              </div>
-
-              <div>
-                <Label htmlFor="routing-name">Name</Label>
-                <Input
-                  id="routing-name"
-                  {...register('name')}
-                  aria-invalid={Boolean(errors.name)}
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.name?.message} />
-              </div>
-            </div>
-
-            <div>
-              <Controller
-                control={control}
-                name="item_id"
-                render={({ field }) => (
-                  <ItemPicker
-                    id="routing-item"
-                    label="Item produced"
-                    value={field.value || null}
-                    onChange={(itemId) => field.onChange(itemId ?? '')}
-                    placeholder="Search the item master"
-                    invalid={Boolean(errors.item_id)}
-                    disabled={isEdit}
-                  />
-                )}
+            {readFailed ? (
+              <LoadError
+                title="Could not load this routing"
+                error={existing.error}
+                onRetry={() => void existing.refetch()}
+                retrying={existing.isFetching}
               />
-              <FieldError message={errors.item_id?.message} />
-              {isEdit && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The item cannot be changed on an existing routing - copy it as a new version
-                  instead.
-                </p>
-              )}
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="routing-from">Effective from</Label>
-                <Input
-                  id="routing-from"
-                  type="date"
-                  {...register('effective_from')}
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.effective_from?.message} />
-              </div>
-              <div>
-                <Label htmlFor="routing-to">Effective to</Label>
-                <Input
-                  id="routing-to"
-                  type="date"
-                  {...register('effective_to')}
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.effective_to?.message} />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <Controller
-                control={control}
-                name="is_default"
-                render={({ field }) => (
-                  <Checkbox
-                    id="routing-default"
-                    checked={field.value}
-                    onCheckedChange={(checked) => field.onChange(checked === true)}
-                  />
-                )}
-              />
-              <Label htmlFor="routing-default">Default routing for the item</Label>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Operations</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => append(emptyOperation())}
-                >
-                  <Plus />
-                  Add operation
-                </Button>
-              </div>
-
-              {fields.map((field, index) => (
-                <div key={field.id} className="space-y-3 rounded-md border p-3">
-                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_auto]">
-                    <div>
-                      <Label htmlFor={`op-code-${index}`} className="text-xs">
-                        Code
-                      </Label>
-                      <Input
-                        id={`op-code-${index}`}
-                        {...register(`operations.${index}.operation_code`)}
-                        autoComplete="off"
-                        aria-invalid={Boolean(errors.operations?.[index]?.operation_code)}
-                        className="mt-1"
-                      />
-                      <FieldError message={errors.operations?.[index]?.operation_code?.message} />
-                    </div>
-
-                    <div>
-                      <Label htmlFor={`op-name-${index}`} className="text-xs">
-                        Operation
-                      </Label>
-                      <Input
-                        id={`op-name-${index}`}
-                        {...register(`operations.${index}.operation_name`)}
-                        aria-invalid={Boolean(errors.operations?.[index]?.operation_name)}
-                        className="mt-1"
-                      />
-                      <FieldError message={errors.operations?.[index]?.operation_name?.message} />
-                    </div>
-
-                    <div>
-                      <Label htmlFor={`op-wc-${index}`} className="text-xs">
-                        Work centre
-                      </Label>
-                      <Controller
-                        control={control}
-                        name={`operations.${index}.work_center_id`}
-                        render={({ field: centre }) => (
-                          <Select
-                            value={centre.value || SELECT_NONE}
-                            onValueChange={(value) => {
-                              centre.onChange(value === SELECT_NONE ? '' : value)
-                              // A machine belongs to exactly one cell, so the
-                              // choice cannot outlive a change of work centre.
-                              setValue(`operations.${index}.machine_id`, null)
-                            }}
-                          >
-                            <SelectTrigger
-                              id={`op-wc-${index}`}
-                              className="mt-1"
-                              aria-label="Work centre"
-                            >
-                              <SelectValue
-                                placeholder={workCenters.isLoading ? 'Loading...' : 'Choose one'}
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {centreRows.map((row) => (
-                                <SelectItem key={row.id} value={row.id}>
-                                  {row.code} - {row.name} ({formatMoney(row.cost_per_hour)}/h)
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      />
-                      <FieldError message={errors.operations?.[index]?.work_center_id?.message} />
-                    </div>
-
-                    <div className="flex items-end pb-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        // The API will not take a routing with no operations.
-                        disabled={fields.length === 1}
-                        aria-label={`Remove operation ${index + 1}`}
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <OperationMachineSelect
-                      control={control}
-                      index={index}
-                      enabled={open}
-                      error={errors.operations?.[index]?.machine_id?.message}
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="routing-code" required>
+                      Code
+                    </Label>
+                    <Input
+                      id="routing-code"
+                      {...register('code')}
+                      disabled={isEdit}
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.code)}
+                      className="mt-1.5"
                     />
+                    <FieldError message={errors.code?.message} />
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                    <div>
-                      <Label htmlFor={`op-setup-${index}`} className="text-xs">
-                        Setup (min)
-                      </Label>
-                      <Input
-                        id={`op-setup-${index}`}
-                        inputMode="decimal"
-                        {...register(`operations.${index}.setup_time_minutes`)}
-                        aria-invalid={Boolean(errors.operations?.[index]?.setup_time_minutes)}
-                        className="mt-1 text-right tabular"
-                      />
-                      <FieldError
-                        message={errors.operations?.[index]?.setup_time_minutes?.message}
-                      />
-                    </div>
+                  <div>
+                    <Label htmlFor="routing-name">Name</Label>
+                    <Input
+                      id="routing-name"
+                      {...register('name')}
+                      aria-invalid={Boolean(errors.name)}
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.name?.message} />
+                  </div>
+                </div>
 
-                    <div>
-                      <Label htmlFor={`op-run-${index}`} className="text-xs">
-                        Run / unit (min)
-                      </Label>
-                      <Input
-                        id={`op-run-${index}`}
-                        inputMode="decimal"
-                        {...register(`operations.${index}.run_time_per_unit_minutes`)}
-                        aria-invalid={Boolean(
-                          errors.operations?.[index]?.run_time_per_unit_minutes,
-                        )}
-                        className="mt-1 text-right tabular"
+                <div>
+                  <Controller
+                    control={control}
+                    name="item_id"
+                    render={({ field }) => (
+                      <ItemPicker
+                        id="routing-item"
+                        label="Item produced"
+                        value={field.value || null}
+                        onChange={(itemId) => field.onChange(itemId ?? '')}
+                        placeholder="Search the item master"
+                        invalid={Boolean(errors.item_id)}
+                        disabled={isEdit}
                       />
-                      <FieldError
-                        message={errors.operations?.[index]?.run_time_per_unit_minutes?.message}
-                      />
-                    </div>
+                    )}
+                  />
+                  <FieldError message={errors.item_id?.message} />
+                  {isEdit && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      The item cannot be changed on an existing routing - copy it as a new version
+                      instead.
+                    </p>
+                  )}
+                </div>
 
-                    <div>
-                      <Label htmlFor={`op-queue-${index}`} className="text-xs">
-                        Queue (min)
-                      </Label>
-                      <Input
-                        id={`op-queue-${index}`}
-                        inputMode="decimal"
-                        {...register(`operations.${index}.queue_time_minutes`)}
-                        aria-invalid={Boolean(errors.operations?.[index]?.queue_time_minutes)}
-                        className="mt-1 text-right tabular"
-                      />
-                      <FieldError
-                        message={errors.operations?.[index]?.queue_time_minutes?.message}
-                      />
-                    </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="routing-from">Effective from</Label>
+                    <Input
+                      id="routing-from"
+                      type="date"
+                      {...register('effective_from')}
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.effective_from?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="routing-to">Effective to</Label>
+                    <Input
+                      id="routing-to"
+                      type="date"
+                      {...register('effective_to')}
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.effective_to?.message} />
+                  </div>
+                </div>
 
-                    <div>
-                      <Label htmlFor={`op-move-${index}`} className="text-xs">
-                        Move (min)
-                      </Label>
-                      <Input
-                        id={`op-move-${index}`}
-                        inputMode="decimal"
-                        {...register(`operations.${index}.move_time_minutes`)}
-                        aria-invalid={Boolean(errors.operations?.[index]?.move_time_minutes)}
-                        className="mt-1 text-right tabular"
+                <div className="flex items-center gap-2.5">
+                  <Controller
+                    control={control}
+                    name="is_default"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="routing-default"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
                       />
-                      <FieldError
-                        message={errors.operations?.[index]?.move_time_minutes?.message}
-                      />
-                    </div>
+                    )}
+                  />
+                  <Label htmlFor="routing-default">Default routing for the item</Label>
+                </div>
 
-                    <div>
-                      <Label htmlFor={`op-process-${index}`} className="text-xs">
-                        Process charge
-                      </Label>
-                      <Input
-                        id={`op-process-${index}`}
-                        inputMode="decimal"
-                        {...register(`operations.${index}.process_cost`)}
-                        aria-invalid={Boolean(errors.operations?.[index]?.process_cost)}
-                        className="mt-1 text-right tabular"
-                      />
-                      <FieldError message={errors.operations?.[index]?.process_cost?.message} />
-                    </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Operations</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => append(emptyOperation())}
+                    >
+                      <Plus />
+                      Add operation
+                    </Button>
+                  </div>
 
-                    <div className="flex flex-wrap items-end gap-4 pb-2 sm:col-span-3 lg:col-span-5">
-                      <div className="flex items-center gap-2">
-                        <Controller
-                          control={control}
-                          name={`operations.${index}.is_outsourced`}
-                          render={({ field: flag }) => (
-                            <Checkbox
-                              id={`op-outsourced-${index}`}
-                              checked={flag.value}
-                              onCheckedChange={(checked) => {
-                                const outsourced = checked === true
-                                flag.onChange(outsourced)
-                                // An outsourced step runs on the vendor's
-                                // equipment: ticking it releases the machine.
-                                if (outsourced) {
+                  {fields.map((field, index) => (
+                    <div key={field.id} className="space-y-3 rounded-md border p-3">
+                      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                        <div>
+                          <Label htmlFor={`op-code-${index}`} className="text-xs">
+                            Code
+                          </Label>
+                          <Input
+                            id={`op-code-${index}`}
+                            {...register(`operations.${index}.operation_code`)}
+                            autoComplete="off"
+                            aria-invalid={Boolean(errors.operations?.[index]?.operation_code)}
+                            className="mt-1"
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.operation_code?.message}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`op-name-${index}`} className="text-xs">
+                            Operation
+                          </Label>
+                          <Input
+                            id={`op-name-${index}`}
+                            {...register(`operations.${index}.operation_name`)}
+                            aria-invalid={Boolean(errors.operations?.[index]?.operation_name)}
+                            className="mt-1"
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.operation_name?.message}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`op-wc-${index}`} className="text-xs">
+                            Work centre
+                          </Label>
+                          <Controller
+                            control={control}
+                            name={`operations.${index}.work_center_id`}
+                            render={({ field: centre }) => (
+                              <Select
+                                value={centre.value || SELECT_NONE}
+                                onValueChange={(value) => {
+                                  centre.onChange(value === SELECT_NONE ? '' : value)
+                                  // A machine belongs to exactly one cell, so the
+                                  // choice cannot outlive a change of work centre.
                                   setValue(`operations.${index}.machine_id`, null)
-                                }
-                              }}
-                            />
-                          )}
-                        />
-                        <Label htmlFor={`op-outsourced-${index}`} className="text-xs font-normal">
-                          Job work
-                        </Label>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Controller
-                          control={control}
-                          name={`operations.${index}.qc_required`}
-                          render={({ field: flag }) => (
-                            <Checkbox
-                              id={`op-qc-${index}`}
-                              checked={flag.value}
-                              onCheckedChange={(checked) => flag.onChange(checked === true)}
-                            />
-                          )}
-                        />
-                        <Label htmlFor={`op-qc-${index}`} className="text-xs font-normal">
-                          QC required
-                        </Label>
-                      </div>
-                    </div>
-                  </div>
+                                }}
+                              >
+                                <SelectTrigger
+                                  id={`op-wc-${index}`}
+                                  className="mt-1"
+                                  aria-label="Work centre"
+                                >
+                                  <SelectValue
+                                    placeholder={
+                                      workCenters.isLoading ? 'Loading...' : 'Choose one'
+                                    }
+                                  />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {centreRows.map((row) => (
+                                    <SelectItem key={row.id} value={row.id}>
+                                      {row.code} - {row.name} ({formatMoney(row.cost_per_hour)}/h)
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.work_center_id?.message}
+                          />
+                        </div>
 
-                  {/* A rule about the operation as a whole - an outsourced step
+                        <div className="flex items-end pb-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            // The API will not take a routing with no operations.
+                            disabled={fields.length === 1}
+                            aria-label={`Remove operation ${index + 1}`}
+                            onClick={() => remove(index)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <OperationMachineSelect
+                          control={control}
+                          index={index}
+                          enabled={open}
+                          error={errors.operations?.[index]?.machine_id?.message}
+                        />
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                        <div>
+                          <Label htmlFor={`op-setup-${index}`} className="text-xs">
+                            Setup (min)
+                          </Label>
+                          <Input
+                            id={`op-setup-${index}`}
+                            inputMode="decimal"
+                            {...register(`operations.${index}.setup_time_minutes`)}
+                            aria-invalid={Boolean(errors.operations?.[index]?.setup_time_minutes)}
+                            className="mt-1 text-right tabular"
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.setup_time_minutes?.message}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`op-run-${index}`} className="text-xs">
+                            Run / unit (min)
+                          </Label>
+                          <Input
+                            id={`op-run-${index}`}
+                            inputMode="decimal"
+                            {...register(`operations.${index}.run_time_per_unit_minutes`)}
+                            aria-invalid={Boolean(
+                              errors.operations?.[index]?.run_time_per_unit_minutes,
+                            )}
+                            className="mt-1 text-right tabular"
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.run_time_per_unit_minutes?.message}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`op-queue-${index}`} className="text-xs">
+                            Queue (min)
+                          </Label>
+                          <Input
+                            id={`op-queue-${index}`}
+                            inputMode="decimal"
+                            {...register(`operations.${index}.queue_time_minutes`)}
+                            aria-invalid={Boolean(errors.operations?.[index]?.queue_time_minutes)}
+                            className="mt-1 text-right tabular"
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.queue_time_minutes?.message}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`op-move-${index}`} className="text-xs">
+                            Move (min)
+                          </Label>
+                          <Input
+                            id={`op-move-${index}`}
+                            inputMode="decimal"
+                            {...register(`operations.${index}.move_time_minutes`)}
+                            aria-invalid={Boolean(errors.operations?.[index]?.move_time_minutes)}
+                            className="mt-1 text-right tabular"
+                          />
+                          <FieldError
+                            message={errors.operations?.[index]?.move_time_minutes?.message}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`op-process-${index}`} className="text-xs">
+                            Process charge
+                          </Label>
+                          <Input
+                            id={`op-process-${index}`}
+                            inputMode="decimal"
+                            {...register(`operations.${index}.process_cost`)}
+                            aria-invalid={Boolean(errors.operations?.[index]?.process_cost)}
+                            className="mt-1 text-right tabular"
+                          />
+                          <FieldError message={errors.operations?.[index]?.process_cost?.message} />
+                        </div>
+
+                        <div className="flex flex-wrap items-end gap-4 pb-2 sm:col-span-3 lg:col-span-5">
+                          <div className="flex items-center gap-2">
+                            <Controller
+                              control={control}
+                              name={`operations.${index}.is_outsourced`}
+                              render={({ field: flag }) => (
+                                <Checkbox
+                                  id={`op-outsourced-${index}`}
+                                  checked={flag.value}
+                                  onCheckedChange={(checked) => {
+                                    const outsourced = checked === true
+                                    flag.onChange(outsourced)
+                                    // An outsourced step runs on the vendor's
+                                    // equipment: ticking it releases the machine.
+                                    if (outsourced) {
+                                      setValue(`operations.${index}.machine_id`, null)
+                                    }
+                                  }}
+                                />
+                              )}
+                            />
+                            <Label
+                              htmlFor={`op-outsourced-${index}`}
+                              className="text-xs font-normal"
+                            >
+                              Job work
+                            </Label>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Controller
+                              control={control}
+                              name={`operations.${index}.qc_required`}
+                              render={({ field: flag }) => (
+                                <Checkbox
+                                  id={`op-qc-${index}`}
+                                  checked={flag.value}
+                                  onCheckedChange={(checked) => flag.onChange(checked === true)}
+                                />
+                              )}
+                            />
+                            <Label htmlFor={`op-qc-${index}`} className="text-xs font-normal">
+                              QC required
+                            </Label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* A rule about the operation as a whole - an outsourced step
                       naming an in-house machine, say - lands on the row rather
                       than on a field, and would otherwise render nowhere. */}
-                  <FieldError message={errors.operations?.[index]?.message} />
+                      <FieldError message={errors.operations?.[index]?.message} />
+                    </div>
+                  ))}
+
+                  <FieldError
+                    message={errors.operations?.message ?? errors.operations?.root?.message}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The rate an operation is costed at comes from its work centre, not from the
+                    operation, so changing a centre&apos;s rate re-costs every routing that uses it.
+                  </p>
                 </div>
-              ))}
 
-              <FieldError
-                message={errors.operations?.message ?? errors.operations?.root?.message}
-              />
-              <p className="text-xs text-muted-foreground">
-                The rate an operation is costed at comes from its work centre, not from the
-                operation, so changing a centre&apos;s rate re-costs every routing that uses it.
-              </p>
-            </div>
+                <div>
+                  <Label htmlFor="routing-notes">Notes</Label>
+                  <Textarea id="routing-notes" {...register('notes')} className="mt-1.5" />
+                  <FieldError message={errors.notes?.message} />
+                </div>
 
-            <div>
-              <Label htmlFor="routing-notes">Notes</Label>
-              <Textarea id="routing-notes" {...register('notes')} className="mt-1.5" />
-              <FieldError message={errors.notes?.message} />
-            </div>
-
-            <FieldError message={errors.root?.message} />
+                <FieldError message={errors.root?.message} />
+              </>
+            )}
           </DialogBody>
 
           <DialogFooter>
@@ -1236,11 +1276,7 @@ export function RoutingFormDialog({
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              loading={mutation.isPending}
-              disabled={isEdit && existing.isLoading}
-            >
+            <Button type="submit" loading={mutation.isPending} disabled={awaitingRecord}>
               {isEdit ? 'Save changes' : 'Create routing'}
             </Button>
           </DialogFooter>
