@@ -38,6 +38,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
@@ -219,21 +220,6 @@ _CUSTOMER_DETAIL_FIELDS = (
 # -----------------------------------------------------------------------------
 
 
-class MasterLifecycleState(StrEnum):
-    """Lifecycle of a customer master row.
-
-    There is no ``status`` column: the state is derived from ``is_active`` and
-    ``deleted_at``, the two flags the rest of the system already reads. A third,
-    redundant column could disagree with them. Routing the transitions through a
-    :class:`StateMachine` still gives one place where the legal moves are
-    declared, tested and rendered for the UI (section 18).
-    """
-
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-
-
 class CreditStanding(StrEnum):
     """Whether the account may take on new exposure.
 
@@ -246,45 +232,13 @@ class CreditStanding(StrEnum):
     ON_HOLD = "ON_HOLD"
 
 
-CUSTOMER_LIFECYCLE: StateMachine[MasterLifecycleState] = StateMachine(
-    entity="Customer",
-    initial=MasterLifecycleState.ACTIVE,
-    transitions=(
-        Transition(
-            MasterLifecycleState.ACTIVE,
-            MasterLifecycleState.INACTIVE,
-            permission=Permission.CUSTOMER_UPDATE,
-            label="Deactivate",
-        ),
-        Transition(
-            MasterLifecycleState.INACTIVE,
-            MasterLifecycleState.ACTIVE,
-            permission=Permission.CUSTOMER_UPDATE,
-            label="Activate",
-        ),
-        Transition(
-            MasterLifecycleState.ACTIVE,
-            MasterLifecycleState.ARCHIVED,
-            permission=Permission.CUSTOMER_DELETE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        Transition(
-            MasterLifecycleState.INACTIVE,
-            MasterLifecycleState.ARCHIVED,
-            permission=Permission.CUSTOMER_DELETE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        # A restored account comes back INACTIVE, never straight to ACTIVE:
-        # someone has to look at its credit terms before it can order again.
-        Transition(
-            MasterLifecycleState.ARCHIVED,
-            MasterLifecycleState.INACTIVE,
-            permission=Permission.CUSTOMER_UPDATE,
-            label="Restore",
-        ),
-    ),
+# Retiring needs the delete right; a restored account comes back INACTIVE, so
+# someone looks at its credit terms before it can order again.
+CUSTOMER_LIFECYCLE = master_lifecycle(
+    "Customer",
+    Permission.CUSTOMER_UPDATE,
+    retire=Permission.CUSTOMER_DELETE,
+    restorable=True,
 )
 
 CREDIT_STANDING: StateMachine[CreditStanding] = StateMachine(
@@ -306,13 +260,6 @@ CREDIT_STANDING: StateMachine[CreditStanding] = StateMachine(
         ),
     ),
 )
-
-
-def lifecycle_state(record: Any) -> MasterLifecycleState:
-    """Derive the lifecycle state of a master row from its flags."""
-    if getattr(record, "deleted_at", None) is not None:
-        return MasterLifecycleState.ARCHIVED
-    return MasterLifecycleState.ACTIVE if record.is_active else MasterLifecycleState.INACTIVE
 
 
 def credit_standing(record: Any) -> CreditStanding:
@@ -722,7 +669,7 @@ class CustomerService:
             customer = await self.repo.get_or_404(customer_id)
             assert_channel_write_allowed(principal, customer.customer_type)
 
-            current = lifecycle_state(customer)
+            current = master_state(customer)
             CUSTOMER_LIFECYCLE.assert_transition(current, target)
 
             customer.is_active = active
@@ -826,7 +773,7 @@ class CustomerService:
             customer = await self.repo.get_or_404(customer_id)
             assert_channel_write_allowed(principal, customer.customer_type)
 
-            current = lifecycle_state(customer)
+            current = master_state(customer)
             CUSTOMER_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if BLOCK_RETIREMENT_WITH_OUTSTANDING and to_money(
@@ -886,7 +833,7 @@ class CustomerService:
             # allows ACTIVE -> INACTIVE, so checking the edge alone would let
             # "restore" quietly deactivate a live account.
             CUSTOMER_LIFECYCLE.assert_transition(
-                lifecycle_state(customer),
+                master_state(customer),
                 MasterLifecycleState.INACTIVE,
                 source=MasterLifecycleState.ARCHIVED,
                 requested="RESTORED",
@@ -1485,7 +1432,6 @@ __all__ = [
     "CreditStanding",
     "CreditSubject",
     "CustomerService",
-    "MasterLifecycleState",
     "apply_outstanding_delta",
     "assert_channel_write_allowed",
     "assert_customer_can_order",
@@ -1496,6 +1442,5 @@ __all__ = [
     "evaluate_credit",
     "get_customer_for_order",
     "gstin_state_code",
-    "lifecycle_state",
     "requires_dealer_permission",
 ]

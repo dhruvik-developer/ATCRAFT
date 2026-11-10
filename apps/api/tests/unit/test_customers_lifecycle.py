@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.common.master_lifecycle import MasterLifecycleState, master_state
 from src.core.clock import utcnow
 from src.core.deps import Principal
 from src.core.errors import (
@@ -26,12 +27,10 @@ from src.modules.customers.service import (
     CUSTOMER_LIFECYCLE,
     DEALER_CHANNELS,
     CreditStanding,
-    MasterLifecycleState,
     assert_channel_write_allowed,
     assert_gstin_matches_state,
     credit_standing,
     gstin_state_code,
-    lifecycle_state,
     requires_dealer_permission,
 )
 
@@ -59,15 +58,15 @@ def _principal(*permissions: Permission) -> Principal:
 
 class TestLifecycleDerivation:
     def test_active_row_is_active(self) -> None:
-        assert lifecycle_state(_row()) is MasterLifecycleState.ACTIVE
+        assert master_state(_row()) is MasterLifecycleState.ACTIVE
 
     def test_deactivated_row_is_inactive(self) -> None:
-        assert lifecycle_state(_row(is_active=False)) is MasterLifecycleState.INACTIVE
+        assert master_state(_row(is_active=False)) is MasterLifecycleState.INACTIVE
 
     def test_retired_row_is_archived_even_when_flagged_active(self) -> None:
         # deleted_at wins: a retired account that still carries is_active=True
         # from before the retirement must not read as usable.
-        assert lifecycle_state(_row(is_active=True, deleted=True)) is MasterLifecycleState.ARCHIVED
+        assert master_state(_row(is_active=True, deleted=True)) is MasterLifecycleState.ARCHIVED
 
     def test_credit_standing_follows_the_block_flag(self) -> None:
         assert credit_standing(_row()) is CreditStanding.GOOD_STANDING

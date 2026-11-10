@@ -469,7 +469,7 @@ class ManufacturerRepository(BaseRepository[Manufacturer]):
     async def code_taken(self, code: str) -> bool:
         return await _code_taken(self, Manufacturer, code)
 
-    async def get_for_assignment(self, manufacturer_id: uuid.UUID) -> Manufacturer | None:
+    async def lock_for_assignment(self, manufacturer_id: uuid.UUID) -> Manufacturer | None:
         """Read a live maker about to be named somewhere, ``FOR SHARE``.
 
         See the note above ``ManufacturerUsage``: a deactivation or retirement in
@@ -557,7 +557,7 @@ class BrandRepository(BaseRepository[Brand]):
     async def code_taken(self, code: str) -> bool:
         return await _code_taken(self, Brand, code)
 
-    async def get_for_assignment(self, brand_id: uuid.UUID) -> Brand | None:
+    async def lock_for_assignment(self, brand_id: uuid.UUID) -> Brand | None:
         """Read a live brand about to be given to an item, ``FOR SHARE``.
 
         See the note above ``ManufacturerUsage``: a deactivation or retirement in

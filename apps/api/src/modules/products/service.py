@@ -35,6 +35,7 @@ from src.common.document_access import (
     register_document_attach_policy,
     register_document_entity_resolver,
 )
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.common.repository import labels_by_id
 from src.core.cache import CacheNamespace, cache_delete, cache_get, cache_set, make_key
 from src.core.clock import today
@@ -65,10 +66,6 @@ from src.core.types import to_factor, to_quantity, to_unit_price
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
-from src.modules.organization.service import (
-    MasterLifecycleState,
-    master_lifecycle,
-)
 from src.modules.products.models import (
     MAX_CATEGORY_DEPTH,
     Brand,
@@ -342,13 +339,6 @@ BRAND_LIFECYCLE: StateMachine[MasterLifecycleState] = master_lifecycle(
 MANUFACTURER_LIFECYCLE: StateMachine[MasterLifecycleState] = master_lifecycle(
     MANUFACTURER_ENTITY, Permission.MANUFACTURER_MANAGE
 )
-
-
-def master_state(record: Brand | Manufacturer) -> MasterLifecycleState:
-    """Project a brand's or manufacturer's two flags onto the lifecycle."""
-    if record.deleted_at is not None:
-        return MasterLifecycleState.ARCHIVED
-    return MasterLifecycleState.ACTIVE if record.is_active else MasterLifecycleState.INACTIVE
 
 
 # -----------------------------------------------------------------------------
@@ -1314,11 +1304,11 @@ async def _require_brand(
 
     Read ``FOR SHARE``, so a deactivation or retirement of the same brand that
     is still in flight is waited for rather than read around - see
-    ``BrandRepository.get_for_assignment``.
+    ``BrandRepository.lock_for_assignment``.
     """
     if brand_id is None:
         return
-    brand = await BrandRepository(session, tenant).get_for_assignment(brand_id)
+    brand = await BrandRepository(session, tenant).lock_for_assignment(brand_id)
     if brand is None:
         raise NotFoundError(BRAND_ENTITY, brand_id)
     if not brand.is_active:
@@ -1337,7 +1327,9 @@ async def _require_manufacturer(
     """
     if manufacturer_id is None:
         return
-    manufacturer = await ManufacturerRepository(session, tenant).get_for_assignment(manufacturer_id)
+    manufacturer = await ManufacturerRepository(session, tenant).lock_for_assignment(
+        manufacturer_id
+    )
     if manufacturer is None:
         raise NotFoundError(MANUFACTURER_ENTITY, manufacturer_id)
     if not manufacturer.is_active:
@@ -2970,7 +2962,6 @@ __all__ = [
     "list_variants",
     "list_vendor_links",
     "load_uom_graph",
-    "master_state",
     "may_view_cost",
     "resolve_capabilities",
     "resolve_price",

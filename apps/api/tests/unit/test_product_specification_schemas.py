@@ -8,13 +8,13 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from src.common.master_lifecycle import MasterLifecycleState
 from src.core.constants import (
     MAX_SPECIFICATION_FILTERS,
     MAX_SPECIFICATION_OPTIONS,
     MAX_SPECIFICATIONS_PER_ITEM,
 )
 from src.core.errors import ValidationError as BusinessValidationError
-from src.modules.organization.service import MasterLifecycleState
 from src.modules.products.models import (
     AccessoryRelation,
     SpecificationAttribute,

@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.banking import ACCOUNT_NUMBER_VISIBLE_DIGITS, mask_account_number
 from src.common.document_access import register_document_entity_resolver
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.core.clock import utcnow
 from src.core.database import affected_rows, transaction
 from src.core.deps import TenantContext
@@ -305,12 +306,6 @@ class VendorState(StrEnum):
     ARCHIVED = "ARCHIVED"
 
 
-class TransporterState(StrEnum):
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-
-
 VENDOR_LIFECYCLE: StateMachine[VendorState] = StateMachine(
     entity="Vendor",
     initial=VendorState.PENDING_APPROVAL,
@@ -389,43 +384,8 @@ VENDOR_LIFECYCLE: StateMachine[VendorState] = StateMachine(
     ),
 )
 
-TRANSPORTER_LIFECYCLE: StateMachine[TransporterState] = StateMachine(
-    entity="Transporter",
-    initial=TransporterState.ACTIVE,
-    transitions=(
-        Transition(
-            TransporterState.ACTIVE,
-            TransporterState.INACTIVE,
-            permission=Permission.TRANSPORTER_MANAGE,
-            label="Deactivate",
-        ),
-        Transition(
-            TransporterState.INACTIVE,
-            TransporterState.ACTIVE,
-            permission=Permission.TRANSPORTER_MANAGE,
-            label="Activate",
-        ),
-        Transition(
-            TransporterState.ACTIVE,
-            TransporterState.ARCHIVED,
-            permission=Permission.TRANSPORTER_MANAGE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        Transition(
-            TransporterState.INACTIVE,
-            TransporterState.ARCHIVED,
-            permission=Permission.TRANSPORTER_MANAGE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        Transition(
-            TransporterState.ARCHIVED,
-            TransporterState.INACTIVE,
-            permission=Permission.TRANSPORTER_MANAGE,
-            label="Restore",
-        ),
-    ),
+TRANSPORTER_LIFECYCLE = master_lifecycle(
+    "Transporter", Permission.TRANSPORTER_MANAGE, restorable=True
 )
 
 
@@ -441,12 +401,6 @@ def vendor_state(vendor: Vendor) -> VendorState:
     if not vendor.is_active:
         return VendorState.SUSPENDED
     return VendorState.APPROVED if vendor.is_approved else VendorState.PENDING_APPROVAL
-
-
-def transporter_state(transporter: Transporter) -> TransporterState:
-    if transporter.deleted_at is not None:
-        return TransporterState.ARCHIVED
-    return TransporterState.ACTIVE if transporter.is_active else TransporterState.INACTIVE
 
 
 def can_receive_purchase_orders(vendor: Vendor) -> bool:
@@ -1794,11 +1748,11 @@ class TransporterService:
     async def set_active(
         self, transporter_id: uuid.UUID, *, active: bool, reason: str
     ) -> TransporterRead:
-        target = TransporterState.ACTIVE if active else TransporterState.INACTIVE
+        target = MasterLifecycleState.ACTIVE if active else MasterLifecycleState.INACTIVE
 
         async with transaction(self.session):
             transporter = await self.repo.get_or_404(transporter_id)
-            current = transporter_state(transporter)
+            current = master_state(transporter)
             TRANSPORTER_LIFECYCLE.assert_transition(current, target)
 
             transporter.is_active = active
@@ -1824,8 +1778,8 @@ class TransporterService:
         """Retire a carrier, refusing while a consignment is still with them."""
         async with transaction(self.session):
             transporter = await self.repo.get_or_404(transporter_id)
-            current = transporter_state(transporter)
-            TRANSPORTER_LIFECYCLE.assert_transition(current, TransporterState.ARCHIVED)
+            current = master_state(transporter)
+            TRANSPORTER_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if await self.repo.has_open_dispatches(transporter.id):
                 raise referenced_in_use(
@@ -1847,7 +1801,7 @@ class TransporterService:
                 summary=f"Retired transporter {transporter.code}",
                 user_id=self.tenant.user_id,
                 old_values={"status": str(current)},
-                new_values={"status": str(TransporterState.ARCHIVED)},
+                new_values={"status": str(MasterLifecycleState.ARCHIVED)},
                 context={"reason": reason},
             )
 
@@ -1858,11 +1812,11 @@ class TransporterService:
             if transporter is None:
                 raise NotFoundError("Transporter", transporter_id)
 
-            current = transporter_state(transporter)
+            current = master_state(transporter)
             TRANSPORTER_LIFECYCLE.assert_transition(
                 current,
-                TransporterState.INACTIVE,
-                source=TransporterState.ARCHIVED,
+                MasterLifecycleState.INACTIVE,
+                source=MasterLifecycleState.ARCHIVED,
                 requested="RESTORED",
             )
 
@@ -1885,7 +1839,7 @@ class TransporterService:
                 entity_id=transporter.id,
                 entity_code=transporter.code,
                 from_status=str(current),
-                to_status=str(TransporterState.INACTIVE),
+                to_status=str(MasterLifecycleState.INACTIVE),
                 user_id=self.tenant.user_id,
                 reason="Transporter restored",
             )
@@ -1913,7 +1867,6 @@ __all__ = [
     "VENDOR_DOCUMENT_ENTITY",
     "VENDOR_LIFECYCLE",
     "TransporterService",
-    "TransporterState",
     "VendorCategoryService",
     "VendorContactService",
     "VendorPerformanceWindow",
@@ -1928,6 +1881,5 @@ __all__ = [
     "load_performance",
     "mask_account_number",
     "template_has_placeholder",
-    "transporter_state",
     "vendor_state",
 ]

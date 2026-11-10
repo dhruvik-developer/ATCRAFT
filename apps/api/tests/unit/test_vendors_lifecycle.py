@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.common.master_lifecycle import MasterLifecycleState, master_state
 from src.core.clock import utcnow
 from src.core.errors import ErrorCode, InvalidStateTransitionError, referenced_in_use
 from src.core.permissions import Permission
@@ -21,13 +22,11 @@ from src.modules.vendors.service import (
     ACCOUNT_NUMBER_VISIBLE_DIGITS,
     TRANSPORTER_LIFECYCLE,
     VENDOR_LIFECYCLE,
-    TransporterState,
     VendorState,
     build_tracking_url,
     can_receive_purchase_orders,
     mask_account_number,
     template_has_placeholder,
-    transporter_state,
     vendor_state,
 )
 
@@ -128,21 +127,21 @@ class TestVendorStateMachine:
 class TestTransporterStateMachine:
     def test_state_derivation(self) -> None:
         assert (
-            transporter_state(SimpleNamespace(is_active=True, deleted_at=None))
-            is TransporterState.ACTIVE
+            master_state(SimpleNamespace(is_active=True, deleted_at=None))
+            is MasterLifecycleState.ACTIVE
         )
         assert (
-            transporter_state(SimpleNamespace(is_active=False, deleted_at=None))
-            is TransporterState.INACTIVE
+            master_state(SimpleNamespace(is_active=False, deleted_at=None))
+            is MasterLifecycleState.INACTIVE
         )
         assert (
-            transporter_state(SimpleNamespace(is_active=True, deleted_at=utcnow()))
-            is TransporterState.ARCHIVED
+            master_state(SimpleNamespace(is_active=True, deleted_at=utcnow()))
+            is MasterLifecycleState.ARCHIVED
         )
 
     def test_restore_returns_inactive(self) -> None:
-        assert TRANSPORTER_LIFECYCLE.allowed_targets(TransporterState.ARCHIVED) == [
-            TransporterState.INACTIVE
+        assert TRANSPORTER_LIFECYCLE.allowed_targets(MasterLifecycleState.ARCHIVED) == [
+            MasterLifecycleState.INACTIVE
         ]
 
 

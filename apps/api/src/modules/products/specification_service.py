@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle
 from src.core.actors import actor_id
 from src.core.constants import MAX_ITEM_ACCESSORIES, MAX_SPECIFICATION_BATCH
 from src.core.database import advisory_xact_lock, transaction
@@ -26,10 +27,6 @@ from src.core.responses import OffsetPagination
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
-from src.modules.organization.service import (
-    MasterLifecycleState,
-    master_lifecycle,
-)
 from src.modules.products.models import (
     AccessoryRelation,
     CategorySpecification,
@@ -399,7 +396,7 @@ class SpecificationService:
     async def _assigned_attributes(
         self, ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, SpecificationAttribute]:
-        records = await self.attributes.for_assignment(ids)
+        records = await self.attributes.lock_for_assignment(ids)
         for attribute_id in ids:
             attribute = records.get(attribute_id)
             if attribute is None:

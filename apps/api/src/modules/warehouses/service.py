@@ -25,12 +25,12 @@ impossible to build or test on its own.
 from __future__ import annotations
 
 import uuid
-from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.document_access import register_document_entity_resolver
 from src.common.hierarchy import assert_parent_allowed
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -45,7 +45,6 @@ from src.core.messages import inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
-from src.core.state_machine import StateMachine, Transition
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
@@ -140,75 +139,11 @@ _LOCATION_AUDITED_FIELDS = [
 # -----------------------------------------------------------------------------
 
 
-class MasterLifecycleState(StrEnum):
-    """Lifecycle of a master record.
-
-    There is no ``status`` column: the state is derived from ``is_active`` and
-    ``deleted_at``, which are the two flags the rest of the system already reads.
-    Storing a third, redundant column would let it disagree with them. Routing
-    the transitions through a :class:`StateMachine` still gives one place where
-    the legal moves are declared, tested and rendered for the UI (section 18).
-    """
-
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-
-
-def _lifecycle(entity: str, manage: Permission) -> StateMachine[MasterLifecycleState]:
-    return StateMachine(
-        entity=entity,
-        initial=MasterLifecycleState.ACTIVE,
-        transitions=(
-            Transition(
-                MasterLifecycleState.ACTIVE,
-                MasterLifecycleState.INACTIVE,
-                permission=manage,
-                label="Deactivate",
-            ),
-            Transition(
-                MasterLifecycleState.INACTIVE,
-                MasterLifecycleState.ACTIVE,
-                permission=manage,
-                label="Activate",
-            ),
-            # Retiring is reversible in principle, but it stops stock movements,
-            # so it is marked irreversible for the confirmation prompt.
-            Transition(
-                MasterLifecycleState.ACTIVE,
-                MasterLifecycleState.ARCHIVED,
-                permission=manage,
-                label="Retire",
-                is_irreversible=True,
-            ),
-            Transition(
-                MasterLifecycleState.INACTIVE,
-                MasterLifecycleState.ARCHIVED,
-                permission=manage,
-                label="Retire",
-                is_irreversible=True,
-            ),
-            # A restored record comes back INACTIVE, never ACTIVE: someone must
-            # look at it and switch it on before it can accept stock again.
-            Transition(
-                MasterLifecycleState.ARCHIVED,
-                MasterLifecycleState.INACTIVE,
-                permission=manage,
-                label="Restore",
-            ),
-        ),
-    )
-
-
-WAREHOUSE_LIFECYCLE = _lifecycle("Warehouse", Permission.WAREHOUSE_MANAGE)
-LOCATION_LIFECYCLE = _lifecycle("Storage location", Permission.LOCATION_MANAGE)
-
-
-def lifecycle_state(record: Warehouse | StorageLocation) -> MasterLifecycleState:
-    """Derive the lifecycle state of a master row from its flags."""
-    if record.deleted_at is not None:
-        return MasterLifecycleState.ARCHIVED
-    return MasterLifecycleState.ACTIVE if record.is_active else MasterLifecycleState.INACTIVE
+WAREHOUSE_LIFECYCLE = master_lifecycle("Warehouse", Permission.WAREHOUSE_MANAGE, restorable=True)
+# Retirement is terminal for a location: no route or service method restores
+# one - restoring its warehouse deliberately leaves its locations retired - so a
+# Restore edge here would advertise a move nothing performs.
+LOCATION_LIFECYCLE = master_lifecycle("Storage location", Permission.LOCATION_MANAGE)
 
 
 # -----------------------------------------------------------------------------
@@ -378,7 +313,7 @@ class WarehouseService:
 
         async with transaction(self.session):
             warehouse = await self.repo.get_or_404(warehouse_id)
-            current = lifecycle_state(warehouse)
+            current = master_state(warehouse)
             WAREHOUSE_LIFECYCLE.assert_transition(current, target)
 
             if not active and warehouse.is_default:
@@ -410,7 +345,7 @@ class WarehouseService:
         """Retire a warehouse (soft delete), refusing while anything still needs it."""
         async with transaction(self.session):
             warehouse = await self.repo.get_or_404(warehouse_id)
-            current = lifecycle_state(warehouse)
+            current = master_state(warehouse)
             WAREHOUSE_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if warehouse.is_default:
@@ -475,7 +410,7 @@ class WarehouseService:
             if warehouse is None:
                 raise NotFoundError("Warehouse", warehouse_id)
 
-            current = lifecycle_state(warehouse)
+            current = master_state(warehouse)
             # Assert the *source* as well, not just the target edge: the machine
             # also allows ACTIVE -> INACTIVE, so checking the edge alone would
             # let "restore" quietly deactivate a warehouse that is still live.
@@ -715,7 +650,7 @@ class StorageLocationService:
 
         async with transaction(self.session):
             location = await self._locked_for_retirement(location_id)
-            current = lifecycle_state(location)
+            current = master_state(location)
             LOCATION_LIFECYCLE.assert_transition(current, target)
 
             # ASSUMPTION: a bin some item names as its default bin cannot be
@@ -750,7 +685,7 @@ class StorageLocationService:
     async def delete_location(self, location_id: uuid.UUID, *, reason: str) -> None:
         async with transaction(self.session):
             location = await self._locked_for_retirement(location_id)
-            current = lifecycle_state(location)
+            current = master_state(location)
             LOCATION_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if await self.repo.has_item_defaults(location_id=location.id):
@@ -823,8 +758,6 @@ __all__ = [
     "MAX_HIERARCHY_DEPTH",
     "WAREHOUSE_DOCUMENT_ENTITY",
     "WAREHOUSE_LIFECYCLE",
-    "MasterLifecycleState",
     "StorageLocationService",
     "WarehouseService",
-    "lifecycle_state",
 ]

@@ -18,6 +18,7 @@ from sqlalchemy.dialects import postgresql
 
 from src.common.banking import IFSC_SHAPE_MESSAGE, mask_account_number
 from src.common.hierarchy import assert_parent_allowed
+from src.common.master_lifecycle import MasterLifecycleState
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
 from src.core.models import Base
@@ -43,7 +44,6 @@ from src.modules.organization.service import (
     COST_CENTRE_LIFECYCLE,
     MAX_COST_CENTRE_DEPTH,
     MAX_DEPARTMENT_DEPTH,
-    MasterLifecycleState,
 )
 
 pytestmark = pytest.mark.unit
@@ -113,7 +113,7 @@ class TestLifecycleLocks:
             session, TenantContext(company_id=uuid.uuid4(), user_id=uuid.uuid4())
         )
 
-        await repository.get_for_assignment(uuid.uuid4())  # type: ignore[arg-type]
+        await repository.lock_for_assignment(uuid.uuid4())  # type: ignore[arg-type]
 
         assert self.statement_sql(session).endswith("FOR SHARE")
 

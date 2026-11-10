@@ -47,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.banking import mask_account_number
 from src.common.codes import financial_year_key
 from src.common.hierarchy import assert_parent_allowed
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -246,74 +247,11 @@ _FINANCIAL_YEAR_AUDITED_FIELDS = [
 # -----------------------------------------------------------------------------
 
 
-class MasterLifecycleState(StrEnum):
-    """Lifecycle of an organisation master record.
-
-    There is no ``status`` column: the state is derived from ``is_active`` and
-    ``deleted_at``, the two flags the rest of the system already reads. A third,
-    redundant column could disagree with them. Routing the transitions through a
-    :class:`StateMachine` still gives one place where the legal moves are
-    declared, tested and rendered for the UI (section 18).
-    """
-
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-
-
-def _lifecycle(entity: str, manage: Permission) -> StateMachine[MasterLifecycleState]:
-    """Activate / deactivate / retire, with retirement terminal.
-
-    ARCHIVED is terminal on purpose: this module exposes no restore endpoint, so
-    declaring an edge out of it would advertise a transition no caller can make.
-    """
-    return StateMachine(
-        entity=entity,
-        initial=MasterLifecycleState.ACTIVE,
-        transitions=(
-            Transition(
-                MasterLifecycleState.ACTIVE,
-                MasterLifecycleState.INACTIVE,
-                permission=manage,
-                label="Deactivate",
-            ),
-            Transition(
-                MasterLifecycleState.INACTIVE,
-                MasterLifecycleState.ACTIVE,
-                permission=manage,
-                label="Activate",
-            ),
-            Transition(
-                MasterLifecycleState.ACTIVE,
-                MasterLifecycleState.ARCHIVED,
-                permission=manage,
-                label="Retire",
-                is_irreversible=True,
-            ),
-            Transition(
-                MasterLifecycleState.INACTIVE,
-                MasterLifecycleState.ARCHIVED,
-                permission=manage,
-                label="Retire",
-                is_irreversible=True,
-            ),
-        ),
-        terminal=frozenset({MasterLifecycleState.ARCHIVED}),
-    )
-
-
-#: The same factory under a public name, for the master tables other modules own
-#: (the brand and manufacturer masters in ``products``). One definition of
-#: "activate, deactivate, retire" rather than a copy per module: a copy is how
-#: two masters end up disagreeing about whether a retired row may come back.
-master_lifecycle = _lifecycle
-
-
-BRANCH_LIFECYCLE = _lifecycle("Branch", Permission.BRANCH_MANAGE)
-PLANT_LIFECYCLE = _lifecycle("Plant", Permission.PLANT_MANAGE)
-DEPARTMENT_LIFECYCLE = _lifecycle("Department", Permission.DEPARTMENT_MANAGE)
-COST_CENTRE_LIFECYCLE = _lifecycle(COST_CENTRE_ENTITY, Permission.COST_CENTRE_MANAGE)
-FINANCIAL_YEAR_LIFECYCLE = _lifecycle("Financial year", Permission.SETTINGS_MANAGE)
+BRANCH_LIFECYCLE = master_lifecycle("Branch", Permission.BRANCH_MANAGE)
+PLANT_LIFECYCLE = master_lifecycle("Plant", Permission.PLANT_MANAGE)
+DEPARTMENT_LIFECYCLE = master_lifecycle("Department", Permission.DEPARTMENT_MANAGE)
+COST_CENTRE_LIFECYCLE = master_lifecycle(COST_CENTRE_ENTITY, Permission.COST_CENTRE_MANAGE)
+FINANCIAL_YEAR_LIFECYCLE = master_lifecycle("Financial year", Permission.SETTINGS_MANAGE)
 
 
 class FinancialYearState(StrEnum):
@@ -345,15 +283,6 @@ FINANCIAL_YEAR_MACHINE: StateMachine[FinancialYearState] = StateMachine(
         ),
     ),
 )
-
-
-def lifecycle_state(
-    record: Branch | Plant | Department | CostCentre | FinancialYear,
-) -> MasterLifecycleState:
-    """Derive the lifecycle state of a master row from its flags."""
-    if record.deleted_at is not None:
-        return MasterLifecycleState.ARCHIVED
-    return MasterLifecycleState.ACTIVE if record.is_active else MasterLifecycleState.INACTIVE
 
 
 def financial_year_state(year: FinancialYear) -> FinancialYearState:
@@ -540,7 +469,7 @@ class BranchService:
         async with transaction(self.session):
             branch = await self.repo.get_or_404(branch_id)
             before = snapshot(branch, _BRANCH_AUDITED_FIELDS)
-            current_state = lifecycle_state(branch)
+            current_state = master_state(branch)
 
             if changes.get("is_head_office") and not branch.is_head_office:
                 await self._assert_head_office_free(exclude_id=branch.id)
@@ -583,7 +512,7 @@ class BranchService:
         """Retire a branch (soft delete), refusing while anything still needs it."""
         async with transaction(self.session):
             branch = await self.repo.get_or_404(branch_id)
-            current = lifecycle_state(branch)
+            current = master_state(branch)
             BRANCH_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if branch.is_head_office:
@@ -717,7 +646,7 @@ class PlantService:
         async with transaction(self.session):
             plant = await self.repo.get_or_404(plant_id)
             before = snapshot(plant, _PLANT_AUDITED_FIELDS)
-            current_state = lifecycle_state(plant)
+            current_state = master_state(plant)
 
             if "branch_id" in changes and changes["branch_id"] != plant.branch_id:
                 await self._assert_branch(changes["branch_id"])
@@ -766,7 +695,7 @@ class PlantService:
     async def delete_plant(self, plant_id: uuid.UUID, *, reason: str) -> None:
         async with transaction(self.session):
             plant = await self.repo.get_or_404(plant_id)
-            current = lifecycle_state(plant)
+            current = master_state(plant)
             PLANT_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if await self.repo.referenced_by_users(plant.id):
@@ -886,7 +815,7 @@ class DepartmentService:
         async with transaction(self.session):
             department = await self.repo.get_or_404(department_id)
             before = snapshot(department, _DEPARTMENT_AUDITED_FIELDS)
-            current_state = lifecycle_state(department)
+            current_state = master_state(department)
 
             # Only a *changed* plant or head is checked. The edit form sends back
             # the head it found, and a head retired since otherwise answered
@@ -955,7 +884,7 @@ class DepartmentService:
     async def delete_department(self, department_id: uuid.UUID, *, reason: str) -> None:
         async with transaction(self.session):
             department = await self.repo.get_or_404(department_id)
-            current = lifecycle_state(department)
+            current = master_state(department)
             DEPARTMENT_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if await self.repo.has_live_children(department.id):
@@ -1099,7 +1028,7 @@ class CostCentreService:
             if centre is None:
                 raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
             before = snapshot(centre, _COST_CENTRE_AUDITED_FIELDS)
-            current_state = lifecycle_state(centre)
+            current_state = master_state(centre)
 
             # Only a *changed* plant or head is checked, the rule every carrier
             # applies to a cost centre. The edit form sends back the plant and
@@ -1185,7 +1114,7 @@ class CostCentreService:
             centre = await self.repo.lock_for_update(cost_centre_id)
             if centre is None:
                 raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
-            current = lifecycle_state(centre)
+            current = master_state(centre)
             COST_CENTRE_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if await self.repo.has_live_children(centre.id):
@@ -1332,7 +1261,7 @@ async def require_cost_centre(
     should come through here: a document re-saving the centre it already holds
     is not allocating anything, and keeps its reference after deactivation.
     """
-    centre = await CostCentreRepository(session, tenant).get_for_assignment(cost_centre_id)
+    centre = await CostCentreRepository(session, tenant).lock_for_assignment(cost_centre_id)
     if centre is None:
         raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
     if not centre.is_active:
@@ -1500,7 +1429,7 @@ class FinancialYearService:
                 )
 
             before = snapshot(year, _FINANCIAL_YEAR_AUDITED_FIELDS)
-            current_state = lifecycle_state(year)
+            current_state = master_state(year)
 
             start_date = changes.get("start_date", year.start_date)
             end_date = changes.get("end_date", year.end_date)
@@ -1632,7 +1561,7 @@ class FinancialYearService:
         """
         async with transaction(self.session):
             year = await self.repo.get_or_404(year_id)
-            current = lifecycle_state(year)
+            current = master_state(year)
             FINANCIAL_YEAR_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if year.is_closed:
@@ -1722,15 +1651,12 @@ __all__ = [
     "DepartmentService",
     "FinancialYearService",
     "FinancialYearState",
-    "MasterLifecycleState",
     "PlantService",
     "active_cost_centre_ids",
     "assert_period_valid",
     "cost_centre_facts",
     "default_financial_year_code",
     "financial_year_state",
-    "lifecycle_state",
-    "master_lifecycle",
     "ranges_overlap",
     "require_cost_centre",
     "require_cost_centres",

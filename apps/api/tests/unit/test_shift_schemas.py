@@ -13,6 +13,7 @@ from datetime import UTC, date, time, timedelta
 import pytest
 from pydantic import ValidationError
 
+from src.common.master_lifecycle import MasterLifecycleState
 from src.core.errors import InvalidStateTransitionError
 from src.modules.routing.models import ShiftAssignmentStatus
 from src.modules.routing.schemas import (
@@ -27,11 +28,7 @@ from src.modules.routing.schemas import (
     ShiftUpdate,
     break_problem,
 )
-from src.modules.routing.service import (
-    SHIFT_ASSIGNMENT_FLOW,
-    SHIFT_LIFECYCLE,
-    MasterLifecycleState,
-)
+from src.modules.routing.service import SHIFT_ASSIGNMENT_FLOW, SHIFT_LIFECYCLE
 
 pytestmark = pytest.mark.unit
 

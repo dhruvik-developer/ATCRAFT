@@ -34,13 +34,13 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_CEILING, Decimal
-from enum import StrEnum
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.approvals import SUPER_ADMIN_ROLE_CODE, can_approve
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.core.clock import today, utcnow
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
@@ -223,61 +223,10 @@ _ASSIGNMENT_AUDITED_FIELDS = [
 # -----------------------------------------------------------------------------
 
 
-class MasterLifecycleState(StrEnum):
-    """Lifecycle of a work-centre master row.
-
-    There is no ``status`` column: the state is derived from ``is_active`` and
-    ``deleted_at``, the two flags the rest of the system already reads. A third,
-    redundant column could disagree with them. Routing the moves through a
-    :class:`StateMachine` still gives one place where the legal transitions are
-    declared, tested and rendered for the UI (master rules section 18).
-    """
-
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-
-
-WORK_CENTER_LIFECYCLE: StateMachine[MasterLifecycleState] = StateMachine(
-    entity=WORK_CENTER_ENTITY,
-    initial=MasterLifecycleState.ACTIVE,
-    transitions=(
-        Transition(
-            MasterLifecycleState.ACTIVE,
-            MasterLifecycleState.INACTIVE,
-            permission=Permission.WORK_CENTER_MANAGE,
-            label="Deactivate",
-        ),
-        Transition(
-            MasterLifecycleState.INACTIVE,
-            MasterLifecycleState.ACTIVE,
-            permission=Permission.WORK_CENTER_MANAGE,
-            label="Activate",
-        ),
-        Transition(
-            MasterLifecycleState.ACTIVE,
-            MasterLifecycleState.ARCHIVED,
-            permission=Permission.WORK_CENTER_MANAGE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        Transition(
-            MasterLifecycleState.INACTIVE,
-            MasterLifecycleState.ARCHIVED,
-            permission=Permission.WORK_CENTER_MANAGE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        # A restored centre comes back INACTIVE, never ACTIVE: someone must look
-        # at its rate and capacity before routings can plan work at it again.
-        Transition(
-            MasterLifecycleState.ARCHIVED,
-            MasterLifecycleState.INACTIVE,
-            permission=Permission.WORK_CENTER_MANAGE,
-            label="Restore",
-        ),
-    ),
-)
+# Retirement is terminal: no route or service method restores a work centre, so
+# a Restore edge would advertise a move nothing performs. Adding one means adding
+# that route and building this machine with ``restorable=True``.
+WORK_CENTER_LIFECYCLE = master_lifecycle(WORK_CENTER_ENTITY, Permission.WORK_CENTER_MANAGE)
 
 
 MACHINE_AVAILABILITY: StateMachine[MachineStatus] = StateMachine(
@@ -391,41 +340,9 @@ ROUTING_LIFECYCLE: StateMachine[RoutingStatus] = StateMachine(
 )
 
 
-SHIFT_LIFECYCLE: StateMachine[MasterLifecycleState] = StateMachine(
-    entity=SHIFT_ENTITY,
-    initial=MasterLifecycleState.ACTIVE,
-    transitions=(
-        Transition(
-            MasterLifecycleState.ACTIVE,
-            MasterLifecycleState.INACTIVE,
-            permission=Permission.SHIFT_MANAGE,
-            label="Deactivate",
-        ),
-        Transition(
-            MasterLifecycleState.INACTIVE,
-            MasterLifecycleState.ACTIVE,
-            permission=Permission.SHIFT_MANAGE,
-            label="Activate",
-        ),
-        Transition(
-            MasterLifecycleState.ACTIVE,
-            MasterLifecycleState.ARCHIVED,
-            permission=Permission.SHIFT_MANAGE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        Transition(
-            MasterLifecycleState.INACTIVE,
-            MasterLifecycleState.ARCHIVED,
-            permission=Permission.SHIFT_MANAGE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-    ),
-    # No restore, unlike a work centre: a retired shift's code is immutable and
-    # already on history, so "we need it back" is answered by a new shift.
-    terminal=frozenset({MasterLifecycleState.ARCHIVED}),
-)
+# No restore: a retired shift's code is immutable and already on history, so
+# "we need it back" is answered by a new shift.
+SHIFT_LIFECYCLE = master_lifecycle(SHIFT_ENTITY, Permission.SHIFT_MANAGE)
 
 
 SHIFT_ASSIGNMENT_FLOW: StateMachine[ShiftAssignmentStatus] = StateMachine(
@@ -847,7 +764,7 @@ class WorkCenterService:
 
         async with transaction(self.session):
             work_center = await self.repo.get_or_404(work_center_id)
-            current = lifecycle_state(work_center)
+            current = master_state(work_center)
             WORK_CENTER_LIFECYCLE.assert_transition(current, target)
 
             work_center.is_active = active
@@ -878,7 +795,7 @@ class WorkCenterService:
         """
         async with transaction(self.session):
             work_center = await self.repo.get_or_404(work_center_id)
-            current = lifecycle_state(work_center)
+            current = master_state(work_center)
             WORK_CENTER_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             counts = await self.repo.machine_counts([work_center.id])
@@ -935,13 +852,6 @@ class WorkCenterService:
             raise NotFoundError("Plant", plant_id)
         if not department_ok:
             raise NotFoundError("Department", department_id)
-
-
-def lifecycle_state(work_center: WorkCenter) -> MasterLifecycleState:
-    """Derive the lifecycle state of a work centre from its flags."""
-    if work_center.deleted_at is not None:
-        return MasterLifecycleState.ARCHIVED
-    return MasterLifecycleState.ACTIVE if work_center.is_active else MasterLifecycleState.INACTIVE
 
 
 # -----------------------------------------------------------------------------
@@ -2588,7 +2498,6 @@ __all__ = [
     "SUPER_ADMIN_ROLE_CODE",
     "WORK_CENTER_LIFECYCLE",
     "MachineService",
-    "MasterLifecycleState",
     "OperationTimings",
     "PlannedWindow",
     "RoutingService",
@@ -2606,7 +2515,6 @@ __all__ = [
     "cost_breakdown",
     "effectivity_contains",
     "is_editable",
-    "lifecycle_state",
     "local_date",
     "manufacture_lead_time_days",
     "manufacture_lead_times",

@@ -12,14 +12,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.common.master_lifecycle import MasterLifecycleState, master_state
 from src.core.clock import utcnow
 from src.core.errors import ErrorCode, InvalidStateTransitionError
 from src.core.permissions import Permission
 from src.modules.warehouses.service import (
     LOCATION_LIFECYCLE,
     WAREHOUSE_LIFECYCLE,
-    MasterLifecycleState,
-    lifecycle_state,
     referenced_in_use,
 )
 
@@ -37,15 +36,15 @@ def _row(*, is_active: bool = True, deleted: bool = False) -> SimpleNamespace:
 
 class TestLifecycleDerivation:
     def test_active_row_is_active(self) -> None:
-        assert lifecycle_state(_row()) is MasterLifecycleState.ACTIVE
+        assert master_state(_row()) is MasterLifecycleState.ACTIVE
 
     def test_deactivated_row_is_inactive(self) -> None:
-        assert lifecycle_state(_row(is_active=False)) is MasterLifecycleState.INACTIVE
+        assert master_state(_row(is_active=False)) is MasterLifecycleState.INACTIVE
 
     def test_deleted_row_is_archived_even_when_flagged_active(self) -> None:
         # deleted_at wins: a retired row that still carries is_active=True from
         # before the retirement must not read as usable.
-        assert lifecycle_state(_row(is_active=True, deleted=True)) is MasterLifecycleState.ARCHIVED
+        assert master_state(_row(is_active=True, deleted=True)) is MasterLifecycleState.ARCHIVED
 
 
 class TestWarehouseStateMachine:
@@ -68,6 +67,16 @@ class TestWarehouseStateMachine:
         self, source: MasterLifecycleState, target: MasterLifecycleState
     ) -> None:
         assert WAREHOUSE_LIFECYCLE.can_transition(source, target)
+
+    def test_a_retired_location_has_no_way_back(self) -> None:
+        """No route restores a storage location, so its machine declares no Restore.
+
+        Restoring a warehouse deliberately leaves its locations retired; the
+        location machine used to declare ARCHIVED -> INACTIVE all the same.
+        """
+        assert LOCATION_LIFECYCLE.is_terminal(MasterLifecycleState.ARCHIVED)
+        assert LOCATION_LIFECYCLE.allowed_targets(MasterLifecycleState.ARCHIVED) == []
+        assert not WAREHOUSE_LIFECYCLE.is_terminal(MasterLifecycleState.ARCHIVED)
 
     def test_restore_never_lands_on_active(self) -> None:
         """A restored warehouse comes back inactive and must be switched on."""

@@ -632,7 +632,7 @@ class CostCentreRepository(_OrgRepositoryMixin, BaseRepository[CostCentre]):
     }
     searchable_fields = ("code", "name")
 
-    async def get_for_assignment(self, cost_centre_id: uuid.UUID) -> CostCentre | None:
+    async def lock_for_assignment(self, cost_centre_id: uuid.UUID) -> CostCentre | None:
         """Read a centre about to be assigned, ``FOR SHARE``.
 
         A lifecycle change locks the same row ``FOR NO KEY UPDATE``. The locks

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.common.master_lifecycle import MasterLifecycleState, master_state
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.errors import InvalidStateTransitionError
@@ -19,9 +20,7 @@ from src.core.security import validate_password_policy
 from src.modules.users.service import (
     ROLE_LIFECYCLE,
     USER_LIFECYCLE,
-    AccountState,
     generate_temporary_password,
-    lifecycle_state,
 )
 
 pytestmark = pytest.mark.unit
@@ -33,15 +32,15 @@ def _row(*, is_active: bool = True, deleted: bool = False) -> SimpleNamespace:
 
 class TestLifecycleDerivation:
     def test_active_row_is_active(self) -> None:
-        assert lifecycle_state(_row()) is AccountState.ACTIVE
+        assert master_state(_row()) is MasterLifecycleState.ACTIVE
 
     def test_deactivated_row_is_inactive(self) -> None:
-        assert lifecycle_state(_row(is_active=False)) is AccountState.INACTIVE
+        assert master_state(_row(is_active=False)) is MasterLifecycleState.INACTIVE
 
     def test_retired_row_is_archived_even_when_flagged_active(self) -> None:
         # deleted_at wins: a retired account still carrying is_active=True from
         # before the retirement must not read as usable.
-        assert lifecycle_state(_row(is_active=True, deleted=True)) is AccountState.ARCHIVED
+        assert master_state(_row(is_active=True, deleted=True)) is MasterLifecycleState.ARCHIVED
 
 
 class TestUserLifecycle:
@@ -50,41 +49,52 @@ class TestUserLifecycle:
         USER_LIFECYCLE.validate()
 
     def test_deactivate_and_reactivate_are_both_legal(self) -> None:
-        assert USER_LIFECYCLE.can_transition(AccountState.ACTIVE, AccountState.INACTIVE)
-        assert USER_LIFECYCLE.can_transition(AccountState.INACTIVE, AccountState.ACTIVE)
+        assert USER_LIFECYCLE.can_transition(
+            MasterLifecycleState.ACTIVE, MasterLifecycleState.INACTIVE
+        )
+        assert USER_LIFECYCLE.can_transition(
+            MasterLifecycleState.INACTIVE, MasterLifecycleState.ACTIVE
+        )
 
     def test_retirement_is_terminal(self) -> None:
         # A returning employee gets a new account rather than inheriting the
         # sessions, grants and lockout state of the old one.
-        assert USER_LIFECYCLE.is_terminal(AccountState.ARCHIVED)
-        assert USER_LIFECYCLE.allowed_targets(AccountState.ARCHIVED) == []
+        assert USER_LIFECYCLE.is_terminal(MasterLifecycleState.ARCHIVED)
+        assert USER_LIFECYCLE.allowed_targets(MasterLifecycleState.ARCHIVED) == []
 
     def test_reactivating_a_retired_account_is_refused(self) -> None:
         with pytest.raises(InvalidStateTransitionError) as excinfo:
-            USER_LIFECYCLE.assert_transition(AccountState.ARCHIVED, AccountState.ACTIVE)
-        assert excinfo.value.details["current_status"] == str(AccountState.ARCHIVED)
+            USER_LIFECYCLE.assert_transition(
+                MasterLifecycleState.ARCHIVED, MasterLifecycleState.ACTIVE
+            )
+        assert excinfo.value.details["current_status"] == str(MasterLifecycleState.ARCHIVED)
         assert excinfo.value.details["allowed"] == []
 
     def test_deactivating_an_inactive_account_is_refused(self) -> None:
         # Not a no-op: it would write a second status-change row claiming a
         # transition that did not happen.
         with pytest.raises(InvalidStateTransitionError):
-            USER_LIFECYCLE.assert_transition(AccountState.INACTIVE, AccountState.INACTIVE)
+            USER_LIFECYCLE.assert_transition(
+                MasterLifecycleState.INACTIVE, MasterLifecycleState.INACTIVE
+            )
 
     def test_every_transition_is_gated_on_the_deactivate_permission(self) -> None:
         assert {t.permission for t in USER_LIFECYCLE.transitions} == {Permission.USER_DEACTIVATE}
 
     def test_retirement_is_marked_irreversible(self) -> None:
-        retire = USER_LIFECYCLE.find(AccountState.ACTIVE, AccountState.ARCHIVED)
+        retire = USER_LIFECYCLE.find(MasterLifecycleState.ACTIVE, MasterLifecycleState.ARCHIVED)
         assert retire is not None
         assert retire.is_irreversible
 
     def test_available_actions_respect_the_caller(self) -> None:
-        assert USER_LIFECYCLE.available_actions(AccountState.ACTIVE, []) == []
+        assert USER_LIFECYCLE.available_actions(MasterLifecycleState.ACTIVE, []) == []
         actions = USER_LIFECYCLE.available_actions(
-            AccountState.ACTIVE, [Permission.USER_DEACTIVATE]
+            MasterLifecycleState.ACTIVE, [Permission.USER_DEACTIVATE]
         )
-        assert {t.target for t in actions} == {AccountState.INACTIVE, AccountState.ARCHIVED}
+        assert {t.target for t in actions} == {
+            MasterLifecycleState.INACTIVE,
+            MasterLifecycleState.ARCHIVED,
+        }
 
 
 class TestRoleLifecycle:
@@ -92,12 +102,18 @@ class TestRoleLifecycle:
         ROLE_LIFECYCLE.validate()
 
     def test_a_role_can_be_suspended_and_reinstated(self) -> None:
-        assert ROLE_LIFECYCLE.can_transition(AccountState.ACTIVE, AccountState.INACTIVE)
-        assert ROLE_LIFECYCLE.can_transition(AccountState.INACTIVE, AccountState.ACTIVE)
+        assert ROLE_LIFECYCLE.can_transition(
+            MasterLifecycleState.ACTIVE, MasterLifecycleState.INACTIVE
+        )
+        assert ROLE_LIFECYCLE.can_transition(
+            MasterLifecycleState.INACTIVE, MasterLifecycleState.ACTIVE
+        )
 
     def test_deleting_a_retired_role_is_refused(self) -> None:
         with pytest.raises(InvalidStateTransitionError):
-            ROLE_LIFECYCLE.assert_transition(AccountState.ARCHIVED, AccountState.ARCHIVED)
+            ROLE_LIFECYCLE.assert_transition(
+                MasterLifecycleState.ARCHIVED, MasterLifecycleState.ARCHIVED
+            )
 
     def test_every_transition_is_gated_on_role_manage(self) -> None:
         assert {t.permission for t in ROLE_LIFECYCLE.transitions} == {Permission.ROLE_MANAGE}

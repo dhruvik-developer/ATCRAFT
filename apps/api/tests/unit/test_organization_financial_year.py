@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from src.common.master_lifecycle import MasterLifecycleState, master_state
 from src.core.errors import BusinessRuleError, InvalidStateTransitionError
 from src.core.permissions import Permission
 from src.modules.organization.models import Branch, FinancialYear
@@ -19,11 +20,9 @@ from src.modules.organization.service import (
     FINANCIAL_YEAR_MACHINE,
     MAX_FINANCIAL_YEAR_DAYS,
     FinancialYearState,
-    MasterLifecycleState,
     assert_period_valid,
     default_financial_year_code,
     financial_year_state,
-    lifecycle_state,
     ranges_overlap,
 )
 
@@ -167,14 +166,14 @@ class TestMasterLifecycle:
         branch = Branch(code="HO", name="Head Office")
         branch.is_active = True
         branch.deleted_at = None
-        assert lifecycle_state(branch) is MasterLifecycleState.ACTIVE
+        assert master_state(branch) is MasterLifecycleState.ACTIVE
 
         branch.is_active = False
-        assert lifecycle_state(branch) is MasterLifecycleState.INACTIVE
+        assert master_state(branch) is MasterLifecycleState.INACTIVE
 
         branch.is_active = True
         branch.deleted_at = datetime(2026, 4, 1, tzinfo=UTC)
-        assert lifecycle_state(branch) is MasterLifecycleState.ARCHIVED
+        assert master_state(branch) is MasterLifecycleState.ARCHIVED
 
 
 class TestDefaultCode:

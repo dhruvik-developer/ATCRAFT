@@ -14,6 +14,7 @@ from typing import Any, cast
 
 import pytest
 
+from src.common.master_lifecycle import MasterLifecycleState, master_state
 from src.core.deps import Principal
 from src.core.errors import InvalidStateTransitionError
 from src.core.permissions import Permission
@@ -23,11 +24,9 @@ from src.modules.routing.service import (
     ROUTING_LIFECYCLE,
     SUPER_ADMIN_ROLE_CODE,
     WORK_CENTER_LIFECYCLE,
-    MasterLifecycleState,
     can_approve,
     effectivity_contains,
     is_editable,
-    lifecycle_state,
 )
 
 AUTHOR = uuid.uuid4()
@@ -237,24 +236,25 @@ def test_the_work_centre_state_graph_is_structurally_sound() -> None:
 
 
 def test_lifecycle_state_is_derived_from_the_flags_not_a_column() -> None:
-    assert lifecycle_state(cast(Any, FakeWorkCenter(True))) is MasterLifecycleState.ACTIVE
-    assert lifecycle_state(cast(Any, FakeWorkCenter(False))) is MasterLifecycleState.INACTIVE
+    assert master_state(cast(Any, FakeWorkCenter(True))) is MasterLifecycleState.ACTIVE
+    assert master_state(cast(Any, FakeWorkCenter(False))) is MasterLifecycleState.INACTIVE
     # deleted_at wins: a retired centre is archived whatever is_active says.
     archived = FakeWorkCenter(True, datetime(2026, 4, 1, tzinfo=UTC))
-    assert lifecycle_state(cast(Any, archived)) is MasterLifecycleState.ARCHIVED
+    assert master_state(cast(Any, archived)) is MasterLifecycleState.ARCHIVED
 
 
-def test_a_restored_work_centre_comes_back_inactive() -> None:
-    """Someone must look at its rate and capacity before routings plan work
-    there again, so restore never lands directly on ACTIVE."""
-    assert WORK_CENTER_LIFECYCLE.allowed_targets(MasterLifecycleState.ARCHIVED) == [
-        MasterLifecycleState.INACTIVE
-    ]
+def test_a_retired_work_centre_has_no_way_back() -> None:
+    """No route restores a work centre, so the machine declares no Restore edge.
 
-    with pytest.raises(InvalidStateTransitionError):
-        WORK_CENTER_LIFECYCLE.assert_transition(
-            MasterLifecycleState.ARCHIVED, MasterLifecycleState.ACTIVE
-        )
+    It used to declare ARCHIVED -> INACTIVE with nothing behind it, which also
+    kept ARCHIVED non-terminal.
+    """
+    assert WORK_CENTER_LIFECYCLE.is_terminal(MasterLifecycleState.ARCHIVED)
+    assert WORK_CENTER_LIFECYCLE.allowed_targets(MasterLifecycleState.ARCHIVED) == []
+
+    for target in (MasterLifecycleState.ACTIVE, MasterLifecycleState.INACTIVE):
+        with pytest.raises(InvalidStateTransitionError):
+            WORK_CENTER_LIFECYCLE.assert_transition(MasterLifecycleState.ARCHIVED, target)
 
 
 def test_retiring_is_reachable_from_both_live_states() -> None:

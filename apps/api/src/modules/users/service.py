@@ -48,11 +48,11 @@ import secrets
 import uuid
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from enum import StrEnum
-from typing import Any, Protocol
+from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.master_lifecycle import MasterLifecycleState, master_lifecycle, master_state
 from src.core.cache import cache_set, make_key
 from src.core.clock import utcnow
 from src.core.config import settings
@@ -253,99 +253,45 @@ _ROLE_AUDITED_FIELDS = [
 # -----------------------------------------------------------------------------
 
 
-class AccountState(StrEnum):
-    """Lifecycle of a user or role row.
+# Terminal on purpose: an account is retired because the person left. Their
+# e-mail address stays reserved so their history remains attributable, and a
+# returning employee is given a new account rather than inheriting the sessions,
+# grants and lockout state of the old one.
+USER_LIFECYCLE = master_lifecycle("User", Permission.USER_DEACTIVATE)
 
-    There is no ``status`` column on either table: the state is derived from
-    ``is_active`` and ``deleted_at``, the two flags the rest of the system
-    already reads, and a third redundant column could disagree with them.
-    Routing the transitions through a :class:`StateMachine` still gives one
-    place where the legal moves are declared, tested and rendered (section 18).
-    """
-
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"
-    ARCHIVED = "ARCHIVED"
-
-
-USER_LIFECYCLE: StateMachine[AccountState] = StateMachine(
-    entity="User",
-    initial=AccountState.ACTIVE,
-    transitions=(
-        Transition(
-            AccountState.ACTIVE,
-            AccountState.INACTIVE,
-            permission=Permission.USER_DEACTIVATE,
-            label="Deactivate",
-        ),
-        Transition(
-            AccountState.INACTIVE,
-            AccountState.ACTIVE,
-            permission=Permission.USER_DEACTIVATE,
-            label="Activate",
-        ),
-        Transition(
-            AccountState.ACTIVE,
-            AccountState.ARCHIVED,
-            permission=Permission.USER_DEACTIVATE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-        Transition(
-            AccountState.INACTIVE,
-            AccountState.ARCHIVED,
-            permission=Permission.USER_DEACTIVATE,
-            label="Retire",
-            is_irreversible=True,
-        ),
-    ),
-    # Terminal on purpose: an account is retired because the person left. Their
-    # e-mail address stays reserved so their history remains attributable, and a
-    # returning employee is given a new account rather than inheriting the
-    # sessions, grants and lockout state of the old one.
-    terminal=frozenset({AccountState.ARCHIVED}),
-)
-
-ROLE_LIFECYCLE: StateMachine[AccountState] = StateMachine(
+ROLE_LIFECYCLE: StateMachine[MasterLifecycleState] = StateMachine(
     entity="Role",
-    initial=AccountState.ACTIVE,
+    initial=MasterLifecycleState.ACTIVE,
     transitions=(
         Transition(
-            AccountState.ACTIVE,
-            AccountState.INACTIVE,
+            MasterLifecycleState.ACTIVE,
+            MasterLifecycleState.INACTIVE,
             permission=Permission.ROLE_MANAGE,
             label="Suspend",
         ),
         Transition(
-            AccountState.INACTIVE,
-            AccountState.ACTIVE,
+            MasterLifecycleState.INACTIVE,
+            MasterLifecycleState.ACTIVE,
             permission=Permission.ROLE_MANAGE,
             label="Reinstate",
         ),
         Transition(
-            AccountState.ACTIVE,
-            AccountState.ARCHIVED,
+            MasterLifecycleState.ACTIVE,
+            MasterLifecycleState.ARCHIVED,
             permission=Permission.ROLE_MANAGE,
             label="Delete",
             is_irreversible=True,
         ),
         Transition(
-            AccountState.INACTIVE,
-            AccountState.ARCHIVED,
+            MasterLifecycleState.INACTIVE,
+            MasterLifecycleState.ARCHIVED,
             permission=Permission.ROLE_MANAGE,
             label="Delete",
             is_irreversible=True,
         ),
     ),
-    terminal=frozenset({AccountState.ARCHIVED}),
+    terminal=frozenset({MasterLifecycleState.ARCHIVED}),
 )
-
-
-def lifecycle_state(record: Any) -> AccountState:
-    """Derive the lifecycle state of a user or role row from its flags."""
-    if getattr(record, "deleted_at", None) is not None:
-        return AccountState.ARCHIVED
-    return AccountState.ACTIVE if record.is_active else AccountState.INACTIVE
 
 
 # -----------------------------------------------------------------------------
@@ -1272,11 +1218,11 @@ class UserService:
         refresh token that outlives the account it belongs to turns "access
         revoked" into "access revoked in fourteen days".
         """
-        target = AccountState.ACTIVE if active else AccountState.INACTIVE
+        target = MasterLifecycleState.ACTIVE if active else MasterLifecycleState.INACTIVE
 
         async with transaction(self.session):
             user = await self._require_user(user_id)
-            current = lifecycle_state(user)
+            current = master_state(user)
             USER_LIFECYCLE.assert_transition(current, target)
 
             if not active:
@@ -1390,8 +1336,8 @@ class UserService:
             user = await self._require_user(user_id)
             self._assert_not_self(user, "retire")
 
-            current = lifecycle_state(user)
-            USER_LIFECYCLE.assert_transition(current, AccountState.ARCHIVED)
+            current = master_state(user)
+            USER_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             if holds_super_admin(user.is_superuser, list(user.roles)):
                 await self._assert_not_last_super_admin(user, action="retiring")
@@ -1408,7 +1354,7 @@ class UserService:
                 entity_id=user.id,
                 entity_code=user.email,
                 from_status=str(current),
-                to_status=str(AccountState.ARCHIVED),
+                to_status=str(MasterLifecycleState.ARCHIVED),
                 user_id=self.tenant.user_id,
                 action=AuditAction.DELETE,
                 reason=f"{reason} (sessions revoked: {revoked})",
@@ -1778,10 +1724,12 @@ class RoleService:
                 )
 
             new_active = changes.get("is_active")
-            state_from = lifecycle_state(role)
-            state_to: AccountState | None = None
+            state_from = master_state(role)
+            state_to: MasterLifecycleState | None = None
             if new_active is not None and new_active != role.is_active:
-                state_to = AccountState.ACTIVE if new_active else AccountState.INACTIVE
+                state_to = (
+                    MasterLifecycleState.ACTIVE if new_active else MasterLifecycleState.INACTIVE
+                )
                 ROLE_LIFECYCLE.assert_transition(state_from, state_to)
 
             for field, value in changes.items():
@@ -1869,8 +1817,8 @@ class RoleService:
                     user_count=holders,
                 )
 
-            current = lifecycle_state(role)
-            ROLE_LIFECYCLE.assert_transition(current, AccountState.ARCHIVED)
+            current = master_state(role)
+            ROLE_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
 
             await self.repo.soft_delete(role)
 
@@ -1881,7 +1829,7 @@ class RoleService:
                 entity_id=role.id,
                 entity_code=role.code,
                 from_status=str(current),
-                to_status=str(AccountState.ARCHIVED),
+                to_status=str(MasterLifecycleState.ARCHIVED),
                 user_id=self.tenant.user_id,
                 action=AuditAction.ROLE_CHANGE,
                 reason=reason,
@@ -1933,7 +1881,6 @@ __all__ = [
     "SUPER_ADMIN_ROLE_CODES",
     "USER_LIFECYCLE",
     "WAREHOUSE_ASSIGNMENT_DENIED",
-    "AccountState",
     "RoleService",
     "RoleView",
     "UserService",
@@ -1947,7 +1894,6 @@ __all__ = [
     "caller_holds_super_admin",
     "generate_temporary_password",
     "holds_super_admin",
-    "lifecycle_state",
     "permission_catalogue",
     "resolve_effective_permissions",
     "role_permission_map",

@@ -146,9 +146,10 @@ class SpecificationAttributeRepository(BaseRepository[SpecificationAttribute]):
             raise NotFoundError(self.entity_label, attribute_id)
         return row
 
-    async def for_assignment(
+    async def lock_for_assignment(
         self, ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, SpecificationAttribute]:
+        """The attributes about to be assigned, ``FOR SHARE`` in id order."""
         if not ids:
             return {}
         rows = (

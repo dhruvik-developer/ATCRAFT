@@ -24,11 +24,11 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.dialects import postgresql
 
+from src.common.master_lifecycle import MasterLifecycleState
 from src.core.clock import utcnow
 from src.core.deps import TenantContext
 from src.core.errors import InvalidStateTransitionError
 from src.core.permissions import PERMISSION_GROUPS, ROLE_PRESETS, Permission, group_for
-from src.modules.organization.service import MasterLifecycleState
 from src.modules.products.repository import (
     BRAND_ENTITY,
     ITEM_SUMMARY_COLUMNS,
@@ -329,7 +329,7 @@ class TestInUseProbes:
         repo = repository(session, tenant)
         record_id = uuid.uuid4()
 
-        assert await repo.get_for_assignment(record_id) is None
+        assert await repo.lock_for_assignment(record_id) is None
         assert await repo.lock_for_update(record_id) is None
 
         assigning, changing = (_sql(statement) for statement in session.statements)
