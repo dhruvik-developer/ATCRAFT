@@ -21,7 +21,6 @@ Two things are specific to this module:
 
 from __future__ import annotations
 
-import ipaddress
 import uuid
 from typing import Annotated
 
@@ -29,6 +28,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 
 from src.core.deps import CurrentUser, DbSession
 from src.core.errors import AuthenticationError, ErrorCode
+from src.core.logging import resolve_client_ip
 from src.core.messages import success_message
 from src.core.pagination import PageParams, page_params
 from src.core.responses import (
@@ -85,20 +85,16 @@ def client_ip(request: Request) -> str | None:
     """The caller's address, or None when it is not a usable one.
 
     ``x-real-ip`` is set by the reverse proxy; ``request.client`` is the socket
-    peer, which behind Nginx is Nginx itself. The value is parsed before use
-    because it lands in an ``INET`` column: a spoofed or synthetic header (a
-    test client sends "testclient") would otherwise fail the INSERT and turn a
-    sign-in into a 500.
+    peer, which behind Nginx is Nginx itself. Resolved by the one shared
+    :func:`~src.core.logging.resolve_client_ip`, so a sign-in is rate-limited,
+    logged and recorded under the address the request middleware saw: a header
+    that is not one address PostgreSQL's ``INET`` can store - a comma list, a
+    zoned IPv6 address, garbage - falls back to the peer rather than failing the
+    INSERT or sharing the anonymous ``unknown`` budget.
     """
-    candidate = request.headers.get("x-real-ip") or (
-        request.client.host if request.client else None
+    return resolve_client_ip(
+        request.headers.get("x-real-ip"), request.client.host if request.client else None
     )
-    if not candidate:
-        return None
-    try:
-        return str(ipaddress.ip_address(candidate.split(",")[0].strip()))
-    except ValueError:
-        return None
 
 
 def user_agent(request: Request) -> str | None:
