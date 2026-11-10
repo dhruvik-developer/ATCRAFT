@@ -1166,7 +1166,7 @@ class MachineService:
             raise NotFoundError(WORK_CENTER_ENTITY, work_center_id)
         if not work_center.is_active:
             raise BusinessRuleError(
-                f"Work centre {work_center.code} is inactive and cannot take machines.",
+                inactive_record(WORK_CENTER_ENTITY, work_center.code, "cannot take machines"),
                 details={"work_center_code": work_center.code},
             )
 
@@ -1643,7 +1643,7 @@ class RoutingService:
             )
         if not info.is_active:
             raise BusinessRuleError(
-                f"{info.code} is inactive and cannot be given a routing.",
+                inactive_record("Item", info.code, "cannot be given a routing"),
                 details={"item_id": str(item_id), "item_code": info.code},
             )
         return info
@@ -1665,8 +1665,8 @@ class RoutingService:
                 raise NotFoundError(WORK_CENTER_ENTITY, operation.work_center_id)
             if not centre.is_active:
                 raise BusinessRuleError(
-                    f"Operation {operation.sequence}: work centre {centre.code} is "
-                    "inactive and cannot be planned against.",
+                    f"Operation {operation.sequence}: "
+                    + inactive_record("work centre", centre.code, "cannot be planned against"),
                     details={
                         "sequence": operation.sequence,
                         "work_center_code": centre.code,

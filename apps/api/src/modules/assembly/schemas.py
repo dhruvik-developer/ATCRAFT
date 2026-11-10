@@ -25,7 +25,12 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import REASON_MIN_LENGTH
-from src.core.messages import OUTPUT_SERIAL_LENGTH, OUTPUT_SERIAL_REPEATED, SOURCE_DOCUMENT_REQUIRED
+from src.core.messages import (
+    OUTPUT_SERIAL_LENGTH,
+    OUTPUT_SERIAL_REPEATED,
+    SOURCE_DOCUMENT_REQUIRED,
+    date_before,
+)
 from src.modules.assembly.models import (
     ASSEMBLY_LINE_LENGTH,
     DEFAULT_ASSEMBLY_PRIORITY,
@@ -94,7 +99,7 @@ class AssemblyOrderCreate(BaseModel):
             and self.planned_end is not None
             and self.planned_end < self.planned_start
         ):
-            raise ValueError("The planned end cannot be before the planned start.")
+            raise ValueError(date_before("planned end", "planned start"))
         if (self.source_type is AssemblySourceType.MANUAL) != (self.source_id is None):
             raise ValueError(SOURCE_DOCUMENT_REQUIRED)
         return self

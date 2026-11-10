@@ -80,7 +80,7 @@ from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, ValidationError
 from src.core.logging import get_logger
-from src.core.messages import inactive, other_customer_order, plural
+from src.core.messages import inactive_record, other_customer_order, plural
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -1302,7 +1302,7 @@ async def _validate_header(
             raise NotFoundError("Customer", customer_id)
         if not customer.is_active:
             raise BusinessRuleError(
-                inactive("Customer", customer.code),
+                inactive_record("Customer", customer.code, "cannot be dispatched to"),
                 details={"customer_id": str(customer_id)},
             )
         if customer.is_blocked:
@@ -1317,7 +1317,8 @@ async def _validate_header(
             raise NotFoundError("Vendor", vendor_id)
         if not vendor.is_active:
             raise BusinessRuleError(
-                f"Vendor {vendor.code} is inactive.", details={"vendor_id": str(vendor_id)}
+                inactive_record("Vendor", vendor.code, "cannot be dispatched to"),
+                details={"vendor_id": str(vendor_id)},
             )
         if vendor.is_blocked:
             raise BusinessRuleError(
@@ -1333,7 +1334,7 @@ async def _validate_header(
         # allows outbound movements from one), so this is not a refusal to ship -
         # it is a refusal to *plan* new work into a store being wound down.
         raise BusinessRuleError(
-            f"Warehouse {warehouse[0]} is inactive and cannot be dispatched from.",
+            inactive_record("Warehouse", warehouse[0], "cannot be dispatched from"),
             details={"warehouse_id": str(warehouse_id)},
         )
 
@@ -1343,7 +1344,7 @@ async def _validate_header(
             raise NotFoundError("Transporter", transporter_id)
         if not transporter[2]:
             raise BusinessRuleError(
-                inactive("Transporter", transporter[0]),
+                inactive_record("Transporter", transporter[0], "cannot carry a shipment"),
                 details={"transporter_id": str(transporter_id)},
             )
 

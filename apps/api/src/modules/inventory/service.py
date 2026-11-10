@@ -5306,7 +5306,7 @@ class StockTransferService:
                     raise NotFoundError("Warehouse", warehouse_id)
                 if not facts.is_active:
                     raise BusinessRuleError(
-                        f"Warehouse {facts.code} is inactive and cannot take part in a transfer.",
+                        inactive_record("Warehouse", facts.code, "cannot take part in a transfer"),
                         details={"warehouse_code": facts.code},
                     )
 

@@ -35,7 +35,12 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
-from src.core.messages import DEALER_ACCOUNT_REQUIRED, PRICE_QUANTITY_NOT_POSITIVE, plural
+from src.core.messages import (
+    DEALER_ACCOUNT_REQUIRED,
+    PRICE_QUANTITY_NOT_POSITIVE,
+    inactive_record,
+    plural,
+)
 from src.core.pagination import OffsetPagination, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.types import to_money, to_quantity, to_unit_price
@@ -791,7 +796,9 @@ class DealerPortalService:
                 raise NotFoundError("Item variant", variant_id)
             if not variant.is_active:
                 raise BusinessRuleError(
-                    f"Variant {variant.code} of {item.code} is inactive.",
+                    inactive_record(
+                        "Variant", f"{variant.code} of {item.code}", "cannot be ordered"
+                    ),
                     details={"item_id": str(item.id), "variant_id": str(variant.id)},
                 )
         return item, variant

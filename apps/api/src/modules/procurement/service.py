@@ -65,7 +65,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import line_not_serial_tracked, plural
+from src.core.messages import date_before, inactive_record, line_not_serial_tracked, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission, resolve_role_grants
 from src.core.responses import OffsetPagination
@@ -1200,7 +1200,7 @@ async def _create_requisition(
 
         requisition_date = payload.requisition_date or today()
         if payload.required_date < requisition_date:
-            raise ValidationError("The required date cannot be before the requisition date.")
+            raise ValidationError(date_before("required date", "requisition date"))
 
         code = await next_document_number(
             session, tenant.company_id, DocTypes.PURCHASE_REQUISITION, on=requisition_date
@@ -1294,7 +1294,7 @@ async def update_requisition(
             if value is not None:
                 setattr(requisition, field, value)
         if requisition.required_date < requisition.requisition_date:
-            raise ValidationError("The required date cannot be before the requisition date.")
+            raise ValidationError(date_before("required date", "requisition date"))
 
         lines: list[PurchaseRequisitionLine]
         if payload.lines is not None:
@@ -2765,7 +2765,7 @@ async def _create_purchase_order(
 
     po_date = payload.po_date or today()
     if payload.expected_delivery_date and payload.expected_delivery_date < po_date:
-        raise ValidationError("The expected delivery date cannot be before the order date.")
+        raise ValidationError(date_before("expected delivery date", "order date"))
 
     # The duplicate check below is a check-then-act: it reads open orders and
     # then inserts one. Two buyers raising the same order at the same moment
@@ -3023,7 +3023,7 @@ async def update_purchase_order(
             if value is not None:
                 setattr(order, field, value)
         if order.expected_delivery_date and order.expected_delivery_date < order.po_date:
-            raise ValidationError("The expected delivery date cannot be before the order date.")
+            raise ValidationError(date_before("expected delivery date", "order date"))
 
         lines: list[PurchaseOrderLine]
         lineage: tuple[uuid.UUID, ...] | None = None
@@ -3358,9 +3358,7 @@ async def transition_purchase_order(
             order.acknowledged_at = utcnow()
             if expected_delivery_date is not None:
                 if expected_delivery_date < order.po_date:
-                    raise ValidationError(
-                        "The acknowledged delivery date cannot be before the order date."
-                    )
+                    raise ValidationError(date_before("acknowledged delivery date", "order date"))
                 order.expected_delivery_date = expected_delivery_date
             if vendor_reference is not None:
                 order.vendor_reference = vendor_reference
@@ -3513,7 +3511,7 @@ async def record_shipment(
             order.shipped_at = shipped_at
         if expected_delivery_date is not None:
             if expected_delivery_date < order.po_date:
-                raise ValidationError("The expected delivery date cannot be before the order date.")
+                raise ValidationError(date_before("expected delivery date", "order date"))
             order.expected_delivery_date = expected_delivery_date
 
         repo.touch(order)
@@ -4037,7 +4035,7 @@ def _unorderable_item_reasons(item: PurchasableItem | None, item_code: str) -> l
     if not item.can_purchase:
         reasons.append(f"Item {item_code} is not flagged as purchasable.")
     if not item.is_active:
-        reasons.append(f"Item {item_code} is inactive and cannot be ordered.")
+        reasons.append(inactive_record("Item", item_code, "cannot be ordered"))
     return reasons
 
 

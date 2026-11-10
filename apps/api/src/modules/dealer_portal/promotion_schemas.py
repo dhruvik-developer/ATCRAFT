@@ -10,7 +10,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.core.constants import REASON_MIN_LENGTH
-from src.core.messages import REASON_TOO_SHORT
+from src.core.messages import REASON_TOO_SHORT, date_before
 from src.modules.dealer_portal.models import (
     DealerBannerLinkKind,
     DealerBannerStatus,
@@ -46,7 +46,7 @@ class PromotionFields(BaseModel):
     @model_validator(mode="after")
     def ordered_dates(self) -> PromotionFields:
         if self.valid_from and self.valid_to and self.valid_to < self.valid_from:
-            raise ValueError("The validity end date must be on or after the start date.")
+            raise ValueError(date_before("validity end date", "validity start date"))
         return self
 
 

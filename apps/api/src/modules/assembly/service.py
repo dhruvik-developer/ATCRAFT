@@ -109,7 +109,9 @@ from src.core.errors import (
 from src.core.logging import get_logger
 from src.core.messages import (
     cancel_not_delete,
+    date_before,
     held_for_inspection,
+    inactive_record,
     output_not_serial_tracked,
     plural,
     verdict_differs_from_inspection,
@@ -1157,7 +1159,7 @@ async def _explode_components(
             raise NotFoundError("Item", line.component_item_id)
         if not item.is_active:
             raise BusinessRuleError(
-                f"Component {item.code} is inactive and cannot be assembled with.",
+                inactive_record("Component", item.code, "cannot be assembled with"),
                 details={"item_code": item.code, "line_number": line.line_number},
             )
         if not item.can_be_assembly_component:
@@ -1217,7 +1219,7 @@ async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids:
         code, is_active = row
         if not is_active:
             raise BusinessRuleError(
-                f"Warehouse {code} is inactive and cannot be used by an assembly order.",
+                inactive_record("Warehouse", code, "cannot be used by an assembly order"),
                 details={"warehouse_id": str(warehouse_id), "warehouse_code": code},
             )
 
@@ -1560,7 +1562,7 @@ async def create_order(
             raise NotFoundError("Item", payload.item_id)
         if not output_item.is_active:
             raise BusinessRuleError(
-                f"Item {output_item.code} is inactive and cannot be assembled.",
+                inactive_record("Item", output_item.code, "cannot be assembled"),
                 details={"item_id": str(payload.item_id)},
             )
 
@@ -1670,7 +1672,7 @@ async def update_order(
             and order.planned_end is not None
             and order.planned_end < order.planned_start
         ):
-            raise ValidationError("The planned end cannot be before the planned start.")
+            raise ValidationError(date_before("planned end", "planned start"))
 
         repo.touch(order)
 
@@ -2279,7 +2281,7 @@ async def complete_assembly(
             # surface as an integrity error naming a constraint instead of the
             # back-dated timestamp the operator actually typed.
             raise ValidationError(
-                "The completion time is before the assembly started.",
+                date_before("completion time", "assembly start time"),
                 details={
                     "actual_start": order.actual_start.isoformat(),
                     "occurred_at": order.actual_end.isoformat(),

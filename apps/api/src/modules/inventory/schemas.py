@@ -330,7 +330,7 @@ class StockBatchCreate(BaseModel):
     @model_validator(mode="after")
     def _dates_ordered(self) -> StockBatchCreate:
         if self.expires_on and self.manufactured_on and self.expires_on < self.manufactured_on:
-            raise ValueError("Expiry date cannot be before the manufacturing date.")
+            raise ValueError(date_before("expiry date", "manufacturing date"))
         return self
 
 

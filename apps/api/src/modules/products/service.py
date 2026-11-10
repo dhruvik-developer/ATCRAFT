@@ -1322,7 +1322,7 @@ async def _require_brand(
         raise NotFoundError(BRAND_ENTITY, brand_id)
     if not brand.is_active:
         raise ValidationError(
-            f"Brand '{brand.name}' is inactive and cannot be assigned.",
+            inactive_record("Brand", f"'{brand.name}'", "cannot be assigned"),
             details={"brand_id": str(brand_id)},
         )
 
@@ -1341,7 +1341,7 @@ async def _require_manufacturer(
         raise NotFoundError(MANUFACTURER_ENTITY, manufacturer_id)
     if not manufacturer.is_active:
         raise ValidationError(
-            f"Manufacturer '{manufacturer.name}' is inactive and cannot be assigned.",
+            inactive_record("Manufacturer", f"'{manufacturer.name}'", "cannot be assigned"),
             details={"manufacturer_id": str(manufacturer_id)},
         )
 

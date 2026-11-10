@@ -66,6 +66,8 @@ from src.core.messages import (
     LINE_UNIT_PRICE_NEGATIVE,
     TAX_RATE_NEGATIVE,
     cancel_not_delete,
+    date_before,
+    inactive_record,
     no_price_configured,
     plural,
 )
@@ -1420,7 +1422,8 @@ def price_line(
             raise NotFoundError("Item variant", payload.item_variant_id)
         if not variant.is_active:
             raise BusinessRuleError(
-                f"Line {payload.line_number}: variant {variant.code} is inactive.",
+                f"Line {payload.line_number}: "
+                + inactive_record("variant", variant.code, "cannot be sold"),
                 details={"line_number": payload.line_number, "variant_code": variant.code},
             )
 
@@ -1562,7 +1565,7 @@ async def _build_pricing_context(
             )
         if not item.is_active:
             raise BusinessRuleError(
-                f"Line {line.line_number}: {item.code} is inactive and cannot be sold.",
+                f"Line {line.line_number}: " + inactive_record("item", item.code, "cannot be sold"),
                 details={"line_number": line.line_number, "item_code": item.code},
             )
 
@@ -1959,7 +1962,7 @@ async def create_order(
         assert_customer_currency(denomination, home_currency)
         if customer.deleted_at is not None or not customer.is_active:
             raise BusinessRuleError(
-                f"Customer {customer.code} is not active and cannot be sold to.",
+                inactive_record("Customer", customer.code, "cannot be sold to"),
                 details={"customer_id": str(customer.id)},
             )
 
@@ -1981,7 +1984,7 @@ async def create_order(
 
         order_date = payload.order_date or today()
         if payload.required_date < order_date:
-            raise ValidationError("The required date cannot be before the order date.")
+            raise ValidationError(date_before("required date", "order date"))
 
         context = await _build_pricing_context(
             session,
@@ -2211,7 +2214,7 @@ async def _update_draft(
         raise NotFoundError("Branch", payload.branch_id)
     await _assert_transporter(parties, payload.transporter_id, current=stored_transporter_id)
     if order.required_date < order.order_date:
-        raise ValidationError("The required date cannot be before the order date.")
+        raise ValidationError(date_before("required date", "order date"))
 
     billing_id, shipping_id, seller_state, place_of_supply = await _resolve_shipping_context(
         session,
@@ -2354,7 +2357,7 @@ async def _update_confirmed(
         if value is not None:
             setattr(order, field, value)
     if order.required_date < order.order_date:
-        raise ValidationError("The required date cannot be before the order date.")
+        raise ValidationError(date_before("required date", "order date"))
 
     existing = await line_repo.list_for_order(order.id)
     if payload.lines is None:

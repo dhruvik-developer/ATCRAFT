@@ -18,6 +18,7 @@ from src.core.deps import TenantContext
 from src.core.errors import AppError, BusinessRuleError, ValidationError
 from src.core.ids import new_id
 from src.core.logging import get_logger
+from src.core.messages import date_before
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -268,7 +269,7 @@ async def preview_sales_invoice(
     if date is None:
         date = today()
     if date < order.order_date:
-        raise ValidationError("The invoice date cannot be before the sales-order date.")
+        raise ValidationError(date_before("invoice date", "sales-order date"))
     year = await FinancialYearRepository(session, tenant).containing(date)
     if year is not None and year.is_closed:
         raise BusinessRuleError("The invoice date belongs to a closed financial year.")

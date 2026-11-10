@@ -69,7 +69,7 @@ from src.core.errors import (
     referenced_in_use,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, plural
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import (
     ALL_PERMISSIONS,
@@ -1562,7 +1562,7 @@ class UserService:
             )
         if customer.deleted_at is not None or not customer.is_active:
             raise BusinessRuleError(
-                f"Customer {customer.code} is not active and cannot take portal accounts.",
+                inactive_record("Customer", customer.code, "cannot take portal accounts"),
                 details={"customer_id": str(customer.id)},
             )
 

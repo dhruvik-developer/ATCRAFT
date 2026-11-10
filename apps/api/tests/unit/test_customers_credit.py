@@ -158,7 +158,7 @@ class TestBlockedAndInactive:
         with pytest.raises(BusinessRuleError) as exc:
             assert_within_credit_limit(customer, Decimal("1"))
 
-        assert "not active" in exc.value.message
+        assert exc.value.message.endswith("is inactive and cannot take new orders.")
 
 
 class TestAssessmentShape:

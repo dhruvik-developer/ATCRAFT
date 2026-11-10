@@ -19,6 +19,7 @@ from src.core.errors import (
     ValidationError,
     referenced_in_use,
 )
+from src.core.messages import inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -405,8 +406,9 @@ class SpecificationService:
                 raise NotFoundError("Specification attribute", attribute_id)
             if not attribute.is_active:
                 raise ValidationError(
-                    f"Specification attribute '{attribute.name}' is inactive "
-                    "and cannot be assigned."
+                    inactive_record(
+                        "Specification attribute", f"'{attribute.name}'", "cannot be assigned"
+                    )
                 )
         return records
 
@@ -508,8 +510,9 @@ class SpecificationService:
                 raise NotFoundError("Item", selected)
             if not items[selected].is_active:
                 raise ValidationError(
-                    f"Item '{items[selected].code}' is inactive "
-                    "and cannot receive an accessory association."
+                    inactive_record(
+                        "Item", items[selected].code, "cannot receive an accessory association"
+                    )
                 )
         if item_id == accessory_item_id:
             raise ValidationError("An item cannot be its own accessory.")

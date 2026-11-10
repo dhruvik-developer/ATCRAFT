@@ -50,7 +50,7 @@ from src.core.errors import (
     referenced_in_use,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -403,7 +403,7 @@ def evaluate_credit(customer: CreditSubject, order_value: Decimal) -> CreditAsse
             f": {customer.block_reason}" if customer.block_reason else "."
         )
     elif INACTIVE_CUSTOMER_MAY_NOT_ORDER and not customer.is_active:
-        failure = f"Customer {customer.code} is not active and cannot take new orders."
+        failure = inactive_record("Customer", customer.code, "cannot take new orders")
     elif not within_limit:
         # ``within_limit`` is only False when a limit exists, so ``limit`` is
         # never None in this branch.

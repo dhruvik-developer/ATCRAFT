@@ -93,7 +93,13 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import draft_only_delete, inactive, listed, other_customer_order, plural
+from src.core.messages import (
+    draft_only_delete,
+    inactive_record,
+    listed,
+    other_customer_order,
+    plural,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -585,7 +591,7 @@ def plan_contents(
             raise NotFoundError("Item", line.item_id)
         if not item.is_active:
             raise BusinessRuleError(
-                f"Item {item.code} is inactive and cannot be packed.",
+                inactive_record("Item", item.code, "cannot be packed"),
                 details={"item_id": str(item.id), "line_number": line.line_number},
             )
 
@@ -869,7 +875,7 @@ async def _validate_lines(
             raise NotFoundError("Item", line.item_id)
         if not item.is_active:
             raise BusinessRuleError(
-                f"Item {item.code} is inactive and cannot be packed.",
+                inactive_record("Item", item.code, "cannot be packed"),
                 details={"item_id": str(item.id)},
             )
 
@@ -1505,7 +1511,7 @@ async def create_order(
             raise NotFoundError("Customer", payload.customer_id)
         if not customer.is_active:
             raise BusinessRuleError(
-                inactive("Customer", customer.code),
+                inactive_record("Customer", customer.code, "cannot be packed for"),
                 details={"customer_id": str(customer.id)},
             )
         if customer.is_blocked:
@@ -1520,7 +1526,7 @@ async def create_order(
             raise NotFoundError("Warehouse", payload.warehouse_id)
         if not found[1]:
             raise BusinessRuleError(
-                f"Warehouse {found[0]} is inactive and cannot be packed from.",
+                inactive_record("Warehouse", found[0], "cannot be packed from"),
                 details={"warehouse_id": str(payload.warehouse_id)},
             )
 
@@ -1885,7 +1891,7 @@ async def update_order(
                 raise NotFoundError("Warehouse", changes["warehouse_id"])
             if not found[1]:
                 raise BusinessRuleError(
-                    f"Warehouse {found[0]} is inactive and cannot be packed from.",
+                    inactive_record("Warehouse", found[0], "cannot be packed from"),
                     details={"warehouse_id": str(changes["warehouse_id"])},
                 )
 
@@ -2238,7 +2244,7 @@ async def _resolve_packing_material(
         raise NotFoundError("Item", item_id)
     if not item.is_active:
         raise BusinessRuleError(
-            f"Item {item.code} is inactive and cannot be used as packing material.",
+            inactive_record("Item", item.code, "cannot be used as packing material"),
             details={"item_id": str(item_id)},
         )
     if item.is_serial_tracked:

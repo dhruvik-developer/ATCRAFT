@@ -40,6 +40,7 @@ from src.core.errors import (
     referenced_in_use,
 )
 from src.core.logging import get_logger
+from src.core.messages import inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -633,7 +634,7 @@ class StorageLocationService:
             warehouse = await self.warehouses.get_or_404(warehouse_id)
             if not warehouse.is_active:
                 raise BusinessRuleError(
-                    f"Warehouse {warehouse.code} is inactive; it cannot take new locations.",
+                    inactive_record("Warehouse", warehouse.code, "cannot take new locations"),
                     details={"warehouse_code": warehouse.code},
                 )
 

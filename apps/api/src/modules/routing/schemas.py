@@ -725,7 +725,7 @@ class ShiftAssignmentBulkCreate(BaseModel):
 
 def _range_problem(date_from: date, date_to: date) -> str | None:
     if date_to < date_from:
-        return "The range ends before it starts."
+        return date_before("end of the period", "start of the period")
     if (date_to - date_from).days + 1 > MAX_ROSTER_RANGE_DAYS:
         return f"A roster range covers at most {MAX_ROSTER_RANGE_DAYS} days."
     return None

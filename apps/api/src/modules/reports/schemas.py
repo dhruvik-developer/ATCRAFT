@@ -28,6 +28,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.errors import ValidationError
+from src.core.messages import date_before
 from src.modules.customers.models import CustomerType
 from src.modules.reports.models import ReportJobStatus, ReportKey
 
@@ -71,7 +72,7 @@ class ReportPeriod(BaseModel):
     def _bounded(self) -> ReportPeriod:
         if self.date_to < self.date_from:
             raise ValidationError(
-                "The report period ends before it starts.",
+                date_before("end of the period", "start of the period"),
                 details={"date_from": str(self.date_from), "date_to": str(self.date_to)},
             )
         span = (self.date_to - self.date_from).days + 1

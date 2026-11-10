@@ -29,7 +29,7 @@ from src.core.errors import (
     PermissionDeniedError,
     ValidationError,
 )
-from src.core.messages import cannot_be_null
+from src.core.messages import cannot_be_null, date_before
 from src.core.pagination import CursorParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination
@@ -288,7 +288,7 @@ async def _revise_locked(
         refusal = cannot_be_null("freight_amount")
         raise ValidationError(refusal, details={"fields": {"freight_amount": [refusal]}})
     if order.expected_delivery_date is not None and order.expected_delivery_date < order.po_date:
-        raise ValidationError("The expected delivery date cannot be before the order date.")
+        raise ValidationError(date_before("expected delivery date", "order date"))
     lines = await _apply_lines(session, tenant, order, payload.lines, outgoing)
     if status in AMENDABLE_STATUSES:
         order.amendment_number += 1

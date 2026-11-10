@@ -167,7 +167,6 @@ from src.core.messages import (
     cancel_not_delete,
     date_before,
     held_for_inspection,
-    inactive,
     inactive_record,
     plural,
     verdict_differs_from_inspection,
@@ -2375,7 +2374,7 @@ async def issue_order(
                 raise NotFoundError("Transporter", payload.transporter_id)
             if not transporter[1]:
                 raise BusinessRuleError(
-                    inactive("Transporter", transporter[0]),
+                    inactive_record("Transporter", transporter[0], "cannot carry a shipment"),
                     details={"transporter_id": str(payload.transporter_id)},
                 )
 
@@ -2472,7 +2471,7 @@ async def issue_order(
         expected_return = payload.expected_return_date or order.expected_return_date
         if expected_return < challan_date:
             raise ValidationError(
-                "The expected return date is before the challan date.",
+                date_before("expected return date", "challan date"),
                 details={
                     "challan_date": challan_date.isoformat(),
                     "expected_return_date": expected_return.isoformat(),

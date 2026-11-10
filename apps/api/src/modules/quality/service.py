@@ -108,7 +108,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
-from src.core.messages import plural
+from src.core.messages import inactive_record, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1412,7 +1412,7 @@ async def _prepare(
         raise NotFoundError("Item", item_id)
     if not item.is_active:
         raise BusinessRuleError(
-            f"Item {item.code} is not active and cannot be inspected.",
+            inactive_record("Item", item.code, "cannot be inspected"),
             details={"item_id": str(item_id)},
         )
 
@@ -1422,7 +1422,8 @@ async def _prepare(
         raise NotFoundError("Warehouse", warehouse_id)
     if not warehouse[1]:
         raise BusinessRuleError(
-            f"Warehouse {warehouse[0]} is not active.", details={"warehouse_id": str(warehouse_id)}
+            inactive_record("Warehouse", warehouse[0], "cannot hold stock for inspection"),
+            details={"warehouse_id": str(warehouse_id)},
         )
 
     if item.is_batch_tracked and batch_id is None:

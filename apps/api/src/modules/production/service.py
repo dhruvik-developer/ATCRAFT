@@ -60,7 +60,13 @@ from src.core.errors import (
     SelfApprovalError,
     ValidationError,
 )
-from src.core.messages import draft_only_delete, output_not_serial_tracked, plural
+from src.core.messages import (
+    date_before,
+    draft_only_delete,
+    inactive_record,
+    output_not_serial_tracked,
+    plural,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1363,7 +1369,7 @@ async def _validate_order_references(
         )
     if not item.is_active:
         raise BusinessRuleError(
-            f"Item {item.code} is inactive and cannot be produced.",
+            inactive_record("Item", item.code, "cannot be produced"),
             details={"item_code": item.code},
         )
 
@@ -1649,7 +1655,7 @@ async def update_order(
         start = order.planned_start_date
         if order.planned_end_date < start:
             raise BusinessRuleError(
-                "The planned finish cannot be before the planned start.",
+                date_before("planned end date", "planned start date"),
                 details={
                     "planned_start_date": str(start),
                     "planned_end_date": str(order.planned_end_date),
@@ -4117,8 +4123,9 @@ async def update_work_order(
             and work_order.planned_end_at is not None
             and work_order.planned_end_at < work_order.planned_start_at
         ):
+            # A work order's times are labelled "Planned start" and "Planned finish".
             raise BusinessRuleError(
-                "The planned finish cannot be before the planned start.",
+                date_before("planned finish", "planned start"),
                 details={"work_order_code": work_order.code},
             )
 
@@ -4369,7 +4376,7 @@ def _capacity_window(filters: CapacityFilters, as_of: date) -> tuple[date, date]
     day_to = filters.date_to or day_from + timedelta(days=DEFAULT_CAPACITY_DAYS - 1)
     if day_to < day_from:
         raise ValidationError(
-            "The capacity window ends before it starts.",
+            date_before("end of the period", "start of the period"),
             details={
                 "fields": {
                     "date_to": [f"date_to ({day_to.isoformat()}) is before date_from."],

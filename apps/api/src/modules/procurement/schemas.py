@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.core.constants import DEFAULT_CURRENCY, MAX_INTEGER_COLUMN, REASON_MIN_LENGTH
 from src.core.demand_provenance import DemandReference
-from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, duplicate_line_numbers, listed
+from src.core.messages import DISCOUNT_EITHER_NOT_BOTH, date_before, duplicate_line_numbers, listed
 from src.core.validation import reject_null
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
@@ -1464,7 +1464,9 @@ class GoodsReceiptLineIn(BaseModel):
         if self.rejected_quantity > 0 and not (self.rejection_reason or "").strip():
             raise ValueError(f"A rejected quantity needs a reason (line {self.line_number}).")
         if self.expires_on and self.manufactured_on and self.expires_on < self.manufactured_on:
-            raise ValueError(f"Expiry cannot precede manufacture (line {self.line_number}).")
+            raise ValueError(
+                f"Line {self.line_number}: " + date_before("expiry date", "manufacturing date")
+            )
         cleaned = ["".join(value.split()).upper() for value in self.serial_numbers]
         if any(not value or len(value) > 64 for value in cleaned):
             raise ValueError(f"Every serial must be 1-64 characters (line {self.line_number}).")

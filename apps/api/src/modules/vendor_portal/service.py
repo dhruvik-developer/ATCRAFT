@@ -26,7 +26,7 @@ from src.core.errors import (
     NotFoundError,
     ValidationError,
 )
-from src.core.messages import VENDOR_ACCOUNT_REQUIRED, needs_time_zone, plural
+from src.core.messages import VENDOR_ACCOUNT_REQUIRED, date_before, needs_time_zone, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination, api_path
@@ -411,7 +411,7 @@ class VendorPortalService:
                 payload.committed_delivery_date is not None
                 and payload.committed_delivery_date < order.po_date
             ):
-                raise ValidationError("The committed delivery date cannot precede the order date.")
+                raise ValidationError(date_before("committed delivery date", "order date"))
             await procurement.transition_purchase_order(
                 self.session,
                 self.tenant,
@@ -532,7 +532,7 @@ class VendorPortalService:
                 )
             committed = values.get("vendor_committed_date")
             if committed is not None and committed < order.po_date:
-                raise ValidationError("The committed delivery date cannot precede the order date.")
+                raise ValidationError(date_before("committed delivery date", "order date"))
             before = {key: getattr(order, key) for key in values}
             for key, value in values.items():
                 setattr(order, key, value)

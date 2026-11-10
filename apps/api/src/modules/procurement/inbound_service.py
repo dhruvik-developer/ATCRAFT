@@ -21,7 +21,7 @@ from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
-from src.core.messages import needs_time_zone
+from src.core.messages import date_before, needs_time_zone
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -216,7 +216,7 @@ async def record_inbound_shipment(
             if not payload.courier_name:
                 payload = payload.model_copy(update={"courier_name": transporter.name})
         if payload.shipped_at.date() < order.po_date:
-            raise ValidationError("Dispatch cannot precede the purchase order date.")
+            raise ValidationError(date_before("dispatch date", "purchase order date"))
         if payload.shipped_at > utcnow() + DELIVERY_CLOCK_SKEW:
             raise ValidationError("A dispatch cannot be recorded in the future.")
         if shipment_id:
@@ -296,7 +296,7 @@ async def mark_delivered(
             raise ValidationError(needs_time_zone("delivery time"))
         moment = moment.astimezone(UTC)
         if moment < shipment.shipped_at:
-            raise ValidationError("Delivery cannot precede dispatch.")
+            raise ValidationError(date_before("delivery time", "dispatch time"))
         if moment > utcnow() + DELIVERY_CLOCK_SKEW:
             raise ValidationError("A delivery cannot be recorded in the future.")
         before = shipment.delivered_at

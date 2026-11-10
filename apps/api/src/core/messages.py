@@ -231,11 +231,6 @@ SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operat
 NAME_BLANK = "Name cannot be blank."
 
 
-def inactive(entity: str, code: str) -> str:
-    """``"Customer C-001 is inactive."`` - :func:`inactive_record` also names what is refused."""
-    return f"{entity} {code} is inactive."
-
-
 def own_parent(entity: str) -> str:
     """``"A department cannot be its own parent."`` - organisation and warehouse trees."""
     return f"A {entity} cannot be its own parent."
@@ -256,6 +251,8 @@ def inactive_record(entity: str, code: str, consequence: str) -> str:
 
     ``consequence`` is the verb phrase the caller was about to perform, so the
     sentence says what is refused rather than merely that the row is inactive.
+    Every inactive-master refusal is built here - never "is not active", and
+    never without its consequence.
     """
     return f"{entity} {code} is inactive and {consequence}."
 
@@ -411,7 +408,6 @@ __all__ = [
     "failed_unexpectedly",
     "held_for_inspection",
     "hierarchy_too_deep",
-    "inactive",
     "inactive_record",
     "line_not_serial_tracked",
     "listed",

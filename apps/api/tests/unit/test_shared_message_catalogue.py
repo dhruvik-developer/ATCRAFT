@@ -117,7 +117,12 @@ def test_the_rule_flags_a_sentence_two_modules_write_out() -> None:
 
 
 def test_the_shared_builders_keep_each_module_s_wording() -> None:
-    assert messages.inactive("Customer", "C-001") == "Customer C-001 is inactive."
+    assert messages.inactive_record("Customer", "C-001", "cannot be dispatched to") == (
+        "Customer C-001 is inactive and cannot be dispatched to."
+    )
+    assert messages.date_before("required date", "order date") == (
+        "The required date cannot be before the order date."
+    )
     assert messages.own_parent("department") == "A department cannot be its own parent."
     assert messages.parent_below("storage location") == (
         "That parent is already below this storage location; the hierarchy must stay a tree."

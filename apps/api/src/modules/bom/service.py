@@ -39,7 +39,7 @@ from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, SelfApprovalError
 from src.core.logging import get_logger
-from src.core.messages import date_before, obsolete_not_delete, plural
+from src.core.messages import date_before, inactive_record, obsolete_not_delete, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -265,8 +265,8 @@ async def _validate_lines(
             )
         if not info.is_active:
             raise BusinessRuleError(
-                f"Line {line.line_number}: {info.code} is inactive and cannot be added "
-                "to a structure.",
+                f"Line {line.line_number}: "
+                + inactive_record("item", info.code, "cannot be added to a structure"),
                 details={"line_number": line.line_number, "item_code": info.code},
             )
         # ASSUMPTION: a BOM line is stated in the component's stock unit and no

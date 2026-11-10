@@ -29,6 +29,7 @@ from typing import Annotated, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.constants import REASON_MIN_LENGTH
+from src.core.messages import date_before
 from src.modules.dispatch.models import (
     EWAY_BILL_LENGTH,
     MAX_CARTONS_PER_LINE,
@@ -186,7 +187,7 @@ class DispatchCreate(TransportDetails):
             self.expected_delivery_date is not None
             and self.expected_delivery_date < self.dispatch_date
         ):
-            raise ValueError("The expected delivery date cannot precede the dispatch date.")
+            raise ValueError(date_before("expected delivery date", "dispatch date"))
         if duplicate_sales_order_line_ids(self.lines):
             raise ValueError("The same sales-order line cannot appear twice on a consignment.")
         return self

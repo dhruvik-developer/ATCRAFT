@@ -176,7 +176,7 @@ def test_a_roster_read_covers_at_most_a_month_both_ends_included() -> None:
 
 
 def test_a_roster_read_the_wrong_way_round_is_refused() -> None:
-    with pytest.raises(ValidationError, match="ends before it starts"):
+    with pytest.raises(ValidationError, match="cannot be before the start of the period"):
         ShiftRosterFilters(date_from=DAY, date_to=DAY - timedelta(days=1))
 
 
