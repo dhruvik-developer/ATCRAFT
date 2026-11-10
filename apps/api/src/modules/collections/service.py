@@ -155,17 +155,6 @@ UNASSIGNED_REMINDER_ROLES: tuple[str, ...] = ("ACCOUNTS",)
 # -----------------------------------------------------------------------------
 
 
-def normalise_currency(value: str) -> str:
-    """Upper-case ISO code, or a refusal. Money has no case-insensitive spelling."""
-    candidate = value.strip().upper()
-    if len(candidate) != 3 or not candidate.isalpha():
-        raise BusinessRuleError(
-            f"'{value}' is not an ISO-4217 currency code.",
-            details={"currency": value},
-        )
-    return candidate
-
-
 def validate_promise(
     *, promised_amount: Decimal, promised_date: date, overdue_amount: Decimal, as_of: date
 ) -> Decimal:
@@ -363,7 +352,9 @@ async def create_follow_up(
     session: AsyncSession, tenant: TenantContext, payload: FollowUpCreate
 ) -> FollowUpDetail:
     """Open a chase by hand for a customer that already owes overdue money."""
-    currency = normalise_currency(payload.currency)
+    # Already the upper-case code: ``FollowUpCreate.currency`` is the shared
+    # ``CurrencyCode`` (docs/assumptions.md §INPUT-2), so a bad one never gets here.
+    currency = payload.currency
     repo = PaymentFollowUpRepository(session, tenant)
     as_of = today()
     customer = await _customer(session, tenant, payload.customer_id)
@@ -1005,7 +996,6 @@ __all__ = [
     "get_follow_up",
     "list_follow_ups",
     "list_notes",
-    "normalise_currency",
     "record_promise",
     "reminder_due",
     "resolve",
