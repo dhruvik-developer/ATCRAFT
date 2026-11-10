@@ -36,6 +36,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
 import {
+  EMPTY_VALUE,
   formatDate,
   formatDateTime,
   formatMoney,
@@ -540,7 +541,7 @@ export function SerialDetailDialog({
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Received</p>
-                <p>{serial.received_on ? formatDate(serial.received_on) : '-'}</p>
+                <p>{serial.received_on ? formatDate(serial.received_on) : EMPTY_VALUE}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Recorded</p>
@@ -621,7 +622,7 @@ export function SerialDetailDialog({
                               {humanise(movement.stock_state)}
                             </span>
                           </TableCell>
-                          <TableCell>{movement.warehouse_code ?? '-'}</TableCell>
+                          <TableCell>{movement.warehouse_code ?? EMPTY_VALUE}</TableCell>
                           <TableCell
                             align="right"
                             className={
@@ -633,7 +634,7 @@ export function SerialDetailDialog({
                             {formatQuantity(movement.quantity)}
                           </TableCell>
                           <TableCell>
-                            {movement.reference_code ?? '-'}
+                            {movement.reference_code ?? EMPTY_VALUE}
                             <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
                               {movement.reason}
                             </span>

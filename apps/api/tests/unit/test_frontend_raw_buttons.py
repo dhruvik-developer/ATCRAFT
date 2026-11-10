@@ -10,10 +10,14 @@ acts on its row (``components/data-table.tsx``) and ``FilterChip`` for a filter
 the list is narrowed by (``components/shared.tsx``).
 
 The rule counts the raw ``<button>`` elements each file under
-``apps/web/src/features`` writes. A few are surfaces of their own - a card that
-opens a record, a control drawn inside a text field - and ``OWN_SURFACES`` lists
-each with how many it holds and why; any other file writing one fails, and so
-does a listed file writing more than it is allowed. Comment lines are skipped.
+``apps/web/src/features`` and the shell under ``apps/web/src/app`` writes - the
+sidebar's close and collapse controls were still drawn by hand there, out of the
+scan's sight, after the shell's other triggers became Buttons. A few are
+surfaces of their own - a card that opens a record, a control drawn inside a
+text field - and ``OWN_SURFACES`` lists each with how many it holds and why; any
+other file writing one fails, and so does a listed file writing more than it is
+allowed. Comment lines are skipped. ``components/`` is not scanned: it is where
+the shared controls themselves are drawn.
 """
 
 from __future__ import annotations
@@ -26,7 +30,8 @@ import pytest
 pytestmark = pytest.mark.unit
 
 WEB_SRC = Path(__file__).resolve().parents[3] / "web" / "src"
-FEATURES = WEB_SRC / "features"
+#: The screens, and the shell that frames them.
+SCANNED = (WEB_SRC / "features", WEB_SRC / "app")
 
 #: screen -> (raw buttons it may write, what they are).
 OWN_SURFACES = {
@@ -59,7 +64,8 @@ def raw_buttons(source: str) -> list[int]:
 def _screens() -> list[Path]:
     return sorted(
         path
-        for path in FEATURES.rglob("*.tsx")
+        for root in SCANNED
+        for path in root.rglob("*.tsx")
         if "node_modules" not in path.parts and ".test." not in path.name
     )
 
@@ -72,6 +78,14 @@ def test_the_scan_reaches_the_shared_controls() -> None:
     """A move of the sources would otherwise leave this passing on nothing."""
     cells = sum(path.read_text("utf-8").count("<CellButton") for path in _screens())
     assert cells >= 20, f"found only {cells} CellButton uses; is the scan elsewhere?"
+
+
+def test_the_scan_reaches_the_shell_and_not_its_tests() -> None:
+    """The shell is a screen too; its tests draw throwaway buttons on purpose."""
+    names = {_name(path) for path in _screens()}
+    assert "app/app-layout.tsx" in names
+    assert "app/theme-context.test.tsx" not in names
+    assert not any(name.startswith("components/") for name in names)
 
 
 def test_no_screen_writes_a_button_by_hand() -> None:
@@ -114,9 +128,11 @@ def test_the_rule_counts_the_shapes_that_shipped() -> None:
             '  type="button"',
             '  className="rounded-md p-1.5 hover:bg-accent lg:hidden"',
             ">",
+            "<DialogPrimitive.Close asChild>",
+            '  <button type="button" aria-label="Close navigation">',
         ]
     )
-    assert raw_buttons(source) == [2, 6]
+    assert raw_buttons(source) == [2, 6, 11]
 
 
 def test_the_rule_ignores_the_shared_controls_and_history() -> None:

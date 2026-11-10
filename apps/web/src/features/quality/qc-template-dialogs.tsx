@@ -394,8 +394,8 @@ function createPayload(values: TemplateFormValues): QcTemplateCreate {
     item_category_id: values.scope === 'CATEGORY' ? values.item_category_id : null,
     qc_stage: values.qc_stage,
     sampling_plan: values.sampling_plan,
-    // `TemplateCreate` refuses a figure that does not belong to the plan
-    // ("sample_percentage applies to the PERCENTAGE plan only"), so the one the
+    // `TemplateCreate` refuses a figure that does not belong to the plan ("A
+    // sample percentage applies to the percentage plan only."), so the one the
     // plan does not use is cleared rather than sent as typed.
     sample_percentage: planNeedsPercentage(values.sampling_plan) ? values.sample_percentage : null,
     sample_size: planNeedsSampleSize(values.sampling_plan)

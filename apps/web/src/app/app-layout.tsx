@@ -355,13 +355,15 @@ function SidebarContent({
         </div>
         {mobile && (
           <DialogPrimitive.Close asChild>
-            <button
+            <Button
               type="button"
-              className="ml-auto rounded p-1 text-sidebar-foreground/70 hover:text-sidebar-emphasis"
+              variant="ghost"
+              size="icon-sm"
+              className="ml-auto text-sidebar-foreground/70 hover:bg-sidebar-hover hover:text-sidebar-emphasis [&_svg]:size-5"
               aria-label="Close navigation"
             >
-              <X className="h-5 w-5" />
-            </button>
+              <X />
+            </Button>
           </DialogPrimitive.Close>
         )}
       </div>
@@ -388,17 +390,16 @@ function SidebarContent({
 
       {!mobile && (
         <div className="border-t border-sidebar-border p-2.5">
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={onToggle}
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-hover hover:text-sidebar-emphasis"
+            className="h-auto w-full justify-start gap-2.5 px-2.5 py-2 font-normal text-sidebar-foreground/70 hover:bg-sidebar-hover hover:text-sidebar-emphasis"
             aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
           >
-            <PanelLeftClose
-              className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')}
-            />
+            <PanelLeftClose className={cn('transition-transform', collapsed && 'rotate-180')} />
             {!collapsed && <span>Collapse</span>}
-          </button>
+          </Button>
         </div>
       )}
     </>
