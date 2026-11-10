@@ -34,8 +34,8 @@ from src.core.exception_handlers import sqlalchemy_error_handler
 from src.core.logging import get_logger
 from src.core.observability import _scrub_sentry_event
 from src.workers import celery_app as worker
-from tests.unit.test_worker_failure_logging import _Captured
-from tests.unit.test_worker_failure_logging import trace as trace
+from tests.celery_trace_support import _Captured
+from tests.celery_trace_support import trace as trace
 
 pytestmark = pytest.mark.unit
 
