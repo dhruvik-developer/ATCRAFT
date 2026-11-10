@@ -241,6 +241,8 @@ SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operat
 # --- masters ------------------------------------------------------------------
 
 NAME_BLANK = "Name cannot be blank."
+#: A customer's or a vendor's contact promoted to primary while inactive.
+INACTIVE_PRIMARY_CONTACT = "An inactive contact cannot be made the primary contact."
 
 
 def code_already_used(entity: str, code: str, scope: str = "this company") -> str:
@@ -331,9 +333,19 @@ def output_not_serial_tracked(item_code: str) -> str:
     return not_tracked(item_code, "serial", "output serials")
 
 
+def belongs_elsewhere(thing: str, owner: str) -> str:
+    """``"Batch LOT-7 belongs to a different item."`` - a reference that names another owner."""
+    return f"{thing} belongs to a different {owner}."
+
+
+def not_for_this_item(document: str) -> str:
+    """``"The named routing does not belong to this item."``"""
+    return f"The named {document} does not belong to this item."
+
+
 def other_customer_order(code: str) -> str:
     """One customer's order packed or dispatched in another's shipment."""
-    return f"Sales order {code} belongs to a different customer."
+    return belongs_elsewhere(f"Sales order {code}", "customer")
 
 
 def cancel_not_delete(code: str, status: str) -> str:
@@ -394,6 +406,7 @@ __all__ = [
     "DEALER_ACCOUNT_REQUIRED",
     "DISCOUNT_EITHER_NOT_BOTH",
     "FIELDS_NEED_ATTENTION",
+    "INACTIVE_PRIMARY_CONTACT",
     "INVALID_AUTH_TOKEN",
     "INVALID_MFA_CHALLENGE",
     "INVALID_VALUE",
@@ -421,6 +434,7 @@ __all__ = [
     "UNEXPECTED_ERROR",
     "VENDOR_ACCOUNT_REQUIRED",
     "SuccessAction",
+    "belongs_elsewhere",
     "cancel_not_delete",
     "cannot_be_null",
     "channel_not_enabled",
@@ -437,6 +451,7 @@ __all__ = [
     "listed",
     "needs_time_zone",
     "no_price_configured",
+    "not_for_this_item",
     "not_tracked",
     "obsolete_not_delete",
     "other_customer_order",

@@ -51,7 +51,7 @@ from src.core.errors import (
     referenced_in_use,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
+from src.core.messages import INACTIVE_PRIMARY_CONTACT, NO_FIELDS_TO_UPDATE, inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1220,7 +1220,7 @@ class CustomerService:
 
             if not contact.is_active:
                 raise BusinessRuleError(
-                    "An inactive contact cannot be made the primary contact.",
+                    INACTIVE_PRIMARY_CONTACT,
                     details={"contact_id": str(contact.id)},
                 )
 

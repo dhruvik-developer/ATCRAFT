@@ -145,6 +145,12 @@ def test_the_shared_builders_keep_each_module_s_wording() -> None:
     assert messages.output_not_serial_tracked("HNG-1") == (
         "HNG-1 is not serial tracked; remove the output serials."
     )
+    assert messages.belongs_elsewhere("Batch LOT-7", "item") == (
+        "Batch LOT-7 belongs to a different item."
+    )
+    assert messages.not_for_this_item("routing") == (
+        "The named routing does not belong to this item."
+    )
     assert messages.other_customer_order("SO-7") == (
         "Sales order SO-7 belongs to a different customer."
     )

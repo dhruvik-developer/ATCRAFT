@@ -226,7 +226,7 @@ async def sync_allocations(
             raise ValidationError("Source allocations cannot exceed the physical PO line quantity.")
         for source_id, quantity in selected.items():
             if quantity <= 0:
-                raise ValidationError("A source allocation quantity must be positive.")
+                raise ValidationError("A source allocation quantity must be greater than zero.")
             touched.add(source_id)
             key = (line.id, source_id)
             row = existing.get(key)

@@ -1236,7 +1236,7 @@ class PurchaseOrderAmendLineIn(BaseModel):
         if self.line_id is None and (self.item_id is None or self.unit_price is None):
             raise ValueError("A new amendment line requires item_id and unit_price.")
         if self.discount is not None and self.discount_percentage is not None:
-            raise ValueError("Give either a discount percentage or a flat discount, not both.")
+            raise ValueError(DISCOUNT_EITHER_NOT_BOTH)
         _validate_source_allocations(self.source_allocations, self.quantity)
         return self
 

@@ -48,6 +48,7 @@ from src.core.clock import today
 from src.core.deps import TenantContext
 from src.core.errors import AppError, BomCycleError, BusinessRuleError, ErrorCode, NotFoundError
 from src.core.logging import get_logger
+from src.core.messages import not_for_this_item
 from src.core.types import to_money, to_quantity
 from src.modules.bom.models import (
     DEFAULT_MAX_EXPLOSION_DEPTH,
@@ -708,7 +709,7 @@ async def explode(
         root_bom = await BomRepository(session, tenant).get_or_404(bom_id)
         if root_bom.item_id != item_id:
             raise BusinessRuleError(
-                "The requested bill of materials does not belong to this item.",
+                not_for_this_item("bill of materials"),
                 details={"bom_id": str(bom_id), "item_id": str(item_id)},
             )
 
@@ -879,7 +880,7 @@ async def cost_roll_up(
         root_bom = await BomRepository(session, tenant).get_or_404(bom_id)
         if root_bom.item_id != item_id:
             raise BusinessRuleError(
-                "The requested bill of materials does not belong to this item.",
+                not_for_this_item("bill of materials"),
                 details={"bom_id": str(bom_id), "item_id": str(item_id)},
             )
 

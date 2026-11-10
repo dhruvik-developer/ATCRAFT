@@ -18,7 +18,7 @@ from src.core.deps import TenantContext
 from src.core.errors import AppError, BusinessRuleError, ValidationError
 from src.core.ids import new_id
 from src.core.logging import get_logger
-from src.core.messages import date_before
+from src.core.messages import belongs_elsewhere, date_before
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -847,7 +847,7 @@ async def _set_sales_receipt_allocations(
     for key, amount in requested.items():
         invoice = invoices[key]
         if invoice.customer_id != payment.party_id:
-            raise BusinessRuleError("The sales invoice belongs to a different customer.")
+            raise BusinessRuleError(belongs_elsewhere("The sales invoice", "customer"))
         if invoice.currency != payment.currency:
             raise BusinessRuleError("The receipt and invoice must use the same currency.")
         if invoice.status == SalesInvoiceStatus.CANCELLED or (

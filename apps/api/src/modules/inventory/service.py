@@ -112,7 +112,13 @@ from src.core.errors import (
 )
 from src.core.ids import new_id, persisted_actor
 from src.core.logging import get_logger
-from src.core.messages import inactive_record, line_not_serial_tracked, not_tracked, plural
+from src.core.messages import (
+    belongs_elsewhere,
+    inactive_record,
+    line_not_serial_tracked,
+    not_tracked,
+    plural,
+)
 from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
 from src.core.permissions import Permission
@@ -1600,7 +1606,7 @@ def validate_movement(
 
     if batch_owner is not None and batch_owner[0] != movement.item_id:
         raise BusinessRuleError(
-            f"Batch {batch_owner[1]} belongs to a different item.",
+            belongs_elsewhere(f"Batch {batch_owner[1]}", "item"),
             details={"batch_id": str(movement.batch_id), "item_code": item.code},
         )
 
@@ -1649,7 +1655,7 @@ def validate_movement(
     if serial_owner is not None:
         if serial_owner[0] != movement.item_id:
             raise BusinessRuleError(
-                f"Serial {serial_owner[1]} belongs to a different item.",
+                belongs_elsewhere(f"Serial {serial_owner[1]}", "item"),
                 details={"serial_id": str(movement.serial_id), "item_code": item.code},
             )
         # A serial identifies exactly one physical unit, so a movement that
@@ -4817,7 +4823,7 @@ class TraceabilityService:
             if owner is None:
                 raise NotFoundError("Stock batch", batch_id)
             if owner.item_id != item_id:
-                raise BusinessRuleError("That batch belongs to a different item.")
+                raise BusinessRuleError(belongs_elsewhere("That batch", "item"))
         if warehouse_id is not None:
             assert_warehouse_scope(self.tenant, warehouse_id)
             warehouses = await self.inventory.warehouse_facts([warehouse_id])
@@ -5251,7 +5257,7 @@ def _assert_line_batch(
         raise NotFoundError("Stock batch", batch_id)
     if owner[0] != item_id:
         raise BusinessRuleError(
-            f"Line {number}: batch {owner[1]} belongs to a different item.",
+            belongs_elsewhere(f"Line {number}: batch {owner[1]}", "item"),
             details={"line_number": number, "batch_id": str(batch_id)},
         )
 

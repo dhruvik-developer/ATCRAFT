@@ -56,7 +56,7 @@ from src.core.errors import (
     referenced_in_use,
 )
 from src.core.logging import get_logger
-from src.core.messages import plural
+from src.core.messages import INACTIVE_PRIMARY_CONTACT, plural
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -1478,7 +1478,7 @@ class VendorContactService:
             contact = await self.repo.get_or_404(contact_id)
             if not contact.is_active:
                 raise BusinessRuleError(
-                    "An inactive contact cannot be the primary contact.",
+                    INACTIVE_PRIMARY_CONTACT,
                     details={"contact_name": contact.name},
                 )
 
