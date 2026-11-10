@@ -1,10 +1,13 @@
+import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { Toaster } from '@/components/ui/toaster'
 import { messages } from '@/lib/messages'
 import { P } from '@/lib/permissions'
+import { queryKeys } from '@/lib/query-client'
 import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
+import { financeKeys } from '@/features/finance/finance-types'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 import type { SchemaOf } from '@/types/api'
 
@@ -461,6 +464,96 @@ describe('SalesReturnsPage', () => {
     const toasts = screen.getByRole('region', { name: 'Notifications' })
     expect(await within(toasts).findByText('Sales return created')).toBeVisible()
     expect(within(toasts).getByText('SR/2026-001')).toBeVisible()
+  })
+})
+
+describe('what a return write leaves stale elsewhere', () => {
+  // Receiving posts the units into stock, holds the inspected ones in QC with an
+  // inspection each and counts them back off the dispatch; settling held units
+  // moves them on; any of the three, closing too, may write a credit note. Only
+  // the return's own keys were dropped, so on the production cache the stock,
+  // the inspection queue and the credit read as before the write.
+  const STOCK = queryKeys.inventory.balances({ page: 1 })
+  const AVAILABLE = queryKeys.allocation.atp('item-1')
+  const INSPECTIONS = queryKeys.quality.inspections({ page: 1 })
+  const DISPATCHES = queryKeys.dispatch.list({ page: 1 })
+  const CREDIT_NOTES = financeKeys.creditNotes({ page: 1 })
+  const CUSTOMER = queryKeys.customers.detail('customer-1')
+  const ALL = [STOCK, AVAILABLE, INSPECTIONS, DISPATCHES, CREDIT_NOTES, CUSTOMER]
+
+  function seed(client: QueryClient): void {
+    for (const queryKey of ALL) client.setQueryData(queryKey, { data: [] })
+  }
+
+  function staleness(client: QueryClient): (key: QueryKey) => boolean | undefined {
+    return (key) => client.getQueryState(key)?.isInvalidated
+  }
+
+  it.each([
+    ['receiving', 'DRAFT', 'receive', 'Receive return', ALL, []],
+    [
+      'closing',
+      'RECEIVED',
+      'close',
+      'Close return',
+      [CREDIT_NOTES, CUSTOMER],
+      [STOCK, AVAILABLE, INSPECTIONS, DISPATCHES],
+    ],
+  ] as const)(
+    'drops what %s changed, and nothing it did not',
+    async (_, status, action, button, dropped, kept) => {
+      const row = salesReturnRow({ status })
+      const { user, fetch, queryClient } = renderScreen(<SalesReturnsPage />, {
+        permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+        cachePolicy: 'production',
+        routes: { ...returnRoutes(row, []), [`POST /sales-returns/sr-1/${action}`]: ok(row) },
+      })
+      seed(queryClient)
+      const isStale = staleness(queryClient)
+
+      const dialog = await openReturn(user)
+      await user.click(within(dialog).getByRole('button', { name: button }))
+
+      await waitFor(() => fetch.requestFor('POST', `/sales-returns/sr-1/${action}`))
+      await waitFor(() => expect(dropped.map(isStale)).toEqual(dropped.map(() => true)))
+      expect(kept.map(isStale)).toEqual(kept.map(() => false))
+    },
+  )
+
+  it('drops the stock, availability and credit once held units are settled', async () => {
+    const row = salesReturnRow({ status: 'RECEIVED' })
+    const { user, fetch, queryClient } = renderScreen(<SalesReturnsPage />, {
+      permissions: [P.SALES_RETURN_VIEW, P.SALES_RETURN_CREATE],
+      cachePolicy: 'production',
+      routes: {
+        ...returnRoutes(row),
+        'POST /sales-returns/sr-1/units': ok({
+          ...row,
+          lines: [returnLine({ accepted_serial_ids: ['serial-1'] })],
+        }),
+      },
+    })
+    seed(queryClient)
+    const isStale = staleness(queryClient)
+
+    const detail = await openReturn(user)
+    await user.click(await within(detail).findByRole('button', { name: 'Dispose serial units' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Disposition returned serial units' })
+    await user.click(within(dialog).getByRole('combobox', { name: 'Disposition for LK-0001' }))
+    await user.click(await screen.findByRole('option', { name: 'Accepted' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save dispositions' }))
+
+    await waitFor(() => fetch.requestFor('POST', '/sales-returns/sr-1/units'))
+    await waitFor(() =>
+      expect([STOCK, AVAILABLE, CREDIT_NOTES, CUSTOMER].map(isStale)).toEqual([
+        true,
+        true,
+        true,
+        true,
+      ]),
+    )
+    // Settling a unit decides nothing in quality and moves nothing on the dispatch.
+    expect([INSPECTIONS, DISPATCHES].map(isStale)).toEqual([false, false])
   })
 })
 

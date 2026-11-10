@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 
@@ -440,6 +440,29 @@ export default function SalesReturnsPage() {
     staleTime: staleTimes.transactional,
   })
   const pendingSerials = undisposedSerials(selectedDetail.data)
+
+  /**
+   * Drop what a return's write changed beyond the return itself.
+   *
+   * Receiving posts the units into stock, holds the inspected ones in QC with an
+   * inspection raised for each, and counts them back off the dispatch; settling
+   * held units moves them to free stock, damaged or scrap. Each of the three,
+   * closing too, may credit the accepted part - a credit note against the
+   * customer's balance (`_issue_return_credit_note`). Only this screen's own
+   * keys were dropped, so the stock, the inspection queue and the credit read
+   * as before the write until each expired.
+   */
+  function invalidateReturnEffects(write: 'receive' | 'dispose' | 'close') {
+    const roots: QueryKey[] = [
+      queryKeys.salesReturns.all,
+      queryKeys.finance.all,
+      queryKeys.customers.all,
+      queryKeys.dealerPortal.all,
+    ]
+    if (write !== 'close') roots.push(queryKeys.inventory.all, queryKeys.allocation.all)
+    if (write === 'receive') roots.push(queryKeys.quality.all, queryKeys.dispatch.all)
+    return Promise.all(roots.map((queryKey) => queryClient.invalidateQueries({ queryKey })))
+  }
   // The reason is the person's own: it is collected in a dialog that opens
   // empty, never pre-filled, because whatever a hurried OK sends is what the
   // audit trail keeps.
@@ -463,12 +486,8 @@ export default function SalesReturnsPage() {
       setUnitDispositionOpen(false)
       setUnitDispositions({})
       setUnitDispositionError(null)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.salesReturns.detail(selected ?? ''),
-        }),
-      ])
+      // The return's detail is under its root, which this drops with the rest.
+      await invalidateReturnEffects('dispose')
     },
     onError: (error) => {
       // The dispositions are plain choices, so a 422 is named here in words.
@@ -559,7 +578,7 @@ export default function SalesReturnsPage() {
       closeDetail()
       // The detail as well as the list: the dialog reads the return's status
       // from its own detail, which would otherwise reopen at the old one.
-      await queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
+      await invalidateReturnEffects(action)
     } catch (error) {
       const message = describeError(error, 'The return action failed.')
       setTransitionError(message)
