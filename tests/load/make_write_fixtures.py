@@ -590,7 +590,9 @@ class ApiClient:
 
         attempt = 0
         while True:
-            request = urllib.request.Request(url, data=data, headers=headers, method=method)
+            # base_url passed validate_write_target, which admits only an https
+            # origin, so no file: or custom scheme can reach the opener.
+            request = urllib.request.Request(url, data=data, headers=headers, method=method)  # noqa: S310
             try:
                 with self._opener.open(request, timeout=self.timeout) as response:
                     status = response.status

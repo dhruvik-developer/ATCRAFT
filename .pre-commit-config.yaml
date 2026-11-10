@@ -91,20 +91,21 @@ repos:
 
       # --- backend: format + lint on the staged files ------------------------
       # `--config pyproject.toml` pins the backend's ruff configuration for the
-      # repository tooling under scripts too, which lives outside apps/api.
+      # repository tooling under scripts and the load harness under tests/load
+      # too, which live outside apps/api.
       - id: ruff-format
-        name: ruff format (apps/api, scripts)
+        name: ruff format (apps/api, scripts, tests/load)
         entry: python scripts/hooks/run_in_venv.py ruff format --config pyproject.toml
         language: system
         types: [python]
-        files: ^(apps/api/(src|tests|scripts|migrations)|scripts)/
+        files: ^(apps/api/(src|tests|scripts|migrations)|scripts|tests/load)/
 
       - id: ruff-check
-        name: ruff check --fix (apps/api, scripts)
+        name: ruff check --fix (apps/api, scripts, tests/load)
         entry: python scripts/hooks/run_in_venv.py ruff check --fix --exit-non-zero-on-fix --config pyproject.toml
         language: system
         types: [python]
-        files: ^(apps/api/(src|tests|scripts|migrations)|scripts)/
+        files: ^(apps/api/(src|tests|scripts|migrations)|scripts|tests/load)/
 
       # --- frontend: format + lint on the staged files -----------------------
       - id: prettier
@@ -140,6 +141,16 @@ repos:
       - id: pytest-unit
         name: pytest unit (apps/api)
         entry: python scripts/hooks/run_in_venv.py pytest tests/unit -q -p no:cacheprovider
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      # The load harness's own tests: stdlib and pytest only, under a second
+      # rootdir, so they cannot share the apps/api session above.
+      - id: pytest-load-harness
+        name: pytest load harness (tests/load)
+        entry: python scripts/hooks/run_in_venv.py pytest tests/load -q -p no:cacheprovider
         language: system
         pass_filenames: false
         always_run: true

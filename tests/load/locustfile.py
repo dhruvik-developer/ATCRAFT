@@ -35,7 +35,8 @@ from locust import HttpUser, between, events, task
 from locust.runners import MasterRunner, WorkerRunner
 
 API = "/api/v1"
-_random = random.Random()  # Request sampling does not need cryptographic randomness.
+# Request sampling does not need cryptographic randomness.
+_random = random.Random()  # noqa: S311
 
 
 _accounts: Queue[LoadAccount] = Queue()

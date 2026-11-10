@@ -110,8 +110,9 @@ db-handover: ## DESTROYS the dev database, then rebuilds it with the baseline ON
 
 test: test-unit test-integration ## Run backend unit + integration tests
 
-test-unit: ## Fast unit tests (no database required)
+test-unit: ## Fast unit tests (no database required), including the load harness's own
 	cd $(API_DIR) && pytest tests/unit -q
+	cd $(API_DIR) && pytest ../../tests/load -q -p no:cacheprovider
 
 test-integration: ## Integration + API tests (requires Postgres and Redis)
 	cd $(API_DIR) && pytest tests/integration tests/api -q
@@ -128,12 +129,18 @@ build-web: ## Production frontend build, bundle budgets and secret scan
 test-e2e: ## Playwright end-to-end tests against a running stack
 	cd tests/e2e && npm test
 
-test-load: ## Locust load test (headless smoke profile)
-	cd tests/load && locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost
+# A load run needs one dedicated account per virtual user and an isolated,
+# populated target - never the development stack, whose database is the
+# shared one. docs/performance.md has the setup.
+test-load: ## Locust smoke profile against LOAD_BASE_URL with LOAD_ACCOUNTS_FILE
+	@test -n "$$LOAD_ACCOUNTS_FILE" || { echo 'error: set LOAD_ACCOUNTS_FILE to a JSON array of dedicated load accounts (docs/performance.md)' >&2; exit 1; }
+	@test -n "$$LOAD_BASE_URL" || { echo 'error: set LOAD_BASE_URL to an isolated load environment, never the development stack (docs/performance.md)' >&2; exit 1; }
+	@command -v locust >/dev/null 2>&1 || { echo 'error: locust is not on PATH; install the harness: pip install -r tests/load/requirements.txt' >&2; exit 1; }
+	cd tests/load && locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host "$$LOAD_BASE_URL"
 
 # The same paths the pre-commit hook and CI lint: application code, tests,
-# migrations and the repository's Python tooling.
-PY_LINT_PATHS := src tests migrations scripts ../../scripts
+# migrations, the repository's Python tooling and the load harness.
+PY_LINT_PATHS := src tests migrations scripts ../../scripts ../../tests/load
 
 lint: ## Lint and type-check backend + frontend
 	cd $(API_DIR) && ruff check $(PY_LINT_PATHS) && ruff format --check $(PY_LINT_PATHS) && mypy src

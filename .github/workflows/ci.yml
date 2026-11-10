@@ -33,12 +33,15 @@ jobs:
           pip-compile --quiet --no-header --allow-unsafe --extra=dev --generate-hashes --strip-extras --resolver=backtracking --output-file=requirements-dev.lock pyproject.toml
           git diff --exit-code -- requirements.lock requirements-dev.lock
       - run: pip-audit -r requirements.lock
-      - run: ruff check src tests migrations scripts ../../scripts
-      - run: ruff format --check src tests migrations scripts ../../scripts
+      - run: ruff check src tests migrations scripts ../../scripts ../../tests/load
+      - run: ruff format --check src tests migrations scripts ../../scripts ../../tests/load
       - run: mypy src
       - run: python -m scripts.export_openapi --check
       - run: python -m scripts.export_postman --check
       - run: pytest tests/unit -q
+      # The load harness's own tests (account and write-fixture validation) need
+      # only the standard library and pytest, and nothing else collects them.
+      - run: pytest ../../tests/load -q -p no:cacheprovider
 
   backend-integration:
     runs-on: ubuntu-latest

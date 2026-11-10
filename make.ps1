@@ -37,8 +37,8 @@ if (-not $env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME = 'atcraft-erp' 
 $LocalProject = $env:COMPOSE_PROJECT_NAME
 $DcDev   = @('compose', '-p', $LocalProject, '-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml')
 # The same paths the pre-commit hook and CI lint: application code, tests,
-# migrations and the repository's Python tooling.
-$PyLintPaths = 'src tests migrations scripts ../../scripts'
+# migrations, the repository's Python tooling and the load harness.
+$PyLintPaths = 'src tests migrations scripts ../../scripts ../../tests/load'
 
 # The two deployments are driven by scripts/deploy.sh alone, which reads
 # deploy/<name>.env and passes the project name explicitly on every command.
@@ -131,13 +131,13 @@ function Show-Help {
         'db-fresh'         = 'DESTROY the dev database and rebuild it with baseline + demo data'
         'db-handover'      = 'DESTROY the dev database and rebuild it with the baseline only'
         'test'             = 'Backend unit + integration tests'
-        'test-unit'        = 'Fast unit tests (no database)'
+        'test-unit'        = 'Fast unit tests (no database), including the load harness''s own'
         'test-integration' = 'Integration + API tests (needs Postgres/Redis)'
         'test-cov'         = 'Backend tests with coverage'
         'test-web'         = 'Frontend unit tests'
         'build-web'        = 'Production frontend build, bundle budgets and secret scan'
         'test-e2e'         = 'Playwright end-to-end tests'
-        'test-load'        = 'Locust load test'
+        'test-load'        = 'Locust smoke profile against LOAD_BASE_URL with LOAD_ACCOUNTS_FILE'
         'lint'             = 'Lint and type-check backend + frontend'
         'format'           = 'Format supported source files'
         'typecheck'        = 'Type-check only'
@@ -237,13 +237,25 @@ switch ($Target) {
     'db-fresh' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.reset_database --yes --demo" $ApiDir }
     'db-handover' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.reset_database --yes --seed" $ApiDir }
 
-    'test'             { $py = Get-VenvPython; Invoke-Step "& '$py' -m pytest tests/unit -q" $ApiDir; Invoke-Step "& '$py' -m pytest tests/integration tests/api -q" $ApiDir }
-    'test-unit'        { $py = Get-VenvPython; Invoke-Step "& '$py' -m pytest tests/unit -q" $ApiDir }
+    'test'             { & $PSCommandPath test-unit; & $PSCommandPath test-integration }
+    'test-unit' {
+        $py = Get-VenvPython
+        Invoke-Step "& '$py' -m pytest tests/unit -q" $ApiDir
+        Invoke-Step "& '$py' -m pytest ../../tests/load -q -p no:cacheprovider" $ApiDir
+    }
     'test-integration' { $py = Get-VenvPython; Invoke-Step "& '$py' -m pytest tests/integration tests/api -q" $ApiDir }
     'test-cov'         { $py = Get-VenvPython; Invoke-Step "& '$py' -m pytest --cov=src --cov-report=term-missing --cov-report=html" $ApiDir }
     'test-web'         { Invoke-Step 'npm run test' $WebDir }
     'test-e2e'         { Invoke-Step 'npm test' (Join-Path $Root 'tests\e2e') }
-    'test-load'        { Invoke-Step 'locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost' (Join-Path $Root 'tests\load') }
+    'test-load' {
+        # A load run needs one dedicated account per virtual user and an isolated,
+        # populated target - never the development stack, whose database is the
+        # shared one. docs/performance.md has the setup.
+        if (-not $env:LOAD_ACCOUNTS_FILE) { throw 'Set LOAD_ACCOUNTS_FILE to a JSON array of dedicated load accounts (docs/performance.md).' }
+        if (-not $env:LOAD_BASE_URL) { throw 'Set LOAD_BASE_URL to an isolated load environment, never the development stack (docs/performance.md).' }
+        if (-not (Get-Command locust -ErrorAction SilentlyContinue)) { throw 'locust is not on PATH; install the harness: pip install -r tests/load/requirements.txt' }
+        Invoke-Step "locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host $env:LOAD_BASE_URL" (Join-Path $Root 'tests\load')
+    }
 
     'lint' {
         $py = Get-VenvPython
