@@ -503,7 +503,7 @@ def test_a_consignment_needs_a_carrier_and_a_zoned_dispatch_time() -> None:
         InboundShipmentCreate(shipped_at=datetime(2026, 1, 1, tzinfo=UTC))
     with pytest.raises(ValueError, match="time-zone offset in the shipping time"):
         InboundShipmentCreate(courier_name="Blue Dart", shipped_at=datetime(2026, 1, 1))  # noqa: DTZ001
-    with pytest.raises(ValueError, match="precede dispatch"):
+    with pytest.raises(ValueError, match="cannot be before the dispatch date"):
         InboundShipmentCreate(
             courier_name="Blue Dart",
             shipped_at=datetime(2026, 1, 5, tzinfo=UTC),
