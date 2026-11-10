@@ -85,7 +85,7 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.validation import require_changes
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
-from src.modules.users.models import Role, User
+from src.modules.users.models import Role, SessionRevocationReason, User
 from src.modules.users.repository import (
     RoleRepository,
     UserRepository,
@@ -1136,7 +1136,7 @@ class UserService:
                 user.password_changed_at = utcnow()
                 reset_grants_invalidated = await self.repo.invalidate_password_reset_grants(user.id)
                 revoked_session_ids = await self.sessions.revoke_all_for_user_with_ids(
-                    user.id, reason="recovery_email_changed_by_admin"
+                    user.id, reason=SessionRevocationReason.RECOVERY_EMAIL_CHANGED_BY_ADMIN
                 )
                 revoked = len(revoked_session_ids)
             if password is not None:
@@ -1150,7 +1150,7 @@ class UserService:
                 user.failed_login_attempts = 0
                 user.locked_until = None
                 revoked += await self.sessions.revoke_all_for_user(
-                    user.id, reason="password_changed_by_admin"
+                    user.id, reason=SessionRevocationReason.PASSWORD_CHANGED_BY_ADMIN
                 )
 
             self.repo.touch(user)
@@ -1298,7 +1298,7 @@ class UserService:
             revoked = 0
             if not active:
                 revoked = await self.sessions.revoke_all_for_user(
-                    user.id, reason="user_deactivated"
+                    user.id, reason=SessionRevocationReason.USER_DEACTIVATED
                 )
 
             await record_status_change(
@@ -1350,7 +1350,9 @@ class UserService:
             self.repo.touch(user)
             await self.session.flush()
 
-            revoked = await self.sessions.revoke_all_for_user(user.id, reason="password_reset")
+            revoked = await self.sessions.revoke_all_for_user(
+                user.id, reason=SessionRevocationReason.PASSWORD_RESET
+            )
 
             await record_audit(
                 self.session,
@@ -1395,7 +1397,9 @@ class UserService:
                 await self._assert_not_last_super_admin(user, action="retiring")
 
             await self.repo.soft_delete(user)
-            revoked = await self.sessions.revoke_all_for_user(user.id, reason="user_retired")
+            revoked = await self.sessions.revoke_all_for_user(
+                user.id, reason=SessionRevocationReason.USER_RETIRED
+            )
 
             await record_status_change(
                 self.session,

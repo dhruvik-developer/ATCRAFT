@@ -101,7 +101,6 @@ from src.modules.audit.service import record_audit
 from src.modules.auth.email_delivery import queue_password_reset_email
 from src.modules.auth.repository import (
     PasswordResetTokenRepository,
-    UserSessionRepository,
     find_accounts_by_email,
     find_reset_token,
     get_account,
@@ -129,7 +128,8 @@ from src.modules.auth.schemas import (
     SessionRead,
     TokenPair,
 )
-from src.modules.users.models import User, UserSession
+from src.modules.users.models import SessionRevocationReason, User, UserSession
+from src.modules.users.repository import UserRepository, UserSessionRepository
 
 log = get_logger(__name__)
 
@@ -167,16 +167,8 @@ FAILURE_INACTIVE = "account_inactive"
 FAILURE_LOCKED = "account_locked"
 FAILURE_BAD_MFA = "bad_mfa"
 
-REVOKE_REASON_LOGOUT = "logout"
-REVOKE_REASON_LOGOUT_ALL = "logout_all"
-REVOKE_REASON_ROTATED = "rotated"
-REVOKE_REASON_REPLAY = "refresh_replay"
-REVOKE_REASON_PASSWORD_CHANGE = "password_changed"  # noqa: S105 - a reason code
-REVOKE_REASON_PASSWORD_RESET = "password_reset"  # noqa: S105 - a reason code
-REVOKE_REASON_MANUAL = "revoked_by_user"
-#: The session whose wrong current password locked the account - the only
-#: session a lockout ends (docs/assumptions.md §AUTH-1).
-REVOKE_REASON_LOCKED = "account_locked"
+# Why a session ended is users.models.SessionRevocationReason: one vocabulary
+# for user_sessions.revoked_reason, shared with user administration.
 
 
 # -----------------------------------------------------------------------------
@@ -625,7 +617,7 @@ class AuthService:
                     device_label=record.device_label,
                 )
                 record.revoked_at = utcnow()
-                record.revoked_reason = REVOKE_REASON_ROTATED
+                record.revoked_reason = SessionRevocationReason.ROTATED
                 record.replaced_by_id = successor.id
                 await self.session.flush()
 
@@ -658,7 +650,9 @@ class AuthService:
         in the first place.
         """
         async with transaction(self.session):
-            revoked = await sessions.revoke_chain(record, reason=REVOKE_REASON_REPLAY)
+            revoked = await sessions.revoke_chain(
+                record, reason=SessionRevocationReason.REFRESH_REPLAY
+            )
             await record_audit(
                 self.session,
                 company_id=record.company_id,
@@ -708,7 +702,7 @@ class AuthService:
         async with transaction(self.session):
             if record is not None and session_state(record) is SessionState.ACTIVE:
                 SESSION_STATE_MACHINE.assert_transition(session_state(record), SessionState.REVOKED)
-                await sessions.revoke(record, reason=REVOKE_REASON_LOGOUT)
+                await sessions.revoke(record, reason=SessionRevocationReason.LOGOUT)
                 revoked = 1
             await record_audit(
                 self.session,
@@ -733,8 +727,8 @@ class AuthService:
         sessions = UserSessionRepository(self.session, tenant)
 
         async with transaction(self.session):
-            revoked = await sessions.revoke_all_for_user(
-                principal.user_id, reason=REVOKE_REASON_LOGOUT_ALL
+            revoked = await sessions.revoke_all_for_user_with_ids(
+                principal.user_id, reason=SessionRevocationReason.LOGOUT_ALL
             )
             await record_audit(
                 self.session,
@@ -888,9 +882,9 @@ class AuthService:
             sessions = UserSessionRepository(
                 self.session, _tenant_for(account.company_id, account.id)
             )
-            revoked = await sessions.revoke_all_for_user(
+            revoked = await sessions.revoke_all_for_user_with_ids(
                 account.id,
-                reason="mfa_enabled",
+                reason=SessionRevocationReason.MFA_ENABLED,
                 keep_session_id=principal.session_id,
             )
             await record_audit(
@@ -972,9 +966,9 @@ class AuthService:
             sessions = UserSessionRepository(
                 self.session, _tenant_for(account.company_id, account.id)
             )
-            revoked = await sessions.revoke_all_for_user(
+            revoked = await sessions.revoke_all_for_user_with_ids(
                 account.id,
-                reason="mfa_disabled",
+                reason=SessionRevocationReason.MFA_DISABLED,
                 keep_session_id=principal.session_id,
             )
             await record_audit(
@@ -1039,9 +1033,9 @@ class AuthService:
             # out of the page they are on. Their current *access* token stops
             # working immediately anyway - deps.py rejects tokens issued before
             # password_changed_at - so the client refreshes once and continues.
-            revoked = await sessions.revoke_all_for_user(
+            revoked = await sessions.revoke_all_for_user_with_ids(
                 account.id,
-                reason=REVOKE_REASON_PASSWORD_CHANGE,
+                reason=SessionRevocationReason.PASSWORD_CHANGED,
                 keep_session_id=principal.session_id,
             )
             await record_audit(
@@ -1091,7 +1085,9 @@ class AuthService:
         tokens = PasswordResetTokenRepository(self.session, tenant)
 
         async with transaction(self.session):
-            superseded = await tokens.invalidate_outstanding(account.id)
+            superseded = await UserRepository(
+                self.session, tenant
+            ).invalidate_password_reset_grants(account.id)
             reset_record = tokens.create_token(
                 user_id=account.id,
                 token_hash=digest,
@@ -1179,8 +1175,8 @@ class AuthService:
             await reset_tokens.mark_used(grant)
             # Every session, including any the attacker opened: a reset is the
             # response to a suspected compromise, not a routine edit.
-            revoked = await sessions.revoke_all_for_user(
-                account.id, reason=REVOKE_REASON_PASSWORD_RESET
+            revoked = await sessions.revoke_all_for_user_with_ids(
+                account.id, reason=SessionRevocationReason.PASSWORD_RESET
             )
             await record_audit(
                 self.session,
@@ -1228,7 +1224,7 @@ class AuthService:
         state = session_state(record)
         async with transaction(self.session):
             SESSION_STATE_MACHINE.assert_transition(state, SessionState.REVOKED)
-            await sessions.revoke(record, reason=REVOKE_REASON_MANUAL)
+            await sessions.revoke(record, reason=SessionRevocationReason.REVOKED_BY_USER)
             await record_audit(
                 self.session,
                 company_id=principal.company_id,
@@ -1466,7 +1462,7 @@ class AuthService:
         if state is not SessionState.ACTIVE:
             return None
         SESSION_STATE_MACHINE.assert_transition(state, SessionState.REVOKED)
-        await sessions.revoke(record, reason=REVOKE_REASON_LOCKED)
+        await sessions.revoke(record, reason=SessionRevocationReason.ACCOUNT_LOCKED)
         return record.session_id
 
     async def _record_unresolved_attempt(

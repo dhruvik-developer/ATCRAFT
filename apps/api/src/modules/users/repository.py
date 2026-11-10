@@ -36,16 +36,18 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, delete, exists, func, insert, or_, select, update
+from sqlalchemy import Select, delete, exists, func, insert, or_, select, text, update
 from sqlalchemy.orm import InstrumentedAttribute, load_only, raiseload, selectinload
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
 from src.core.database import affected_rows
 from src.core.models import Base
-from src.core.pagination import SortParams
+from src.core.pagination import PageParams, SortParams, paginate
+from src.core.responses import OffsetPagination
 
 # Read-only references to master tables owned by other modules. A user is placed
 # in an organisation and may be bound to a vendor or a dealer customer; this
@@ -54,7 +56,14 @@ from src.core.pagination import SortParams
 from src.modules.customers.models import Customer
 from src.modules.organization.models import Branch, Department, Plant
 from src.modules.products.models import ItemCategory
-from src.modules.users.models import PasswordResetToken, Role, User, UserSession, user_roles
+from src.modules.users.models import (
+    PasswordResetToken,
+    Role,
+    SessionRevocationReason,
+    User,
+    UserSession,
+    user_roles,
+)
 from src.modules.users.schemas import RoleFilters, UserFilters
 from src.modules.vendors.models import Vendor, VendorCategory
 
@@ -98,7 +107,13 @@ class UserRepository(BaseRepository[User]):
     model = User
 
     async def invalidate_password_reset_grants(self, user_id: uuid.UUID) -> int:
-        """Burn recovery links when the account's recovery identity changes."""
+        """Burn every unused recovery link of one account; returns how many.
+
+        The one place a grant is invalidated. Authentication calls it before
+        issuing a new link - only the most recent may work, or a request made
+        by someone who later loses the mailbox leaves a valid token behind -
+        and user administration when the account's recovery identity changes.
+        """
         stmt = (
             update(PasswordResetToken)
             .where(
@@ -551,28 +566,90 @@ class RoleRepository(BaseRepository[Role]):
 
 
 class UserSessionRepository(BaseRepository[UserSession]):
-    """Persistence for refresh-token sessions.
+    """Refresh-token sessions, for both modules that open and end them.
 
-    This module owns only the revocation side. Issuing and rotating sessions
-    belongs to ``auth``; user administration merely needs to be able to end them
-    when an account is deactivated, retired or has its password reset.
+    ``user_sessions`` belongs to this module. Authentication issues, rotates
+    and ends sessions through this class; user administration ends them when an
+    account is deactivated, retired, or has its password or recovery email
+    changed. One class, so a change to how a session ends is made once - the
+    two copies this replaced had already drifted apart. Every ``reason`` is a
+    :class:`~src.modules.users.models.SessionRevocationReason` value.
     """
 
     model = UserSession
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "created_at": UserSession.created_at,
+        "last_used_at": UserSession.last_used_at,
+        "expires_at": UserSession.expires_at,
+    }
 
-    async def revoke_all_for_user(self, user_id: uuid.UUID, *, reason: str) -> int:
-        """End every live session of one user. Returns how many were revoked.
+    async def get_by_session_id(
+        self, session_id: str, *, for_update: bool = False
+    ) -> UserSession | None:
+        """One session by its public id, optionally locked for rotation.
 
-        One UPDATE, not a read-then-write loop: a session that is created
-        between the read and the write would otherwise survive the revocation.
+        ``for_update`` is what makes "a replay burns the family" true under
+        concurrency: two requests presenting the same refresh token serialise
+        on the row, so the second one reads the rotation the first committed
+        instead of an unlocked snapshot that still says ACTIVE.
         """
-        return len(await self.revoke_all_for_user_with_ids(user_id, reason=reason))
+        stmt = self._scoped().where(UserSession.session_id == session_id)
+        if for_update:
+            stmt = stmt.with_for_update(of=UserSession)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def revoke_all_for_user_with_ids(self, user_id: uuid.UUID, *, reason: str) -> list[str]:
-        """Revoke and return session claims in one write for cache invalidation."""
+    async def list_active_for_user(
+        self, user_id: uuid.UUID, params: PageParams
+    ) -> tuple[list[UserSession], OffsetPagination]:
+        """Live sessions, most recently used first.
+
+        ``last_used_at`` is NULL until a session is first refreshed, so the sort
+        has to say where the nulls go - otherwise PostgreSQL puts them first
+        under DESC and a brand-new session outranks the one being used.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                UserSession.user_id == user_id,
+                UserSession.revoked_at.is_(None),
+                UserSession.expires_at > utcnow(),
+            )
+            .order_by(
+                UserSession.last_used_at.desc().nullslast(),
+                UserSession.created_at.desc(),
+            )
+        )
+        # paginate() directly rather than list_page(): the ordering is two
+        # columns with different null handling, which does not survive being
+        # passed as a single order_by argument.
+        return await paginate(self.session, stmt, params)
+
+    async def revoke(self, record: UserSession, *, reason: SessionRevocationReason) -> UserSession:
+        """Close one session. The caller has already validated the transition."""
+        record.revoked_at = utcnow()
+        record.revoked_reason = reason
+        await self.session.flush()
+        return record
+
+    async def revoke_all_for_user_with_ids(
+        self,
+        user_id: uuid.UUID,
+        *,
+        reason: SessionRevocationReason,
+        keep_session_id: str | None = None,
+    ) -> list[str]:
+        """Close every live session of one user in one statement, and name them.
+
+        One UPDATE, not a read-then-write loop: a session created between the
+        read and the write would otherwise survive the revocation.
+        ``keep_session_id`` spares the caller's own session. Returns the
+        ``session_id`` of each row actually closed, because each one has a
+        cached "is this session live?" entry that must be dropped - see
+        :func:`src.core.deps._session_is_live`; a count would not be enough.
+        The user's push devices are removed with them.
+        """
         from src.modules.notifications.push_repository import remove_user_push_devices
 
-        await remove_user_push_devices(self.session, self.tenant.company_id, user_id)
         stmt = (
             update(UserSession)
             .where(
@@ -580,24 +657,93 @@ class UserSessionRepository(BaseRepository[UserSession]):
                 UserSession.user_id == user_id,
                 UserSession.revoked_at.is_(None),
             )
-            .values(revoked_at=utcnow(), revoked_reason=reason[:64])
+            .values(revoked_at=utcnow(), revoked_reason=reason)
             .returning(UserSession.session_id)
             .execution_options(synchronize_session=False)
         )
+        if keep_session_id:
+            stmt = stmt.where(UserSession.session_id != keep_session_id)
+        await remove_user_push_devices(self.session, self.tenant.company_id, user_id)
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def count_live_for_user(self, user_id: uuid.UUID) -> int:
-        stmt = (
-            select(func.count())
-            .select_from(UserSession)
-            .where(
-                UserSession.company_id == self.tenant.company_id,
-                UserSession.user_id == user_id,
-                UserSession.revoked_at.is_(None),
-                UserSession.expires_at > utcnow(),
+    async def revoke_all_for_user(
+        self, user_id: uuid.UUID, *, reason: SessionRevocationReason
+    ) -> int:
+        """End every live session of one user. Returns how many were revoked."""
+        return len(await self.revoke_all_for_user_with_ids(user_id, reason=reason))
+
+    async def revoke_chain(
+        self, root: UserSession, *, reason: SessionRevocationReason
+    ) -> list[str]:
+        """Close the entire rotation family a session belongs to.
+
+        Walks ``replaced_by_id`` in both directions: a replayed token proves the
+        family leaked, and the live descendant of the presented token is exactly
+        the one an attacker would be holding. Written as a recursive CTE so the
+        whole family closes in a single statement - a Python walk would leave the
+        newest session usable for the duration of the walk.
+
+        The join condition references the recursive term once (PostgreSQL allows
+        no more), matching parents and children in the same step.
+        """
+        sql = text(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT id, replaced_by_id
+                FROM user_sessions
+                WHERE id = :root_id AND company_id = :company_id
+                UNION
+                SELECT s.id, s.replaced_by_id
+                FROM user_sessions s
+                JOIN chain c
+                  ON s.id = c.replaced_by_id OR s.replaced_by_id = c.id
+                WHERE s.company_id = :company_id
             )
+            UPDATE user_sessions
+               SET revoked_at = :now, revoked_reason = :reason
+             WHERE id IN (SELECT id FROM chain)
+               AND company_id = :company_id
+               AND revoked_at IS NULL
+            RETURNING session_id
+            """
         )
-        return int((await self.session.execute(stmt)).scalar_one())
+        result = await self.session.execute(
+            sql,
+            {
+                "root_id": root.id,
+                "company_id": self.tenant.company_id,
+                "now": utcnow(),
+                "reason": reason,
+            },
+        )
+        return [row[0] for row in result.all()]
+
+    def create_session(
+        self,
+        *,
+        user_id: uuid.UUID,
+        session_id: str,
+        refresh_token_hash: str,
+        refresh_jti: str,
+        expires_at: datetime,
+        ip_address: str | None,
+        user_agent: str | None,
+        device_label: str | None,
+    ) -> UserSession:
+        """Stage a new session row. Flushed by the caller inside its transaction."""
+        record = UserSession(
+            user_id=user_id,
+            session_id=session_id,
+            refresh_token_hash=refresh_token_hash,
+            refresh_jti=refresh_jti,
+            expires_at=expires_at,
+            ip_address=ip_address,
+            user_agent=user_agent[:512] if user_agent else None,
+            device_label=device_label,
+            last_used_at=utcnow(),
+        )
+        record.created_by_id = user_id
+        return self.add(record)
 
 
 __all__ = [

@@ -68,12 +68,16 @@ from src.modules.auth.schemas import (
 from src.modules.auth.service import (
     FAILURE_BAD_MFA,
     FAILURE_BAD_PASSWORD,
-    REVOKE_REASON_LOCKED,
-    REVOKE_REASON_REPLAY,
-    REVOKE_REASON_ROTATED,
     AuthService,
 )
-from src.modules.users.models import LoginAttempt, PasswordResetToken, User, UserSession, user_roles
+from src.modules.users.models import (
+    LoginAttempt,
+    PasswordResetToken,
+    SessionRevocationReason,
+    User,
+    UserSession,
+    user_roles,
+)
 from tests import seed_support
 
 pytestmark = pytest.mark.integration
@@ -536,7 +540,9 @@ async def test_replaying_a_spent_refresh_token_burns_the_whole_chain(
     for session_id in (first.session_id, second.session_id, third.session_id):
         revoked_at, _, _ = await session_row(session, session_id)
         assert revoked_at is not None, session_id
-    assert (await session_row(session, third.session_id))[1] == REVOKE_REASON_REPLAY
+    assert (await session_row(session, third.session_id))[
+        1
+    ] == SessionRevocationReason.REFRESH_REPLAY
 
     with pytest.raises(AuthenticationError):
         await AuthService(session).refresh(third.refresh_token)
@@ -621,9 +627,9 @@ async def test_two_concurrent_refreshes_of_one_token_let_exactly_one_through(eng
         # the root was already closed by the rotation itself, and revoke_chain
         # leaves an already-revoked row as it found it.
         assert chain[successor][0] is not None
-        assert chain[successor][1] == REVOKE_REASON_REPLAY
+        assert chain[successor][1] == SessionRevocationReason.REFRESH_REPLAY
         assert chain[issued.session_id][0] is not None
-        assert chain[issued.session_id][1] == REVOKE_REASON_ROTATED
+        assert chain[issued.session_id][1] == SessionRevocationReason.ROTATED
         assert replay_audits == 1
 
         async with factory() as later:
@@ -876,7 +882,7 @@ async def test_repeated_wrong_current_passwords_lock_the_account(
     # The session that guessed is over; the lock alone would not have ended it.
     revoked_at, reason, _ = await session_row(session, issued.session_id)
     assert revoked_at is not None
-    assert reason == REVOKE_REASON_LOCKED
+    assert reason == SessionRevocationReason.ACCOUNT_LOCKED
 
 
 async def test_the_mfa_disable_guess_that_locks_the_account_ends_only_its_session(
@@ -914,7 +920,7 @@ async def test_the_mfa_disable_guess_that_locks_the_account_ends_only_its_sessio
     assert await mfa_enabled(session, account.id) is True
     revoked_at, reason, _ = await session_row(session, guessing.session_id)
     assert revoked_at is not None
-    assert reason == REVOKE_REASON_LOCKED
+    assert reason == SessionRevocationReason.ACCOUNT_LOCKED
     assert (await session_row(session, elsewhere.session_id))[0] is None
 
 

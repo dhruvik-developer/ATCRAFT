@@ -70,17 +70,11 @@ from src.modules.auth.service import (
     FAILURE_BAD_MFA,
     FAILURE_BAD_PASSWORD,
     FAILURE_LOCKED,
-    REVOKE_REASON_LOCKED,
-    REVOKE_REASON_LOGOUT,
-    REVOKE_REASON_LOGOUT_ALL,
-    REVOKE_REASON_PASSWORD_CHANGE,
-    REVOKE_REASON_PASSWORD_RESET,
-    REVOKE_REASON_REPLAY,
-    REVOKE_REASON_ROTATED,
 )
 from src.modules.users.models import (
     LoginAttempt,
     PasswordResetToken,
+    SessionRevocationReason,
     User,
     UserPhoneVerificationChallenge,
     UserSession,
@@ -560,7 +554,7 @@ class TestLogin:
         assert me["session_id"] == device.session_id
         rotated = data_of(await client.post("/auth/refresh", headers=device.browser()))
         assert (await session_row(session, device.session_id)).revoked_reason == (
-            REVOKE_REASON_ROTATED
+            SessionRevocationReason.ROTATED
         )
         again = data_of(await client.get("/auth/me", headers=bearer(rotated["access_token"])))
         assert again["session_id"] == rotated["session_id"]
@@ -639,7 +633,7 @@ class TestRefresh:
         assert cookies[CSRF_COOKIE_NAME].value == csrf_token_for(rotated)
         retired = await session_row(session, signed.session_id)
         successor = await session_row(session, data["session_id"])
-        assert retired.revoked_reason == REVOKE_REASON_ROTATED
+        assert retired.revoked_reason == SessionRevocationReason.ROTATED
         assert retired.replaced_by_id == successor.id
         assert successor.revoked_at is None
         me = data_of(await client.get("/auth/me", headers=bearer(data["access_token"])))
@@ -692,7 +686,7 @@ class TestRefresh:
         assert cleared[REFRESH_COOKIE_NAME].value == ""
         assert cleared[REFRESH_COOKIE_NAME]["max-age"] == "0"
         burnt = await session_row(session, successor["session_id"])
-        assert burnt.revoked_reason == REVOKE_REASON_REPLAY
+        assert burnt.revoked_reason == SessionRevocationReason.REFRESH_REPLAY
         dead = await client.get("/auth/me", headers=bearer(successor["access_token"]))
         assert error_of(dead, 401)["code"] == "TOKEN_REVOKED"
 
@@ -788,7 +782,7 @@ class TestLogout:
         assert cleared[REFRESH_COOKIE_NAME].value == ""
         assert cleared[CSRF_COOKIE_NAME].value == ""
         ended = await session_row(session, signed.session_id)
-        assert ended.revoked_reason == REVOKE_REASON_LOGOUT
+        assert ended.revoked_reason == SessionRevocationReason.LOGOUT
         assert (await session_row(session, elsewhere.session_id)).revoked_at is None
         (audit,) = await audit_rows(session, account.company_id, ended.id, AuditAction.LOGOUT)
         assert audit.entity_type == "user_session"
@@ -829,7 +823,7 @@ class TestLogoutAll:
         assert cookies_set_by(response)[REFRESH_COOKIE_NAME].value == ""
         for signed in (first, second):
             ended = await session_row(session, signed.session_id)
-            assert ended.revoked_reason == REVOKE_REASON_LOGOUT_ALL
+            assert ended.revoked_reason == SessionRevocationReason.LOGOUT_ALL
         assert (await session_row(session, colleague.session_id)).revoked_at is None
         (audit,) = await audit_rows(session, account.company_id, account.id, AuditAction.LOGOUT)
         assert audit.entity_type == "user"
@@ -1442,7 +1436,7 @@ class TestChangePassword:
         assert state.password_changed_at is not None
         assert state.must_change_password is False
         ended = await session_row(session, elsewhere.session_id)
-        assert ended.revoked_reason == REVOKE_REASON_PASSWORD_CHANGE
+        assert ended.revoked_reason == SessionRevocationReason.PASSWORD_CHANGED
         assert (await session_row(session, signed.session_id)).revoked_at is None
         (audit,) = await audit_rows(
             session, account.company_id, account.id, AuditAction.PASSWORD_CHANGED
@@ -1491,7 +1485,7 @@ class TestChangePassword:
         assert error_of(locking, 401)["code"] == "ACCOUNT_LOCKED"
         ended = await session_row(session, guessing.session_id)
         assert ended.revoked_at is not None
-        assert ended.revoked_reason == REVOKE_REASON_LOCKED
+        assert ended.revoked_reason == SessionRevocationReason.ACCOUNT_LOCKED
         dead = await client.get("/auth/me", headers=guessing.bearer)
         assert error_of(dead, 401)["code"] == "TOKEN_REVOKED"
         assert error_of(await client.post("/auth/refresh", headers=guessing.browser()), 401)[
@@ -1640,7 +1634,7 @@ class TestPasswordResetConfirm:
         assert grant.used_at is not None
         assert grant.email_token_ciphertext is None
         ended = await session_row(session, signed.session_id)
-        assert ended.revoked_reason == REVOKE_REASON_PASSWORD_RESET
+        assert ended.revoked_reason == SessionRevocationReason.PASSWORD_RESET
         (audit,) = await audit_rows(
             session, account.company_id, account.id, AuditAction.PASSWORD_CHANGED
         )

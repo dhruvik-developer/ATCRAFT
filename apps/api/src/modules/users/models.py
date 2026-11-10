@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
@@ -245,6 +246,36 @@ class User(TenantMasterEntity):
         return self.locked_until is not None and self.locked_until > utcnow()
 
 
+class SessionRevocationReason(StrEnum):
+    """Why a session ended: the one vocabulary of ``user_sessions.revoked_reason``.
+
+    Authentication ends sessions on sign-out, rotation, a replayed refresh
+    token, a password or MFA change and a lockout; user administration ends
+    them when an account is deactivated, retired, or has its password or
+    recovery email changed. Both write through
+    :class:`~src.modules.users.repository.UserSessionRepository`, so the codes
+    live once, beside the ``String(64)`` column a security report groups by.
+    The values are persisted: rename a member freely, never its value.
+    """
+
+    LOGOUT = "logout"
+    LOGOUT_ALL = "logout_all"
+    ROTATED = "rotated"
+    REFRESH_REPLAY = "refresh_replay"
+    PASSWORD_CHANGED = "password_changed"  # noqa: S105 - a reason code, not a secret
+    PASSWORD_RESET = "password_reset"  # noqa: S105 - a reason code, not a secret
+    REVOKED_BY_USER = "revoked_by_user"
+    #: The session whose wrong current password locked the account - the only
+    #: session a lockout ends (docs/assumptions.md §AUTH-1).
+    ACCOUNT_LOCKED = "account_locked"
+    MFA_ENABLED = "mfa_enabled"
+    MFA_DISABLED = "mfa_disabled"
+    PASSWORD_CHANGED_BY_ADMIN = "password_changed_by_admin"  # noqa: S105 - a reason code
+    RECOVERY_EMAIL_CHANGED_BY_ADMIN = "recovery_email_changed_by_admin"
+    USER_DEACTIVATED = "user_deactivated"
+    USER_RETIRED = "user_retired"
+
+
 class UserSession(TenantEntity):
     """A refresh-token session (section 38: session/device management).
 
@@ -369,6 +400,7 @@ __all__ = [
     "LoginAttempt",
     "PasswordResetToken",
     "Role",
+    "SessionRevocationReason",
     "User",
     "UserPhoneVerificationChallenge",
     "UserSession",

@@ -22,7 +22,7 @@ from src.core.errors import AccountLockedError, ErrorCode, ValidationError
 from src.core.messages import CURRENT_PASSWORD_INCORRECT
 from src.core.ratelimit import RateLimitPolicy
 from src.modules.auth import service as auth_service
-from src.modules.auth.repository import UserSessionRepository, increment_failed_attempts
+from src.modules.auth.repository import increment_failed_attempts
 from src.modules.auth.service import (
     FAILURE_BAD_PASSWORD,
     FAILURE_LOCKED,
@@ -30,6 +30,7 @@ from src.modules.auth.service import (
     _mfa_code_rejected,
 )
 from src.modules.users.models import User
+from src.modules.users.repository import UserSessionRepository
 
 pytestmark = pytest.mark.unit
 

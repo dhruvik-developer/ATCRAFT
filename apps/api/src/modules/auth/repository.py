@@ -1,7 +1,7 @@
 """Queries behind authentication.
 
-This module owns every statement the auth service issues. Two shapes are worth
-reading twice, because neither fits the usual tenant-scoped repository:
+This module holds the statements only the auth service issues. Two things are
+worth reading twice:
 
 * **Pre-authentication lookups are module-level functions, not repository
   methods.** Sign-in has no principal and therefore no
@@ -11,14 +11,17 @@ reading twice, because neither fits the usual tenant-scoped repository:
   the codebase that reads ``users`` without a tenant filter. They compensate by
   filtering on the company being live, so an account in a deactivated or deleted
   tenant cannot sign in.
-* **Chain revocation is a recursive CTE**, not a Python loop of
-  ``SELECT``/``UPDATE``. A replayed refresh token means the whole token family
-  is suspect, and closing that family one round-trip per generation leaves a
-  window in which the attacker's newest token still works.
+* **Sessions and grant invalidation are the users module's.** ``user_sessions``
+  and ``password_reset_tokens`` belong to ``users`` (docs/database.md section
+  2), and user administration ends sessions and burns links too, so
+  :class:`~src.modules.users.repository.UserSessionRepository` - rotation,
+  revocation and the recursive-CTE chain revocation alike - and
+  ``UserRepository.invalidate_password_reset_grants`` live there, once. Two
+  copies of each had already drifted apart.
 
-Once a caller *is* authenticated, everything goes through
-:class:`UserSessionRepository` and :class:`PasswordResetTokenRepository`, which
-are ordinary tenant-scoped repositories.
+Once a caller *is* authenticated, issuing and consuming a reset grant goes
+through :class:`PasswordResetTokenRepository`, an ordinary tenant-scoped
+repository.
 """
 
 from __future__ import annotations
@@ -26,18 +29,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import Select, func, select, text, update
+from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.orm.attributes import set_committed_value
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
-from src.core.database import affected_rows
-from src.core.pagination import PageParams, paginate
-from src.core.responses import OffsetPagination
 
 # Read-only references to tables owned by other modules. Auth authenticates
 # against the identity master; it never writes to ``users`` outside the narrow
@@ -250,185 +248,6 @@ def record_login_attempt(
 
 
 # -----------------------------------------------------------------------------
-# Sessions
-# -----------------------------------------------------------------------------
-
-
-class UserSessionRepository(BaseRepository[UserSession]):
-    """Refresh-token sessions for one tenant."""
-
-    model = UserSession
-    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
-        "created_at": UserSession.created_at,
-        "last_used_at": UserSession.last_used_at,
-        "expires_at": UserSession.expires_at,
-    }
-
-    async def get_by_session_id(
-        self, session_id: str, *, for_update: bool = False
-    ) -> UserSession | None:
-        """One session by its public id, optionally locked for rotation.
-
-        ``for_update`` is what makes "a replay burns the family" true under
-        concurrency: two requests presenting the same refresh token serialise
-        on the row, so the second one reads the rotation the first committed
-        instead of an unlocked snapshot that still says ACTIVE.
-        """
-        stmt = self._scoped().where(UserSession.session_id == session_id)
-        if for_update:
-            stmt = stmt.with_for_update(of=UserSession)
-        return (await self.session.execute(stmt)).scalar_one_or_none()
-
-    async def list_active_for_user(
-        self, user_id: uuid.UUID, params: PageParams
-    ) -> tuple[list[UserSession], OffsetPagination]:
-        """Live sessions, most recently used first.
-
-        ``last_used_at`` is NULL until a session is first refreshed, so the sort
-        has to say where the nulls go - otherwise PostgreSQL puts them first
-        under DESC and a brand-new session outranks the one being used.
-        """
-        stmt = (
-            self._scoped()
-            .where(
-                UserSession.user_id == user_id,
-                UserSession.revoked_at.is_(None),
-                UserSession.expires_at > utcnow(),
-            )
-            .order_by(
-                UserSession.last_used_at.desc().nullslast(),
-                UserSession.created_at.desc(),
-            )
-        )
-        # paginate() directly rather than list_page(): the ordering is two
-        # columns with different null handling, which does not survive being
-        # passed as a single order_by argument.
-        return await paginate(self.session, stmt, params)
-
-    async def count_active_for_user(self, user_id: uuid.UUID) -> int:
-        stmt = (
-            select(func.count())
-            .select_from(UserSession)
-            .where(
-                UserSession.company_id == self.tenant.company_id,
-                UserSession.user_id == user_id,
-                UserSession.revoked_at.is_(None),
-                UserSession.expires_at > utcnow(),
-            )
-        )
-        return int((await self.session.execute(stmt)).scalar_one())
-
-    async def revoke(self, record: UserSession, *, reason: str) -> UserSession:
-        """Close one session. The caller has already validated the transition."""
-        record.revoked_at = utcnow()
-        record.revoked_reason = reason
-        await self.session.flush()
-        return record
-
-    async def revoke_all_for_user(
-        self,
-        user_id: uuid.UUID,
-        *,
-        reason: str,
-        keep_session_id: str | None = None,
-    ) -> list[str]:
-        """Close every live session for a user in one statement.
-
-        Returns the ``session_id`` of each row actually closed, because each one
-        has a cached "is this session live?" entry that must be dropped - see
-        :func:`src.core.deps._session_is_live`. A count would not be enough.
-        """
-        stmt = (
-            update(UserSession)
-            .where(
-                UserSession.company_id == self.tenant.company_id,
-                UserSession.user_id == user_id,
-                UserSession.revoked_at.is_(None),
-            )
-            .values(revoked_at=utcnow(), revoked_reason=reason)
-            .returning(UserSession.session_id)
-            .execution_options(synchronize_session=False)
-        )
-        if keep_session_id:
-            stmt = stmt.where(UserSession.session_id != keep_session_id)
-        from src.modules.notifications.push_repository import remove_user_push_devices
-
-        await remove_user_push_devices(self.session, self.tenant.company_id, user_id)
-        return [row[0] for row in (await self.session.execute(stmt)).all()]
-
-    async def revoke_chain(self, root: UserSession, *, reason: str) -> list[str]:
-        """Close the entire rotation family a session belongs to.
-
-        Walks ``replaced_by_id`` in both directions: a replayed token proves the
-        family leaked, and the live descendant of the presented token is exactly
-        the one an attacker would be holding. Written as a recursive CTE so the
-        whole family closes in a single statement - a Python walk would leave the
-        newest session usable for the duration of the walk.
-
-        The join condition references the recursive term once (PostgreSQL allows
-        no more), matching parents and children in the same step.
-        """
-        sql = text(
-            """
-            WITH RECURSIVE chain AS (
-                SELECT id, replaced_by_id
-                FROM user_sessions
-                WHERE id = :root_id AND company_id = :company_id
-                UNION
-                SELECT s.id, s.replaced_by_id
-                FROM user_sessions s
-                JOIN chain c
-                  ON s.id = c.replaced_by_id OR s.replaced_by_id = c.id
-                WHERE s.company_id = :company_id
-            )
-            UPDATE user_sessions
-               SET revoked_at = :now, revoked_reason = :reason
-             WHERE id IN (SELECT id FROM chain)
-               AND company_id = :company_id
-               AND revoked_at IS NULL
-            RETURNING session_id
-            """
-        )
-        result = await self.session.execute(
-            sql,
-            {
-                "root_id": root.id,
-                "company_id": self.tenant.company_id,
-                "now": utcnow(),
-                "reason": reason,
-            },
-        )
-        return [row[0] for row in result.all()]
-
-    def create_session(
-        self,
-        *,
-        user_id: uuid.UUID,
-        session_id: str,
-        refresh_token_hash: str,
-        refresh_jti: str,
-        expires_at: datetime,
-        ip_address: str | None,
-        user_agent: str | None,
-        device_label: str | None,
-    ) -> UserSession:
-        """Stage a new session row. Flushed by the caller inside its transaction."""
-        record = UserSession(
-            user_id=user_id,
-            session_id=session_id,
-            refresh_token_hash=refresh_token_hash,
-            refresh_jti=refresh_jti,
-            expires_at=expires_at,
-            ip_address=ip_address,
-            user_agent=user_agent[:512] if user_agent else None,
-            device_label=device_label,
-            last_used_at=utcnow(),
-        )
-        record.created_by_id = user_id
-        return self.add(record)
-
-
-# -----------------------------------------------------------------------------
 # Password reset grants
 # -----------------------------------------------------------------------------
 
@@ -437,25 +256,6 @@ class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
     """Single-use reset grants for one tenant."""
 
     model = PasswordResetToken
-
-    async def invalidate_outstanding(self, user_id: uuid.UUID) -> int:
-        """Burn any unused grant before issuing a new one.
-
-        Only the most recent link may work: otherwise a request made by an
-        attacker who later loses access to the mailbox still leaves a valid
-        token behind, and the user has no way to cancel it.
-        """
-        stmt = (
-            update(PasswordResetToken)
-            .where(
-                PasswordResetToken.company_id == self.tenant.company_id,
-                PasswordResetToken.user_id == user_id,
-                PasswordResetToken.used_at.is_(None),
-            )
-            .values(used_at=utcnow(), email_token_ciphertext=None)
-            .execution_options(synchronize_session=False)
-        )
-        return affected_rows(await self.session.execute(stmt))
 
     def create_token(
         self,
@@ -537,7 +337,6 @@ async def session_ids_for(
 __all__ = [
     "PasswordResetTokenRepository",
     "PhoneVerificationRepository",
-    "UserSessionRepository",
     "find_accounts_by_email",
     "find_reset_token",
     "get_account",

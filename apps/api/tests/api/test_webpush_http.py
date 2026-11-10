@@ -12,11 +12,12 @@ from src.core.config import settings
 from src.core.deps import get_current_principal
 from src.core.security import decrypt_push_subscription
 from src.main import app
-from src.modules.auth.repository import UserSessionRepository
 from src.modules.notifications import service as notification_service
 from src.modules.notifications.models import NotificationType, PushSubscription
 from src.modules.notifications.schemas import PreferencesUpdateRequest
 from src.modules.notifications.service import NotificationService, notify, queue_push_delivery
+from src.modules.users.models import SessionRevocationReason
+from src.modules.users.repository import UserSessionRepository
 from tests.api.vendor_portal_support import approved_vendor, sign_in, vendor_principal
 from tests.notification_support import _make_user, _payload
 
@@ -178,7 +179,7 @@ async def test_device_preferences_collapse_and_logout_cleanup(
     )
     assert muted[0].channels == ["IN_APP"]
     await UserSessionRepository(session, tenant).revoke_all_for_user(
-        tenant.user_id, reason="logout_all"
+        tenant.user_id, reason=SessionRevocationReason.LOGOUT_ALL
     )
     assert not list(
         (
