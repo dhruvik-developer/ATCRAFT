@@ -5,12 +5,13 @@ never a parameter - it is taken from the verified principal, the same way
 ``company_id`` is - so there is no request shape that reads another employee's
 approval queue, and no permission that could accidentally grant it.
 
-ASSUMPTION: all routes are gated on ``notification.view``, including the ones
-that write. ``notification.view`` is the only notification permission in the
-registry, and this is the conservative option: marking one's own notification
-read and choosing where one's own alerts are delivered are not privileged
-operations, and inventing a second permission for them would mean every role in
-the seed needs it before anyone can dismiss a bell.
+ASSUMPTION (docs/assumptions.md §NOTIF-1): a person's own notification routes
+are gated on ``notification.view``, including the ones that write.
+``notification.view`` is the only notification permission in the registry, and
+this is the conservative option: marking one's own notification read and
+choosing where one's own alerts are delivered are not privileged operations,
+and inventing a second permission for them would mean every role in the seed
+needs it before anyone can dismiss a bell.
 """
 
 from __future__ import annotations

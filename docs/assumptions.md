@@ -5298,3 +5298,370 @@ payload without calling it, unless it is listed there with its reason.
 **Impact if wrong.** If a client must be able to send `{}` as a harmless
 "touch", answer it 200 from `require_changes` without reaching the service -
 never by running the update, which is what wrote the empty audit rows.
+
+## §AUDIT-1. An audit query reads a bounded window, in UTC
+
+**Assumed.** A log query with no dates reads the last 30 days
+(`DEFAULT_WINDOW_DAYS`): the end defaults to now and the start to 30 days
+before the end. A range longer than 366 days (`MAX_WINDOW_DAYS`) is refused with
+a message to narrow it or request an export - never clamped. A date-time sent
+without an offset is read as UTC.
+
+**Why.** Thirty days is what an operational investigation looks at; 366 covers
+a financial year and a leap day, the widest range a statutory audit needs in one
+request. Anything longer is an export, which is a background job (master rules
+section 35). Clamping a five-year request to one year would return a page that
+looks complete and is not. The API stores and returns UTC everywhere (master
+rules section 28), and a query string carries no timezone, so reading a bare
+date-time as local time would shift the window silently.
+
+**Where.** `src/modules/audit/query_service.py` - `DEFAULT_WINDOW_DAYS`,
+`MAX_WINDOW_DAYS`, `resolve_window`, `_as_utc`.
+
+**Impact if wrong.** Change the two constants there and nowhere else; a wider
+range is better served by the export than by the page.
+
+## §AUDIT-2. An approval request is decided under the permission it names, and a rejection says why
+
+**Assumed.** `approval_requests.requested_action` holds the permission string of
+the action awaiting approval (`purchase_order.approve`), and the approver needs
+that permission. An action the permission registry does not know is not guessed
+at: only a platform superuser may decide it. Rejecting a request needs a note of
+at least three characters (`MIN_REJECTION_NOTE_LENGTH`); approving one does not.
+
+**Why.** Checking the approver against the registry the underlying action is
+checked against cannot drift, as a second mapping table could. A rejection is an
+instruction to someone else to change something, and "rejected, no reason given"
+is not evidence of a judgement - the conservative reading of master rules
+section 42.
+
+**Where.** `src/modules/audit/query_service.py` - `permission_for_action`,
+`assert_may_decide`, `MIN_REJECTION_NOTE_LENGTH`. Who may decide a request they
+raised is section 2.
+
+**Impact if wrong.** If approval needs its own vocabulary, it needs a mapping
+from action to permission, kept in step with the registry by a test. If an
+approval must be explained too, apply the note floor to both decisions.
+
+## §ORG-1. A financial year spans at most 550 days, and is company configuration
+
+**Assumed.** A financial year longer than 550 days (`MAX_FINANCIAL_YEAR_DAYS`)
+is refused as a typo. Financial years are read with `settings.view` and created,
+edited, closed and deleted with `settings.manage` - there is no financial-year
+permission - and a closed year is reopened only by a platform superuser
+(`require_superuser`), never through a grantable right.
+
+**Why.** The Companies Act allows a first financial period of up to 15 months,
+extendable to 18 with the registrar's approval, so 550 days admits the longest
+legitimate case and still catches a mistyped century. The accounting calendar is
+company configuration rather than a master, and a new permission string would
+widen the API contract. Closing a year is meant to be irreversible without the
+highest authority, and a grantable `financial_year.reopen` could be handed out
+through the ordinary role editor.
+
+**Where.** `src/modules/organization/service.py` - `MAX_FINANCIAL_YEAR_DAYS` and
+the span check; `src/modules/organization/router.py` - `FY_VIEW`, `FY_MANAGE`
+and the reopen route.
+
+**Impact if wrong.** A longer first period needs the constant raised. If finance
+staff rather than company administrators should keep the calendar, it needs its
+own permission in `src/core/permissions.py` and the role presets.
+
+## §ORG-2. A timezone is checked against the tz database only where one is installed
+
+**Assumed.** A company's timezone must be a non-blank IANA name, checked against
+the tz database (`ZoneInfo`) only when the host has one. A host without `tzdata`
+accepts any non-blank name rather than refusing every name, including the one
+already stored.
+
+**Why.** A deployment defect - an image built without `tzdata` - must not become
+a validation error on every unrelated edit of the company.
+
+**Where.** `src/modules/organization/schemas.py` - `_TZDB_AVAILABLE`,
+`_validate_timezone`.
+
+**Impact if wrong.** If an unknown name must always be refused, ship `tzdata`
+in every image and remove the fallback.
+
+## §WH-2. A warehouse or bin tree is at most five levels deep
+
+**Assumed.** A warehouse or storage-location hierarchy deeper than five levels
+(`MAX_HIERARCHY_DEPTH`) is refused when a parent is set. The limit is a named
+constant, not a database constraint.
+
+**Why.** Plant, store, sub-store and rack group are already four levels; deeper
+is a data-entry mistake rather than a real layout. A constant rather than a CHECK
+means loosening it needs no migration.
+
+**Where.** `src/modules/warehouses/service.py` - `MAX_HIERARCHY_DEPTH`, passed to
+`assert_parent_allowed` (`src/common/hierarchy.py`) for both warehouses and
+storage locations.
+
+**Impact if wrong.** A site that genuinely needs more levels raises the constant.
+
+## §PROD-1. A job may draw or book 10% beyond plan, and carries at most 500 components
+
+**Assumed.** A production order may issue up to 10% more of a component than its
+snapshotted requirement (`OVER_ISSUE_TOLERANCE`) and book up to 10% more good
+output than it planned (`OVER_PRODUCTION_TOLERANCE`); an issue or a booking past
+either ceiling is refused. Releasing an order whose exploded structure has more
+than 500 components (`MAX_COMPONENTS_PER_ORDER`) is refused. An assembly order
+has its own bound, 200, in `src/modules/assembly/models.py`.
+
+**Why.** Some over-issue is normal - a bar cut short, a casting spoiled at the
+first operation - and refusing it would push storekeepers into stock
+adjustments, which is worse for traceability; the bound catches a mis-keyed
+1000-for-100 before it drains a store. Yield above plan happens, but ten times
+plan is a misplaced decimal point that would post stock before anyone noticed.
+Release writes one row and takes one reservation per component in a single
+transaction, so a structure past 500 components is a data problem, not an order.
+
+**Where.** `src/modules/production/models.py` - `OVER_ISSUE_TOLERANCE`,
+`OVER_PRODUCTION_TOLERANCE`; `src/modules/production/service.py` -
+`issue_ceiling`, `assert_within_over_issue_tolerance`,
+`assert_within_over_production_tolerance`, `MAX_COMPONENTS_PER_ORDER` in
+`release_order`.
+
+**Impact if wrong.** Change a tolerance in the models module, never per call
+site.
+
+## §JW-1. A job-work receipt may run 2% over the expected output
+
+**Assumed.** A vendor may return up to 2% more output than a job-work line
+expected (`EXCESS_RECEIPT_TOLERANCE_PERCENT`), counted over all of the line's
+receipts; a receipt beyond that is refused with a message to check the quantity
+or raise a second order for the excess. Rework the vendor keeps is outside the
+count until it comes back.
+
+**Why.** Overages are real - a plating line runs a few extra pieces to fill a
+rack - but an unbounded one is a mis-keyed quantity or another customer's goods,
+and either needs a person rather than a silent adjustment.
+
+**Where.** `src/modules/job_work/service.py` - `EXCESS_RECEIPT_TOLERANCE_PERCENT`
+and `plan_line_receipt`.
+
+**Impact if wrong.** Raise the constant; it is one reviewable line.
+
+## §VEND-1. A vendor is rated on five receipts or more, delivery 60% and quality 40%
+
+**Assumed.** A vendor's rating is published only when its window - 180 days by
+default (`DEFAULT_RATING_WINDOW_DAYS`), between 7 and 1,095 - holds at least five
+datable receipts (`MIN_RECEIPTS_FOR_RATING`); fewer is reported as insufficient
+evidence. The rating is `(0.60 x on-time % + 0.40 x good %) / 100 x 5`
+(`DELIVERY_WEIGHT`, `QUALITY_WEIGHT`). When nothing in the window was inspected,
+the quality term is dropped and delivery carries the whole weight;
+`has_quality_evidence` says which formula was used.
+
+**Why.** A vendor rated 1.0 because a single delivery was a day late would be
+excluded from sourcing on noise. Late-but-perfect is a schedule problem the plant
+can absorb, while on-time-but-rejected stops a line. Many purchased items are
+never inspected, so requiring quality evidence would leave most vendors unrated,
+and crediting them a quality score they have not earned would flatter them.
+
+**Where.** `src/modules/vendors/service.py` - `MIN_RECEIPTS_FOR_RATING`,
+`DELIVERY_WEIGHT`, `QUALITY_WEIGHT`, `compute_vendor_rating`;
+`src/modules/vendors/models.py` - the window bounds.
+
+**Impact if wrong.** Retune the weights in one place once real data justifies a
+different split. This rating is not the vendor performance report's score
+(§REP-2), nor the quotation recommendation's weighting (section 17).
+
+## §REP-2. Dead stock is six months still, and the performance report weighs delivery and quality equally
+
+**Assumed.** The dead-stock report counts a position as dead when its stock has
+not moved for 180 days (`DEAD_STOCK_DAYS`), overridable per request with
+`min_days`. The vendor performance report's `performance_score` is the plain
+mean of the on-time percentage and the good (not rejected) percentage
+(`vendor_performance_score`).
+
+**Why.** The master rules name both reports but fix neither number. Six months
+is the conservative industry default, and an equal split cannot be accused of
+hiding one dimension behind the other.
+
+**Where.** `src/modules/reports/service.py` - `DEAD_STOCK_DAYS`,
+`vendor_performance_score`; `src/modules/reports/router.py` - the dead-stock
+`min_days` parameter.
+
+**Impact if wrong.** Change the constant or the function - one edit with one
+test. The score is not the vendor rating (§VEND-1, weighted 60/40 on a five-point
+scale), so a screen showing both should say which is which.
+
+## §QC-1. Readings, sampling and an evenly split verdict
+
+**Assumed.** A numeric parameter with neither a minimum nor a maximum is
+informational and never fails. A BOOLEAN parameter passes on true. An item with
+no inspection specification on file is inspected in full rather than sampled.
+An inspection's result is the disposition holding the most quantity, and an
+exact tie goes to the more severe of the two, in the order accepted, rework,
+hold, rejected, scrap (`SEVERITY_ORDER`).
+
+**Why.** A target with no tolerance band cannot be met by a real measurement, so
+judging against one would reject every lot. No column says which way round a
+BOOLEAN check reads, and "conforms / does not conform" is how every check sheet
+in the master rules is worded. A sample size invented for an unknown
+specification is a guess presented as a statistic. An optimistic reading of an
+even split puts doubtful material into a customer's hands.
+
+**Where.** `src/modules/quality/service.py` - `evaluate_reading`, `_prepare`,
+`SEVERITY_ORDER`, `derive_result`.
+
+**Impact if wrong.** A check that must fail on true needs a column saying so. A
+default sampling plan for unspecified items would replace the full inspection in
+`_prepare`.
+
+## §USER-1. A held role cannot be retired, and nobody retires or deactivates their own account
+
+**Assumed.** A role somebody still holds cannot be retired
+(`BLOCK_ROLE_DELETION_WHILE_HELD`): its holders are reassigned first. An
+administrator cannot retire or deactivate their own account
+(`BLOCK_SELF_LIFECYCLE_CHANGE`); a colleague does it.
+
+**Why.** Retiring a held role would strip authority from every holder with no
+audit entry naming them. Removing one's own account is authenticated with the
+authority being removed, and the half-applied result - deactivated, but the
+sessions not revoked because the caller lost the right mid-way - is not worth
+supporting. It is a correctness rule, not a security one.
+
+**Where.** `src/modules/users/service.py` - `BLOCK_ROLE_DELETION_WHILE_HELD` in
+`delete_role`; `BLOCK_SELF_LIFECYCLE_CHANGE` in `_assert_not_self`, which
+deactivation and retirement call.
+
+**Impact if wrong.** Retiring a held role should strip it from its holders only
+with an audit row per holder.
+
+## §CUST-1. A GSTIN's state digits match the address's state code
+
+**Assumed.** When a customer address carries both a GSTIN and a state code, the
+GSTIN's first two characters - the state code by construction of the number -
+must equal it, or the save is refused (`ENFORCE_GSTIN_STATE_CODE_MATCH`).
+
+**Why.** A mismatch is always a data-entry error, and it produces an invoice the
+GST portal rejects.
+
+**Where.** `src/modules/customers/service.py` - `ENFORCE_GSTIN_STATE_CODE_MATCH`,
+`assert_gstin_matches_state`, called from `_assert_address_gst`.
+
+**Impact if wrong.** Set the flag False only if a jurisdiction stops encoding the
+state in the GSTIN.
+
+## §INV-1. A count sheet covers at most 5,000 positions
+
+**Assumed.** Creating a physical count whose scope covers more than 5,000
+positions (`MAX_COUNT_LINES`) is refused, with a message to narrow it to a
+location or a set of items.
+
+**Why.** Nobody works through 20,000 lines in one session, and building the
+sheet would hold a transaction open long enough to matter. Narrowing the scope
+is what cycle counting means.
+
+**Where.** `src/modules/inventory/service.py` - `MAX_COUNT_LINES`, checked when
+a physical count is created.
+
+**Impact if wrong.** Raise the constant, knowing the count is built in one
+transaction.
+
+## §PRIORITY-1. A sales or purchase priority is 1 to 9, 5 by default
+
+**Assumed.** Sales and procurement documents take a priority from 1 to 9 and
+default to 5 (`MIN_PRIORITY`, `MAX_PRIORITY`, `DEFAULT_PRIORITY`), the same scale
+in both modules, and each table's `priority_in_range` CHECK is built from the
+same constants.
+
+**Why.** The contract fixes the column as an integer but not its range; an
+unbounded integer would let two sites invent incompatible conventions, and a
+bounded, named range is one constant to change.
+
+**Where.** `src/modules/sales/models.py` and `src/modules/procurement/models.py` -
+`MIN_PRIORITY`, `MAX_PRIORITY`, `DEFAULT_PRIORITY`.
+
+**Impact if wrong.** A different scale changes both modules' constants together,
+and their CHECKs through a migration.
+
+## §NOTIF-1. A person's own notifications need only notification.view
+
+**Assumed.** Every route that serves a person's own notifications - the list,
+the unread count, the delivery channels, the preferences, and marking one or all
+read - is gated on `notification.view`, including the writes. The company-wide
+alert rules, channel templates, channel status and delivery log are settings,
+gated on `settings.view` or `settings.manage` and refused to portal users.
+
+**Why.** `notification.view` is the only notification permission in the
+registry. Marking one's own notification read or choosing where one's own
+alerts go is not privileged, and a second permission would have to be granted to
+every role before anyone could dismiss a bell.
+
+**Where.** `src/modules/notifications/router.py`.
+
+**Impact if wrong.** If writing preferences should be restricted, add a
+permission to the catalogue and to every preset that may hold it.
+
+## §ROUTING-1. Routing approval needs routing.manage, and waiting time is not charged
+
+**Assumed.** Approving a routing, returning it to draft and obsoleting it are
+gated on `routing.manage`, because the registry defines only `routing.view` and
+`routing.manage`; the segregation of duties is carried by `can_approve`
+(section 2). An operation's charged time is its setup time plus run time per
+unit: queue and move time are elapsed but not charged at the work-centre rate,
+and the elapsed figure is returned beside the charged one.
+
+**Why.** Nobody works on a part while it waits in front of a machine or travels
+between cells, so charging the work-centre rate for that time would inflate the
+standard cost of every part that crosses more than one centre.
+
+**Where.** `src/modules/routing/service.py` - the `ROUTING_MANAGE` transitions,
+`chargeable_operation_time`, `calculate_operation_cost`.
+
+**Impact if wrong.** A separate approver role needs `routing.approve` in the
+catalogue and the transitions changed. If waiting time is costed, it belongs in
+`chargeable_operation_time`, where the difference stays visible.
+
+## §BOM-1. A BOM explosion stops at 20,000 nodes
+
+**Assumed.** Exploding a BOM past 20,000 nodes (`MAX_EXPLOSION_NODES`) is
+refused with a business error naming the root item.
+
+**Why.** No real structure is that large, so one that is has a data problem, and
+naming the root lets the offending data be found.
+
+**Where.** `src/modules/bom/engine.py` - `MAX_EXPLOSION_NODES`, checked while the
+tree is walked.
+
+**Impact if wrong.** Raise the constant if a real product needs more nodes.
+
+## §SWEEP-1. Dead sessions are kept 30 days and scratch files a day
+
+**Assumed.** The maintenance sweep deletes a refresh session 30 days after it
+expired or was revoked (`SESSION_RETENTION_DAYS`), and a file left in
+`storage/temp` once it is 24 hours old (`TEMP_FILE_MAX_AGE_HOURS`). Notification
+and resolved-alert retention are §B4-1's.
+
+**Why.** Thirty days keeps "which device was this signed in from last month?"
+answerable during a security investigation without letting the table grow
+without bound; the trail of attempts lives in `login_attempts`, which this sweep
+does not touch. A day is long enough that an in-flight upload or export is never
+deleted underneath itself, and short enough that a crashed job does not leak
+disk for a week.
+
+**Where.** `src/workers/tasks/maintenance.py` - `SESSION_RETENTION_DAYS` in
+`purge_expired_sessions`, `TEMP_FILE_MAX_AGE_HOURS` in `purge_temp_files`.
+
+**Impact if wrong.** Change either constant there.
+
+## §PAGE-1. An offset page whose order cannot be made total is logged, not refused
+
+**Assumed.** Offset pagination appends the primary key to a list's order so the
+order is total (`_stable_order`). When the paged statement has no mapped primary
+key to append - a grouped projection, a union, a select from a subquery - it
+logs `pagination.offset_order_not_total` and runs the statement as given rather
+than refusing it. No current caller reaches that branch.
+
+**Why.** This is the read path of every list endpoint. Refusing a statement that
+still returns the right rows - only in an order OFFSET cannot page through
+safely - would turn a page-boundary defect into an outage, and such statements
+are legitimate uses that have to order themselves.
+
+**Where.** `src/core/pagination.py` - `_stable_order`;
+`tests/unit/test_core_pagination_order.py`.
+
+**Impact if wrong.** If such a statement should be refused, raise in place of
+the warning, after checking that no endpoint pages one.

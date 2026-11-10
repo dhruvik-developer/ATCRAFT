@@ -67,10 +67,11 @@ from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 #: also the order the plant should work in, and the value passes straight
 #: through to ``allocation.reserve``.
 #:
-#: ASSUMPTION: the scale is 1-9 with 5 as the default. The contract fixes the
-#: column as an integer but not its range; an unbounded integer would let two
-#: sites invent incompatible conventions, and a bounded named range is one
-#: constant to change if a customer wants a different scale.
+#: ASSUMPTION (docs/assumptions.md §PRIORITY-1): the scale is 1-9 with 5 as the
+#: default. The contract fixes the column as an integer but not its range; an
+#: unbounded integer would let two sites invent incompatible conventions, and a
+#: bounded named range is one constant to change if a customer wants a
+#: different scale.
 MIN_PRIORITY = 1
 MAX_PRIORITY = 9
 DEFAULT_PRIORITY = 5

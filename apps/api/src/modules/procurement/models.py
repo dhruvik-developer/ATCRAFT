@@ -106,9 +106,9 @@ DUPLICATE_REQUIRED_DATE_WINDOW_DAYS = 7
 #: Planning priority, shared by requisitions and purchase orders. Lower is more
 #: urgent, so the natural ascending sort is also the order to work in.
 #:
-#: ASSUMPTION: the scale is 1-9 with 5 as the default, matching the sales
-#: module. An unbounded integer would let two sites invent incompatible
-#: conventions.
+#: ASSUMPTION (docs/assumptions.md §PRIORITY-1): the scale is 1-9 with 5 as the
+#: default, matching the sales module. An unbounded integer would let two sites
+#: invent incompatible conventions.
 MIN_PRIORITY = 1
 MAX_PRIORITY = 9
 DEFAULT_PRIORITY = 5

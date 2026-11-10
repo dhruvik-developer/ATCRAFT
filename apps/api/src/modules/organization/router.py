@@ -80,10 +80,11 @@ ReasonQuery = Annotated[
     ),
 ]
 
-# ASSUMPTION: financial years are gated on SETTINGS_VIEW / SETTINGS_MANAGE.
-# The Permission enum has no financial-year member, and the accounting calendar
-# is company configuration rather than a partner or product master - inventing a
-# new permission string here would silently expand the API contract.
+# ASSUMPTION (docs/assumptions.md §ORG-1): financial years are gated on
+# SETTINGS_VIEW / SETTINGS_MANAGE. The Permission enum has no financial-year
+# member, and the accounting calendar is company configuration rather than a
+# partner or product master - inventing a new permission string here would
+# silently expand the API contract.
 FY_VIEW = Permission.SETTINGS_VIEW
 FY_MANAGE = Permission.SETTINGS_MANAGE
 

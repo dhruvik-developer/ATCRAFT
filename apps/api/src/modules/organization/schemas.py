@@ -40,10 +40,11 @@ from src.modules.organization.models import CostCentreType
 #: A record's or a document header's free-text notes (docs/assumptions.md §INPUT-1).
 Notes = Annotated[str, Field(max_length=MAX_NOTES_LENGTH)]
 
-# ASSUMPTION: the IANA timezone name is validated semantically only when a tz
-# database is actually present. A container built without `tzdata` would
-# otherwise reject every timezone, including the one already stored - a
-# deployment defect must not become a validation error on unrelated edits.
+# ASSUMPTION (docs/assumptions.md §ORG-2): the IANA timezone name is validated
+# semantically only when a tz database is actually present. A container built
+# without `tzdata` would otherwise reject every timezone, including the one
+# already stored - a deployment defect must not become a validation error on
+# unrelated edits.
 try:
     ZoneInfo("UTC")
 except (ZoneInfoNotFoundError, KeyError, ValueError):  # pragma: no cover - host-dependent

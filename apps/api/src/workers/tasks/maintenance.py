@@ -106,20 +106,22 @@ from src.workers.celery_app import async_task, celery_app
 
 log = get_logger("worker.maintenance")
 
-#: How long a dead session row is kept before deletion. ASSUMPTION: the master
-#: rules fix no retention for expired sessions. Thirty days is the conservative
-#: choice - long enough that "which device was this signed in from last month?"
-#: is still answerable during a security investigation, short enough that the
-#: table does not grow without bound. The security-relevant trail of *attempts*
-#: lives in ``login_attempts`` and is untouched by this sweep.
+#: How long a dead session row is kept before deletion. ASSUMPTION
+#: (docs/assumptions.md §SWEEP-1): the master rules fix no retention for expired
+#: sessions. Thirty days is the conservative choice - long enough that "which
+#: device was this signed in from last month?" is still answerable during a
+#: security investigation, short enough that the table does not grow without
+#: bound. The security-relevant trail of *attempts* lives in ``login_attempts``
+#: and is untouched by this sweep.
 SESSION_RETENTION_DAYS = 30
 NOTIFICATION_RETENTION_DAYS = 180
 RESOLVED_ALERT_RETENTION_DAYS = 90
 
-#: Age at which a file left in the scratch directory is removed. ASSUMPTION: no
-#: retention is specified for ``storage/temp``; a day is long enough that an
-#: in-flight upload or export is never deleted underneath itself, and short
-#: enough that a crashed job does not leak disk for a week.
+#: Age at which a file left in the scratch directory is removed. ASSUMPTION
+#: (docs/assumptions.md §SWEEP-1): no retention is specified for
+#: ``storage/temp``; a day is long enough that an in-flight upload or export is
+#: never deleted underneath itself, and short enough that a crashed job does not
+#: leak disk for a week.
 TEMP_FILE_MAX_AGE_HOURS = 24
 
 #: Rows deleted per statement. Bounded so no single transaction holds locks for

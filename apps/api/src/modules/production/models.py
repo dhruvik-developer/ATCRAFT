@@ -87,19 +87,21 @@ from src.modules.inventory.models import StatusEnum
 #: reallocation weighs a production order against a sales order.
 DEFAULT_PRODUCTION_PRIORITY = 100
 
-# ASSUMPTION: a job may draw up to 10% more of a component than its snapshotted
-# requirement before the issue is refused. Some over-issue is normal - a bar is
-# cut short, a casting is spoiled at the first operation - and refusing it
-# outright would push storekeepers into raising stock adjustments to get work
-# done, which is far worse for traceability. The bound exists so a mis-keyed
-# 1000-for-100 is caught before it drains a store. Same shape and same reasoning
-# as procurement's over-receipt tolerance; change it here, not per call site.
+# ASSUMPTION (docs/assumptions.md §PROD-1): a job may draw up to 10% more of a
+# component than its snapshotted requirement before the issue is refused. Some
+# over-issue is normal - a bar is cut short, a casting is spoiled at the first
+# operation - and refusing it outright would push storekeepers into raising
+# stock adjustments to get work done, which is far worse for traceability. The
+# bound exists so a mis-keyed 1000-for-100 is caught before it drains a store.
+# Same shape and same reasoning as procurement's over-receipt tolerance; change
+# it here, not per call site.
 OVER_ISSUE_TOLERANCE = Decimal("0.10")
 OVER_ISSUE_MULTIPLIER = Decimal("1") + OVER_ISSUE_TOLERANCE
 
-# ASSUMPTION: a job may book up to 10% more good output than it planned. Yield
-# above plan happens; yield of ten times plan is a decimal point in the wrong
-# place, and it would post that stock into the warehouse before anybody noticed.
+# ASSUMPTION (docs/assumptions.md §PROD-1): a job may book up to 10% more good
+# output than it planned. Yield above plan happens; yield of ten times plan is a
+# decimal point in the wrong place, and it would post that stock into the
+# warehouse before anybody noticed.
 OVER_PRODUCTION_TOLERANCE = Decimal("0.10")
 OVER_PRODUCTION_MULTIPLIER = Decimal("1") + OVER_PRODUCTION_TOLERANCE
 

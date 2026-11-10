@@ -76,8 +76,8 @@ EXPLOSION_PRECISION = 34
 #: Hard stop on traversal size. A legitimate architectural-hardware product is
 #: hundreds of nodes; twenty thousand means a data error that would otherwise
 #: turn one HTTP request into a multi-second CPU burn.
-#: ASSUMPTION: no real structure exceeds this. Raised as a business error naming
-#: the root so the offending data can be found.
+#: ASSUMPTION (docs/assumptions.md §BOM-1): no real structure exceeds this.
+#: Raised as a business error naming the root so the offending data can be found.
 MAX_EXPLOSION_NODES = 20_000
 
 #: How many distinct branches are kept per consolidated component. The quantity
