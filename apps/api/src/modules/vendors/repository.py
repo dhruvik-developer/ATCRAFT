@@ -11,8 +11,9 @@ Three things are worth reading twice:
   asking for another vendor gets a 404, not a 200 (sections 16, 39).
 * The counts and category lookups are **batched for a whole page** rather than
   issued per row - the difference between one query and fifty on a list screen.
-* :func:`open_purchase_order_exists` reaches into ``purchase_orders`` with raw
-  SQL guarded by ``to_regclass`` instead of importing the procurement module.
+* :meth:`VendorRepository.has_open_purchase_orders` reaches into
+  ``purchase_orders`` with raw SQL guarded by one catalog read
+  (:func:`columns_present`) instead of importing the procurement module.
   Master data sits *below* procurement in the dependency order, and the table
   does not exist yet in a partially migrated database.
 """
@@ -70,50 +71,17 @@ OPEN_PURCHASE_ORDER_STATUSES = (
 )
 
 
-async def table_exists(session: AsyncSession, table_name: str) -> bool:
-    """Is ``table_name`` present in the ``public`` schema of this database?
-
-    ``to_regclass`` returns NULL rather than raising for an unknown relation,
-    which is the only way to ask without aborting the surrounding transaction.
-    It must be its own round trip: a statement that *references* a missing table
-    fails at parse time, so the probe cannot be folded into the query it guards.
-    """
-    found = await session.execute(
-        text("SELECT to_regclass(:qualified)"), {"qualified": f"public.{table_name}"}
-    )
-    return found.scalar() is not None
-
-
-async def columns_present(session: AsyncSession, table_name: str, required: Sequence[str]) -> bool:
-    """Does ``table_name`` carry every column in ``required``?
-
-    The rating adapter reads tables owned by modules that are still being
-    built. Probing the columns as well as the table means a schema that has
-    moved on degrades to "insufficient data" instead of raising an
-    UndefinedColumn error at request time.
-    """
-    if not required:
-        return True
-    found = await session.execute(
-        text(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'public' AND table_name = :table_name"
-        ),
-        {"table_name": table_name},
-    )
-    available = {row[0] for row in found.all()}
-    return set(required).issubset(available)
-
-
 async def present_columns(
     session: AsyncSession, table_names: Sequence[str]
 ) -> dict[str, frozenset[str]]:
     """The columns of each named ``public`` table, for several tables in one read.
 
-    The batch form of :func:`table_exists` plus :func:`columns_present`: a table
-    that does not exist is absent from the result, one whose shape has moved on
-    is present without the columns a caller needs. One catalog round trip for
-    every source an adapter reads, where the pair cost two per table.
+    A table that does not exist is absent from the result, one whose shape has
+    moved on is present without the columns a caller needs - so one catalog round
+    trip answers both questions for every source an adapter reads. Asking the
+    catalog never aborts the surrounding transaction, where a statement that
+    *references* a missing table fails at parse time; that is why the probe is a
+    round trip of its own rather than folded into the query it guards.
     """
     wanted = list(dict.fromkeys(table_names))
     if not wanted:
@@ -129,6 +97,20 @@ async def present_columns(
     for table_name, column_name in found.all():
         columns.setdefault(table_name, set()).add(column_name)
     return {table_name: frozenset(names) for table_name, names in columns.items()}
+
+
+async def columns_present(session: AsyncSession, table_name: str, required: Sequence[str]) -> bool:
+    """Does ``table_name`` exist and carry every column in ``required``? One catalog read.
+
+    The retirement guards read tables owned by modules above master data. A
+    table that does not exist has no columns, so it answers False exactly like
+    one whose shape has moved on: either degrades to "nothing open" instead of
+    raising UndefinedTable or UndefinedColumn at request time.
+    """
+    if not required:
+        return True
+    available = (await present_columns(session, (table_name,))).get(table_name, frozenset())
+    return set(required).issubset(available)
 
 
 class VendorRepository(BaseRepository[Vendor]):
@@ -354,8 +336,6 @@ class VendorRepository(BaseRepository[Vendor]):
         ``purchase_orders`` does not exist yet, which is correct - a table that
         has never been created cannot hold an open order.
         """
-        if not await table_exists(self.session, "purchase_orders"):
-            return False
         if not await columns_present(
             self.session, "purchase_orders", ("company_id", "vendor_id", "status")
         ):
@@ -602,11 +582,9 @@ class TransporterRepository(BaseRepository[Transporter]):
         """Is this carrier still named on a consignment that has not arrived?
 
         Same reasoning as :meth:`VendorRepository.has_open_purchase_orders`:
-        raw SQL behind a ``to_regclass`` probe, because ``dispatches`` belongs
-        to a module that sits above master data and may not exist yet.
+        raw SQL behind one catalog read, because ``dispatches`` belongs to a
+        module that sits above master data and may not exist yet.
         """
-        if not await table_exists(self.session, "dispatches"):
-            return False
         if not await columns_present(
             self.session, "dispatches", ("company_id", "transporter_id", "status")
         ):
@@ -661,6 +639,5 @@ __all__ = [
     "approved_and_active",
     "columns_present",
     "present_columns",
-    "table_exists",
     "vendor_type_predicate",
 ]

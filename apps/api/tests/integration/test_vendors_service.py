@@ -4,7 +4,7 @@ These cover the behaviour only a database can prove: the tenant and
 vendor-portal scoping, the partial unique indexes behind "one primary contact"
 and "one preferred vendor per category", the approval workflow and its
 maker-checker rule, the retirement guards that read tables owned by other
-modules through a ``to_regclass`` probe, and the audit rows written in the same
+modules behind one catalog read, and the audit rows written in the same
 transaction as each change.
 
 Isolation strategy: every test opens a connection, starts one transaction,
@@ -114,10 +114,11 @@ _TABLES = [
 # -----------------------------------------------------------------------------
 #
 # The retirement guards and the rating adapter read tables belonging to
-# procurement, quality and dispatch. The service still probes for each with
-# ``to_regclass`` rather than importing the module, because a deployment can
-# carry vendors without them - and that branch is exercised here by *hiding*
-# the real table (see :func:`_hide_table`), never by standing in a copy.
+# procurement, quality and dispatch. The service still probes for each through
+# the catalog (``present_columns``, one read for every source) rather than
+# importing the module, because a deployment can carry vendors without them -
+# and that branch is exercised here by *hiding* the real table (see
+# :func:`_hide_table`), never by standing in a copy.
 #
 # All three modules have landed, and ``tests/integration/conftest.py`` builds
 # every table before this file runs, so the rows below go into the real tables
@@ -788,7 +789,7 @@ class TestRetirement:
     async def test_missing_purchase_orders_table_does_not_break_retirement(
         self, session: AsyncSession
     ) -> None:
-        """The to_regclass guard: a table that is not there holds no orders."""
+        """The catalog guard: a table that is not there holds no orders."""
         tenant, _ = await _seed_tenant(session)
         service = VendorService(session, tenant)
         created = await service.create_vendor(_payload("VEND-001"))
@@ -799,6 +800,21 @@ class TestRetirement:
         await service.delete_vendor(created.id, reason="Relationship ended")
         stored = await session.get(Vendor, created.id)
         assert stored is not None and stored.deleted_at is not None
+
+    async def test_the_open_order_guard_reads_the_catalog_once(self, session: AsyncSession) -> None:
+        """One catalog statement in front of the orders query: it was two on every retirement."""
+        tenant, _ = await _seed_tenant(session)
+        service = VendorService(session, tenant)
+        created = await service.create_vendor(_payload("VEND-001"))
+
+        with counted(session.bind) as statements:
+            await service.delete_vendor(created.id, reason="Relationship ended")
+
+        probes = [
+            text for text in statements if "information_schema" in text or "to_regclass" in text
+        ]
+        assert len(probes) == 1, probes
+        assert any("FROM purchase_orders" in text for text in statements), statements
 
     async def test_active_portal_user_blocks_retirement(self, session: AsyncSession) -> None:
         tenant, _ = await _seed_tenant(session)
@@ -1237,7 +1253,7 @@ class TestRatingAdapter:
     async def test_missing_source_tables_degrade_to_insufficient_data(
         self, session: AsyncSession
     ) -> None:
-        """The to_regclass guard is the whole point: no crash before procurement
+        """The catalog guard is the whole point: no crash before procurement
         exists, just an honest "cannot rate this yet"."""
         tenant, _ = await _seed_tenant(session)
         vendor = await VendorService(session, tenant).create_vendor(_payload("VEND-001"))
@@ -1461,6 +1477,39 @@ class TestTransporters:
         await service.delete_transporter(created.id, reason="Contract ended")
         stored = await session.get(Transporter, created.id)
         assert stored is not None and stored.deleted_at is not None
+
+    async def test_missing_dispatches_table_does_not_break_retirement(
+        self, session: AsyncSession
+    ) -> None:
+        """The catalog guard: a table that is not there holds no consignment."""
+        tenant, _ = await _seed_tenant(session)
+        service = TransporterService(session, tenant)
+        created = await service.create_transporter(
+            TransporterCreate(code="TRN-01", name="Blue Freight", transporter_type="TRANSPORT")
+        )
+        await _hide_table(session, "dispatches")
+
+        await service.delete_transporter(created.id, reason="Contract ended")
+        stored = await session.get(Transporter, created.id)
+        assert stored is not None and stored.deleted_at is not None
+
+    async def test_the_open_dispatch_guard_reads_the_catalog_once(
+        self, session: AsyncSession
+    ) -> None:
+        tenant, _ = await _seed_tenant(session)
+        service = TransporterService(session, tenant)
+        created = await service.create_transporter(
+            TransporterCreate(code="TRN-01", name="Blue Freight", transporter_type="TRANSPORT")
+        )
+
+        with counted(session.bind) as statements:
+            await service.delete_transporter(created.id, reason="Contract ended")
+
+        probes = [
+            text for text in statements if "information_schema" in text or "to_regclass" in text
+        ]
+        assert len(probes) == 1, probes
+        assert any("FROM dispatches" in text for text in statements), statements
 
     async def test_filters_and_isolation(self, session: AsyncSession) -> None:
         tenant, _ = await _seed_tenant(session)

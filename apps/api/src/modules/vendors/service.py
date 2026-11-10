@@ -22,9 +22,9 @@ Rules enforced here, and why each one exists:
 The rating engine is deliberately split in two: a pure function over a typed
 input, which is where the arithmetic lives and where the unit tests point, and
 an adapter that assembles that input from goods receipts and QC inspections.
-Quality is still being built and procurement may be absent from a database built
-one module at a time, so the adapter probes for every source with ``to_regclass``
-and degrades to "insufficient data" instead of raising.
+Procurement and quality own those tables and may be absent from a database built
+one module at a time, so the adapter reads every source's columns in one catalog
+read (``present_columns``) and degrades to "insufficient data" instead of raising.
 """
 
 from __future__ import annotations
