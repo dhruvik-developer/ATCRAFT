@@ -490,18 +490,6 @@ class ReservationCoverageRepository(BaseRepository[StockReservation]):
         rows = (await self.session.execute(stmt)).all()
         return {row.demand_line_id: Decimal(str(row.qty)) for row in rows}
 
-    async def open_for_order(self, order_id: uuid.UUID) -> list[StockReservation]:
-        """Every reservation this order is still holding.
-
-        Bounded by the component count, which the release path caps.
-        """
-        stmt = self._scoped().where(
-            StockReservation.demand_type == DemandType.PRODUCTION_ORDER,
-            StockReservation.demand_id == order_id,
-            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
-        )
-        return list((await self.session.execute(stmt)).scalars().all())
-
 
 # -----------------------------------------------------------------------------
 # Production orders

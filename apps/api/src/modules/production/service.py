@@ -2581,17 +2581,16 @@ async def _release_reservations(
 ) -> int:
     """Give back everything this job is still holding.
 
-    In (item, reservation) order, as the release path takes the same balance
-    locks the reserve path does; the query alone has no order at all.
+    In (item, reservation) order - allocation's one release order - as the
+    release path takes the same balance locks the reserve path does.
     """
-    reservations: list[StockReservation] = await ReservationCoverageRepository(
-        session, tenant
-    ).open_for_order(order.id)
-    for reservation in sorted(reservations, key=lambda row: (row.item_id, row.id)):
-        await allocation_service.release(
-            session, tenant, reservation_id=reservation.id, reason=reason
-        )
-    return len(reservations)
+    return await allocation_service.release_all_for_demand(
+        session,
+        tenant,
+        demand_type=DemandType.PRODUCTION_ORDER,
+        demand_id=order.id,
+        reason=reason,
+    )
 
 
 # =============================================================================
@@ -3095,7 +3094,9 @@ async def _post_issue_lines(
             incoming_quantity=line.quantity,
         )
 
-    held = await ReservationCoverageRepository(session, tenant).open_for_order(order.id)
+    held = await allocation_service.held_by_demand(
+        session, tenant, DemandType.PRODUCTION_ORDER, order.id
+    )
     by_component: dict[uuid.UUID, list[StockReservation]] = {}
     for reservation in held:
         if reservation.demand_line_id is not None:

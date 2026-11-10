@@ -66,11 +66,11 @@ without a database.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1473,6 +1473,70 @@ async def release(
                 reason=reason,
             )
     return reservation
+
+
+async def held_by_demand(
+    session: AsyncSession, tenant: TenantContext, demand_type: DemandType, demand_id: uuid.UUID
+) -> list[StockReservation]:
+    """Every reservation a demand document still holds, read in one statement.
+
+    Read from the reservations themselves, never from a document's own
+    ``reservation_id`` columns: this module closes a reservation on its own -
+    released from the Reservations screen, expired, or taken by an approved
+    reallocation - and nothing tells the document. It includes one an approved
+    reallocation granted *to* the document, which no line of it names.
+    """
+    return await StockReservationRepository(session, tenant).open_for_demand(demand_type, demand_id)
+
+
+class ReleaseCall(Protocol):
+    """:func:`release` as a module's allocation port exposes it."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        reservation_id: uuid.UUID,
+        reason: str,
+    ) -> Any: ...
+
+
+async def release_all_for_demand(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    demand_type: DemandType,
+    demand_id: uuid.UUID,
+    reason: str,
+    line_numbers: Mapping[uuid.UUID, int] | None = None,
+    release_one: ReleaseCall | None = None,
+) -> int:
+    """Give back everything a demand document still holds; return how many.
+
+    What is held comes from :func:`held_by_demand`, so a reservation closed
+    elsewhere is no reservation - skipped, never released a second time, which
+    is refused and used to strand the document - and one an approved
+    reallocation granted to the document is given back with the rest.
+
+    The order is fixed and is not a style choice: by item, then the document's
+    line order (``line_numbers`` maps a reservation id to the line that names
+    it; one no line names comes after the lines), then id. Every release locks a
+    balance row until the caller commits, so two documents sharing an item must
+    take those locks in one order or PostgreSQL aborts one of them.
+
+    ``release_one`` is the caller's port onto :func:`release`, for a module that
+    reaches this one through a port; it defaults to :func:`release` itself.
+    """
+    held = await held_by_demand(session, tenant, demand_type, demand_id)
+    lines = line_numbers or {}
+    release_call = release if release_one is None else release_one
+    for reservation in sorted(
+        held,
+        key=lambda row: (row.item_id, row.id not in lines, lines.get(row.id, 0), row.id),
+    ):
+        await release_call(session, tenant, reservation_id=reservation.id, reason=reason)
+    return len(held)
 
 
 async def consume(
@@ -3240,6 +3304,7 @@ __all__ = [
     "ReallocationCandidate",
     "ReallocationContext",
     "ReallocationPolicy",
+    "ReleaseCall",
     "ReservationEngine",
     "available_to_promise",
     "candidate_eligibility",
@@ -3247,12 +3312,14 @@ __all__ = [
     "consume_demand_line",
     "create_reallocation_from_mrp",
     "expire_stale_reservations",
+    "held_by_demand",
     "plan_consume",
     "plan_positions",
     "plan_release",
     "rank_candidates",
     "reallocate",
     "release",
+    "release_all_for_demand",
     "remaining_of",
     "reservable_quantities",
     "reserve",

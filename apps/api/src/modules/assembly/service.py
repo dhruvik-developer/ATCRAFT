@@ -142,7 +142,6 @@ from src.modules.assembly.repository import (
     AssemblyComponentRepository,
     AssemblyItem,
     AssemblyOrderRepository,
-    AssemblyReservationRepository,
     ComponentAvailabilityRepository,
     ItemLookupRepository,
     SerialLookupRepository,
@@ -2116,11 +2115,11 @@ async def _release_reservations(
     would correctly refuse it. Both happen inside the completing transaction, so
     no other document can slip into the gap.
 
-    What is held is re-read from the reservations in one statement, never taken
-    from ``component.reservation_id``: allocation closes a reservation on its
-    own - released from the Reservations screen, expired, or taken by an
-    approved reallocation - and asking it to release a closed one again is
-    refused, which left the order unable to complete or be cancelled.
+    Allocation reads what is held and releases it in its one lock order -
+    :func:`~src.modules.allocation.service.release_all_for_demand`, through this
+    module's port - never trusting ``component.reservation_id``, which a release
+    from the Reservations screen, an expiry or an approved reallocation leaves
+    pointing at a closed reservation.
 
     ASSUMPTION: a reservation closed elsewhere is no reservation, so it is
     skipped rather than refused, and a reservation an approved reallocation
@@ -2129,32 +2128,27 @@ async def _release_reservations(
     stock like any unreserved movement: the stock engine still refuses it when
     free stock cannot cover a component, because the order lost its promise, it
     did not gain a right to stock promised since (docs/assumptions.md §E2-1).
-
-    The iteration order is fixed - by item, then line - across every caller, so
-    two completions sharing a component cannot take the same balance locks in
-    opposite orders.
     """
-    held = await AssemblyReservationRepository(session, tenant).open_for_order(order.id)
-    line_numbers = {
-        component.reservation_id: component.line_number
-        for component in components
-        if component.reservation_id is not None
-    }
-    for reservation in sorted(
-        held,
-        key=lambda row: (
-            row.item_id,
-            row.id not in line_numbers,
-            line_numbers.get(row.id, 0),
-            row.id,
-        ),
-    ):
-        await port.release(session, tenant, reservation_id=reservation.id, reason=reason)
+    from src.modules.allocation.service import release_all_for_demand
+
+    released = await release_all_for_demand(
+        session,
+        tenant,
+        demand_type=DemandType.ASSEMBLY_ORDER,
+        demand_id=order.id,
+        reason=reason,
+        line_numbers={
+            component.reservation_id: component.line_number
+            for component in components
+            if component.reservation_id is not None
+        },
+        release_one=port.release,
+    )
     for component in components:
         if component.reservation_id is not None:
             component.reservation_id = None
     await session.flush()
-    return len(held)
+    return released
 
 
 async def complete_assembly(

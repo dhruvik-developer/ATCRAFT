@@ -8,8 +8,9 @@ the lock the other is waiting for, and PostgreSQL aborts one of them.
 
 Production reserved in kit order and released in whatever order the query
 returned, and a sales amendment released in payload order. These tests drive
-the three loops with the allocation calls recorded, so the order is pinned
-without a database.
+the loops with the allocation calls recorded, so the order is pinned without a
+database. Assembly, job work and production now release through one routine,
+``allocation.service.release_all_for_demand``, whose order is pinned here too.
 """
 
 from __future__ import annotations
@@ -25,8 +26,9 @@ import pytest
 
 from src.core.deps import TenantContext
 from src.core.errors import InsufficientStockError
+from src.modules.allocation import service as allocation_service
+from src.modules.allocation.models import DemandType
 from src.modules.production import service as production_service
-from src.modules.production.repository import ReservationCoverageRepository
 from src.modules.sales import service as sales_service
 from src.modules.sales.repository import LineReservation, SalesOrderLineRepository
 
@@ -106,13 +108,16 @@ async def test_a_production_order_gives_its_reservations_back_in_item_order(
     ]
     released: list[uuid.UUID] = []
 
-    async def open_for_order(self: Any, order_id: uuid.UUID) -> list[Any]:
+    async def held_by_demand(
+        session: Any, tenant: Any, demand_type: DemandType, demand_id: uuid.UUID
+    ) -> list[Any]:
+        assert demand_type is DemandType.PRODUCTION_ORDER
         return held
 
     async def release(session: Any, tenant: Any, *, reservation_id: uuid.UUID, reason: str) -> Any:
         released.append(reservation_id)
 
-    monkeypatch.setattr(ReservationCoverageRepository, "open_for_order", open_for_order)
+    monkeypatch.setattr(production_service.allocation_service, "held_by_demand", held_by_demand)
     monkeypatch.setattr(production_service.allocation_service, "release", release)
 
     count = await production_service._release_reservations(
@@ -212,3 +217,98 @@ async def test_a_sales_amendment_releases_changed_lines_in_item_order(
         uuid.UUID(int=301),
         uuid.UUID(int=101),
     ]
+
+
+# -----------------------------------------------------------------------------
+# The one release routine assembly, job work and production share
+# -----------------------------------------------------------------------------
+
+
+def _held(*rows: tuple[int, uuid.UUID]) -> list[SimpleNamespace]:
+    return [SimpleNamespace(id=uuid.UUID(int=key), item_id=item_id) for key, item_id in rows]
+
+
+async def test_the_shared_release_walks_item_then_line_then_unnamed_then_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Item first; inside an item the document's lines in line order, then a grant no line names."""
+    granted = uuid.UUID(int=7)  # an approved reallocation's grant: no line points at it
+    held = _held((40, LOW), (7, LOW), (30, LOW), (20, HIGH), (10, MID))
+    asked: list[tuple[DemandType, uuid.UUID]] = []
+
+    async def held_by_demand(
+        session: Any, tenant: Any, demand_type: DemandType, demand_id: uuid.UUID
+    ) -> list[Any]:
+        asked.append((demand_type, demand_id))
+        return held
+
+    monkeypatch.setattr(allocation_service, "held_by_demand", held_by_demand)
+    port = _Port()
+    order_id = uuid.uuid4()
+
+    count = await allocation_service.release_all_for_demand(
+        None,  # type: ignore[arg-type]
+        _tenant(),
+        demand_type=DemandType.ASSEMBLY_ORDER,
+        demand_id=order_id,
+        reason="Completed",
+        # Line 2 holds 40 and line 1 holds 30: line order, not id order, decides.
+        line_numbers={uuid.UUID(int=40): 2, uuid.UUID(int=30): 1},
+        release_one=port.release,
+    )
+
+    assert count == 5
+    assert asked == [(DemandType.ASSEMBLY_ORDER, order_id)]
+    assert port.released == [
+        uuid.UUID(int=30),
+        uuid.UUID(int=40),
+        granted,
+        uuid.UUID(int=10),
+        uuid.UUID(int=20),
+    ]
+
+
+async def test_the_shared_release_defaults_to_allocations_own_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    released: list[uuid.UUID] = []
+
+    async def held_by_demand(*args: Any) -> list[Any]:
+        return _held((2, HIGH), (1, LOW))
+
+    async def release(session: Any, tenant: Any, *, reservation_id: uuid.UUID, reason: str) -> Any:
+        released.append(reservation_id)
+
+    monkeypatch.setattr(allocation_service, "held_by_demand", held_by_demand)
+    monkeypatch.setattr(allocation_service, "release", release)
+
+    count = await allocation_service.release_all_for_demand(
+        None,  # type: ignore[arg-type]
+        _tenant(),
+        demand_type=DemandType.JOB_WORK_ORDER,
+        demand_id=uuid.uuid4(),
+        reason="Cancelled",
+    )
+
+    assert count == 2
+    assert released == [uuid.UUID(int=1), uuid.UUID(int=2)]
+
+
+async def test_nothing_held_releases_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def held_by_demand(*args: Any) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(allocation_service, "held_by_demand", held_by_demand)
+    port = _Port()
+
+    count = await allocation_service.release_all_for_demand(
+        None,  # type: ignore[arg-type]
+        _tenant(),
+        demand_type=DemandType.JOB_WORK_ORDER,
+        demand_id=uuid.uuid4(),
+        reason="Cancelled",
+        release_one=port.release,
+    )
+
+    assert count == 0
+    assert port.released == []
